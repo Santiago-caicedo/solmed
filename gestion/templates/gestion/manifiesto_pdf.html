@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Manifiesto Orden #{{ orden.numero_orden }}</title>
+    <style>
+        body { font-family: sans-serif; }
+        h1 { color: #008cba; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .signature-box { border: 1px solid #000; margin-top: 40px; padding: 10px; }
+        .signature-box img { max-width: 250px; }
+    </style>
+</head>
+<body>
+    <h1>Manifiesto de Servicio - Solmed</h1>
+    <h2>Orden de Servicio #{{ orden.numero_orden }}</h2>
+    
+    <h3>Detalles del Cliente y Servicio</h3>
+    <table>
+        <tr><th>Cliente:</th><td>{{ orden.cliente.nombre }}</td></tr>
+        <tr><th>Fecha del Servicio:</th><td>{{ orden.fecha_servicio }}</td></tr>
+        <tr><th>Dirección:</th><td>{{ orden.direccion_servicio }}</td></tr>
+    </table>
+
+    <h3>Detalles del Manifiesto</h3>
+    <table>
+        <tr><th>Tipo de Residuo:</th><td>{{ manifiesto.tipo_residuo }}</td></tr>
+        <tr><th>Observaciones:</th><td>{{ manifiesto.observaciones|default:"Ninguna" }}</td></tr>
+    </table>
+
+    <div class="signature-box">
+        <p>Recibido y aceptado por:</p>
+        <img src="{{ manifiesto.firma_receptor.path }}">
+        <hr>
+        <p><strong>{{ manifiesto.nombre_receptor }}</strong><br>
+        C.C. {{ manifiesto.cedula_receptor }}</p>
+    </div>
+</body>
+</html>

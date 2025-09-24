@@ -35,40 +35,25 @@
         </div>
         
         <div class="card shadow mb-4">
-    <div class="card-header">
-        <h5 class="mb-0">Documentos Adjuntos</h5>
-        </div>
-        <div class="card-body">
-            <form method="post" enctype="multipart/form-data" class="mb-4">
-                {% csrf_token %}
-                <div class="input-group">
-                    {{ form_documento.archivo }}
-                    {{ form_documento.descripcion }}
-                    <button class="btn btn-primary" type="submit">Adjuntar</button>
-                </div>
-            </form>
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Documentos y Manifiestos</h5>
+        {% if not orden.manifiesto %}
+            <a href="{% url 'gestion:firmar_manifiesto' orden.pk %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-pen-fill me-1"></i> Generar y Firmar Manifiesto
+            </a>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if orden.manifiesto and orden.manifiesto.pdf_generado %}
+            <h5>Manifiesto Firmado</h5>
+            <a href="{{ orden.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-success">
+                <i class="bi bi-file-earmark-pdf-fill me-1"></i> Ver Manifiesto PDF
+            </a>
             <hr>
-            {% if orden.documentos.all %}
-                <ul class="list-group">
-                    {% for doc in orden.documentos.all %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <div>
-                            <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
-                            {% if doc.descripcion %}
-                                <br><small class="text-muted">{{ doc.descripcion }}</small>
-                            {% endif %}
-                        </div>
-                        <small>{{ doc.fecha_subida|date:"d/m/Y H:i" }}</small>
-                    </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="text-center text-muted">No hay documentos adjuntos para esta orden.</p>
-            {% endif %}
+        {% endif %}
+        
         </div>
-    </div>
-    </div>
-
+</div>
     <div class="col-lg-4">
         <div class="card shadow mb-4">
     <div class="card-header">

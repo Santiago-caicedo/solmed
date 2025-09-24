@@ -1,0 +1,54 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="card shadow">
+    <div class="card-header">
+        <h4 class="mb-0">Manifiesto de Servicio - Orden #{{ orden.numero_orden }}</h4>
+    </div>
+    <div class="card-body">
+        <form id="signature-form" method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            
+            <div class="mb-3">
+                <label class="form-label">Firma del Receptor:</label>
+                <div class="border bg-light">
+                    <canvas id="signature-pad" class="signature-pad" width=400 height=200></canvas>
+                </div>
+                <button type="button" id="clear-button" class="btn btn-sm btn-secondary mt-2">Limpiar Firma</button>
+            </div>
+
+            <input type="hidden" name="signature_data" id="signature-data">
+            
+            <hr>
+            <button type="submit" class="btn btn-success">Guardar y Generar PDF</button>
+            <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-secondary">Cancelar</a>
+        </form>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var canvas = document.getElementById('signature-pad');
+        var signaturePad = new SignaturePad(canvas, {
+            backgroundColor: 'rgb(255, 255, 255)'
+        });
+
+        document.getElementById('clear-button').addEventListener('click', function () {
+            signaturePad.clear();
+        });
+
+        document.getElementById('signature-form').addEventListener('submit', function (event) {
+            if (signaturePad.isEmpty()) {
+                alert("Por favor, provea una firma.");
+                event.preventDefault(); // Detiene el envío del formulario
+            } else {
+                // Guarda la firma como una imagen en el input oculto
+                document.getElementById('signature-data').value = signaturePad.toDataURL('image/png');
+            }
+        });
+    });
+</script>
+{% endblock %}

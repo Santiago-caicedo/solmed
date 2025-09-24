@@ -1,5 +1,5 @@
 from django import forms
-from .models import DocumentoOrden, OrdenServicio, Vehiculo, Cliente
+from .models import DocumentoOrden, Manifiesto, OrdenServicio, Vehiculo, Cliente
 
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
 class OrdenServicioForm(forms.ModelForm):
@@ -78,4 +78,17 @@ class DocumentoOrdenForm(forms.ModelForm):
         widgets = {
             'archivo': forms.FileInput(attrs={'class': 'form-control'}),
             'descripcion': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: Foto de la carga, Remisión...'}),
+        }
+    
+
+
+class ManifiestoForm(forms.ModelForm):
+    class Meta:
+        model = Manifiesto
+        fields = ['nombre_receptor', 'cedula_receptor', 'tipo_residuo', 'observaciones']
+        widgets = {
+            'nombre_receptor': forms.TextInput(attrs={'class': 'form-control'}),
+            'cedula_receptor': forms.TextInput(attrs={'class': 'form-control'}),
+            'tipo_residuo': forms.TextInput(attrs={'class': 'form-control'}),
+            'observaciones': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }

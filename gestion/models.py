@@ -72,3 +72,26 @@ class DocumentoOrden(models.Model):
     def __str__(self):
         # Devuelve solo el nombre del archivo, no la ruta completa
         return self.archivo.name.split('/')[-1]
+
+
+
+class Manifiesto(models.Model):
+    # Conecta cada manifiesto con una única orden de servicio
+    orden = models.OneToOneField(OrdenServicio, on_delete=models.CASCADE, related_name='manifiesto')
+    
+    # Campos del formulario que llena el cliente
+    nombre_receptor = models.CharField(max_length=200, help_text="Nombre de quien recibe el servicio y firma")
+    cedula_receptor = models.CharField(max_length=20)
+    tipo_residuo = models.CharField(max_length=200, default="Residuos de construcción y demolición")
+    observaciones = models.TextField(blank=True)
+    
+    # Campo para guardar la imagen de la firma
+    firma_receptor = models.ImageField(upload_to='firmas_manifiestos/')
+    
+    # Campo para guardar el PDF final
+    pdf_generado = models.FileField(upload_to='manifiestos_pdf/', blank=True, null=True)
+
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Manifiesto para la Orden #{self.orden.numero_orden}"

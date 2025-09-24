@@ -2,7 +2,13 @@ from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.template.loader import get_template
 from django.urls import reverse_lazy
+from django.core.files.base import ContentFile
+from django.views import View
+from io import BytesIO
+from xhtml2pdf import pisa
+import base64
 from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView
 from django.utils import timezone
 from django.db.models import Sum
@@ -10,7 +16,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import OrdenServicio
 
-from .forms import DocumentoOrdenForm, OrdenServicioForm, VehiculoForm, ClienteForm
+from .forms import DocumentoOrdenForm, ManifiestoForm, OrdenServicioForm, VehiculoForm, ClienteForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 # --- Vista Principal (Dashboard) ---
@@ -228,3 +234,53 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
         context['total_ingresos_generados'] = ingresos_generados['total'] or 0
 
         return context
+
+
+
+class GenerarManifiestoView(LoginRequiredMixin, View):
+    
+    def get(self, request, pk):
+        orden = OrdenServicio.objects.get(pk=pk)
+        form = ManifiestoForm()
+        return render(request, 'gestion/firmar_manifiesto.html', {'orden': orden, 'form': form})
+
+    def post(self, request, pk):
+        orden = OrdenServicio.objects.get(pk=pk)
+        form = ManifiestoForm(request.POST)
+        
+        # El dato de la firma viene como una cadena de texto base64
+        signature_data = request.POST.get('signature_data')
+
+        if form.is_valid() and signature_data:
+            # Decodificar y guardar la imagen de la firma
+            format, imgstr = signature_data.split(';base64,') 
+            ext = format.split('/')[-1] 
+            signature_file = ContentFile(base64.b64decode(imgstr), name=f'firma_orden_{pk}.{ext}')
+            
+            # Crear la instancia del manifiesto pero sin guardarla aún
+            manifiesto = form.save(commit=False)
+            manifiesto.orden = orden
+            manifiesto.firma_receptor = signature_file
+            manifiesto.save() # Ahora sí se guarda con la firma
+
+            # --- Generación del PDF ---
+            template = get_template('gestion/manifiesto_pdf.html')
+            context = {'manifiesto': manifiesto, 'orden': orden}
+            html = template.render(context)
+            
+            # Crear el PDF en memoria
+            pdf_buffer = BytesIO()
+            pisa_status = pisa.CreatePDF(html, dest=pdf_buffer)
+
+            if not pisa_status.err:
+                # Guardar el PDF en el modelo
+                pdf_file = ContentFile(pdf_buffer.getvalue(), name=f'manifiesto_orden_{pk}.pdf')
+                manifiesto.pdf_generado = pdf_file
+                manifiesto.save()
+                messages.success(request, 'Manifiesto generado y firmado exitosamente.')
+            else:
+                messages.error(request, 'Error al generar el PDF.')
+
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        return render(request, 'gestion/firmar_manifiesto.html', {'orden': orden, 'form': form})
