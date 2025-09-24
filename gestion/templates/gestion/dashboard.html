@@ -1,0 +1,141 @@
+{% extends "gestion/base.html" %}
+{% load humanize %} {% block content %}
+<h1 class="mb-4">Dashboard</h1>
+
+<div class="row">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Ingresos del Mes</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">${{ ingresos_del_mes|intcomma }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-graph-up-arrow fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-warning shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Cobranza Total Pendiente</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">${{ cobranza_pendiente|intcomma }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-cash-coin fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-info shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Órdenes en Proceso</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ ordenes_activas }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-clipboard-pulse fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-success shadow h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">Servicios Completados (Mes)</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800">{{ servicios_completados_mes }}</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-check2-circle fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card shadow h-100">
+            <div class="card-body">
+                <h5 class="card-title">Tasa de Utilización de Vehículos</h5>
+                <div class="progress" style="height: 25px;">
+                    <div class="progress-bar" role="progressbar" style="width: {{ utilizacion_vehiculos }}%;" aria-valuenow="{{ utilizacion_vehiculos }}" aria-valuemin="0" aria-valuemax="100">{{ utilizacion_vehiculos }}%</div>
+                </div>
+                <small class="text-muted">Porcentaje de la flota que se encuentra "En Servicio" actualmente.</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card shadow h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">Pendientes por Iniciar</h5>
+                <p class="display-4 fw-bold">{{ ordenes_pendientes_iniciar }}</p>
+                <small class="text-muted">Órdenes programadas</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card shadow h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">Vehículos Disponibles</h5>
+                <p class="display-4 fw-bold text-success">{{ vehiculos_disponibles }}</p>
+                <small class="text-muted">Listos para asignar</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-lg-12">
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="bi bi-exclamation-triangle-fill me-2"></i>Cobranza Prioritaria (Servicios finalizados pendientes de pago)</h6>
+            </div>
+            <div class="card-body">
+                {% if cobranza_prioritaria %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th># Orden</th>
+                                <th>Cliente</th>
+                                <th>Fecha de Servicio</th>
+                                <th>Valor</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for orden in cobranza_prioritaria %}
+                            <tr>
+                                <td>{{ orden.numero_orden }}</td>
+                                <td>{{ orden.cliente.nombre }}</td>
+                                <td>{{ orden.fecha_servicio }}</td>
+                                <td><strong>${{ orden.valor_servicio|intcomma }}</strong></td>
+                                <td>
+                                    <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-sm btn-outline-secondary">Ver Orden</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-center text-success">¡Excelente! No hay cobranzas prioritarias pendientes.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

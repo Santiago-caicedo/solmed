@@ -1,0 +1,12 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<h2>{% if object %}Editar Vehículo{% else %}Añadir Nuevo Vehículo{% endif %}</h2>
+<hr>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-success">Guardar</button>
+    <a href="{% url 'gestion:lista_vehiculos' %}" class="btn btn-secondary">Cancelar</a>
+</form>
+{% endblock %}

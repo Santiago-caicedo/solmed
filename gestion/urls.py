@@ -1,0 +1,27 @@
+# gestion/urls.py
+from django.urls import path
+from . import views
+
+app_name = 'gestion'
+
+urlpatterns = [
+    # La nueva URL del dashboard será la raíz
+    path('', views.DashboardView.as_view(), name='dashboard'),
+    
+    # Las URLs de las órdenes ahora tendrán un prefijo
+    path('ordenes/', views.ListaOrdenesView.as_view(), name='lista_ordenes'),
+    path('ordenes/nueva/', views.CrearOrdenView.as_view(), name='crear_orden'),
+    path('ordenes/<int:pk>/', views.OrdenServicioDetailView.as_view(), name='detalle_orden'),
+    path('ordenes/<int:pk>/editar/', views.ActualizarOrdenView.as_view(), name='actualizar_orden'),
+
+    # Aquí añadiremos las URLs para Clientes y Vehículos más adelante
+
+    path('vehiculos/', views.ListaVehiculosView.as_view(), name='lista_vehiculos'),
+    path('vehiculos/nuevo/', views.CrearVehiculoView.as_view(), name='crear_vehiculo'),
+    path('vehiculos/<int:pk>/editar/', views.ActualizarVehiculoView.as_view(), name='actualizar_vehiculo'),
+
+    # --- AÑADIR ESTAS LÍNEAS PARA CLIENTES ---
+    path('clientes/', views.ListaClientesView.as_view(), name='lista_clientes'),
+    path('clientes/nuevo/', views.CrearClienteView.as_view(), name='crear_cliente'),
+    path('clientes/<int:pk>/editar/', views.ActualizarClienteView.as_view(), name='actualizar_cliente'),
+]

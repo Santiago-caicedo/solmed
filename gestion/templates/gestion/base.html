@@ -1,0 +1,120 @@
+{% load static %}
+
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Solmed CRM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <style>
+        :root {
+            --sidebar-bg: #2c3e50; /* Un azul-gris oscuro y profesional */
+            --sidebar-link-color: #ecf0f1; /* Un blanco suave para el texto */
+            --verde-solmed-acento: #9cbe30;
+        }
+
+        body {
+            display: flex;
+            min-height: 100vh;
+            flex-direction: row;
+            background-color: #f4f6f9; /* Un fondo principal más suave */
+        }
+        .sidebar {
+            width: 280px;
+            min-height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: var(--sidebar-bg);
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1); /* Sombra sutil */
+        }
+        .main-content {
+            margin-left: 280px;
+            padding: 2.5rem; /* Un poco más de espacio */
+            flex-grow: 1;
+        }
+        .sidebar .sidebar-header {
+            padding: 1.5rem 1rem;
+            text-align: center;
+        }
+        .sidebar .nav-link {
+            color: var(--sidebar-link-color);
+            padding: 0.8rem 1.5rem;
+            margin: 0.2rem 0;
+            border-left: 4px solid transparent; /* Borde izquierdo invisible por defecto */
+            font-size: 1.05rem;
+            transition: all 0.2s ease-in-out;
+        }
+        .sidebar .nav-link:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-left: 4px solid var(--verde-solmed-acento);
+        }
+        .sidebar .nav-link.active {
+            color: #fff;
+            background-color: rgba(156, 190, 48, 0.2); /* Fondo verde muy sutil */
+            border-left: 4px solid var(--verde-solmed-acento); /* Borde verde visible */
+        }
+        .sidebar .nav-link i {
+            margin-right: 0.8rem;
+            width: 20px; /* Alinea los iconos */
+        }
+
+        /* Ajustes a los botones y alertas para que usen el verde Solmed */
+        .btn-primary { background-color: #008cba; border-color: #008cba; }
+        .btn-primary:hover { background-color: #007bab; border-color: #007bab; }
+        .btn-success { background-color: var(--verde-solmed-acento); border-color: var(--verde-solmed-acento); }
+        .btn-success:hover { background-color: #8bab2b; border-color: #8bab2b; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar d-flex flex-column">
+    <div class="sidebar-header">
+        <a href="{% url 'gestion:dashboard' %}">
+            <img src="{% static 'images/logo-solmed.png' %}" alt="Logo Solmed" style="max-width: 180px; height: auto;">
+        </a>
+    </div>
+    
+    <ul class="nav nav-pills flex-column mb-auto">
+        <li class="nav-item">
+            <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if request.resolver_match.view_name == 'gestion:dashboard' %}active{% endif %}">
+                <i class="bi bi-speedometer2"></i>Dashboard
+            </a>
+        </li>
+        <li>
+            <a href="{% url 'gestion:lista_ordenes' %}" class="nav-link {% if 'ordenes' in request.path %}active{% endif %}">
+                <i class="bi bi-clipboard-data"></i>Órdenes de Servicio
+            </a>
+        </li>
+        <li>
+            <a href="{% url 'gestion:lista_clientes' %}" class="nav-link {% if 'clientes' in request.path %}active{% endif %}">
+                <i class="bi bi-people"></i>Clientes
+            </a>
+        </li>
+        <li>
+            <a href="{% url 'gestion:lista_vehiculos' %}" class="nav-link {% if 'vehiculos' in request.path %}active{% endif %}">
+                <i class="bi bi-truck-front"></i>Vehículos
+            </a>
+        </li>
+    </ul>
+</div>
+
+<main class="main-content">
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    {% block content %}{% endblock %}
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
