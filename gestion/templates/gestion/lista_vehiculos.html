@@ -19,7 +19,7 @@
     <tbody>
         {% for vehiculo in vehiculos %}
         <tr>
-            <td>{{ vehiculo.placa }}</td>
+            <td><strong><a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}">{{ vehiculo.placa }}</a></strong></td>
             <td>{{ vehiculo.marca }} {{ vehiculo.modelo }}</td>
             <td>{{ vehiculo.capacidad }}</td>
             <td>{{ vehiculo.get_estado_display }}</td>

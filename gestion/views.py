@@ -1,3 +1,5 @@
+from django.http import HttpResponseRedirect
+from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.urls import reverse_lazy
@@ -108,41 +110,37 @@ class ListaOrdenesView(LoginRequiredMixin, ListView):
         context['current_pago'] = self.request.GET.get('pago', '')
         return context
 
-class CrearOrdenView(LoginRequiredMixin, CreateView):
+class CrearOrdenView(LoginRequiredMixin, SuccessMessageMixin, CreateView):
     model = OrdenServicio
     form_class = OrdenServicioForm
     template_name = 'gestion/form_orden.html'
     success_url = reverse_lazy('gestion:lista_ordenes')
     success_message = "¡Orden de servicio creada exitosamente!"
 
+    # REEMPLAZA TU MÉTODO form_valid CON ESTE
     def form_valid(self, form):
-        # Asigna automáticamente el usuario logueado como el asesor.
+        # Asigna el asesor antes de guardar
         form.instance.asesor = self.request.user
-        return super().form_valid(form)
+        
+        # Guarda el formulario. El objeto principal se crea y guarda.
+        self.object = form.save()
+        
+        # Redirige a la URL de éxito.
+        # Los mixins se encargarán de mostrar el mensaje de éxito.
+        return HttpResponseRedirect(self.get_success_url())
 
-    def get_form(self, form_class=None):
-        # Lógica para mostrar solo vehículos disponibles en el formulario.
-        form = super().get_form(form_class)
-        form.fields['vehiculo_asignado'].queryset = Vehiculo.objects.filter(estado='DISPONIBLE')
-        return form
-
-class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
+class ActualizarOrdenView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
     model = OrdenServicio
     form_class = OrdenServicioForm
     template_name = 'gestion/form_orden.html'
     success_url = reverse_lazy('gestion:lista_ordenes')
     success_message = "¡Orden de servicio actualizada exitosamente!"
 
-    def get_form(self, form_class=None):
-        # Lógica para mostrar vehículos disponibles Y el que ya está asignado a la orden.
-        form = super().get_form(form_class)
-        orden_actual = self.get_object()
-        vehiculos_disponibles = Vehiculo.objects.filter(estado='DISPONIBLE')
-        if orden_actual.vehiculo_asignado:
-            form.fields['vehiculo_asignado'].queryset = vehiculos_disponibles | Vehiculo.objects.filter(pk=orden_actual.vehiculo_asignado.pk)
-        else:
-            form.fields['vehiculo_asignado'].queryset = vehiculos_disponibles
-        return form
+    # AÑADE ESTE MÉTODO form_valid TAMBIÉN AQUÍ
+    def form_valid(self, form):
+        # El proceso es idéntico para actualizar
+        self.object = form.save()
+        return HttpResponseRedirect(self.get_success_url())
 
 # --- Vistas para Vehículos ---
 class ListaVehiculosView(LoginRequiredMixin, ListView):
@@ -182,10 +180,7 @@ class ActualizarClienteView(LoginRequiredMixin, UpdateView):
     success_url = reverse_lazy('gestion:lista_clientes')
 
 
-class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
-    model = OrdenServicio
-    template_name = 'gestion/ordenservicio_detail.html'
-    context_object_name = 'orden'
+
 
 
 class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
@@ -195,21 +190,41 @@ class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Añadimos el formulario de subida al contexto
         context['form_documento'] = DocumentoOrdenForm()
         return context
 
     def post(self, request, *args, **kwargs):
-        # Este método se ejecuta cuando se envía el formulario (POST)
         orden = self.get_object()
         form = DocumentoOrdenForm(request.POST, request.FILES)
         
         if form.is_valid():
             documento = form.save(commit=False)
-            documento.orden = orden  # Asigna la orden actual al documento
+            documento.orden = orden
             documento.save()
             messages.success(request, '¡Documento adjuntado exitosamente!')
         else:
-            messages.error(request, 'Error al adjuntar el documento. Por favor, inténtalo de nuevo.')
+            messages.error(request, 'Error al adjuntar el documento.')
             
         return redirect('gestion:detalle_orden', pk=orden.pk)
+
+class VehiculoDetailView(LoginRequiredMixin, DetailView):
+    model = Vehiculo
+    template_name = 'gestion/vehiculo_detail.html'
+    context_object_name = 'vehiculo'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        vehiculo = self.get_object()
+
+        # Obtenemos TODAS las órdenes activas (no solo la primera)
+        context['ordenes_activas'] = vehiculo.ordenes.filter(estado_orden='EN_PROCESO').order_by('fecha_servicio')
+        
+        # El resto de la lógica sigue igual...
+        context['servicios_futuros'] = vehiculo.ordenes.filter(estado_orden='PENDIENTE', fecha_servicio__gte=timezone.now().date()).order_by('fecha_servicio')
+        historial = vehiculo.ordenes.filter(estado_orden='FINALIZADA').order_by('-fecha_servicio')
+        context['historial_ordenes'] = historial
+        context['total_servicios_realizados'] = historial.count()
+        ingresos_generados = historial.aggregate(total=Sum('valor_servicio'))
+        context['total_ingresos_generados'] = ingresos_generados['total'] or 0
+
+        return context

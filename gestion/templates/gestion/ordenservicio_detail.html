@@ -71,19 +71,25 @@
 
     <div class="col-lg-4">
         <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Vehículo Asignado</h5>
-            </div>
-            <div class="card-body">
-                {% if orden.vehiculo_asignado %}
-                    <p><strong>Placa:</strong> {{ orden.vehiculo_asignado.placa }}</p>
-                    <p><strong>Marca/Modelo:</strong> {{ orden.vehiculo_asignado.marca }} {{ orden.vehiculo_asignado.modelo }}</p>
-                    <p><strong>Capacidad:</strong> {{ orden.vehiculo_asignado.capacidad }}</p>
-                {% else %}
-                    <p class="text-muted">Aún no se ha asignado un vehículo.</p>
-                {% endif %}
-            </div>
-        </div>
+    <div class="card-header">
+        <h5 class="mb-0">Vehículos Asignados</h5>
+    </div>
+    <div class="card-body">
+        {% if orden.vehiculo_asignado.all %}
+            <ul class="list-group list-group-flush">
+            {% for vehiculo in orden.vehiculo_asignado.all %}
+                <li class="list-group-item">
+                    <a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}">
+                        {{ vehiculo.marca }} {{ vehiculo.modelo }} ({{ vehiculo.placa }})
+                    </a>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted">Aún no se han asignado vehículos.</p>
+        {% endif %}
+    </div>
+</div>
     </div>
 </div>
 {% endblock %}

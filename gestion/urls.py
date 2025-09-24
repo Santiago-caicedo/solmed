@@ -17,6 +17,7 @@ urlpatterns = [
     # Aquí añadiremos las URLs para Clientes y Vehículos más adelante
 
     path('vehiculos/', views.ListaVehiculosView.as_view(), name='lista_vehiculos'),
+    path('vehiculos/<int:pk>/', views.VehiculoDetailView.as_view(), name='detalle_vehiculo'),
     path('vehiculos/nuevo/', views.CrearVehiculoView.as_view(), name='crear_vehiculo'),
     path('vehiculos/<int:pk>/editar/', views.ActualizarVehiculoView.as_view(), name='actualizar_vehiculo'),
 

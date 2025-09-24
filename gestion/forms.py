@@ -34,7 +34,7 @@ class OrdenServicioForm(forms.ModelForm):
             'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'valor_servicio': forms.NumberInput(attrs={'class': 'form-control'}),
-            'vehiculo_asignado': forms.Select(attrs={'class': 'form-select'}),
+            'vehiculo_asignado': forms.CheckboxSelectMultiple,
             'estado_orden': forms.Select(attrs={'class': 'form-select'}),
             'estado_pago': forms.Select(attrs={'class': 'form-select'}),
         }

@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Vehiculo, OrdenServicio
+from .models import Cliente, DocumentoOrden, Vehiculo, OrdenServicio
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
@@ -15,7 +15,14 @@ class VehiculoAdmin(admin.ModelAdmin):
 
 @admin.register(OrdenServicio)
 class OrdenServicioAdmin(admin.ModelAdmin):
-    list_display = ('numero_orden', 'cliente', 'fecha_servicio', 'vehiculo_asignado', 'estado_orden', 'estado_pago')
+    list_display = ('numero_orden', 'cliente', 'fecha_servicio', 'display_vehiculos', 'estado_orden', 'estado_pago')
     list_filter = ('estado_orden', 'estado_pago', 'fecha_servicio')
     search_fields = ('numero_orden', 'cliente__nombre')
-    autocomplete_fields = ['cliente', 'vehiculo_asignado'] # Mejora la selección
+
+    def display_vehiculos(self, obj):
+        # CAMBIA 'vehiculos_asignados' a 'vehiculo_asignado' aquí
+        return ", ".join([vehiculo.placa for vehiculo in obj.vehiculo_asignado.all()])
+    
+    display_vehiculos.short_description = 'Vehículos Asignados'
+class DocumentoOrdenAdmin(admin.ModelAdmin):
+    list_display = ('orden', 'archivo', 'descripcion', 'fecha_subida')

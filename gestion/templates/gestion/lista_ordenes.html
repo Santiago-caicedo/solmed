@@ -58,7 +58,13 @@
                 <td>{{ orden.numero_orden }}</td>
                 <td>{{ orden.cliente.nombre }}</td>
                 <td>{{ orden.fecha_servicio }}</td>
-                <td>{{ orden.vehiculo_asignado.placa|default:"Sin asignar" }}</td>
+                <td>
+                    {% for vehiculo in orden.vehiculo_asignado.all %}
+                        <span class="badge bg-secondary">{{ vehiculo.placa }}</span>
+                    {% empty %}
+                        <span class="text-muted">Sin asignar</span>
+                    {% endfor %}
+                </td>
                 <td><span class="badge bg-info text-dark">{{ orden.get_estado_orden_display }}</span></td>
                 <td><span class="badge bg-warning text-dark">{{ orden.get_estado_pago_display }}</span></td>
                 <td>
