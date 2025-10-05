@@ -3,11 +3,19 @@ from django.db import models
 from django.conf import settings # Para relacionar con el usuario/asesor
 
 class Cliente(models.Model):
-    nombre = models.CharField(max_length=200, help_text="Nombre de la empresa o persona cliente")
-    identificacion = models.CharField(max_length=50, unique=True, help_text="NIT, Cédula u otro identificador único")
-    telefono = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
+    # --- Campos existentes ---
+    nombre = models.CharField(max_length=200, help_text="Razón Social de la empresa cliente")
+    identificacion = models.CharField(max_length=50, unique=True, help_text="NIT o Cédula")
     direccion = models.CharField(max_length=255, blank=True)
+    
+    # --- Nuevos campos ---
+    ciudad = models.CharField(max_length=100, blank=True)
+    persona_contacto = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto")
+    cargo_contacto = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto")
+    
+    # --- Campos existentes re-contextualizados ---
+    email = models.EmailField(blank=True, help_text="Correo electrónico del contacto")
+    telefono = models.CharField(max_length=20, blank=True, help_text="Teléfono del contacto")
 
     def __str__(self):
         return self.nombre

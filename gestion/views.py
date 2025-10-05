@@ -1,7 +1,9 @@
 from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
+from django.contrib.auth.models import User
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.mixins import UserPassesTestMixin
 from django.template.loader import get_template
 from django.urls import reverse_lazy
 from django.core.files.base import ContentFile
@@ -16,7 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import OrdenServicio
 
-from .forms import DocumentoOrdenForm, ManifiestoForm, OrdenServicioForm, VehiculoForm, ClienteForm
+from .forms import DocumentoOrdenForm, ManifiestoForm, OrdenServicioForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 # --- Vista Principal (Dashboard) ---
@@ -284,3 +286,52 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
         return render(request, 'gestion/firmar_manifiesto.html', {'orden': orden, 'form': form})
+
+
+# --- Mixin de Seguridad para Superusuarios ---
+# Usaremos esto para proteger las vistas de administración
+class SuperuserRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_superuser
+
+# --- Vistas para Administración de Usuarios ---
+
+class ListaUsuariosView(SuperuserRequiredMixin, ListView):
+    model = User
+    template_name = 'gestion/lista_usuarios.html'
+    context_object_name = 'usuarios'
+
+class CrearUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, CreateView):
+    model = User
+    form_class = CrearUsuarioForm
+    template_name = 'gestion/form_usuario.html'
+    success_url = reverse_lazy('gestion:lista_usuarios')
+    success_message = "¡Usuario creado exitosamente!"
+
+    def form_valid(self, form):
+        # El formulario UserCreationForm se encarga de guardar el usuario y hashear la contraseña
+        response = super().form_valid(form)
+        
+        # Asignamos el usuario al grupo seleccionado
+        grupo = form.cleaned_data['grupo']
+        self.object.groups.add(grupo)
+        
+        return response
+
+class ActualizarUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, UpdateView):
+    model = User
+    form_class = ActualizarUsuarioForm
+    template_name = 'gestion/form_usuario.html'
+    success_url = reverse_lazy('gestion:lista_usuarios')
+    success_message = "¡Usuario actualizado exitosamente!"
+
+    def form_valid(self, form):
+        # Guardamos el usuario
+        response = super().form_valid(form)
+        
+        # Actualizamos la pertenencia al grupo
+        grupo = form.cleaned_data['grupo']
+        self.object.groups.clear() # Limpiamos los grupos anteriores
+        self.object.groups.add(grupo) # Añadimos el nuevo grupo
+
+        return response

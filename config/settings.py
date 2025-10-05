@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
-    'gestion',
+    'gestion.apps.GestionConfig',
 ]
 
 MIDDLEWARE = [
@@ -150,3 +150,12 @@ MEDIA_URL = '/media/'
 # Ruta en el disco donde se guardarán los archivos
 MEDIA_ROOT = BASE_DIR / 'media'
 
+
+# La URL a la que se redirigirá a los usuarios si intentan acceder a una página protegida sin estar logueados.
+LOGIN_URL = 'login'
+
+# La URL a la que se redirigirá a los usuarios DESPUÉS de un inicio de sesión exitoso.
+LOGIN_REDIRECT_URL = 'gestion:dashboard'
+
+# La URL a la que se redirigirá a los usuarios DESPUÉS de cerrar sesión.
+LOGOUT_REDIRECT_URL = 'login'

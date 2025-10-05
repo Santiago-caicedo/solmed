@@ -1,0 +1,47 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="bi bi-person-gear me-2"></i>Administración de Usuarios</h1>
+    <a href="{% url 'gestion:crear_usuario' %}" class="btn btn-primary">
+        <i class="bi bi-person-plus-fill me-1"></i> Crear Nuevo Usuario
+    </a>
+</div>
+
+<div class="card shadow">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Usuario</th>
+                        <th>Nombre Completo</th>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for usuario in usuarios %}
+                    <tr>
+                        <td><strong>{{ usuario.username }}</strong></td>
+                        <td>{{ usuario.get_full_name }}</td>
+                        <td>{{ usuario.email }}</td>
+                        <td>
+                            {% for group in usuario.groups.all %}
+                                <span class="badge bg-info text-dark">{{ group.name }}</span>
+                            {% empty %}
+                                <span class="badge bg-secondary">Sin rol</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            <a href="{% url 'gestion:actualizar_usuario' usuario.pk %}" class="btn btn-sm btn-secondary">Editar</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

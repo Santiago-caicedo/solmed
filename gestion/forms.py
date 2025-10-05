@@ -1,5 +1,7 @@
 from django import forms
 from .models import DocumentoOrden, Manifiesto, OrdenServicio, Vehiculo, Cliente
+from django.contrib.auth.models import User, Group
+from django.contrib.auth.forms import UserCreationForm
 
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
 class OrdenServicioForm(forms.ModelForm):
@@ -61,13 +63,20 @@ class VehiculoForm(forms.ModelForm):
 class ClienteForm(forms.ModelForm):
     class Meta:
         model = Cliente
-        fields = ['nombre', 'identificacion', 'telefono', 'email', 'direccion']
+        # Añadimos los nuevos campos a la lista
+        fields = [
+            'nombre', 'identificacion', 'direccion', 'ciudad', 
+            'persona_contacto', 'cargo_contacto', 'email', 'telefono'
+        ]
         widgets = {
             'nombre': forms.TextInput(attrs={'class': 'form-control'}),
             'identificacion': forms.TextInput(attrs={'class': 'form-control'}),
-            'telefono': forms.TextInput(attrs={'class': 'form-control'}),
-            'email': forms.EmailInput(attrs={'class': 'form-control'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'ciudad': forms.TextInput(attrs={'class': 'form-control'}),
+            'persona_contacto': forms.TextInput(attrs={'class': 'form-control'}),
+            'cargo_contacto': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+            'telefono': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
 
@@ -92,3 +101,41 @@ class ManifiestoForm(forms.ModelForm):
             'tipo_residuo': forms.TextInput(attrs={'class': 'form-control'}),
             'observaciones': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
+
+
+class CrearUsuarioForm(UserCreationForm):
+    email = forms.EmailField(required=True, widget=forms.EmailInput(attrs={'class': 'form-control'}))
+    first_name = forms.CharField(required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    last_name = forms.CharField(required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    grupo = forms.ModelChoiceField(queryset=Group.objects.all(), required=True, widget=forms.Select(attrs={'class': 'form-select'}))
+
+    class Meta(UserCreationForm.Meta):
+        model = User
+        fields = UserCreationForm.Meta.fields + ('first_name', 'last_name', 'email')
+        widgets = {
+            'username': forms.TextInput(attrs={'class': 'form-control'}),
+            'password1': forms.PasswordInput(attrs={'class': 'form-control'}),
+            'password2': forms.PasswordInput(attrs={'class': 'form-control'}),
+        }
+
+class ActualizarUsuarioForm(forms.ModelForm):
+    grupo = forms.ModelChoiceField(queryset=Group.objects.all(), required=True, widget=forms.Select(attrs={'class': 'form-select'}))
+
+    class Meta:
+        model = User
+        fields = ['username', 'first_name', 'last_name', 'email', 'is_active']
+        widgets = {
+            'username': forms.TextInput(attrs={'class': 'form-control'}),
+            'first_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'last_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        # El método __init__ se usa para inicializar el valor del campo 'grupo'
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            initial_group = self.instance.groups.first()
+            if initial_group:
+                self.fields['grupo'].initial = initial_group.pk

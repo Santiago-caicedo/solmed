@@ -1,0 +1,95 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="card shadow">
+    <div class="card-header">
+        <h4 class="mb-0">{% if object %}Editar Usuario: {{ object.username }}{% else %}Crear Nuevo Usuario{% endif %}</h4>
+    </div>
+    <div class="card-body p-4">
+        <form method="post" novalidate>
+            {% csrf_token %}
+            
+            {% if form.errors %}
+            <div class="alert alert-danger">
+                Por favor, corrige los errores a continuación.
+            </div>
+            {% endif %}
+
+            <h5>Datos del Usuario</h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
+                    {{ form.username }}
+                    {% for error in form.username.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.email.id_for_label }}" class="form-label">{{ form.email.label }}</label>
+                    {{ form.email }}
+                    {% for error in form.email.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.first_name.id_for_label }}" class="form-label">Nombre</label>
+                    {{ form.first_name }}
+                    {% for error in form.first_name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.last_name.id_for_label }}" class="form-label">Apellido</label>
+                    {{ form.last_name }}
+                    {% for error in form.last_name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <h5>Rol y Estado</h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.grupo.id_for_label }}" class="form-label">Rol en el Sistema</label>
+                    {{ form.grupo }}
+                    {% for error in form.grupo.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                {% if object %}
+                <div class="col-md-6 d-flex align-items-center pt-3">
+                    <div class="form-check form-switch">
+                        {{ form.is_active }}
+                        <label for="{{ form.is_active.id_for_label }}" class="form-check-label">Usuario Activo</label>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if not object %}
+                <h5>Contraseña</h5>
+                <hr>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="{{ form.password1.id_for_label }}" class="form-label">Contraseña</label>
+                        {{ form.password1 }}
+                        {% for error in form.password1.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+
+                        <div class="form-text mt-2">
+                            <ul>
+                                <li>Mínimo 8 caracteres.</li>
+                                <li>No debe ser similar a tu otra información.</li>
+                                <li>No puede ser una contraseña común.</li>
+                                <li>No puede ser completamente numérica.</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="{{ form.password2.id_for_label }}" class="form-label">Confirmación de contraseña</label>
+                        {{ form.password2 }}
+                        {% for error in form.password2.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            
+            <hr class="mt-4">
+            <div class="d-flex justify-content-end">
+                <a href="{% url 'gestion:lista_usuarios' %}" class="btn btn-secondary me-2">Cancelar</a>
+                <button type="submit" class="btn btn-success">Guardar Usuario</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
