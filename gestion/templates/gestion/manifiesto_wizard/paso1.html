@@ -1,0 +1,76 @@
+{% extends "gestion/base.html" %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* Estilos generales para el wizard */
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 800px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 2rem; }
+    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 1.5rem; }
+    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 3px solid #ccc; color: #ccc; font-weight: bold; }
+    .wizard-step.active { border-color: #007bff; color: #007bff; }
+    .form-section-header { background-color: #f8f9fa; padding: 0.75rem; border: 1px solid #dee2e6; margin-bottom: 1rem; }
+    .form-group-custom { margin-bottom: 1rem; }
+    .form-group-custom label { font-weight: bold; display: block; margin-bottom: 0.3rem; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1>Manifiesto de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
+        <p>Completa la información paso a paso (Paso 1 de 5)</p>
+    </div>
+
+    <div class="wizard-progress">
+        <div class="wizard-step active">Paso 1: Datos Generales</div>
+        <div class="wizard-step">Paso 2: Actividades</div>
+        <div class="wizard-step">Paso 3: Tiempos y Medidas</div>
+        <div class="wizard-step">Paso 4: Responsable y Observaciones</div>
+        <div class="wizard-step">Paso 5: Satisfacción y Firma</div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-section-header">
+            <h3>Información General del Servicio</h3>
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label">Fecha del Recorrido:</label>
+            <input type="text" class="form-control" value="{{ recorrido.fecha_recorrido|date:'d/m/Y' }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Empresa / Cliente:</label>
+            <input type="text" class="form-control" value="{{ recorrido.orden.cliente.nombre }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Dirección:</label>
+            <input type="text" class="form-control" value="{{ recorrido.orden.direccion_servicio }}" readonly>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Equipo / Vehículo:</label>
+            <input type="text" class="form-control" value="{{ recorrido.vehiculo.placa }} ({{ recorrido.vehiculo.marca }})" readonly>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Conductor Asignado:</label>
+            <input type="text" class="form-control" value="{{ recorrido.vehiculo.conductor_asignado.get_full_name|default:'N/A' }}" readonly>
+        </div>
+
+        <hr>
+
+        <div class="form-group-custom">
+            {{ form.auxiliar1.label_tag }}
+            {{ form.auxiliar1 }}
+            {% if form.auxiliar1.errors %}<div class="text-danger">{{ form.auxiliar1.errors }}</div>{% endif %}
+        </div>
+        <div class="form-group-custom">
+            {{ form.auxiliar2.label_tag }}
+            {{ form.auxiliar2 }}
+            {% if form.auxiliar2.errors %}<div class="text-danger">{{ form.auxiliar2.errors }}</div>{% endif %}
+        </div>
+
+        <div class="d-flex justify-content-end mt-4">
+            <button type="submit" class="btn btn-primary">Siguiente <i class="bi bi-arrow-right"></i></button>
+        </div>
+    </form>
+</div>
+{% endblock %}

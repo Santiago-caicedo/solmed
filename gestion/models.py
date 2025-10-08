@@ -2,6 +2,7 @@
 from django.db import models
 from django.conf import settings # Para relacionar con el usuario/asesor
 
+
 class Cliente(models.Model):
     # --- Campos existentes ---
     nombre = models.CharField(max_length=200, help_text="Razón Social de la empresa cliente")
@@ -36,33 +37,39 @@ class Vehiculo(models.Model):
         return f"{self.marca} {self.modelo} ({self.placa})"
 
 class OrdenServicio(models.Model):
+    # --- NUEVOS ESTADOS AUTOMÁTICOS PARA LA ORDEN ---
     ESTADO_ORDEN_CHOICES = [
-        ('PENDIENTE', 'Pendiente'),
-        ('EN_PROCESO', 'En Proceso'),
+        ('PROGRAMADA', 'Programada'),
+        ('EN_EJECUCION', 'En Ejecución'),
         ('FINALIZADA', 'Finalizada'),
         ('CANCELADA', 'Cancelada'),
     ]
+    
+    # Los estados de pago no cambian
     ESTADO_PAGO_CHOICES = [
         ('PENDIENTE', 'Pendiente'),
         ('PAGADO', 'Pagado'),
         ('ABONADO', 'Abonado'),
     ]
 
-    # Relaciones
+    # --- Relaciones Principales ---
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='ordenes')
-    vehiculo_asignado = models.ManyToManyField(Vehiculo, related_name='ordenes', blank=True)
     asesor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='ordenes_creadas')
 
-    # Detalles de la orden
+    # --- CAMPOS ELIMINADOS ---
+    # El vehículo y la fecha ahora pertenecen a los "Recorridos" individuales.
+    # vehiculo_asignado = models.ManyToManyField(...) -> ELIMINADO
+    # fecha_servicio = models.DateField(...) -> ELIMINADO
+
+    # --- Detalles Generales de la Orden ---
     numero_orden = models.AutoField(primary_key=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
-    fecha_servicio = models.DateField()
-    direccion_servicio = models.CharField(max_length=255)
-    descripcion = models.TextField()
-    valor_servicio = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Costo del servicio")
+    direccion_servicio = models.CharField(max_length=255, help_text="Dirección principal del servicio o contrato")
+    descripcion = models.TextField(help_text="Descripción general del acuerdo o contrato")
+    valor_servicio = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Costo total del acuerdo")
 
-    # Seguimiento
-    estado_orden = models.CharField(max_length=20, choices=ESTADO_ORDEN_CHOICES, default='PENDIENTE')
+    # --- Campos de Seguimiento ---
+    estado_orden = models.CharField(max_length=20, choices=ESTADO_ORDEN_CHOICES, default='PROGRAMADA')
     estado_pago = models.CharField(max_length=20, choices=ESTADO_PAGO_CHOICES, default='PENDIENTE')
 
     def __str__(self):
@@ -83,23 +90,121 @@ class DocumentoOrden(models.Model):
 
 
 
-class Manifiesto(models.Model):
-    # Conecta cada manifiesto con una única orden de servicio
-    orden = models.OneToOneField(OrdenServicio, on_delete=models.CASCADE, related_name='manifiesto')
+
+
+class Recorrido(models.Model):
+    ESTADO_CHOICES = [
+        ('PROGRAMADO', 'Programado'),
+        ('EN_CURSO', 'En Curso'),
+        ('COMPLETADO', 'Completado'),
+    ]
+    # Cada recorrido pertenece a una orden de servicio
+    orden = models.ForeignKey(OrdenServicio, on_delete=models.CASCADE, related_name='recorridos')
+    vehiculo = models.ForeignKey(Vehiculo, on_delete=models.PROTECT, related_name='recorridos')
+    fecha_recorrido = models.DateField()
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
+    descripcion = models.CharField(max_length=255, blank=True, help_text="Descripción específica de este recorrido si es necesaria")
+
+    def __str__(self):
+        return f"Recorrido del {self.fecha_recorrido} para Orden #{self.orden.numero_orden}"
     
-    # Campos del formulario que llena el cliente
-    nombre_receptor = models.CharField(max_length=200, help_text="Nombre de quien recibe el servicio y firma")
-    cedula_receptor = models.CharField(max_length=20)
-    tipo_residuo = models.CharField(max_length=200, default="Residuos de construcción y demolición")
+    def save(self, *args, **kwargs):
+        # Guardamos el recorrido primero
+        super().save(*args, **kwargs)
+        
+        # Ahora, actualizamos el estado de la orden padre
+        orden = self.orden
+        recorridos_de_la_orden = orden.recorridos.all()
+        total_recorridos = recorridos_de_la_orden.count()
+        completados = recorridos_de_la_orden.filter(estado='COMPLETADO').count()
+
+        if total_recorridos == 0:
+            orden.estado_orden = 'PROGRAMADA'
+        elif completados == total_recorridos:
+            orden.estado_orden = 'FINALIZADA'
+        else:
+            orden.estado_orden = 'EN_EJECUCION'
+        
+        orden.save()
+
+
+
+class Manifiesto(models.Model):
+    # Relación uno a uno con el recorrido. Cada viaje tiene un único manifiesto.
+    recorrido = models.OneToOneField(Recorrido, on_delete=models.CASCADE, related_name='manifiesto')
+
+    # --- Cabecera ---
+    auxiliar1 = models.CharField(max_length=100, blank=True, verbose_name="Auxiliar 1")
+    auxiliar2 = models.CharField(max_length=100, blank=True, verbose_name="Auxiliar 2")
+
+    # --- Sección: Succión y Transporte ---
+    succ_canecas = models.BooleanField(default=False, verbose_name="Canecas")
+    succ_canecas_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Canecas")
+    succ_pozos_inspeccion = models.BooleanField(default=False, verbose_name="Pozos de inspección")
+    succ_pozos_inspeccion_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Pozos")
+    succ_pozos_septicos = models.BooleanField(default=False, verbose_name="Pozos Sépticos")
+    succ_pozos_septicos_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Sépticos")
+    succ_tanques = models.BooleanField(default=False, verbose_name="Tanques")
+    succ_tanques_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Tanques")
+    succ_trampas_grasa = models.BooleanField(default=False, verbose_name="Trampas de Grasa")
+    succ_trampas_grasa_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Trampas")
+    succ_otros = models.CharField(max_length=100, blank=True, verbose_name="Otros (Succión)")
+    succ_otros_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Otros")
+
+    # --- Sección: Sondeo ---
+    sond_red_aguas_lluvias = models.BooleanField(default=False, verbose_name="Red de agua lluvias")
+    sond_red_aguas_negras = models.BooleanField(default=False, verbose_name="Red de aguas negras")
+    sond_red_acueducto = models.BooleanField(default=False, verbose_name="Red Acueducto")
+    sond_correctivo = models.BooleanField(default=False, verbose_name="Sondeo Correctivo")
+    sond_preventivo = models.BooleanField(default=False, verbose_name="Sondeo Preventivo")
+    sond_diametro = models.CharField(max_length=50, blank=True, verbose_name="Diámetro")
+
+    # --- Sección: Lavado ---
+    lavado_concepto = models.CharField(max_length=100, blank=True, verbose_name="Concepto de Lavado")
+    lavado_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Lavado)")
+    lavado_correctivo = models.BooleanField(default=False, verbose_name="Lavado Correctivo")
+    lavado_preventivo = models.BooleanField(default=False, verbose_name="Lavado Preventivo")
+
+    # --- Sección: Transporte ---
+    transporte_tipo = models.CharField(max_length=100, blank=True, verbose_name="Tipo de Transporte")
+    transporte_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Transporte)")
+    
+    # --- Tiempos y Medidores ---
+    tiempo_inicio_operativo = models.TimeField(null=True, blank=True)
+    tiempo_final_operativo = models.TimeField(null=True, blank=True)
+    horometro_inicio = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    horometro_final = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    km_salida_solmed = models.IntegerField(null=True, blank=True)
+    km_llegada_empresa = models.IntegerField(null=True, blank=True)
+    km_llegada_disposicion = models.IntegerField(null=True, blank=True)
+    
+    # --- Evaluación de Satisfacción ---
+    SATISFACCION_CHOICES = [(1, 'Deficiente'), (2, 'Regular'), (3, 'Bueno'), (4, 'Excelente')]
+    eval_atencion = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_amabilidad = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_solucion_inquietudes = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_asesoria = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_puntualidad = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_calidad_servicio = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_oportunidad = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_cumplimiento_condiciones = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_solucion_problemas = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_volveria_contratar = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+    eval_nos_recomendaria = models.IntegerField(choices=SATISFACCION_CHOICES, null=True, blank=True)
+
+    # --- Cierre y Firma ---
     observaciones = models.TextField(blank=True)
     
-    # Campo para guardar la imagen de la firma
-    firma_receptor = models.ImageField(upload_to='firmas_manifiestos/')
-    
-    # Campo para guardar el PDF final
-    pdf_generado = models.FileField(upload_to='manifiestos_pdf/', blank=True, null=True)
+    # Datos del responsable de la EMPRESA (el que firma en la app)
+    nombre_responsable_cliente = models.CharField(max_length=200, blank=True, verbose_name="Nombre Responsable Cliente")
+    firma_cliente = models.ImageField(upload_to='firmas_manifiestos/', blank=True, null=True)
 
+    # Datos del responsable de SOLMED (se llena en el Paso 4)
+    nombre_responsable_empresa = models.CharField(max_length=200, blank=True, verbose_name="Nombre Responsable Solmed")
+    
+    # --- PDF Generado ---
+    pdf_generado = models.FileField(upload_to='manifiestos_pdf/', blank=True, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Manifiesto para la Orden #{self.orden.numero_orden}"
+        return f"Manifiesto del Recorrido #{self.recorrido.id}"

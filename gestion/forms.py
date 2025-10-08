@@ -1,51 +1,28 @@
 from django import forms
-from .models import DocumentoOrden, Manifiesto, OrdenServicio, Vehiculo, Cliente
+from .models import DocumentoOrden, Manifiesto, OrdenServicio, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
 class OrdenServicioForm(forms.ModelForm):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # self.instance es el objeto que se está editando.
-        # Si .pk no existe, significa que es un objeto nuevo (se está creando).
-        if not self.instance.pk:
-            # Si es una orden nueva, eliminamos el campo 'estado_orden' del formulario.
-            # No es necesario que el usuario lo vea o lo seleccione.
-            if 'estado_orden' in self.fields:
-                del self.fields['estado_orden']
-                
+    # Ya no necesitamos el método __init__ para este formulario
     class Meta:
         model = OrdenServicio
+        # Lista de campos actualizada: sin fecha_servicio ni vehiculo_asignado
         fields = [
             'cliente', 
-            'fecha_servicio', 
             'direccion_servicio', 
             'descripcion', 
             'valor_servicio',
-            'vehiculo_asignado', 
-            'estado_orden', 
             'estado_pago'
         ]
 
-        # Aquí ocurre la magia: personalizamos cómo se ve cada campo
         widgets = {
             'cliente': forms.Select(attrs={'class': 'form-select'}),
-            'fecha_servicio': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'valor_servicio': forms.NumberInput(attrs={'class': 'form-control'}),
-            'vehiculo_asignado': forms.CheckboxSelectMultiple,
-            'estado_orden': forms.Select(attrs={'class': 'form-select'}),
             'estado_pago': forms.Select(attrs={'class': 'form-select'}),
-        }
-        
-        # Opcional: Cambiar las etiquetas que se muestran en el formulario
-        labels = {
-            'fecha_servicio': 'Fecha del Servicio',
-            'valor_servicio': 'Valor del Servicio ($)',
-            'vehiculo_asignado': 'Vehículo a Asignar',
         }
 
 class VehiculoForm(forms.ModelForm):
@@ -91,15 +68,153 @@ class DocumentoOrdenForm(forms.ModelForm):
     
 
 
-class ManifiestoForm(forms.ModelForm):
+# --- Formularios para cada sección del Manifiesto ---
+
+class ManifiestoPaso1Form(forms.ModelForm): # Cabecera e Info del Servicio
     class Meta:
         model = Manifiesto
-        fields = ['nombre_receptor', 'cedula_receptor', 'tipo_residuo', 'observaciones']
+        fields = [
+            'auxiliar1', 'auxiliar2'
+        ]
+        labels = {
+            'auxiliar1': 'Auxiliar 1',
+            'auxiliar2': 'Auxiliar 2',
+        }
         widgets = {
-            'nombre_receptor': forms.TextInput(attrs={'class': 'form-control'}),
-            'cedula_receptor': forms.TextInput(attrs={'class': 'form-control'}),
-            'tipo_residuo': forms.TextInput(attrs={'class': 'form-control'}),
+            'auxiliar1': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre Auxiliar 1'}),
+            'auxiliar2': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre Auxiliar 2'}),
+        }
+
+class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / Lavado / Transporte
+    class Meta:
+        model = Manifiesto
+        fields = [
+            # Succión y Transporte
+            'succ_canecas', 'succ_canecas_cant',
+            'succ_pozos_inspeccion', 'succ_pozos_inspeccion_cant',
+            'succ_pozos_septicos', 'succ_pozos_septicos_cant',
+            'succ_tanques', 'succ_tanques_cant',
+            'succ_trampas_grasa', 'succ_trampas_grasa_cant',
+            'succ_otros', 'succ_otros_cant',
+            # Sondeo
+            'sond_red_aguas_lluvias', 'sond_red_aguas_negras', 'sond_red_acueducto',
+            'sond_correctivo', 'sond_preventivo', 'sond_diametro',
+            # Lavado
+            'lavado_concepto', 'lavado_cantidad', 'lavado_correctivo', 'lavado_preventivo',
+            # Transporte
+            'transporte_tipo', 'transporte_cantidad',
+        ]
+        widgets = {
+            'succ_canecas_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'succ_pozos_inspeccion_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'succ_pozos_septicos_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'succ_tanques_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'succ_trampas_grasa_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'succ_otros': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Especifique'}),
+            'succ_otros_cant': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ton/M³'}),
+            'sond_diametro': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Diámetro'}),
+            'lavado_concepto': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Concepto'}),
+            'lavado_cantidad': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'H/ML/Cantidad'}),
+            'transporte_tipo': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Tipo'}),
+            'transporte_cantidad': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Cantidad'}),
+        }
+        labels = {
+            'succ_canecas': 'Canecas', 'succ_canecas_cant': '',
+            'succ_pozos_inspeccion': 'Pozos de inspección', 'succ_pozos_inspeccion_cant': '',
+            'succ_pozos_septicos': 'Pozos Sépticos', 'succ_pozos_septicos_cant': '',
+            'succ_tanques': 'Tanques', 'succ_tanques_cant': '',
+            'succ_trampas_grasa': 'Trampas de Grasa', 'succ_trampas_grasa_cant': '',
+            'succ_otros': 'Otros ¿Cuál?', 'succ_otros_cant': '',
+            
+            'sond_red_aguas_lluvias': 'Red de agua lluvias',
+            'sond_red_aguas_negras': 'Red de aguas negras',
+            'sond_red_acueducto': 'Red Acueducto',
+            'sond_correctivo': 'Correctivo', 'sond_preventivo': 'Preventivo',
+            'sond_diametro': 'Diámetro',
+
+            'lavado_concepto': 'Concepto', 'lavado_cantidad': 'Cantidad',
+            'lavado_correctivo': 'Correctivo', 'lavado_preventivo': 'Preventivo',
+
+            'transporte_tipo': 'Tipo', 'transporte_cantidad': 'Cantidad',
+        }
+
+class ManifiestoPaso3Form(forms.ModelForm): # Tiempos / Horómetro / Kilómetros
+    class Meta:
+        model = Manifiesto
+        fields = [
+            'tiempo_inicio_operativo', 'tiempo_final_operativo',
+            'horometro_inicio', 'horometro_final',
+            'km_salida_solmed', 'km_llegada_empresa', 'km_llegada_disposicion',
+        ]
+        widgets = {
+            'tiempo_inicio_operativo': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'tiempo_final_operativo': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'horometro_inicio': forms.NumberInput(attrs={'class': 'form-control'}),
+            'horometro_final': forms.NumberInput(attrs={'class': 'form-control'}),
+            'km_salida_solmed': forms.NumberInput(attrs={'class': 'form-control'}),
+            'km_llegada_empresa': forms.NumberInput(attrs={'class': 'form-control'}),
+            'km_llegada_disposicion': forms.NumberInput(attrs={'class': 'form-control'}),
+        }
+        labels = {
+            'tiempo_inicio_operativo': 'H. Inicio Operativo',
+            'tiempo_final_operativo': 'H. Final Operativo',
+            'horometro_inicio': 'H. Inicio',
+            'horometro_final': 'H. Final',
+            'km_salida_solmed': 'Salida SolMed',
+            'km_llegada_empresa': 'Llegada Empresa',
+            'km_llegada_disposicion': 'Llegada Sitio Disposición',
+        }
+
+class ManifiestoPaso4Form(forms.ModelForm): # Responsable / Firma / Observaciones
+    class Meta:
+        model = Manifiesto
+        fields = [
+            'nombre_responsable_empresa',
+            'observaciones',
+        ]
+        widgets = {
+            'nombre_responsable_empresa': forms.TextInput(attrs={'class': 'form-control'}),
             'observaciones': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+        }
+        labels = {
+            'nombre_responsable_empresa': 'Nombre del Responsable',
+            'observaciones': 'Observaciones',
+        }
+
+class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
+    class Meta:
+        model = Manifiesto
+        fields = [
+            'eval_atencion', 'eval_amabilidad', 'eval_solucion_inquietudes', 'eval_asesoria',
+            'eval_puntualidad', 'eval_calidad_servicio', 'eval_oportunidad',
+            'eval_cumplimiento_condiciones', 'eval_solucion_problemas',
+            'eval_volveria_contratar', 'eval_nos_recomendaria',
+        ]
+        widgets = {
+            'eval_atencion': forms.RadioSelect,
+            'eval_amabilidad': forms.RadioSelect,
+            'eval_solucion_inquietudes': forms.RadioSelect,
+            'eval_asesoria': forms.RadioSelect,
+            'eval_puntualidad': forms.RadioSelect,
+            'eval_calidad_servicio': forms.RadioSelect,
+            'eval_oportunidad': forms.RadioSelect,
+            'eval_cumplimiento_condiciones': forms.RadioSelect,
+            'eval_solucion_problemas': forms.RadioSelect,
+            'eval_volveria_contratar': forms.RadioSelect,
+            'eval_nos_recomendaria': forms.RadioSelect,
+        }
+        labels = {
+            'eval_atencion': '1. ATENCIÓN',
+            'eval_amabilidad': '2. AMABILIDAD',
+            'eval_solucion_inquietudes': '3. SOLUCIÓN DE INQUIETUDES',
+            'eval_asesoria': '4. ASESORÍA',
+            'eval_puntualidad': '5. PUNTUALIDAD',
+            'eval_calidad_servicio': '6. CALIDAD DEL SERVICIO',
+            'eval_oportunidad': '7. OPORTUNIDAD',
+            'eval_cumplimiento_condiciones': '8. CUMPLIMIENTO DE CONDICIONES',
+            'eval_solucion_problemas': '9. SOLUCIÓN DE PROBLEMAS',
+            'eval_volveria_contratar': '10. NOS VOLVERÍA A CONTRATAR',
+            'eval_nos_recomendaria': '11. NOS RECOMENDARÍA',
         }
 
 
@@ -139,3 +254,25 @@ class ActualizarUsuarioForm(forms.ModelForm):
             initial_group = self.instance.groups.first()
             if initial_group:
                 self.fields['grupo'].initial = initial_group.pk
+
+
+
+class RecorridoForm(forms.ModelForm):
+    class Meta:
+        model = Recorrido
+        fields = ['fecha_recorrido', 'vehiculo', 'descripcion']
+        widgets = {
+            'fecha_recorrido': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'descripcion': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+        labels = {
+            'fecha_recorrido': 'Fecha del Recorrido',
+            'vehiculo': 'Vehículo a Asignar',
+            'descripcion': 'Descripción (Opcional)',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Filtramos para que solo se puedan seleccionar vehículos operativos
+        self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')

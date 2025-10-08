@@ -3,9 +3,12 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Expediente de Orden #{{ orden.numero_orden }}</h1>
+    <div>
+        <h1 class="mb-0">Expediente de Orden #{{ orden.numero_orden }}</h1>
+        <span class="badge fs-6" style="background-color: #008cba;">{{ orden.get_estado_orden_display }}</span>
+    </div>
     <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-secondary">
-        <i class="bi bi-pencil-square me-1"></i> Editar Orden
+        <i class="bi bi-pencil-square me-1"></i> Editar Datos Generales
     </a>
 </div>
 
@@ -13,68 +16,74 @@
     <div class="col-lg-8">
         <div class="card shadow mb-4">
             <div class="card-header">
-                <h5 class="mb-0">Detalles del Servicio</h5>
+                <h5 class="mb-0">Gestión de Recorridos</h5>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <p><strong>Cliente:</strong> {{ orden.cliente.nombre }}</p>
-                        <p><strong>Fecha del Servicio:</strong> {{ orden.fecha_servicio }}</p>
-                        <p><strong>Dirección:</strong> {{ orden.direccion_servicio }}</p>
+                <h6>Añadir Nuevo Recorrido</h6>
+                <form method="post" class="mb-4">
+                    {% csrf_token %}
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">{{ form_recorrido.fecha_recorrido.label_tag }} {{ form_recorrido.fecha_recorrido }}</div>
+                        <div class="col-md-4">{{ form_recorrido.vehiculo.label_tag }} {{ form_recorrido.vehiculo }}</div>
+                        <div class="col-md-4">{{ form_recorrido.descripcion.label_tag }} {{ form_recorrido.descripcion }}</div>
                     </div>
-                    <div class="col-md-6">
-                        <p><strong>Estado:</strong> <span class="badge bg-primary">{{ orden.get_estado_orden_display }}</span></p>
-                        <p><strong>Pago:</strong> <span class="badge bg-warning text-dark">{{ orden.get_estado_pago_display }}</span></p>
-                        <p><strong>Valor:</strong> ${{ orden.valor_servicio|floatformat:0|intcomma }}</p>
-                    </div>
-                </div>
+                    <button type="submit" name="submit_recorrido" class="btn btn-primary mt-2">Añadir Recorrido</button>
+                </form>
                 <hr>
-                <p><strong>Descripción del Servicio:</strong></p>
-                <p>{{ orden.descripcion|linebreaks }}</p>
+                <h6>Recorridos Programados y Realizados</h6>
+                {% if orden.recorridos.all %}
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Acción</th></tr></thead>
+                    <tbody>
+                        {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
+                        <tr>
+                            <td>{{ recorrido.fecha_recorrido }}</td>
+                            <td>{{ recorrido.vehiculo.placa }}</td>
+                            <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
+                            
+                            <td>
+                                {% if recorrido.manifiesto and recorrido.manifiesto.pdf_generado %}
+                                    <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
+                                        <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
+                                    </a>
+                                {% else %}
+                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-pen-fill"></i> Firmar
+                                    </a>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                {% if recorrido.estado != 'COMPLETADO' %}
+                                <form method="post" action="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-success btn-sm">Marcar como Completado</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted">Aún no se han añadido recorridos a esta orden.</p>
+                {% endif %}
             </div>
         </div>
-        
-        <div class="card shadow mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Documentos y Manifiestos</h5>
-        {% if not orden.manifiesto %}
-            <a href="{% url 'gestion:firmar_manifiesto' orden.pk %}" class="btn btn-sm btn-primary">
-                <i class="bi bi-pen-fill me-1"></i> Generar y Firmar Manifiesto
-            </a>
-        {% endif %}
-    </div>
-    <div class="card-body">
-        {% if orden.manifiesto and orden.manifiesto.pdf_generado %}
-            <h5>Manifiesto Firmado</h5>
-            <a href="{{ orden.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-success">
-                <i class="bi bi-file-earmark-pdf-fill me-1"></i> Ver Manifiesto PDF
-            </a>
-            <hr>
-        {% endif %}
-        
         </div>
-</div>
+
     <div class="col-lg-4">
         <div class="card shadow mb-4">
-    <div class="card-header">
-        <h5 class="mb-0">Vehículos Asignados</h5>
-    </div>
-    <div class="card-body">
-        {% if orden.vehiculo_asignado.all %}
-            <ul class="list-group list-group-flush">
-            {% for vehiculo in orden.vehiculo_asignado.all %}
-                <li class="list-group-item">
-                    <a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}">
-                        {{ vehiculo.marca }} {{ vehiculo.modelo }} ({{ vehiculo.placa }})
-                    </a>
-                </li>
-            {% endfor %}
-            </ul>
-        {% else %}
-            <p class="text-muted">Aún no se han asignado vehículos.</p>
-        {% endif %}
-    </div>
-</div>
+            <div class="card-header"><h5 class="mb-0">Detalles del Contrato</h5></div>
+            <div class="card-body">
+                <p><strong>Cliente:</strong> {{ orden.cliente.nombre }}</p>
+                <p><strong>Dirección Principal:</strong> {{ orden.direccion_servicio }}</p>
+                <p><strong>Pago:</strong> <span class="badge bg-warning text-dark">{{ orden.get_estado_pago_display }}</span></p>
+                <p><strong>Valor Total:</strong> ${{ orden.valor_servicio|floatformat:0|intcomma }}</p>
+                <hr>
+                <p><strong>Descripción General:</strong><br>{{ orden.descripcion|linebreaks }}</p>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

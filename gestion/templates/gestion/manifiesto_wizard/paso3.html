@@ -1,0 +1,92 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    /* Estilos generales para el wizard (puedes moverlos a un CSS global más adelante) */
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 2rem; }
+    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
+    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
+    .wizard-step.active { border-color: #007bff; color: #007bff; }
+    .wizard-step.completed { border-color: #28a745; color: #28a745; }
+    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
+    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
+    .form-section-content { padding: 1rem; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1>Manifiesto de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
+        <p class="text-muted">Completa la información paso a paso (Paso 3 de 5)</p>
+    </div>
+
+    <div class="wizard-progress">
+        <div class="wizard-step completed">Paso 1</div>
+        <div class="wizard-step completed">Paso 2</div>
+        <div class="wizard-step active">Paso 3: Tiempos</div>
+        <div class="wizard-step">Paso 4: Cierre</div>
+        <div class="wizard-step">Paso 5: Satisfacción</div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-section">
+            <div class="form-section-title">TIEMPOS</div>
+            <div class="form-section-content">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        {{ form.tiempo_inicio_operativo.label_tag }}
+                        {{ form.tiempo_inicio_operativo }}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.tiempo_final_operativo.label_tag }}
+                        {{ form.tiempo_final_operativo }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">HORÓMETRO SISTEMA DE VACÍO</div>
+            <div class="form-section-content">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        {{ form.horometro_inicio.label_tag }}
+                        {{ form.horometro_inicio }}
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.horometro_final.label_tag }}
+                        {{ form.horometro_final }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">KILÓMETROS</div>
+            <div class="form-section-content">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        {{ form.km_salida_solmed.label_tag }}
+                        {{ form.km_salida_solmed }}
+                    </div>
+                    <div class="col-md-4">
+                        {{ form.km_llegada_empresa.label_tag }}
+                        {{ form.km_llegada_empresa }}
+                    </div>
+                    <div class="col-md-4">
+                        {{ form.km_llegada_disposicion.label_tag }}
+                        {{ form.km_llegada_disposicion }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso2' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
+            <button type="submit" class="btn btn-primary">Siguiente <i class="bi bi-arrow-right"></i></button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -15,13 +15,18 @@ class VehiculoAdmin(admin.ModelAdmin):
 
 @admin.register(OrdenServicio)
 class OrdenServicioAdmin(admin.ModelAdmin):
-    list_display = ('numero_orden', 'cliente', 'fecha_servicio', 'display_vehiculos', 'estado_orden', 'estado_pago')
-    list_filter = ('estado_orden', 'estado_pago', 'fecha_servicio')
+    # --- CORRECCIÓN AQUÍ ---
+    # Eliminamos 'fecha_servicio' de ambas listas
+    list_display = ('numero_orden', 'cliente', 'display_vehiculos', 'estado_orden', 'estado_pago')
+    list_filter = ('estado_orden', 'estado_pago', 'cliente') # Reemplazamos fecha_servicio por cliente
+    
     search_fields = ('numero_orden', 'cliente__nombre')
 
     def display_vehiculos(self, obj):
-        # CAMBIA 'vehiculos_asignados' a 'vehiculo_asignado' aquí
+        # Usamos el nombre correcto 'vehiculo_asignado'
         return ", ".join([vehiculo.placa for vehiculo in obj.vehiculo_asignado.all()])
+    
+    display_vehiculos.short_description = 'Vehículos Asignados'
     
     display_vehiculos.short_description = 'Vehículos Asignados'
 class DocumentoOrdenAdmin(admin.ModelAdmin):

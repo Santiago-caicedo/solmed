@@ -13,7 +13,8 @@ urlpatterns = [
     path('ordenes/nueva/', views.CrearOrdenView.as_view(), name='crear_orden'),
     path('ordenes/<int:pk>/', views.OrdenServicioDetailView.as_view(), name='detalle_orden'),
     path('ordenes/<int:pk>/editar/', views.ActualizarOrdenView.as_view(), name='actualizar_orden'),
-    path('ordenes/<int:pk>/firmar/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto'),
+    path('recorrido/<int:pk>/firmar/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto'),
+    path('recorrido/<int:pk>/firmar/<str:step>/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto_step'),
 
     # Aquí añadiremos las URLs para Clientes y Vehículos más adelante
 
@@ -30,5 +31,5 @@ urlpatterns = [
     path('usuarios/', views.ListaUsuariosView.as_view(), name='lista_usuarios'),
     path('usuarios/nuevo/', views.CrearUsuarioView.as_view(), name='crear_usuario'),
     path('usuarios/<int:pk>/editar/', views.ActualizarUsuarioView.as_view(), name='actualizar_usuario'),
-    
+
 ]

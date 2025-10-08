@@ -1,0 +1,93 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    /* Estilos generales para el wizard (puedes moverlos a un CSS global más adelante) */
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 2rem; }
+    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
+    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
+    .wizard-step.active { border-color: #007bff; color: #007bff; }
+    .wizard-step.completed { border-color: #28a745; color: #28a745; }
+    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
+    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
+    .form-section-content { padding: 1rem; }
+    .checkbox-group { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .checkbox-group .form-check { min-width: 180px; }
+    .checkbox-group .form-control-sm { max-width: 120px; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1>Manifiesto de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
+        <p class="text-muted">Completa la información paso a paso (Paso 2 de 5)</p>
+    </div>
+
+    <div class="wizard-progress">
+        <div class="wizard-step completed">Paso 1</div>
+        <div class="wizard-step active">Paso 2: Actividades</div>
+        <div class="wizard-step">Paso 3: Tiempos</div>
+        <div class="wizard-step">Paso 4: Cierre</div>
+        <div class="wizard-step">Paso 5: Satisfacción</div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="form-section">
+                    <div class="form-section-title">SUCCIÓN Y TRANSPORTE</div>
+                    <div class="form-section-content">
+                        <div class="checkbox-group">{{ form.succ_canecas.label_tag }} {{ form.succ_canecas }} {{ form.succ_canecas_cant }}</div>
+                        <div class="checkbox-group">{{ form.succ_pozos_inspeccion.label_tag }} {{ form.succ_pozos_inspeccion }} {{ form.succ_pozos_inspeccion_cant }}</div>
+                        <div class="checkbox-group">{{ form.succ_pozos_septicos.label_tag }} {{ form.succ_pozos_septicos }} {{ form.succ_pozos_septicos_cant }}</div>
+                        <div class="checkbox-group">{{ form.succ_tanques.label_tag }} {{ form.succ_tanques }} {{ form.succ_tanques_cant }}</div>
+                        <div class="checkbox-group">{{ form.succ_trampas_grasa.label_tag }} {{ form.succ_trampas_grasa }} {{ form.succ_trampas_grasa_cant }}</div>
+                        <div class="checkbox-group">{{ form.succ_otros.label_tag }} {{ form.succ_otros }} {{ form.succ_otros_cant }}</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">SONDEO</div>
+                    <div class="form-section-content">
+                        <div class="form-check">{{ form.sond_red_aguas_lluvias }} {{ form.sond_red_aguas_lluvias.label_tag }}</div>
+                        <div class="form-check">{{ form.sond_red_aguas_negras }} {{ form.sond_red_aguas_negras.label_tag }}</div>
+                        <div class="form-check">{{ form.sond_red_acueducto }} {{ form.sond_red_acueducto.label_tag }}</div>
+                        <hr>
+                        <div class="form-check">{{ form.sond_correctivo }} {{ form.sond_correctivo.label_tag }}</div>
+                        <div class="form-check">{{ form.sond_preventivo }} {{ form.sond_preventivo.label_tag }}</div>
+                        <div class="mt-2">{{ form.sond_diametro.label_tag }} {{ form.sond_diametro }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="form-section">
+                    <div class="form-section-title">LAVADO</div>
+                    <div class="form-section-content">
+                        <div class="mb-2">{{ form.lavado_concepto.label_tag }} {{ form.lavado_concepto }}</div>
+                        <div class="mb-2">{{ form.lavado_cantidad.label_tag }} {{ form.lavado_cantidad }}</div>
+                        <hr>
+                        <div class="form-check">{{ form.lavado_correctivo }} {{ form.lavado_correctivo.label_tag }}</div>
+                        <div class="form-check">{{ form.lavado_preventivo }} {{ form.lavado_preventivo.label_tag }}</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">TRANSPORTE</div>
+                    <div class="form-section-content">
+                        <div class="mb-2">{{ form.transporte_tipo.label_tag }} {{ form.transporte_tipo }}</div>
+                        <div>{{ form.transporte_cantidad.label_tag }} {{ form.transporte_cantidad }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso1' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
+            <button type="submit" class="btn btn-primary">Siguiente <i class="bi bi-arrow-right"></i></button>
+        </div>
+    </form>
+</div>
+{% endblock %}

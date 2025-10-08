@@ -1,0 +1,73 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    /* Estilos generales para el wizard (puedes moverlos a un CSS global más adelante) */
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 2rem; }
+    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
+    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
+    .wizard-step.active { border-color: #007bff; color: #007bff; }
+    .wizard-step.completed { border-color: #28a745; color: #28a745; }
+    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
+    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
+    .form-section-content { padding: 1rem; }
+    .satisfaction-table { width: 100%; }
+    .satisfaction-table td, .satisfaction-table th { vertical-align: middle; text-align: center; }
+    .satisfaction-table td:first-child { text-align: left; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1>Manifiesto de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
+        <p class="text-muted">Completa la información paso a paso (Paso 5 de 5)</p>
+    </div>
+
+    <div class="wizard-progress">
+        <div class="wizard-step completed">Paso 1</div>
+        <div class="wizard-step completed">Paso 2</div>
+        <div class="wizard-step completed">Paso 3</div>
+        <div class="wizard-step completed">Paso 4</div>
+        <div class="wizard-step active">Paso 5: Satisfacción</div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-section">
+            <div class="form-section-title">MIDA SU SATISFACCIÓN</div>
+            <div class="form-section-content table-responsive">
+                <table class="table table-bordered satisfaction-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40%;"></th>
+                            <th>Deficiente</th>
+                            <th>Regular</th>
+                            <th>Bueno</th>
+                            <th>Excelente</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>{{ form.eval_atencion.label }}</td>{% for radio in form.eval_atencion %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_amabilidad.label }}</td>{% for radio in form.eval_amabilidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_solucion_inquietudes.label }}</td>{% for radio in form.eval_solucion_inquietudes %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_asesoria.label }}</td>{% for radio in form.eval_asesoria %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_puntualidad.label }}</td>{% for radio in form.eval_puntualidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_calidad_servicio.label }}</td>{% for radio in form.eval_calidad_servicio %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_oportunidad.label }}</td>{% for radio in form.eval_oportunidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_cumplimiento_condiciones.label }}</td>{% for radio in form.eval_cumplimiento_condiciones %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_solucion_problemas.label }}</td>{% for radio in form.eval_solucion_problemas %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_volveria_contratar.label }}</td>{% for radio in form.eval_volveria_contratar %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                        <tr><td>{{ form.eval_nos_recomendaria.label }}</td>{% for radio in form.eval_nos_recomendaria %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso4' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
+            <button type="submit" class="btn btn-primary">Siguiente a la Firma <i class="bi bi-arrow-right"></i></button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    /* Estilos generales para el wizard */
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 2rem; }
+    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
+    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
+    .wizard-step.active { border-color: #007bff; color: #007bff; }
+    .wizard-step.completed { border-color: #28a745; color: #28a745; }
+    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
+    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
+    .form-section-content { padding: 1rem; }
+    #signature-pad { border: 1px solid #dee2e6; cursor: crosshair; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1>Manifiesto de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
+        <p class="text-muted">Paso Final: Firma de Conformidad</p>
+    </div>
+
+    <div class="wizard-progress">
+        <div class="wizard-step completed">Paso 1</div>
+        <div class="wizard-step completed">Paso 2</div>
+        <div class="wizard-step completed">Paso 3</div>
+        <div class="wizard-step completed">Paso 4</div>
+        <div class="wizard-step completed">Paso 5</div>
+        <div class="wizard-step active">Firma</div>
+    </div>
+
+    <form method="post" id="signature-form">
+        {% csrf_token %}
+        
+        <div class="form-section">
+            <div class="form-section-title">RESPONSABLE (CLIENTE)</div>
+            <div class="form-section-content">
+                <div class="mb-3">
+                    <label for="id_nombre_responsable_cliente" class="form-label">Nombre de quien recibe y firma:</label>
+                    <input type="text" name="nombre_responsable_cliente" id="id_nombre_responsable_cliente" class="form-control" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Firma:</label>
+                    <div class="bg-light">
+                        <canvas id="signature-pad" width="800" height="250"></canvas>
+                    </div>
+                    <button type="button" id="clear-button" class="btn btn-sm btn-outline-secondary mt-2">
+                        <i class="bi bi-eraser-fill"></i> Limpiar Firma
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <input type="hidden" name="signature_data" id="signature-data">
+        
+        <div class="d-flex justify-content-between mt-4">
+            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso5' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
+            <button type="submit" name="submit_firma" class="btn btn-success btn-lg">
+                <i class="bi bi-check2-circle"></i> Finalizar y Generar PDF
+            </button>
+        </div>
+    </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var canvas = document.getElementById('signature-pad');
+        var signaturePad = new SignaturePad(canvas, {
+            backgroundColor: 'rgb(255, 255, 255)'
+        });
+
+        // Ajusta el tamaño del canvas al contenedor (importante para móviles)
+        function resizeCanvas() {
+            var ratio =  Math.max(window.devicePixelRatio || 1, 1);
+            canvas.width = canvas.offsetWidth * ratio;
+            canvas.height = canvas.offsetHeight * ratio;
+            canvas.getContext("2d").scale(ratio, ratio);
+            signaturePad.clear(); // Limpia la firma al redimensionar
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
+
+        document.getElementById('clear-button').addEventListener('click', function () {
+            signaturePad.clear();
+        });
+
+        document.getElementById('signature-form').addEventListener('submit', function (event) {
+            if (signaturePad.isEmpty()) {
+                alert("Por favor, provea una firma.");
+                event.preventDefault(); // Detiene el envío del formulario si no hay firma
+            } else {
+                // Guarda la firma como una imagen en el input oculto para ser enviada al servidor
+                document.getElementById('signature-data').value = signaturePad.toDataURL('image/png');
+            }
+        });
+    });
+</script>
+{% endblock %}

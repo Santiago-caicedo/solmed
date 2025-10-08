@@ -1,7 +1,9 @@
+import os
+from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User
-from django.shortcuts import render, redirect
+from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.template.loader import get_template
@@ -11,14 +13,16 @@ from django.views import View
 from io import BytesIO
 from xhtml2pdf import pisa
 import base64
+import datetime
+from decimal import Decimal 
 from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView
 from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import OrdenServicio
+from .models import Manifiesto, OrdenServicio, Recorrido
 
-from .forms import DocumentoOrdenForm, ManifiestoForm, OrdenServicioForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 # --- Vista Principal (Dashboard) ---
@@ -30,44 +34,47 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         now = timezone.now()
 
-        # --- MÉTRICAS EXISTENTES ---
-        context['ordenes_activas'] = OrdenServicio.objects.filter(estado_orden='EN_PROCESO').count()
-        context['vehiculos_disponibles'] = Vehiculo.objects.filter(estado='DISPONIBLE').count()
+        # --- MÉTRICAS ---
+        # Mantenemos esta consulta porque la usamos en varios lugares
+        ordenes_activas = OrdenServicio.objects.filter(estado_orden='EN_EJECUCION')
+        context['ordenes_activas'] = ordenes_activas.count()
+        
         cobranza = OrdenServicio.objects.filter(estado_pago='PENDIENTE').aggregate(total=Sum('valor_servicio'))
         context['cobranza_pendiente'] = cobranza['total'] or 0.00
-
-        # --- NUEVAS MÉTRICAS ---
-
-        # 1. Ingresos y servicios completados del mes actual
-        ingresos_mes_query = OrdenServicio.objects.filter(
-            estado_orden='FINALIZADA', 
-            fecha_servicio__year=now.year, 
-            fecha_servicio__month=now.month
-        )
+        
+        ingresos_mes_query = OrdenServicio.objects.filter(estado_orden='FINALIZADA')
         ingresos_mes_total = ingresos_mes_query.aggregate(total=Sum('valor_servicio'))
         context['ingresos_del_mes'] = ingresos_mes_total['total'] or 0.00
         context['servicios_completados_mes'] = ingresos_mes_query.count()
 
-        # 2. Órdenes pendientes por iniciar
-        context['ordenes_pendientes_iniciar'] = OrdenServicio.objects.filter(estado_orden='PENDIENTE').count()
+        context['ordenes_pendientes_iniciar'] = OrdenServicio.objects.filter(estado_orden='PROGRAMADA').count()
         
-        # 3. Tasa de utilización de vehículos
-        total_vehiculos = Vehiculo.objects.count()
+        # --- LÓGICA CORREGIDA PARA UTILIZACIÓN DE VEHÍCULOS ---
+        total_vehiculos = Vehiculo.objects.filter(estado='OPERATIVO').count()
         if total_vehiculos > 0:
-            vehiculos_en_servicio = Vehiculo.objects.filter(estado='EN_SERVICIO').count()
-            utilizacion = (vehiculos_en_servicio / total_vehiculos) * 100
-            context['utilizacion_vehiculos'] = round(utilizacion, 1)
+            # CORRECCIÓN: Buscamos vehículos que tengan recorridos cuya orden esté en ejecución.
+            vehiculos_en_servicio_qs = Vehiculo.objects.filter(
+                recorridos__orden__estado_orden='EN_EJECUCION'
+            ).distinct()
+            
+            vehiculos_en_servicio = vehiculos_en_servicio_qs.count()
+            
+            context['utilizacion_vehiculos'] = round((vehiculos_en_servicio / total_vehiculos) * 100, 1)
+            context['vehiculos_disponibles'] = total_vehiculos - vehiculos_en_servicio
         else:
             context['utilizacion_vehiculos'] = 0
+            context['vehiculos_disponibles'] = 0
 
         # --- LISTAS ACCIONABLES ---
-        context['servicios_hoy'] = OrdenServicio.objects.filter(fecha_servicio=now.date(), estado_orden__in=['PENDIENTE', 'EN_PROCESO'])
+        context['servicios_hoy'] = Recorrido.objects.filter(
+            fecha_recorrido=now.date(), 
+            estado__in=['PROGRAMADO', 'EN_CURSO']
+        )
         
-        # Nueva lista: Órdenes finalizadas pendientes de pago
         context['cobranza_prioritaria'] = OrdenServicio.objects.filter(
             estado_orden='FINALIZADA', 
             estado_pago='PENDIENTE'
-        ).order_by('fecha_servicio')
+        ).order_by('fecha_creacion')
 
         return context
 
@@ -241,51 +248,179 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
 
 class GenerarManifiestoView(LoginRequiredMixin, View):
     
-    def get(self, request, pk):
-        orden = OrdenServicio.objects.get(pk=pk)
-        form = ManifiestoForm()
-        return render(request, 'gestion/firmar_manifiesto.html', {'orden': orden, 'form': form})
+    FORMS = [
+        ("paso1", ManifiestoPaso1Form),
+        ("paso2", ManifiestoPaso2Form),
+        ("paso3", ManifiestoPaso3Form),
+        ("paso4", ManifiestoPaso4Form),
+        ("paso5", ManifiestoPaso5Form),
+    ]
+    TEMPLATES = {
+        "paso1": 'gestion/manifiesto_wizard/paso1.html',
+        "paso2": 'gestion/manifiesto_wizard/paso2.html',
+        "paso3": 'gestion/manifiesto_wizard/paso3.html',
+        "paso4": 'gestion/manifiesto_wizard/paso4.html',
+        "paso5": 'gestion/manifiesto_wizard/paso5.html',
+        "firma": 'gestion/manifiesto_wizard/firma.html', # Un paso final para la firma
+    }
+    
+    def get_form_step(self, step_name):
+        for name, form_class in self.FORMS:
+            if name == step_name:
+                return form_class
+        return None
 
-    def post(self, request, pk):
-        orden = OrdenServicio.objects.get(pk=pk)
-        form = ManifiestoForm(request.POST)
+    def get(self, request, pk, step='paso1'):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
         
-        # El dato de la firma viene como una cadena de texto base64
-        signature_data = request.POST.get('signature_data')
+        # Recuperar datos de sesión si existen
+        manifiesto_data = request.session.get(f'manifiesto_data_{pk}', {})
+        
+        # Si ya existe un manifiesto para este recorrido, cargarlo para edición
+        try:
+            manifiesto_instance = recorrido.manifiesto
+        except Manifiesto.DoesNotExist:
+            manifiesto_instance = None
 
-        if form.is_valid() and signature_data:
-            # Decodificar y guardar la imagen de la firma
-            format, imgstr = signature_data.split(';base64,') 
-            ext = format.split('/')[-1] 
-            signature_file = ContentFile(base64.b64decode(imgstr), name=f'firma_orden_{pk}.{ext}')
-            
-            # Crear la instancia del manifiesto pero sin guardarla aún
-            manifiesto = form.save(commit=False)
-            manifiesto.orden = orden
-            manifiesto.firma_receptor = signature_file
-            manifiesto.save() # Ahora sí se guarda con la firma
+        if step == 'firma':
+            # Paso final: mostrar la firma
+            return render(request, self.TEMPLATES['firma'], {
+                'recorrido': recorrido,
+                'manifiesto': manifiesto_instance, # Para mostrar datos previos si edita
+                'current_step': 'firma',
+                'pk': pk,
+            })
+        
+        FormClass = self.get_form_step(step)
+        if not FormClass:
+            messages.error(request, "Paso de formulario inválido.")
+            return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
 
-            # --- Generación del PDF ---
-            template = get_template('gestion/manifiesto_pdf.html')
-            context = {'manifiesto': manifiesto, 'orden': orden}
-            html = template.render(context)
-            
-            # Crear el PDF en memoria
-            pdf_buffer = BytesIO()
-            pisa_status = pisa.CreatePDF(html, dest=pdf_buffer)
+        form = FormClass(initial=manifiesto_data, instance=manifiesto_instance) # Carga datos de sesión o instancia
+        
+        return render(request, self.TEMPLATES[step], {
+            'recorrido': recorrido,
+            'form': form,
+            'current_step': step,
+            'pk': pk,
+            'manifiesto_instance': manifiesto_instance, # Pasa la instancia para el contexto
+        })
 
-            if not pisa_status.err:
-                # Guardar el PDF en el modelo
-                pdf_file = ContentFile(pdf_buffer.getvalue(), name=f'manifiesto_orden_{pk}.pdf')
-                manifiesto.pdf_generado = pdf_file
+    def post(self, request, pk, step='paso1'):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        manifiesto_data = request.session.get(f'manifiesto_data_{pk}', {})
+        
+        try:
+            manifiesto_instance = recorrido.manifiesto
+        except Manifiesto.DoesNotExist:
+            manifiesto_instance = None
+        
+        # --- LÓGICA PARA EL PASO FINAL (FIRMA Y GENERACIÓN DE PDF) ---
+        if 'submit_firma' in request.POST:
+            signature_data = request.POST.get('signature_data')
+            nombre_responsable = request.POST.get('nombre_responsable_cliente')
+
+            if signature_data and nombre_responsable:
+                # 1. Decodificar la imagen de la firma
+                format, imgstr = signature_data.split(';base64,')
+                ext = format.split('/')[-1]
+                firma_cliente_file = ContentFile(base64.b64decode(imgstr), name=f'firma_cliente_recorrido_{pk}.{ext}')
+                
+                # 2. Combinar TODOS los datos (de la sesión + del paso final)
+                final_manifiesto_data = manifiesto_data
+                final_manifiesto_data['nombre_responsable_cliente'] = nombre_responsable
+                
+                # 3. Crear o actualizar la instancia del Manifiesto
+                if manifiesto_instance:
+                    manifiesto = manifiesto_instance
+                    for field, value in final_manifiesto_data.items():
+                        setattr(manifiesto, field, value)
+                else:
+                    manifiesto = Manifiesto(**final_manifiesto_data)
+                    manifiesto.recorrido = recorrido
+
+                manifiesto.firma_cliente = firma_cliente_file
                 manifiesto.save()
-                messages.success(request, 'Manifiesto generado y firmado exitosamente.')
+
+                # 4. Generar el documento PDF
+                template = get_template('gestion/manifiesto_pdf.html')
+                logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+                context = {
+                    'manifiesto': manifiesto, 
+                    'recorrido': recorrido, 
+                    'orden': recorrido.orden,
+                    'logo_path': logo_path  # <-- Pasamos la ruta a la plantilla
+                }
+                html = template.render(context)
+                
+                pdf_buffer = BytesIO()
+                pisa_status = pisa.CreatePDF(html, dest=pdf_buffer)
+
+                if not pisa_status.err:
+                    pdf_file = ContentFile(pdf_buffer.getvalue(), name=f'manifiesto_recorrido_{pk}.pdf')
+                    manifiesto.pdf_generado = pdf_file
+                    manifiesto.save()
+                    messages.success(request, 'Manifiesto generado y firmado exitosamente.')
+                    # 5. Limpiar la sesión
+                    if f'manifiesto_data_{pk}' in request.session:
+                        del request.session[f'manifiesto_data_{pk}']
+                else:
+                    messages.error(request, 'Error al generar el PDF.')
+
+                return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
             else:
-                messages.error(request, 'Error al generar el PDF.')
+                # Si falla (falta firma o nombre), mostramos la página de firma de nuevo con un error
+                messages.error(request, 'Falta la firma o el nombre del responsable. Por favor, complete ambos campos.')
+                return render(request, self.TEMPLATES['firma'], {
+                    'recorrido': recorrido,
+                    'pk': pk,
+                    'current_step': 'firma',
+                })
 
-            return redirect('gestion:detalle_orden', pk=orden.pk)
 
-        return render(request, 'gestion/firmar_manifiesto.html', {'orden': orden, 'form': form})
+        # Lógica para los pasos intermedios del formulario
+        FormClass = self.get_form_step(step)
+        if not FormClass:
+            messages.error(request, "Paso de formulario inválido.")
+            return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
+
+        form = FormClass(request.POST, instance=manifiesto_instance) # Carga datos en la instancia si existe
+        
+        if form.is_valid():
+            cleaned_data = form.cleaned_data
+            
+            # --- CONVERSIÓN DE DATOS AMPLIADA ---
+            for key, value in cleaned_data.items():
+                # Si es un objeto de tiempo, conviértelo a texto
+                if isinstance(value, datetime.time):
+                    cleaned_data[key] = value.strftime('%H:%M:%S')
+                # AÑADIDO: Si es un objeto Decimal, conviértelo a texto
+                elif isinstance(value, Decimal):
+                    cleaned_data[key] = str(value)
+            
+            # Guardamos los datos (ya convertidos) en la sesión
+            manifiesto_data.update(cleaned_data)
+            request.session[f'manifiesto_data_{pk}'] = manifiesto_data
+            
+            # El resto de la lógica para determinar el siguiente paso no cambia
+            current_index = [name for name, _ in self.FORMS].index(step)
+            if current_index + 1 < len(self.FORMS):
+                next_step_name = self.FORMS[current_index + 1][0]
+                return redirect('gestion:firmar_manifiesto_step', pk=pk, step=next_step_name)
+            else:
+                return redirect('gestion:firmar_manifiesto_step', pk=pk, step='firma')
+
+        else:
+            # Si el formulario no es válido, renderizar el mismo paso con errores
+            messages.error(request, "Por favor, corrija los errores en el formulario.")
+            return render(request, self.TEMPLATES[step], {
+                'recorrido': recorrido,
+                'form': form,
+                'current_step': step,
+                'pk': pk,
+                'manifiesto_instance': manifiesto_instance,
+            })
+
 
 
 # --- Mixin de Seguridad para Superusuarios ---
@@ -335,3 +470,54 @@ class ActualizarUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, UpdateV
         self.object.groups.add(grupo) # Añadimos el nuevo grupo
 
         return response
+
+
+class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
+    model = OrdenServicio
+    template_name = 'gestion/ordenservicio_detail.html'
+    context_object_name = 'orden'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Añadimos el formulario para añadir nuevos recorridos
+        context['form_recorrido'] = RecorridoForm()
+        # Mantenemos el formulario para subir documentos
+        context['form_documento'] = DocumentoOrdenForm()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        orden = self.get_object()
+        
+        # Identificamos qué formulario se está enviando
+        if 'submit_recorrido' in request.POST:
+            form = RecorridoForm(request.POST)
+            if form.is_valid():
+                recorrido = form.save(commit=False)
+                recorrido.orden = orden
+                recorrido.save() # Al guardar, el método save() del modelo actualizará la orden
+                messages.success(request, 'Recorrido añadido exitosamente.')
+            else:
+                messages.error(request, 'Error al añadir el recorrido.')
+        
+        elif 'submit_documento' in request.POST:
+            form = DocumentoOrdenForm(request.POST, request.FILES)
+            if form.is_valid():
+                documento = form.save(commit=False)
+                documento.orden = orden
+                documento.save()
+                messages.success(request, 'Documento adjuntado exitosamente.')
+            else:
+                messages.error(request, 'Error al adjuntar el documento.')
+            
+        return redirect('gestion:detalle_orden', pk=orden.pk)
+
+
+def completar_recorrido(request, pk):
+    recorrido = get_object_or_404(Recorrido, pk=pk)
+    
+    if request.method == 'POST':
+        recorrido.estado = 'COMPLETADO'
+        recorrido.save() # La lógica automática en el modelo se disparará aquí
+        messages.success(request, f'Recorrido del {recorrido.fecha_recorrido} marcado como completado.')
+        
+    return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)

@@ -1,30 +1,93 @@
 {% extends "gestion/base.html" %}
+{% load static %}
 
 {% block content %}
-<div class="card shadow">
-    <div class="card-header">
-        <h4 class="mb-0">Manifiesto de Servicio - Orden #{{ orden.numero_orden }}</h4>
-    </div>
-    <div class="card-body">
-        <form id="signature-form" method="post">
-            {% csrf_token %}
-            {{ form.as_p }}
-            
-            <div class="mb-3">
-                <label class="form-label">Firma del Receptor:</label>
-                <div class="border bg-light">
-                    <canvas id="signature-pad" class="signature-pad" width=400 height=200></canvas>
-                </div>
-                <button type="button" id="clear-button" class="btn btn-sm btn-secondary mt-2">Limpiar Firma</button>
-            </div>
+<style>
+    .manifest-form { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 1200px; margin: auto; }
+    .mf-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 1rem; }
+    .mf-header .logo { max-width: 180px; }
+    .mf-header .company-info { text-align: center; line-height: 1.2; }
+    .mf-header .order-info { border: 2px solid #333; padding: 0.5rem; text-align: center; }
+    .mf-section { border: 1px solid #aaa; margin-top: 1rem; }
+    .mf-section-title { font-weight: bold; background-color: #e9ecef; padding: 0.5rem; border-bottom: 1px solid #aaa; text-align: center; }
+    .mf-section-content { padding: 1rem; }
+    .mf-grid { display: grid; gap: 1rem; }
+    .mf-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .mf-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .mf-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .form-group-inline { display: flex; align-items: baseline; border-bottom: 1px dotted #888; margin-bottom: 0.5rem; }
+    .form-group-inline label { font-weight: bold; margin-right: 8px; white-space: nowrap; }
+    .form-group-inline input { border: none; width: 100%; }
+    .form-group-checkbox { display: flex; align-items: center; }
+    .form-group-checkbox label { margin-left: 8px; }
+    .satisfaction-table { width: 100%; text-align: center; }
+    .satisfaction-table th, .satisfaction-table td { border: 1px solid #ccc; padding: 4px; }
+    .satisfaction-table td:first-child { text-align: left; }
+</style>
 
-            <input type="hidden" name="signature_data" id="signature-data">
-            
-            <hr>
-            <button type="submit" class="btn btn-success">Guardar y Generar PDF</button>
-            <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-secondary">Cancelar</a>
-        </form>
-    </div>
+<div class="manifest-form">
+    <form id="signature-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="mf-header">
+            <img src="{% static 'images/logo-solmed.png' %}" alt="Logo Solmed" class="logo">
+            <div class="company-info">
+                <strong>SOLUCIONES MEDIOAMBIENTALES S.A.S.</strong><br>SOLMED S.A.S.<br>NIT 830.514.597-2
+            </div>
+            <div class="order-info">
+                <strong>ORDEN DE SERVICIO</strong>
+                <div style="font-size: 1.5rem; font-weight: bold;">{{ recorrido.orden.numero_orden }}</div>
+            </div>
+        </div>
+
+        <div class="mf-section mf-grid mf-grid-2">
+            <div>
+                <div class="form-group-inline"><label>Fecha:</label><input type="text" value="{{ recorrido.fecha_recorrido|date:'d/m/Y' }}" readonly></div>
+                <div class="form-group-inline"><label>Dirección:</label><input type="text" value="{{ recorrido.orden.direccion_servicio }}" readonly></div>
+                <div class="form-group-inline"><label>Equipo:</label><input type="text" value="{{ recorrido.vehiculo.marca }}" readonly></div>
+                <div class="form-group-inline"><label>Conductor:</label><input type="text" value="{{ recorrido.vehiculo.conductor_asignado.get_full_name|default:'' }}" readonly></div>
+            </div>
+            <div>
+                <div class="form-group-inline"><label>Empresa:</label><input type="text" value="{{ recorrido.orden.cliente.nombre }}" readonly></div>
+                <div class="form-group-inline"><label>Tel.:</label><input type="text" value="{{ recorrido.orden.cliente.telefono }}" readonly></div>
+                <div class="form-group-inline"><label>Placa:</label><input type="text" value="{{ recorrido.vehiculo.placa }}" readonly></div>
+                <div class="form-group-inline"><label>Auxiliar 1:</label>{{ form.auxiliar1 }}</div>
+            </div>
+        </div>
+
+        <div class="mf-section">
+            <div class="mf-section-title">RESPONSABLE</div>
+            <div class="mf-section-content row">
+                <div class="col-md-8">
+                    <label class="form-label">FIRMA Y SELLO:</label>
+                    <div class="border bg-light"><canvas id="signature-pad" width="600" height="150"></canvas></div>
+                    <button type="button" id="clear-button" class="btn btn-sm btn-secondary mt-2">Limpiar Firma</button>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group-inline"><label>NOMBRE:</label>{{ form.nombre_responsable_empresa }}</div>
+                    <div class="form-group-inline"><label>FECHA:</label><input type="text" value="{% now 'd/m/Y' %}" readonly></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mf-section">
+            <div class="mf-section-title">MIDA SU SATISFACCIÓN</div>
+            <div class="mf-section-content">
+                <table class="satisfaction-table">
+                    <tr><th></th><th>Deficiente</th><th>Regular</th><th>Bueno</th><th>Excelente</th></tr>
+                    <tr><td>1. ATENCIÓN</td><td>{{ form.eval_atencion.0.tag }}</td><td>{{ form.eval_atencion.1.tag }}</td><td>{{ form.eval_atencion.2.tag }}</td><td>{{ form.eval_atencion.3.tag }}</td></tr>
+                    </table>
+            </div>
+        </div>
+
+        <div class="mf-section">
+            <div class="mf-section-title">OBSERVACIONES</div>
+            <div class="mf-section-content">{{ form.observaciones }}</div>
+        </div>
+        
+        <input type="hidden" name="signature_data" id="signature-data">
+        <hr class="mt-4">
+        <button type="submit" class="btn btn-success btn-lg">Guardar y Generar PDF</button>
+    </form>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
