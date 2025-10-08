@@ -13,90 +13,60 @@
 
 <div class="row">
     <div class="col-lg-8">
+
         <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-clipboard-pulse me-2"></i>Órdenes Activas Asignadas</h5>
-            </div>
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-calendar-day me-2"></i>Agenda del Vehículo</h5></div>
             <div class="card-body">
-                {% if ordenes_activas %}
-                    <p>Este vehículo está prestando servicio actualmente en las siguientes órdenes:</p>
-                    <ul class="list-group list-group-flush">
-                        {% for orden in ordenes_activas %}
-                        <li class="list-group-item">
-                            <a href="{% url 'gestion:detalle_orden' orden.pk %}"><strong>Orden #{{ orden.numero_orden }}</strong></a>
-                            <br>
-                            <small class="text-muted">Cliente: {{ orden.cliente.nombre }} | Fecha de Servicio: {{ orden.fecha_servicio }}</small>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                {% else %}
-                    <div class="alert alert-success mb-0">
-                        <i class="bi bi-check-circle-fill me-2"></i>
-                        Este vehículo no tiene órdenes activas y está listo para nuevas asignaciones.
+                <form method="get" class="row g-2 align-items-end mb-4 pb-3 border-bottom">
+                    <div class="col-md-5">
+                        <label for="fecha" class="form-label fw-bold">Seleccionar Fecha:</label>
+                        <input type="date" name="fecha" id="fecha" class="form-control" value="{{ fecha_seleccionada|date:'Y-m-d' }}">
                     </div>
-                {% endif %}
+                    <div class="col-md-4"><button type="submit" class="btn btn-primary">Ver Agenda</button></div>
+                </form>
 
-                {% if vehiculo.estado == 'MANTENIMIENTO' %}
-                    <div class="alert alert-warning mt-3 mb-0"><i class="bi bi-tools me-2"></i><strong>Atención:</strong> Este vehículo está marcado como "En Mantenimiento".</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-calendar-event me-2"></i>Servicios Futuros Asignados</h5>
-            </div>
-            <div class="card-body">
-                {% if servicios_futuros %}
-                <ul class="list-group list-group-flush">
-                    {% for orden in servicios_futuros %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>Para el {{ orden.fecha_servicio|date:"d \d\e F" }}:</strong> 
-                            <a href="{% url 'gestion:detalle_orden' orden.pk %}">Orden #{{ orden.numero_orden }}</a>
-                            <br>
-                            <small class="text-muted">Cliente: {{ orden.cliente.nombre }}</small>
-                        </div>
-                        <span class="badge bg-secondary">Pendiente</span>
-                    </li>
-                    {% endfor %}
-                </ul>
+                <h6 class="mb-3">Recorridos para el: <span class="fw-bold">{{ fecha_seleccionada|date:"l, d \d\e F, Y" }}</span></h6>
+                
+                {% if programacion_del_dia %}
+                    <div class="list-group">
+                        {% for recorrido in programacion_del_dia %}
+                            <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">Orden #{{ recorrido.orden.numero_orden }} - {{ recorrido.orden.cliente.nombre }}</h6>
+                                    <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
+                                </div>
+                                <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
+                                {% if recorrido.descripcion %}<small class="text-muted">Nota: {{ recorrido.descripcion }}</small>{% endif %}
+                            </a>
+                        {% endfor %}
+                    </div>
                 {% else %}
-                <p class="text-center text-muted">Este vehículo no tiene servicios futuros asignados.</p>
+                    <p class="text-center text-muted mt-3">No hay recorridos programados para esta fecha.</p>
                 {% endif %}
             </div>
         </div>
 
         <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Historial de Servicios Finalizados</h5>
-            </div>
+            <div class="card-header"><h5 class="mb-0">Historial de Recorridos Finalizados</h5></div>
             <div class="card-body">
-                {% if historial_ordenes %}
+                {% if historial_recorridos %}
                 <div class="table-responsive">
                     <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th># Orden</th>
-                                <th>Cliente</th>
-                                <th>Fecha</th>
-                                <th>Valor</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Fecha</th><th>Orden</th><th>Cliente</th><th>Valor Orden</th></tr></thead>
                         <tbody>
-                            {% for orden in historial_ordenes %}
+                            {% for recorrido in historial_recorridos %}
                             <tr>
-                                <td><a href="{% url 'gestion:detalle_orden' orden.pk %}">#{{ orden.numero_orden }}</a></td>
-                                <td>{{ orden.cliente.nombre }}</td>
-                                <td>{{ orden.fecha_servicio }}</td>
-                                <td>${{ orden.valor_servicio|floatformat:0|intcomma }}</td>
+                                <td>{{ recorrido.fecha_recorrido }}</td>
+                                <td><a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}">#{{ recorrido.orden.numero_orden }}</a></td>
+                                <td>{{ recorrido.orden.cliente.nombre }}</td>
+                                <td>${{ recorrido.orden.valor_servicio|floatformat:0|intcomma }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 {% else %}
-                <p class="text-center text-muted">Este vehículo aún no ha completado ningún servicio.</p>
+                <p class="text-center text-muted">Este vehículo aún no ha completado ningún recorrido.</p>
                 {% endif %}
             </div>
         </div>
@@ -104,32 +74,20 @@
 
     <div class="col-lg-4">
         <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Datos del Vehículo</h5>
-            </div>
+            <div class="card-header"><h5 class="mb-0">Datos del Vehículo</h5></div>
             <ul class="list-group list-group-flush">
                 <li class="list-group-item"><strong>Marca:</strong> {{ vehiculo.marca }}</li>
                 <li class="list-group-item"><strong>Modelo:</strong> {{ vehiculo.modelo }}</li>
                 <li class="list-group-item"><strong>Capacidad:</strong> {{ vehiculo.capacidad }}</li>
             </ul>
         </div>
-
         <div class="card shadow mb-4 text-center">
-            <div class="card-header">
-                <h5 class="mb-0">Servicios Realizados</h5>
-            </div>
-            <div class="card-body">
-                <p class="display-4 fw-bold">{{ total_servicios_realizados }}</p>
-            </div>
+            <div class="card-header"><h5 class="mb-0">Servicios Realizados</h5></div>
+            <div class="card-body"><p class="display-4 fw-bold">{{ total_servicios_realizados }}</p></div>
         </div>
-
         <div class="card shadow mb-4 text-center">
-            <div class="card-header">
-                <h5 class="mb-0">Ingresos Generados</h5>
-            </div>
-            <div class="card-body">
-                <p class="display-4 fw-bold text-success">${{ total_ingresos_generados|floatformat:0|intcomma }}</p>
-            </div>
+            <div class="card-header"><h5 class="mb-0">Ingresos Generados</h5></div>
+            <div class="card-body"><p class="display-4 fw-bold text-success">${{ total_ingresos_generados|floatformat:0|intcomma }}</p></div>
         </div>
     </div>
 </div>

@@ -232,15 +232,30 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         vehiculo = self.get_object()
 
-        # Obtenemos TODAS las órdenes activas (no solo la primera)
-        context['ordenes_activas'] = vehiculo.ordenes.filter(estado_orden='EN_PROCESO').order_by('fecha_servicio')
+        # --- Lógica de Agenda Diaria (ya es correcta) ---
+        fecha_str = self.request.GET.get('fecha')
+        if fecha_str:
+            fecha_seleccionada = datetime.datetime.strptime(fecha_str, '%Y-%m-%d').date()
+        else:
+            fecha_seleccionada = timezone.now().date()
         
-        # El resto de la lógica sigue igual...
-        context['servicios_futuros'] = vehiculo.ordenes.filter(estado_orden='PENDIENTE', fecha_servicio__gte=timezone.now().date()).order_by('fecha_servicio')
-        historial = vehiculo.ordenes.filter(estado_orden='FINALIZADA').order_by('-fecha_servicio')
-        context['historial_ordenes'] = historial
-        context['total_servicios_realizados'] = historial.count()
-        ingresos_generados = historial.aggregate(total=Sum('valor_servicio'))
+        context['fecha_seleccionada'] = fecha_seleccionada
+        context['programacion_del_dia'] = Recorrido.objects.filter(
+            vehiculo=vehiculo,
+            fecha_recorrido=fecha_seleccionada
+        ).order_by('orden__fecha_creacion')
+
+        # --- LÓGICA CORREGIDA PARA HISTORIAL Y MÉTRICAS ---
+        # Ahora el historial se basa en los recorridos completados, no en las órdenes.
+        historial_recorridos = Recorrido.objects.filter(vehiculo=vehiculo, estado='COMPLETADO').order_by('-fecha_recorrido')
+        context['historial_recorridos'] = historial_recorridos
+        
+        # Las métricas ahora se calculan a partir del historial de recorridos.
+        context['total_servicios_realizados'] = historial_recorridos.count()
+        
+        # Sumamos el valor de las órdenes padres de los recorridos completados.
+        # Nota: Esto podría sumar una orden varias veces si el vehículo hizo varios recorridos para ella.
+        ingresos_generados = historial_recorridos.aggregate(total=Sum('orden__valor_servicio'))
         context['total_ingresos_generados'] = ingresos_generados['total'] or 0
 
         return context

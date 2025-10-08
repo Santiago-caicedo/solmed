@@ -61,6 +61,12 @@ class OrdenServicio(models.Model):
     # vehiculo_asignado = models.ManyToManyField(...) -> ELIMINADO
     # fecha_servicio = models.DateField(...) -> ELIMINADO
 
+    vehiculo = models.ForeignKey(
+        Vehiculo, 
+        on_delete=models.CASCADE, 
+        related_name='ordenes' # Este 'related_name' permite usar 'vehiculo.ordenes'
+    )
+
     # --- Detalles Generales de la Orden ---
     numero_orden = models.AutoField(primary_key=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
