@@ -261,15 +261,17 @@ class ActualizarUsuarioForm(forms.ModelForm):
 class RecorridoForm(forms.ModelForm):
     class Meta:
         model = Recorrido
-        fields = ['fecha_recorrido', 'vehiculo', 'descripcion']
+        fields = ['fecha_recorrido', 'vehiculo', 'conductor', 'descripcion']
         widgets = {
             'fecha_recorrido': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'conductor': forms.Select(attrs={'class': 'form-select'}),
             'descripcion': forms.TextInput(attrs={'class': 'form-control'}),
         }
         labels = {
             'fecha_recorrido': 'Fecha del Recorrido',
             'vehiculo': 'Vehículo a Asignar',
+            'conductor': 'Conductor a Asignar',
             'descripcion': 'Descripción (Opcional)',
         }
 
@@ -277,6 +279,13 @@ class RecorridoForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # Filtramos para que solo se puedan seleccionar vehículos operativos
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+        
+        # Filtramos para que solo se puedan seleccionar usuarios del grupo "Conductores"
+        try:
+            conductores_group = Group.objects.get(name='Conductores')
+            self.fields['conductor'].queryset = conductores_group.user_set.all()
+        except Group.DoesNotExist:
+            self.fields['conductor'].queryset = User.objects.none()
 
 
 

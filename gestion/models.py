@@ -61,11 +61,7 @@ class OrdenServicio(models.Model):
     # vehiculo_asignado = models.ManyToManyField(...) -> ELIMINADO
     # fecha_servicio = models.DateField(...) -> ELIMINADO
 
-    vehiculo = models.ForeignKey(
-        Vehiculo, 
-        on_delete=models.CASCADE, 
-        related_name='ordenes' # Este 'related_name' permite usar 'vehiculo.ordenes'
-    )
+    
 
     # --- Detalles Generales de la Orden ---
     numero_orden = models.AutoField(primary_key=True)
@@ -107,6 +103,14 @@ class Recorrido(models.Model):
     # Cada recorrido pertenece a una orden de servicio
     orden = models.ForeignKey(OrdenServicio, on_delete=models.CASCADE, related_name='recorridos')
     vehiculo = models.ForeignKey(Vehiculo, on_delete=models.PROTECT, related_name='recorridos')
+
+    conductor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='recorridos',
+        null=True, blank=True
+    )
+    
     fecha_recorrido = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
     descripcion = models.CharField(max_length=255, blank=True, help_text="Descripción específica de este recorrido si es necesaria")

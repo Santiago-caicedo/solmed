@@ -23,9 +23,10 @@
                 <form method="post" class="mb-4">
                     {% csrf_token %}
                     <div class="row g-2 align-items-end">
-                        <div class="col-md-4">{{ form_recorrido.fecha_recorrido.label_tag }} {{ form_recorrido.fecha_recorrido }}</div>
-                        <div class="col-md-4">{{ form_recorrido.vehiculo.label_tag }} {{ form_recorrido.vehiculo }}</div>
-                        <div class="col-md-4">{{ form_recorrido.descripcion.label_tag }} {{ form_recorrido.descripcion }}</div>
+                        <div class="col-md-3">{{ form_recorrido.fecha_recorrido.label_tag }} {{ form_recorrido.fecha_recorrido }}</div>
+                        <div class="col-md-3">{{ form_recorrido.vehiculo.label_tag }} {{ form_recorrido.vehiculo }}</div>
+                        <div class="col-md-3">{{ form_recorrido.conductor.label_tag }} {{ form_recorrido.conductor }}</div>
+                        <div class="col-md-3">{{ form_recorrido.descripcion.label_tag }} {{ form_recorrido.descripcion }}</div>
                     </div>
                     <button type="submit" name="submit_recorrido" class="btn btn-primary mt-2">Añadir Recorrido</button>
                 </form>

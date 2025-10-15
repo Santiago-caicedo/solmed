@@ -494,20 +494,23 @@ def completar_recorrido(request, pk):
 
 
 def feed_calendario(request):
-    """
-    Esta vista provee los eventos (recorridos) en formato JSON para FullCalendar.
-    """
-    # Obtenemos todos los recorridos que no estén cancelados
-    recorridos = Recorrido.objects.exclude(orden__estado_orden='CANCELADA')
+    user = request.user
+    
+    # Si el usuario es un conductor, filtra solo sus recorridos
+    if user.groups.filter(name='Conductores').exists():
+        recorridos = Recorrido.objects.filter(conductor=user)
+    # Si es asesor o admin, muestra todos los recorridos
+    else:
+        recorridos = Recorrido.objects.all()
+
+    recorridos = recorridos.exclude(orden__estado_orden='CANCELADA')
     
     eventos = []
-    # Un diccionario para asignar un color a cada vehículo y que sea consistente
     colores_vehiculos = {}
     colores_disponibles = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2']
 
     for recorrido in recorridos:
         vehiculo_id = recorrido.vehiculo.id
-        # Asignar un color si el vehículo aún no tiene uno
         if vehiculo_id not in colores_vehiculos:
             colores_vehiculos[vehiculo_id] = colores_disponibles[len(colores_vehiculos) % len(colores_disponibles)]
 
@@ -516,7 +519,6 @@ def feed_calendario(request):
             'start': recorrido.fecha_recorrido.strftime("%Y-%m-%d"),
             'url': reverse('gestion:detalle_orden', args=[recorrido.orden.pk]),
             'color': colores_vehiculos[vehiculo_id],
-            'borderColor': colores_vehiculos[vehiculo_id],
         }
         eventos.append(evento)
     
