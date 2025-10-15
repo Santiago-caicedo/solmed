@@ -4,6 +4,8 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.auth.mixins import UserPassesTestMixin
@@ -28,6 +30,16 @@ from .models import Manifiesto, OrdenServicio, Recorrido
 from django.http import JsonResponse
 from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
+
+
+
+# --- NUEVO MIXIN DE SEGURIDAD PARA ASESORES Y ADMINS ---
+class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    Este Mixin restringe el acceso a Superusuarios y a miembros del grupo 'Asesores'.
+    """
+    def test_func(self):
+        return self.request.user.is_superuser or self.request.user.groups.filter(name='Asesores').exists()
 
 # --- Vista Principal (Dashboard) ---
 # Se protege con LoginRequiredMixin para que sea la página de inicio después del login.
@@ -86,7 +98,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 # --- Vistas para Órdenes de Servicio ---
 # Todas las vistas de gestión se protegen con LoginRequiredMixin.
 # Se usa 'form_class' para conectar la vista con el formulario personalizado.
-class ListaOrdenesView(LoginRequiredMixin, ListView):
+class ListaOrdenesView(AsesorRequiredMixin, ListView):
     model = OrdenServicio
     template_name = 'gestion/lista_ordenes.html'
     context_object_name = 'ordenes'
@@ -609,3 +621,62 @@ class ReportesView(SuperuserRequiredMixin, ListView):
         context['total_general'] = total_general
         
         return context
+
+
+
+# --- Mixin de Seguridad para Conductores ---
+class ConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.groups.filter(name='Conductores').exists()
+
+# --- NUEVA VISTA: DASHBOARD DEL CONDUCTOR ---
+class DashboardConductorView(ConductorRequiredMixin, TemplateView):
+    template_name = 'gestion/dashboard_conductor.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        conductor = self.request.user
+        hoy = timezone.now().date()
+
+        # Recorridos para el día de hoy
+        context['recorridos_hoy'] = Recorrido.objects.filter(
+            conductor=conductor,
+            fecha_recorrido=hoy
+        ).order_by('orden__fecha_creacion')
+
+        # Recorridos para los próximos 7 días
+        proxima_semana = hoy + datetime.timedelta(days=7)
+        context['recorridos_proximos'] = Recorrido.objects.filter(
+            conductor=conductor,
+            fecha_recorrido__gt=hoy,
+            fecha_recorrido__lte=proxima_semana
+        ).order_by('fecha_recorrido')
+        
+        return context
+    
+
+@login_required
+def dashboard_redirect_view(request):
+    user = request.user
+    if user.groups.filter(name='Conductores').exists():
+        return redirect('gestion:dashboard_conductor')
+    else: # Asesores y Superusuarios
+        return redirect('gestion:dashboard')
+    
+
+
+# --- VISTA PRINCIPAL PARA CONDUCTORES ---
+class MisRecorridosView(ConductorRequiredMixin, ListView):
+    model = Recorrido
+    template_name = 'gestion/mis_recorridos.html'
+    context_object_name = 'recorridos'
+
+    def get_queryset(self):
+        # Filtramos para mostrar solo los recorridos del usuario logueado
+        # que no estén completados, ordenados por fecha.
+        hoy = timezone.now().date()
+        return Recorrido.objects.filter(
+            conductor=self.request.user,
+            fecha_recorrido__gte=hoy,
+            estado__in=['PROGRAMADO', 'EN_CURSO']
+        ).order_by('fecha_recorrido')

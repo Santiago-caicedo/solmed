@@ -79,31 +79,45 @@
     </div>
     
     <ul class="nav nav-pills flex-column mb-auto">
+        {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
         <li class="nav-item">
-            <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if request.resolver_match.view_name == 'gestion:dashboard' %}active{% endif %}">
+            <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if 'dashboard' == request.resolver_match.view_name %}active{% endif %}">
                 <i class="bi bi-speedometer2"></i>Dashboard
             </a>
         </li>
-        <li>
-            <a href="{% url 'gestion:lista_ordenes' %}" class="nav-link {% if 'ordenes' in request.path %}active{% endif %}">
-                <i class="bi bi-clipboard-data"></i>Órdenes de Servicio
+        {% endif %}
+
+        {% if user.groups.all.0.name == 'Conductores' %}
+        <li class="nav-item">
+            <a href="{% url 'gestion:mis_recorridos' %}" class="nav-link {% if 'mis_recorridos' in request.path %}active{% endif %}">
+                <i class="bi bi-pin-map-fill"></i>Mis Recorridos
             </a>
         </li>
+        {% endif %}
+
         <li>
             <a href="{% url 'gestion:calendario' %}" class="nav-link {% if 'calendario' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar3"></i>Calendario
             </a>
         </li>
-        <li>
-            <a href="{% url 'gestion:lista_clientes' %}" class="nav-link {% if 'clientes' in request.path %}active{% endif %}">
-                <i class="bi bi-people"></i>Clientes
-            </a>
-        </li>
-        <li>
-            <a href="{% url 'gestion:lista_vehiculos' %}" class="nav-link {% if 'vehiculos' in request.path %}active{% endif %}">
-                <i class="bi bi-truck-front"></i>Vehículos
-            </a>
-        </li>
+
+        {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
+            <li>
+                <a href="{% url 'gestion:lista_ordenes' %}" class="nav-link {% if 'ordenes' in request.path %}active{% endif %}">
+                    <i class="bi bi-clipboard-data"></i>Órdenes de Servicio
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'gestion:lista_clientes' %}" class="nav-link {% if 'clientes' in request.path %}active{% endif %}">
+                    <i class="bi bi-people"></i>Clientes
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'gestion:lista_vehiculos' %}" class="nav-link {% if 'vehiculos' in request.path %}active{% endif %}">
+                    <i class="bi bi-truck-front"></i>Vehículos
+                </a>
+            </li>
+        {% endif %}
     </ul>
     {% if user.is_superuser %}
     <hr>

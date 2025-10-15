@@ -155,7 +155,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 LOGIN_URL = 'login'
 
 # La URL a la que se redirigirá a los usuarios DESPUÉS de un inicio de sesión exitoso.
-LOGIN_REDIRECT_URL = 'gestion:dashboard'
+LOGIN_REDIRECT_URL = 'gestion:dashboard_redirect'
 
 # La URL a la que se redirigirá a los usuarios DESPUÉS de cerrar sesión.
 LOGOUT_REDIRECT_URL = 'login'

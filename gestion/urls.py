@@ -37,4 +37,8 @@ urlpatterns = [
 
     path('reportes/', views.ReportesView.as_view(), name='reportes'),
 
+    path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
+    path('dashboard/redirect/', views.dashboard_redirect_view, name='dashboard_redirect'),
+    path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),
+
 ]

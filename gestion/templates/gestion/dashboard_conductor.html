@@ -1,0 +1,60 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="mb-0">Mi Jornada</h1>
+    <p class="lead text-muted">Bienvenido, {{ user.get_full_name }}. Aquí están tus recorridos asignados.</p>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-calendar-check me-2"></i>Recorridos para Hoy ({{ "now"|date:"l, d \d\e F" }})</h5>
+    </div>
+    <div class="card-body">
+        {% if recorridos_hoy %}
+            <div class="list-group">
+                {% for recorrido in recorridos_hoy %}
+                <div class="list-group-item">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">Orden #{{ recorrido.orden.numero_orden }} - {{ recorrido.orden.cliente.nombre }}</h6>
+                        <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
+                    </div>
+                    <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
+                    <small class="text-muted">Vehículo: {{ recorrido.vehiculo.placa }}</small>
+                    <div class="mt-2">
+                        {% if not recorrido.manifiesto %}
+                        <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
+                            <i class="bi bi-pen-fill"></i> Llenar Manifiesto
+                        </a>
+                        {% elif recorrido.manifiesto.pdf_generado %}
+                        <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
+                            <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-center text-muted p-3">No tienes recorridos asignados para hoy.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-header"><h5 class="mb-0">Próximos Recorridos</h5></div>
+    <div class="card-body">
+        {% if recorridos_proximos %}
+            <ul class="list-group list-group-flush">
+                {% for recorrido in recorridos_proximos %}
+                <li class="list-group-item">
+                    <strong>{{ recorrido.fecha_recorrido|date:"d/m/Y" }}:</strong> Orden #{{ recorrido.orden.numero_orden }} para {{ recorrido.orden.cliente.nombre }}
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted">No hay más recorridos programados para los próximos 7 días.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
