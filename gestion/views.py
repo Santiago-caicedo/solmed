@@ -1,3 +1,4 @@
+import json
 import os
 from django.conf import settings
 from django.http import HttpResponseRedirect
@@ -7,14 +8,16 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.template.loader import get_template
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.core.files.base import ContentFile
 from django.views import View
 from io import BytesIO
 from weasyprint import HTML
 from xhtml2pdf import pisa
+from django.db.models import Sum, Count
 import base64
 import datetime
+from django.db.models.functions import TruncMonth
 from decimal import Decimal 
 from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView
 from django.utils import timezone
@@ -22,8 +25,8 @@ from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import Manifiesto, OrdenServicio, Recorrido
-
-from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from django.http import JsonResponse
+from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 # --- Vista Principal (Dashboard) ---
@@ -488,3 +491,119 @@ def completar_recorrido(request, pk):
         messages.success(request, f'Recorrido del {recorrido.fecha_recorrido} marcado como completado.')
         
     return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
+
+
+def feed_calendario(request):
+    """
+    Esta vista provee los eventos (recorridos) en formato JSON para FullCalendar.
+    """
+    # Obtenemos todos los recorridos que no estén cancelados
+    recorridos = Recorrido.objects.exclude(orden__estado_orden='CANCELADA')
+    
+    eventos = []
+    # Un diccionario para asignar un color a cada vehículo y que sea consistente
+    colores_vehiculos = {}
+    colores_disponibles = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6610f2']
+
+    for recorrido in recorridos:
+        vehiculo_id = recorrido.vehiculo.id
+        # Asignar un color si el vehículo aún no tiene uno
+        if vehiculo_id not in colores_vehiculos:
+            colores_vehiculos[vehiculo_id] = colores_disponibles[len(colores_vehiculos) % len(colores_disponibles)]
+
+        evento = {
+            'title': f'Orden #{recorrido.orden.numero_orden} - {recorrido.vehiculo.placa}',
+            'start': recorrido.fecha_recorrido.strftime("%Y-%m-%d"),
+            'url': reverse('gestion:detalle_orden', args=[recorrido.orden.pk]),
+            'color': colores_vehiculos[vehiculo_id],
+            'borderColor': colores_vehiculos[vehiculo_id],
+        }
+        eventos.append(evento)
+    
+    return JsonResponse(eventos, safe=False)
+
+
+class CalendarioView(LoginRequiredMixin, TemplateView):
+    template_name = 'gestion/calendario.html'
+
+
+
+# --- VISTA PARA REPORTES (SOLO SUPERUSUARIOS) ---
+
+class ReportesView(SuperuserRequiredMixin, ListView):
+    template_name = 'gestion/reportes.html'
+    
+    def get_queryset(self):
+        # No usamos un queryset por defecto, lo generamos dinámicamente
+        return None
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = ReporteFiltroForm(self.request.GET or None)
+        context['form'] = form
+
+        report_type = self.request.GET.get('report_type')
+        resultados = []
+        chart_labels = []
+        chart_data = []
+        chart_type = 'bar' # Por defecto
+        total_general = 0
+
+        if form.is_valid() and report_type:
+            
+            # --- REPORTE 1: FACTURACIÓN POR CLIENTE ---
+            if report_type == 'facturacion_cliente' and form.cleaned_data.get('fecha_inicio'):
+                fecha_inicio = form.cleaned_data['fecha_inicio']
+                fecha_fin = form.cleaned_data['fecha_fin']
+                
+                resultados = Recorrido.objects.filter(
+                    estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
+                ).values('orden__cliente__nombre').annotate(
+                    total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
+                ).order_by('-total_facturado')
+                
+                chart_labels = [item['orden__cliente__nombre'] for item in resultados]
+                chart_data = [float(item['total_facturado']) for item in resultados]
+                total_general = sum(chart_data)
+
+            # --- REPORTE 2: RENDIMIENTO POR VEHÍCULO ---
+            elif report_type == 'rendimiento_vehiculo' and form.cleaned_data.get('fecha_inicio'):
+                fecha_inicio = form.cleaned_data['fecha_inicio']
+                fecha_fin = form.cleaned_data['fecha_fin']
+                
+                resultados = Recorrido.objects.filter(
+                    estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
+                ).values('vehiculo__placa').annotate(
+                    total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
+                ).order_by('-total_facturado')
+
+                chart_labels = [item['vehiculo__placa'] for item in resultados]
+                chart_data = [float(item['total_facturado']) for item in resultados]
+                total_general = sum(chart_data)
+
+            # --- REPORTE 3: TENDENCIA MENSUAL ---
+            elif report_type == 'tendencia_mensual' and form.cleaned_data.get('año'):
+                año = form.cleaned_data['año']
+                
+                resultados = Recorrido.objects.filter(
+                    estado='COMPLETADO', fecha_recorrido__year=año
+                ).annotate(
+                    mes=TruncMonth('fecha_recorrido') # Agrupa por mes
+                ).values('mes').annotate(
+                    total_facturado=Sum('orden__valor_servicio')
+                ).order_by('mes')
+
+                meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+                chart_labels = [meses[item['mes'].month - 1] for item in resultados]
+                chart_data = [float(item['total_facturado']) for item in resultados]
+                chart_type = 'line' # Cambiamos a gráfico de líneas
+                total_general = sum(chart_data)
+
+        context['resultados'] = resultados
+        context['report_type'] = report_type
+        context['chart_labels'] = json.dumps(chart_labels)
+        context['chart_data'] = json.dumps(chart_data)
+        context['chart_type'] = chart_type
+        context['total_general'] = total_general
+        
+        return context

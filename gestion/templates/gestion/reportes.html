@@ -1,0 +1,77 @@
+{% extends "gestion/base.html" %}
+{% load humanize %}
+
+{% block content %}
+<h1 class="mb-4"><i class="bi bi-bar-chart-line-fill me-2"></i>Módulo de Reportes</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-header"><h5 class="mb-0">Generar Reporte</h5></div>
+    <div class="card-body">
+        <form method="get" id="report-form">
+            <div class="row align-items-end g-3">
+                <div class="col-md-3">{{ form.report_type.label_tag }}{{ form.report_type }}</div>
+                <div class="col-md-3 date-filters">{{ form.fecha_inicio.label_tag }}{{ form.fecha_inicio }}</div>
+                <div class="col-md-3 date-filters">{{ form.fecha_fin.label_tag }}{{ form.fecha_fin }}</div>
+                <div class="col-md-3 year-filter" style="display: none;">{{ form.año.label_tag }}{{ form.año }}</div>
+                <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Generar</button></div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if request.GET.report_type %}
+    {% if report_type == 'facturacion_cliente' %}
+        {% include "gestion/reportes/facturacion_cliente.html" %}
+    {% endif %}
+
+    {% if report_type == 'rendimiento_vehiculo' %}
+        {% include "gestion/reportes/rendimiento_vehiculo.html" %}
+    {% endif %}
+
+    {% if report_type == 'tendencia_mensual' %}
+         {% include "gestion/reportes/tendencia_mensual.html" %}
+    {% endif %}
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Script para mostrar/ocultar filtros
+    document.addEventListener('DOMContentLoaded', function() {
+        const reportTypeSelect = document.getElementById('id_report_type');
+        const dateFilters = document.querySelectorAll('.date-filters');
+        const yearFilter = document.querySelector('.year-filter');
+
+        function toggleFilters() {
+            if (reportTypeSelect.value === 'tendencia_mensual') {
+                dateFilters.forEach(el => el.style.display = 'none');
+                yearFilter.style.display = 'block';
+            } else {
+                dateFilters.forEach(el => el.style.display = 'block');
+                yearFilter.style.display = 'none';
+            }
+        }
+        reportTypeSelect.addEventListener('change', toggleFilters);
+        toggleFilters(); // Ejecutar al cargar la página
+    });
+
+    // Script para renderizar el gráfico (ahora es dinámico)
+    const ctx = document.getElementById('myChart');
+    if (ctx) {
+        new Chart(ctx, {
+            type: '{{ chart_type }}', // Tipo de gráfico dinámico
+            data: {
+                labels: {{ chart_labels|safe }},
+                datasets: [{
+                    label: 'Total Facturado ($)',
+                    data: {{ chart_data|safe }},
+                    backgroundColor: '{{ chart_type }}' === 'line' ? 'rgba(0, 140, 186, 0.2)' : 'rgba(0, 140, 186, 0.6)',
+                    borderColor: 'rgba(0, 140, 186, 1)',
+                    borderWidth: 2,
+                    fill: '{{ chart_type }}' === 'line'
+                }]
+            },
+            options: { scales: { y: { beginAtZero: true } }, responsive: true, maintainAspectRatio: false }
+        });
+    }
+</script>
+{% endblock %}

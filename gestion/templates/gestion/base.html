@@ -90,6 +90,11 @@
             </a>
         </li>
         <li>
+            <a href="{% url 'gestion:calendario' %}" class="nav-link {% if 'calendario' in request.path %}active{% endif %}">
+                <i class="bi bi-calendar3"></i>Calendario
+            </a>
+        </li>
+        <li>
             <a href="{% url 'gestion:lista_clientes' %}" class="nav-link {% if 'clientes' in request.path %}active{% endif %}">
                 <i class="bi bi-people"></i>Clientes
             </a>
@@ -106,6 +111,12 @@
         <li class="nav-item">
             <a href="{% url 'gestion:lista_usuarios' %}" class="nav-link {% if 'usuarios' in request.path %}active{% endif %}">
                 <i class="bi bi-person-gear"></i>Administrar Usuarios
+            </a>
+        </li>
+
+        <li class="nav-item">
+            <a href="{% url 'gestion:reportes' %}" class="nav-link {% if 'reportes' in request.path %}active{% endif %}">
+                <i class="bi bi-bar-chart-line-fill"></i>Reportes
             </a>
         </li>
     </ul>

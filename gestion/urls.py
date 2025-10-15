@@ -32,4 +32,9 @@ urlpatterns = [
     path('usuarios/nuevo/', views.CrearUsuarioView.as_view(), name='crear_usuario'),
     path('usuarios/<int:pk>/editar/', views.ActualizarUsuarioView.as_view(), name='actualizar_usuario'),
 
+    path('api/calendario/', views.feed_calendario, name='feed_calendario'),
+    path('calendario/', views.CalendarioView.as_view(), name='calendario'),
+
+    path('reportes/', views.ReportesView.as_view(), name='reportes'),
+
 ]

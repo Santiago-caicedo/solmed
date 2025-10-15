@@ -1,0 +1,65 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    /* Estilos para que el calendario se vea bien */
+    #calendario {
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    .fc-event {
+        cursor: pointer; /* Hace que los eventos parezcan clickeables */
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Calendario de Operaciones</h1>
+</div>
+
+<div class="card shadow">
+    <div class="card-body">
+        <div id='calendario'></div>
+    </div>
+</div>
+
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.js'></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var calendarEl = document.getElementById('calendario');
+
+        var calendar = new FullCalendar.Calendar(calendarEl, {
+            // Configuración inicial
+            initialView: 'dayGridMonth',
+            locale: 'es', // ¡Calendario en español!
+            
+            // Barra de herramientas con botones de navegación
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,listWeek' // Vistas: mes, semana, lista
+            },
+
+            // Fuente de eventos: nuestra API que creamos en el Paso 1
+            events: "{% url 'gestion:feed_calendario' %}",
+            
+            // Altura y aspecto
+            height: 'auto',
+            
+            // Comportamiento al hacer clic en un evento
+            eventClick: function(info) {
+                // Previene el comportamiento por defecto del navegador
+                info.jsEvent.preventDefault();
+                
+                // Si el evento tiene una URL (la del expediente de la orden), navega a ella
+                if (info.event.url) {
+                    window.location.href = info.event.url;
+                }
+            }
+        });
+
+        // Renderizar el calendario
+        calendar.render();
+    });
+</script>
+{% endblock %}
