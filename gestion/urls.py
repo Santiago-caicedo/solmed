@@ -40,5 +40,6 @@ urlpatterns = [
     path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
     path('dashboard/redirect/', views.dashboard_redirect_view, name='dashboard_redirect'),
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),
+    path('planificacion/', views.PlanificacionView.as_view(), name='planificacion'),
 
 ]

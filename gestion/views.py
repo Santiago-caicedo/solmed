@@ -3,7 +3,7 @@ import os
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render, redirect
@@ -31,6 +31,12 @@ from django.http import JsonResponse
 from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
+
+# --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
+class PlanificadorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or user.groups.filter(name='Planificadores').exists()
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA ASESORES Y ADMINS ---
@@ -680,3 +686,60 @@ class MisRecorridosView(ConductorRequiredMixin, ListView):
             fecha_recorrido__gte=hoy,
             estado__in=['PROGRAMADO', 'EN_CURSO']
         ).order_by('fecha_recorrido')
+
+
+
+# --- NUEVA VISTA: TABLERO DE PLANIFICACIÓN ---
+class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
+    template_name = 'gestion/planificacion.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # 1. Obtener la fecha (igual que en el expediente del vehículo)
+        fecha_str = self.request.GET.get('fecha')
+        fecha_seleccionada = timezone.now().date()
+        if fecha_str:
+            try:
+                fecha_seleccionada = datetime.datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            except ValueError:
+                pass # Mantener la fecha de hoy si el formato es incorrecto
+        
+        context['fecha_seleccionada'] = fecha_seleccionada
+
+        # 2. Obtener los recorridos del día
+        recorridos_del_dia = Recorrido.objects.filter(fecha_recorrido=fecha_seleccionada).select_related('vehiculo', 'conductor', 'orden__cliente')
+        context['recorridos_del_dia'] = recorridos_del_dia
+
+        # 3. Identificar recursos OCUPADOS
+        vehiculos_ocupados_ids = [r.vehiculo.id for r in recorridos_del_dia if r.vehiculo]
+        conductores_ocupados_ids = [r.conductor.id for r in recorridos_del_dia if r.conductor]
+
+        # 4. Obtener recursos DISPONIBLES
+        conductores = Group.objects.get(name='Conductores').user_set.all()
+        
+        context['vehiculos_disponibles'] = Vehiculo.objects.filter(estado='OPERATIVO').exclude(id__in=vehiculos_ocupados_ids)
+        context['conductores_disponibles'] = conductores.exclude(id__in=conductores_ocupados_ids)
+
+        return context
+
+    def post(self, request, *args, **kwargs):
+        # Esta lógica maneja la re-asignación
+        recorrido_id = request.POST.get('recorrido_id')
+        nuevo_vehiculo_id = request.POST.get('vehiculo')
+        nuevo_conductor_id = request.POST.get('conductor')
+
+        try:
+            recorrido = Recorrido.objects.get(id=recorrido_id)
+            if nuevo_vehiculo_id:
+                recorrido.vehiculo_id = nuevo_vehiculo_id
+            if nuevo_conductor_id:
+                recorrido.conductor_id = nuevo_conductor_id
+            recorrido.save()
+            messages.success(request, f"Recorrido #{recorrido.id} re-asignado exitosamente.")
+        except Recorrido.DoesNotExist:
+            messages.error(request, "El recorrido que intentas modificar no existe.")
+            
+        # Redirige a la misma página de planificación con la fecha seleccionada
+        fecha = request.POST.get('fecha', timezone.now().date().isoformat())
+        return redirect(f"{reverse('gestion:planificacion')}?fecha={fecha}")

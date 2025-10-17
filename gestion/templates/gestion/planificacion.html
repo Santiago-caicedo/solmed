@@ -1,0 +1,95 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<h1 class="mb-4">Tablero de Planificación Diaria</h1>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <form method="get">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label for="fecha" class="form-label fw-bold">Seleccionar Fecha:</label>
+                    <input type="date" name="fecha" id="fecha" class="form-control" value="{{ fecha_seleccionada|date:'Y-m-d' }}">
+                </div>
+                <div class="col-md-3"><button type="submit" class="btn btn-primary">Ver Agenda del Día</button></div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header"><h5 class="mb-0">Recorridos para el {{ fecha_seleccionada|date:"l, d \d\e F" }}</h5></div>
+            <div class="card-body">
+                {% for recorrido in recorridos_del_dia %}
+                    <div class="p-3 mb-2 border rounded">
+                        <h6><a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}">Orden #{{ recorrido.orden.numero_orden }}</a> para {{ recorrido.orden.cliente.nombre }}</h6>
+                        <p class="mb-2">
+                            <span class="badge bg-info text-dark me-2">Vehículo: {{ recorrido.vehiculo.placa }}</span>
+                            <span class="badge bg-secondary">Conductor: {{ recorrido.conductor.get_full_name|default:'Sin asignar' }}</span>
+                        </p>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="recorrido_id" value="{{ recorrido.id }}">
+                            <input type="hidden" name="fecha" value="{{ fecha_seleccionada|date:'Y-m-d' }}">
+                            <div class="row g-2">
+                                <div class="col-md-5">
+                                    <label class="form-label-sm">Cambiar Vehículo:</label>
+                                    <select name="vehiculo" class="form-select form-select-sm">
+                                        <option value="{{ recorrido.vehiculo.id }}" selected>{{ recorrido.vehiculo }}</option>
+                                        <optgroup label="Disponibles">
+                                            {% for v in vehiculos_disponibles %}
+                                            <option value="{{ v.id }}">{{ v }}</option>
+                                            {% endfor %}
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label-sm">Cambiar Conductor:</label>
+                                    <select name="conductor" class="form-select form-select-sm">
+                                        <option value="{{ recorrido.conductor.id }}" selected>{{ recorrido.conductor.get_full_name }}</option>
+                                        <optgroup label="Disponibles">
+                                            {% for c in conductores_disponibles %}
+                                            <option value="{{ c.id }}">{{ c.get_full_name }}</option>
+                                            {% endfor %}
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-success btn-sm w-100">Reasignar</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                {% empty %}
+                    <p class="text-center text-muted">No hay recorridos programados para esta fecha.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow mb-3">
+            <div class="card-header"><h5 class="mb-0">Vehículos Disponibles</h5></div>
+            <ul class="list-group list-group-flush">
+                {% for vehiculo in vehiculos_disponibles %}
+                    <li class="list-group-item">{{ vehiculo.placa }} - {{ vehiculo.marca }}</li>
+                {% empty %}
+                    <li class="list-group-item text-muted">No hay vehículos disponibles.</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="card shadow">
+            <div class="card-header"><h5 class="mb-0">Conductores Disponibles</h5></div>
+            <ul class="list-group list-group-flush">
+                {% for conductor in conductores_disponibles %}
+                    <li class="list-group-item">{{ conductor.get_full_name }}</li>
+                {% empty %}
+                    <li class="list-group-item text-muted">No hay conductores disponibles.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

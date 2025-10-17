@@ -23,7 +23,15 @@ def crear_roles(sender, **kwargs):
             "ordenservicio": ["view"],
             "vehiculo": ["view"],
             "manifiesto": ["add", "view"], # Permitirles crear y ver manifiestos
+        },
+
+        "Planificadores": {
+            "recorrido": ["view", "change"], # Puede ver y MODIFICAR recorridos
+            "vehiculo": ["view"],             # Necesita ver la lista de vehículos
+            "user": ["view"],                 # Necesita ver la lista de usuarios (conductores)
+            "ordenservicio": ["view"],        # Necesita ver las órdenes a las que pertenecen los recorridos
         }
+        
     }
 
     for nombre_rol, permisos_rol in ROLES.items():
