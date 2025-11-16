@@ -1,0 +1,33 @@
+{% extends "gestion/base.html" %}
+{% load humanize %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card shadow">
+            <div class="card-header">
+                <h5 class="mb-0">Registrar Pago para la Orden #{{ orden.numero_orden }}</h5>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    {{ form.as_p }}
+                    <hr>
+                    <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-success">Guardar Pago</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card shadow">
+            <div class="card-header"><h5 class="mb-0">Resumen de la Orden</h5></div>
+            <div class="card-body">
+                <p><strong>Cliente:</strong> {{ orden.cliente.nombre }}</p>
+                <p><strong>Valor Total:</strong> ${{ orden.valor_servicio|floatformat:0|intcomma }}</p>
+                <p><strong>Estado Actual:</strong> <span class="badge bg-warning text-dark">{{ orden.get_estado_pago_display }}</span></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

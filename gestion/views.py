@@ -26,9 +26,9 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import Manifiesto, OrdenServicio, Recorrido
+from .models import Manifiesto, OrdenServicio, Pago, Recorrido
 from django.http import JsonResponse
-from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 
@@ -743,3 +743,27 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
         # Redirige a la misma página de planificación con la fecha seleccionada
         fecha = request.POST.get('fecha', timezone.now().date().isoformat())
         return redirect(f"{reverse('gestion:planificacion')}?fecha={fecha}")
+
+
+
+class RegistrarPagoView(AsesorRequiredMixin, CreateView):
+    model = Pago
+    form_class = PagoForm
+    template_name = 'gestion/registrar_pago.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Obtenemos la orden desde la URL y la pasamos a la plantilla
+        context['orden'] = get_object_or_404(OrdenServicio, pk=self.kwargs['orden_pk'])
+        return context
+
+    def form_valid(self, form):
+        # Asignamos la orden al pago antes de guardarlo
+        orden = get_object_or_404(OrdenServicio, pk=self.kwargs['orden_pk'])
+        form.instance.orden = orden
+        messages.success(self.request, "Pago registrado exitosamente.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        # Después de registrar el pago, volvemos al expediente de la orden
+        return reverse('gestion:detalle_orden', kwargs={'pk': self.kwargs['orden_pk']})

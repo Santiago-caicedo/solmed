@@ -1,6 +1,8 @@
 # gestion/models.py
 from django.db import models
 from django.conf import settings # Para relacionar con el usuario/asesor
+from django.db.models import Sum
+from django.utils import timezone
 
 
 class Cliente(models.Model):
@@ -218,3 +220,54 @@ class Manifiesto(models.Model):
 
     def __str__(self):
         return f"Manifiesto del Recorrido #{self.recorrido.id}"
+    
+
+
+class Pago(models.Model):
+    METODO_CHOICES = [
+        ('TRANSFERENCIA', 'Transferencia'),
+        ('EFECTIVO', 'Efectivo'),
+        ('CONSIGNACION', 'Consignación'),
+        ('OTRO', 'Otro'),
+    ]
+
+    # Cada pago está ligado a una Orden de Servicio
+    orden = models.ForeignKey(OrdenServicio, on_delete=models.PROTECT, related_name='pagos')
+    
+    fecha_pago = models.DateTimeField(default=timezone.now, verbose_name="Fecha y Hora del Pago")
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    metodo_pago = models.CharField(max_length=50, choices=METODO_CHOICES, default='TRANSFERENCIA')
+    notas = models.TextField(blank=True, help_text="Notas adicionales, número de referencia, etc.")
+    
+    class Meta:
+        ordering = ['-fecha_pago']
+
+    def __str__(self):
+        return f"Pago de {self.monto} para Orden #{self.orden.pk}"
+
+    # --- LÓGICA DE AUTOMATIZACIÓN ---
+    def _actualizar_estado_orden(self):
+        """
+        Esta función se llama cada vez que se guarda o borra un pago.
+        Calcula el total pagado y actualiza el estado de la orden padre.
+        """
+        orden = self.orden
+        # Sumamos todos los pagos registrados para esta orden
+        total_pagado = orden.pagos.aggregate(total=Sum('monto'))['total'] or 0.00
+        
+        if total_pagado >= orden.valor_servicio:
+            orden.estado_pago = 'PAGADO'
+        elif total_pagado > 0:
+            orden.estado_pago = 'ABONADO'
+        else:
+            orden.estado_pago = 'PENDIENTE'
+        
+        orden.save()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs) # Guarda el pago
+        self._actualizar_estado_orden() # Actualiza la orden
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs) # Borra el pago
+        self._actualizar_estado_orden() # Actualiza la orden

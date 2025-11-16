@@ -1,5 +1,5 @@
 from django import forms
-from .models import DocumentoOrden, Manifiesto, OrdenServicio, Recorrido, Vehiculo, Cliente
+from .models import DocumentoOrden, Manifiesto, OrdenServicio, Pago, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 import datetime
@@ -322,3 +322,16 @@ class ReporteFiltroForm(forms.Form):
         widget=forms.Select(attrs={'class': 'form-select'}),
         required=False
     )
+
+
+
+class PagoForm(forms.ModelForm):
+    class Meta:
+        model = Pago
+        fields = ['fecha_pago', 'monto', 'metodo_pago', 'notas']
+        widgets = {
+            'fecha_pago': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
+            'monto': forms.NumberInput(attrs={'class': 'form-control'}),
+            'metodo_pago': forms.Select(attrs={'class': 'form-select'}),
+            'notas': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+        }

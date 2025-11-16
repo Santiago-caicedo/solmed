@@ -10,6 +10,11 @@
     <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-secondary">
         <i class="bi bi-pencil-square me-1"></i> Editar Datos Generales
     </a>
+    {% if orden.estado_pago != 'PAGADO' %}
+    <a href="{% url 'gestion:registrar_pago' orden.pk %}" class="btn btn-success ms-2">
+        <i class="bi bi-cash-coin me-1"></i> Registrar Pago
+    </a>
+    {% endif %}
 </div>
 
 <div class="row">
@@ -83,6 +88,30 @@
                 <p><strong>Valor Total:</strong> ${{ orden.valor_servicio|floatformat:0|intcomma }}</p>
                 <hr>
                 <p><strong>Descripción General:</strong><br>{{ orden.descripcion|linebreaks }}</p>
+            </div>
+        </div>
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0">Historial de Pagos</h5></div>
+            <div class="card-body">
+                {% if orden.pagos.all %}
+                    <ul class="list-group list-group-flush">
+                    {% for pago in orden.pagos.all %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${{ pago.monto|floatformat:0|intcomma }}</strong>
+                                <small class="d-block text-muted">{{ pago.fecha_pago|date:"d/m/Y, h:i a" }} ({{ pago.get_metodo_pago_display }})</small>
+                            </div>
+                            </li>
+                    {% endfor %}
+                    </ul>
+                    <hr>
+                    <div class="d-flex justify-content-between fs-5 fw-bold">
+                        <span>Total Pagado:</span>
+                        <span class="text-success">${{ orden.pagos.all.total_pagado|floatformat:0|intcomma }}</span>
+                    </div>
+                {% else %}
+                    <p class="text-muted text-center">No se han registrado pagos para esta orden.</p>
+                {% endif %}
             </div>
         </div>
     </div>

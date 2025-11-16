@@ -42,4 +42,6 @@ urlpatterns = [
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),
     path('planificacion/', views.PlanificacionView.as_view(), name='planificacion'),
 
+    path('ordenes/<int:orden_pk>/registrar-pago/', views.RegistrarPagoView.as_view(), name='registrar_pago'),
+
 ]
