@@ -51,13 +51,17 @@
                 <div class="form-section">
                     <div class="form-section-title">SONDEO</div>
                     <div class="form-section-content">
-                        <div class="form-check">{{ form.sond_red_aguas_lluvias }} {{ form.sond_red_aguas_lluvias.label_tag }}</div>
-                        <div class="form-check">{{ form.sond_red_aguas_negras }} {{ form.sond_red_aguas_negras.label_tag }}</div>
-                        <div class="form-check">{{ form.sond_red_acueducto }} {{ form.sond_red_acueducto.label_tag }}</div>
+                        <div class="checkbox-group">{{ form.sond_red_aguas_lluvias.label_tag }} {{ form.sond_red_aguas_lluvias }} {{ form.sond_red_aguas_lluvias_cant }}</div>
+                        <div class="checkbox-group">{{ form.sond_red_aguas_negras.label_tag }} {{ form.sond_red_aguas_negras }} {{ form.sond_red_aguas_negras_cant }}</div>
+                        <div class="checkbox-group">{{ form.sond_red_acueducto.label_tag }} {{ form.sond_red_acueducto }} {{ form.sond_red_acueducto_cant }}</div>
                         <hr>
-                        <div class="form-check">{{ form.sond_correctivo }} {{ form.sond_correctivo.label_tag }}</div>
-                        <div class="form-check">{{ form.sond_preventivo }} {{ form.sond_preventivo.label_tag }}</div>
-                        <div class="mt-2">{{ form.sond_diametro.label_tag }} {{ form.sond_diametro }}</div>
+                        <div class="checkbox-group">{{ form.sond_correctivo.label_tag }} {{ form.sond_correctivo }} {{ form.sond_correctivo_cant }}</div>
+                        <div class="checkbox-group">{{ form.sond_preventivo.label_tag }} {{ form.sond_preventivo }} {{ form.sond_preventivo_cant }}</div>
+                        <hr>
+                        <div class="mt-2">
+                            {{ form.sond_diametro.label_tag }}
+                            {{ form.sond_diametro }}
+                        </div>
                     </div>
                 </div>
             </div>

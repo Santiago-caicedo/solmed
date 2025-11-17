@@ -98,8 +98,12 @@ class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / L
             'succ_trampas_grasa', 'succ_trampas_grasa_cant',
             'succ_otros', 'succ_otros_cant',
             # Sondeo
-            'sond_red_aguas_lluvias', 'sond_red_aguas_negras', 'sond_red_acueducto',
-            'sond_correctivo', 'sond_preventivo', 'sond_diametro',
+            'sond_red_aguas_lluvias', 'sond_red_aguas_lluvias_cant',
+            'sond_red_aguas_negras', 'sond_red_aguas_negras_cant',
+            'sond_red_acueducto', 'sond_red_acueducto_cant',
+            'sond_correctivo', 'sond_correctivo_cant',
+            'sond_preventivo', 'sond_preventivo_cant',
+            'sond_diametro',
             # Lavado
             'lavado_concepto', 'lavado_cantidad', 'lavado_correctivo', 'lavado_preventivo',
             # Transporte
@@ -129,10 +133,11 @@ class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / L
             'succ_trampas_grasa': 'Trampas de Grasa', 'succ_trampas_grasa_cant': '',
             'succ_otros': 'Otros ¿Cuál?', 'succ_otros_cant': '',
             
-            'sond_red_aguas_lluvias': 'Red de agua lluvias',
-            'sond_red_aguas_negras': 'Red de aguas negras',
-            'sond_red_acueducto': 'Red Acueducto',
-            'sond_correctivo': 'Correctivo', 'sond_preventivo': 'Preventivo',
+            'sond_red_aguas_lluvias': 'Red de agua lluvias', 'sond_red_aguas_lluvias_cant': '',
+            'sond_red_aguas_negras': 'Red de aguas negras', 'sond_red_aguas_negras_cant': '',
+            'sond_red_acueducto': 'Red Acueducto', 'sond_red_acueducto_cant': '',
+            'sond_correctivo': 'Correctivo', 'sond_correctivo_cant': '',
+            'sond_preventivo': 'Preventivo', 'sond_preventivo_cant': '',
             'sond_diametro': 'Diámetro',
 
             'lavado_concepto': 'Concepto', 

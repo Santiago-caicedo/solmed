@@ -165,10 +165,15 @@ class Manifiesto(models.Model):
 
     # --- Sección: Sondeo ---
     sond_red_aguas_lluvias = models.BooleanField(default=False, verbose_name="Red de agua lluvias")
+    sond_red_aguas_lluvias_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Lluvias)") 
     sond_red_aguas_negras = models.BooleanField(default=False, verbose_name="Red de aguas negras")
+    sond_red_aguas_negras_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Negras)") 
     sond_red_acueducto = models.BooleanField(default=False, verbose_name="Red Acueducto")
+    sond_red_acueducto_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Acueducto)") 
     sond_correctivo = models.BooleanField(default=False, verbose_name="Sondeo Correctivo")
+    sond_correctivo_cant = models.CharField(max_length=50, blank=True, verbose_name="Valor (Correctivo)") 
     sond_preventivo = models.BooleanField(default=False, verbose_name="Sondeo Preventivo")
+    sond_preventivo_cant = models.CharField(max_length=50, blank=True, verbose_name="Valor (Preventivo)") 
     sond_diametro = models.CharField(max_length=50, blank=True, verbose_name="Diámetro")
 
     # --- Sección: Lavado ---
