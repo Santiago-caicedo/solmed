@@ -174,8 +174,8 @@ class Manifiesto(models.Model):
     # --- Sección: Lavado ---
     lavado_concepto = models.CharField(max_length=100, blank=True, verbose_name="Concepto de Lavado")
     lavado_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Lavado)")
-    lavado_correctivo = models.BooleanField(default=False, verbose_name="Lavado Correctivo")
-    lavado_preventivo = models.BooleanField(default=False, verbose_name="Lavado Preventivo")
+    lavado_correctivo = models.CharField(max_length=100, blank=True, verbose_name="Lavado Correctivo")
+    lavado_preventivo = models.CharField(max_length=100, blank=True, verbose_name="Lavado Preventivo")
 
     # --- Sección: Transporte ---
     transporte_tipo = models.CharField(max_length=100, blank=True, verbose_name="Tipo de Transporte")

@@ -116,6 +116,8 @@ class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / L
             'sond_diametro': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Diámetro'}),
             'lavado_concepto': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Concepto'}),
             'lavado_cantidad': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'H/ML/Cantidad'}),
+            'lavado_correctivo': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Valor Correctivo'}),
+            'lavado_preventivo': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Valor Preventivo'}),
             'transporte_tipo': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Tipo'}),
             'transporte_cantidad': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Cantidad'}),
         }
@@ -133,8 +135,10 @@ class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / L
             'sond_correctivo': 'Correctivo', 'sond_preventivo': 'Preventivo',
             'sond_diametro': 'Diámetro',
 
-            'lavado_concepto': 'Concepto', 'lavado_cantidad': 'Cantidad',
-            'lavado_correctivo': 'Correctivo', 'lavado_preventivo': 'Preventivo',
+            'lavado_concepto': 'Concepto', 
+            'lavado_cantidad': 'Cantidad',
+            'lavado_correctivo': 'Correctivo', 
+            'lavado_preventivo': 'Preventivo',
 
             'transporte_tipo': 'Tipo', 'transporte_cantidad': 'Cantidad',
         }

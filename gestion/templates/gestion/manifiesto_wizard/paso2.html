@@ -66,12 +66,25 @@
                 <div class="form-section">
                     <div class="form-section-title">LAVADO</div>
                     <div class="form-section-content">
-                        <div class="mb-2">{{ form.lavado_concepto.label_tag }} {{ form.lavado_concepto }}</div>
-                        <div class="mb-2">{{ form.lavado_cantidad.label_tag }} {{ form.lavado_cantidad }}</div>
+                        
+                        <div class="mb-2">
+                            {{ form.lavado_concepto.label_tag }}
+                            {{ form.lavado_concepto }}
+                        </div>
+                        <div class="mb-2">
+                            {{ form.lavado_cantidad.label_tag }}
+                            {{ form.lavado_cantidad }}
+                        </div>
                         <hr>
-                        <div class="form-check">{{ form.lavado_correctivo }} {{ form.lavado_correctivo.label_tag }}</div>
-                        <div class="form-check">{{ form.lavado_preventivo }} {{ form.lavado_preventivo.label_tag }}</div>
-                    </div>
+                        <div class="mb-2">
+                            {{ form.lavado_correctivo.label_tag }}
+                            {{ form.lavado_correctivo }}
+                        </div>
+                        <div>
+                            {{ form.lavado_preventivo.label_tag }}
+                            {{ form.lavado_preventivo }}
+                        </div>
+                        </div>
                 </div>
 
                 <div class="form-section">
