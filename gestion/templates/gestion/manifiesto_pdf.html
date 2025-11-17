@@ -4,144 +4,654 @@
     <meta charset="UTF-8">
     <title>Orden de Servicio #{{ recorrido.orden.numero_orden }}</title>
     <style>
-        @page { size: letter portrait; margin: 0.5in; }
-        body { font-family: "Helvetica", sans-serif; font-size: 8pt; color: #000; }
-        .master-table { width: 100%; border-collapse: collapse; }
-        .master-table > tbody > tr > td { border: 1px solid #000; padding: 0; vertical-align: top; }
-        .inner-table { width: 100%; border-collapse: collapse; }
-        .inner-table td { padding: 3px 5px; vertical-align: top; }
-        .bordered, .bordered td, .bordered th { border: 1px solid #000; }
-        .section-title { background-color: #E0E0E0; font-weight: bold; text-align: center; font-size: 7pt; padding: 2px; border-bottom: 1px solid #000; }
-        .field-label { font-weight: bold; }
-        .check { font-family: "DejaVu Sans", sans-serif; }
-        .center { text-align: center; }
-        .signature-box { height: 60px; text-align: center; }
-        .footer { text-align: center; font-size: 7pt; position: fixed; bottom: -0.4in; left: 0; right: 0; }
+        @page {
+            size: letter portrait;
+            margin: 0.6in;
+        }
+
+        body {
+            font-family: "Helvetica", Arial, sans-serif;
+            font-size: 8pt;
+            color: #000;
+            line-height: 1.3;
+        }
+
+        /* Layout genérico */
+        .header,
+        .row,
+        .flex-row {
+            display: flex;
+            flex-direction: row;
+        }
+
+        .section {
+            border: 1px solid #000;
+            border-radius: 3px;
+            margin-bottom: 6px;
+            overflow: hidden;
+        }
+
+        .col {
+            padding: 4px 6px;
+        }
+
+        .bordered-right {
+            border-right: 1px solid #000;
+        }
+
+        .bordered-bottom {
+            border-bottom: 1px solid #000;
+        }
+
+        .section-title {
+            font-weight: bold;
+            text-align: center;
+            background-color: #E9ECEF;
+            padding: 3px;
+            border-bottom: 1px solid #000;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .field-label {
+            font-weight: bold;
+        }
+
+        .check {
+            font-family: "DejaVu Sans", sans-serif;
+            font-size: 9pt;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .signature-box {
+            height: 55px;
+            text-align: center;
+            padding-top: 5px;
+            border-bottom: 1px dashed #999;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 7pt;
+            position: fixed;
+            bottom: -0.4in;
+            left: 0;
+            right: 0;
+        }
+
+        /* Tablas genéricas */
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        .meta-table td {
+            border: 1px solid #000;
+            padding: 2px 4px;
+        }
+
+        .rating-table th,
+        .rating-table td {
+            border: 1px solid #000;
+            padding: 3px 4px;
+        }
+
+        .rating-table thead th {
+            background-color: #F2F2F2;
+        }
+
+        .rating-table tbody tr:nth-child(even) {
+            background-color: #FAFAFA;
+        }
+
+        /* Cabecera tipo factura */
+        .header {
+            align-items: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+        }
+
+        .header-logo {
+            width: 25%;
+        }
+
+        .header-center {
+            width: 45%;
+            font-size: 9pt;
+        }
+
+        .header-center strong {
+            font-size: 10pt;
+        }
+
+        .header-right {
+            width: 30%;
+        }
+
+        .os-box {
+            border: 2px solid #000;
+            text-align: center;
+            padding: 6px 4px;
+            margin-top: 5px;
+            border-radius: 3px;
+        }
+
+        .os-box .field-label {
+            font-size: 8pt;
+            letter-spacing: 0.7px;
+        }
+
+        .os-number {
+            font-size: 15pt;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        /* Sección datos generales */
+        .section-body-row {
+            display: flex;
+            flex-direction: row;
+            border-bottom: 1px solid #000;
+        }
+
+        .section-body-row:last-child {
+            border-bottom: none;
+        }
+
+        .section-body-row .col-label {
+            width: 10%;
+            background-color: #F7F7F7;
+            border-right: 1px solid #000;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-body-row .col-value {
+            padding-left: 4px;
+        }
+
+        /* Sección servicios (succión, sondeo, etc.) */
+        .services-row {
+            border-top: 1px solid #000;
+        }
+
+        .services-row .col {
+            border-right: 1px solid #000;
+        }
+
+        .services-row .col:last-child {
+            border-right: none;
+        }
+
+        .services-row span.field-label {
+            font-size: 7.5pt;
+        }
+
+        /* Sección tiempos / horómetro / kms */
+        .timing-table th,
+        .timing-table td {
+            border: 1px solid #000;
+            padding: 3px 4px;
+            font-size: 8pt;
+            vertical-align: top;
+        }
+
+        .timing-table th {
+            background-color: #F2F2F2;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .timing-label {
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .timing-value {
+            margin-top: 2px;
+        }
+
+        /* Firmas */
+        .signature-title {
+            border-bottom: 1px solid #000;
+            background-color: #E9ECEF;
+            text-align: center;
+            font-weight: bold;
+            padding: 3px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .signature-name {
+            padding: 4px 6px;
+            font-size: 8pt;
+        }
+
+        /* Observaciones */
+        .observaciones-box {
+            min-height: 55px;
+            padding: 4px 6px;
+            font-size: 8pt;
+        }
     </style>
 </head>
 <body>
 
-<table class="master-table">
-    <tr><td style="border: none; padding-bottom: 5px;"><table class="inner-table">
-        <tr>
-            <td style="width: 25%;"><img src="{{ logo_b64 }}" style="max-width: 150px;"></td>
-            <td style="width: 40%;" class="center">
-                <div style="font-size: 11pt;"><strong>SOLUCIONES MEDIOAMBIENTALES S.A.S.</strong></div>
-                <div>SOLMED S.A.S.</div><div>NIT 830.514.597-2</div>
-            </td>
-            <td style="width: 35%; vertical-align: top;">
-                <table style="width: 100%; font-size: 7pt; border-collapse: collapse;">
-                    <tr><td style="border: 1px solid #000; padding: 1px 3px;"><strong>CÓDIGO:</strong> GO-F-04</td><td rowspan="3" style="border: 2px solid #000; text-align: center; vertical-align: middle; padding: 5px;">
-                        <div class="field-label">ORDEN DE SERVICIO</div>
-                        <div style="font-size: 16pt; font-weight: bold;">{{ recorrido.orden.numero_orden }}</div>
-                    </td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 1px 3px;"><strong>Versión:</strong> 01</td></tr>
-                    <tr><td style="border: 1px solid #000; padding: 1px 3px;"><strong>Página:</strong> 11/01/2017</td></tr>
-                </table>
-            </td>
-        </tr>
-    </table></td></tr>
+    <!-- CABECERA -->
+    <div class="header">
+        <div class="col header-logo">
+            <img src="{{ logo_b64 }}" style="max-width: 150px;">
+        </div>
 
-    <tr><td><table class="inner-table">
-        <tr>
-            <td style="width: 10%;"><span class="field-label">Fecha:</span></td><td style="width: 23%;">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td style="width: 10%;"><span class="field-label">Empresa:</span></td><td style="width: 57%;">{{ recorrido.orden.cliente.nombre }}</td>
-        </tr>
-    </table></td></tr>
-    <tr><td><table class="inner-table">
-        <tr>
-            <td style="width: 10%;"><span class="field-label">Dirección:</span></td><td>{{ recorrido.orden.direccion_servicio }}</td>
-            <td style="width: 5%;"><span class="field-label">Tel.:</span></td><td style="width: 15%;">{{ recorrido.orden.cliente.telefono }}</td>
-            <td style="width: 5%;"><span class="field-label">Nit:</span></td><td style="width: 15%;">{{ recorrido.orden.cliente.identificacion }}</td>
-        </tr>
-    </table></td></tr>
-    <tr><td><table class="inner-table">
-        <tr>
-            <td style="width: 10%;"><span class="field-label">Equipo:</span></td><td>{{ recorrido.vehiculo.marca }}</td>
-            <td style="width: 10%;"><span class="field-label">Marca:</span></td><td>{{ recorrido.vehiculo.marca }}</td>
-            <td style="width: 10%;"><span class="field-label">Placa:</span></td><td>{{ recorrido.vehiculo.placa }}</td>
-        </tr>
-    </table></td></tr>
-    <tr><td><table class="inner-table">
-        <tr>
-            <td style="width: 10%;"><span class="field-label">Conductor:</span></td><td>{{ recorrido.vehiculo.conductor_asignado.get_full_name|default:'' }}</td>
-            <td style="width: 10%;"><span class="field-label">Auxiliar 1:</span></td><td style="width: 20%;">{{ manifiesto.auxiliar1 }}</td>
-            <td style="width: 10%;"><span class="field-label">Auxiliar 2:</span></td><td style="width: 20%;">{{ manifiesto.auxiliar2 }}</td>
-        </tr>
-    </table></td></tr>
+        <div class="col header-center center">
+            <strong>SOLUCIONES MEDIOAMBIENTALES S.A.S.</strong><br>
+            SOLMED S.A.S.<br>
+            NIT 830.514.597-2
+        </div>
 
-    <tr><td><table class="inner-table">
-        <tr class="section-title">
-            <td style="width: 35%; border-right: 1px solid #000;">SUCCIÓN Y TRANSPORTE</td>
-            <td style="width: 25%; border-right: 1px solid #000;">SONDEO</td>
-            <td style="width: 20%; border-right: 1px solid #000;">LAVADO</td>
-            <td style="width: 20%;">TRANSPORTE</td>
-        </tr>
-        <tr>
-            <td style="border-right: 1px solid #000;"><span class="check">{% if manifiesto.succ_canecas %}[X]{% else %}[  ]{% endif %}</span> Canecas <span style="float: right;">Ton/M³: {{ manifiesto.succ_canecas_cant }}</span></td>
-            <td style="border-right: 1px solid #000;"><span class="check">{% if manifiesto.sond_red_aguas_lluvias %} [X] {% else %} [   ] {% endif %}</span> Red de agua lluvias</td>
-            <td style="border-right: 1px solid #000;"><span class="field-label">Concepto:</span> {{ manifiesto.lavado_concepto }}</td>
-            <td><span class="field-label">Tipo:</span> {{ manifiesto.transporte_tipo }}</td>
-        </tr>
-        </table></td></tr>
+        <div class="col header-right">
+            <table class="meta-table">
+                <tr>
+                    <td><strong>CÓDIGO:</strong> GO-F-04</td>
+                </tr>
+                <tr>
+                    <td><strong>Versión:</strong> 01</td>
+                </tr>
+                <tr>
+                    <td><strong>Página:</strong> 11/01/2017</td>
+                </tr>
+            </table>
+            <div class="os-box">
+                <div class="field-label">ORDEN DE SERVICIO</div>
+                <div class="os-number">{{ recorrido.orden.numero_orden }}</div>
+            </div>
+        </div>
+    </div>
 
-    <tr><td><table class="inner-table">
-        <tr class="section-title">
-            <td style="width: 33%; border-right: 1px solid #000;">TIEMPOS</td>
-            <td style="width: 34%; border-right: 1px solid #000;">HOROMETRO SISTEMA DE VACIO</td>
-            <td style="width: 33%;">KILOMETROS</td>
-        </tr>
-        <tr>
-            <td style="border-right: 1px solid #000;"><span class="field-label">H. Inicio Operativo:</span> {{ manifiesto.tiempo_inicio_operativo|time:"H:i" }}</td>
-            <td style="border-right: 1px solid #000;"><span class="field-label">H. Inicio:</span> {{ manifiesto.horometro_inicio }}</td>
-            <td><span class="field-label">Salida SolMed:</span> {{ manifiesto.km_salida_solmed }}</td>
-        </tr>
-        <tr>
-            <td style="border-right: 1px solid #000;"><span class="field-label">H. Final Operativo:</span> {{ manifiesto.tiempo_final_operativo|time:"H:i" }}</td>
-            <td style="border-right: 1px solid #000;"><span class="field-label">H. Final:</span> {{ manifiesto.horometro_final }}</td>
-            <td><span class="field-label">Llegada Empresa:</span> {{ manifiesto.km_llegada_empresa }}</td>
-        </tr>
-        <tr>
-            <td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td>
-            <td><span class="field-label">Llegada Sitio Disposición:</span> {{ manifiesto.km_llegada_disposicion }}</td>
-        </tr>
-    </table></td></tr>
+    <!-- INFORMACIÓN GENERAL -->
+    <div class="section">
+        <div class="section-body-row">
+            <div class="col col-label"><span class="field-label">Fecha:</span></div>
+            <div class="col col-value" style="width: 23%;">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
+            <div class="col col-label" style="width: 10%;"><span class="field-label">Empresa:</span></div>
+            <div class="col col-value" style="width: 57%;">{{ recorrido.orden.cliente.nombre }}</div>
+        </div>
+        <div class="section-body-row">
+            <div class="col col-label"><span class="field-label">Dirección:</span></div>
+            <div class="col col-value" style="width: 50%;">{{ recorrido.orden.direccion_servicio }}</div>
+            <div class="col col-label" style="width: 5%;"><span class="field-label">Tel.:</span></div>
+            <div class="col col-value" style="width: 15%;">{{ recorrido.orden.cliente.telefono }}</div>
+            <div class="col col-label" style="width: 5%;"><span class="field-label">Nit:</span></div>
+            <div class="col col-value" style="width: 15%;">{{ recorrido.orden.cliente.identificacion }}</div>
+        </div>
+        <div class="section-body-row">
+            <div class="col col-label"><span class="field-label">Equipo:</span></div>
+            <div class="col col-value" style="width: 23%;">{{ recorrido.vehiculo.marca }}</div>
+            <div class="col col-label" style="width: 10%;"><span class="field-label">Marca:</span></div>
+            <div class="col col-value" style="width: 23%;">{{ recorrido.vehiculo.marca }}</div>
+            <div class="col col-label" style="width: 10%;"><span class="field-label">Placa:</span></div>
+            <div class="col col-value" style="width: 24%;">{{ recorrido.vehiculo.placa }}</div>
+        </div>
+        <div class="section-body-row" style="border-bottom: none;">
+            <div class="col col-label"><span class="field-label">Conductor:</span></div>
+            <div class="col col-value" style="width: 23%;">{{ recorrido.conductor.get_full_name|default:'' }}</div>
+            <div class="col col-label" style="width: 10%;"><span class="field-label">Auxiliar 1:</span></div>
+            <div class="col col-value" style="width: 23%;">{{ manifiesto.auxiliar1 }}</div>
+            <div class="col col-label" style="width: 10%;"><span class="field-label">Auxiliar 2:</span></div>
+            <div class="col col-value" style="width: 24%;">{{ manifiesto.auxiliar2 }}</div>
+        </div>
+    </div>
 
-    <tr>
-        <td style="border-right: 1px solid #000;"><div class="section-title">RESPONSABLE</div><div class="signature-box">{% if firma_cliente_b64 %}<img src="{{ firma_cliente_b64 }}" style="max-height: 50px;">{% endif %}</div><span class="field-label">NOMBRE:</span> {{ manifiesto.nombre_responsable_cliente }}</td>
-        <td colspan="3"><div class="section-title">RESPONSABLE EMPRESA</div><div class="signature-box"></div><span class="field-label">NOMBRE:</span> {{ manifiesto.nombre_responsable_empresa }}</td>
-    </tr>
+    <!-- SERVICIOS -->
+    <div class="section">
+        <div class="row section-title">
+            <div class="col bordered-right" style="width: 35%;">SUCCIÓN Y TRANSPORTE</div>
+            <div class="col bordered-right" style="width: 25%;">SONDEO</div>
+            <div class="col bordered-right" style="width: 20%;">LAVADO</div>
+            <div class="col" style="width: 20%;">TRANSPORTE</div>
+        </div>
 
-    <tr><td colspan="4" class="section-title">MIDA SU SATISFACCIÓN</td></tr>
-    <tr><td colspan="4"><table class="inner-table bordered survey-table">
-        <thead><tr style="font-size: 7pt; font-weight: bold;">
-            <th style="width: 60%;"></th>
-            <th class="center" style="width: 10%;">Deficiente</th><th class="center" style="width: 10%;">Regular</th>
-            <th class="center" style="width: 10%;">Bueno</th><th class="center" style="width: 10%;">Excelente</th>
-        </tr></thead>
-        <tbody>
-            <tr><td><span class="field-label">TALENTO HUMANO</span> - 1. ATENCIÓN</td><td class="center">{% if manifiesto.eval_atencion == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_atencion == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_atencion == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_atencion == 4 %}X{% endif %}</td></tr>
-            <tr><td>2. AMABILIDAD</td><td class="center">{% if manifiesto.eval_amabilidad == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_amabilidad == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_amabilidad == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_amabilidad == 4 %}X{% endif %}</td></tr>
-            <tr><td>3. SOLUCIÓN DE INQUIETUDES</td><td class="center">{% if manifiesto.eval_solucion_inquietudes == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_inquietudes == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_inquietudes == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_inquietudes == 4 %}X{% endif %}</td></tr>
-            <tr><td>4. ASESORÍA</td><td class="center">{% if manifiesto.eval_asesoria == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_asesoria == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_asesoria == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_asesoria == 4 %}X{% endif %}</td></tr>
-            <tr><td><span class="field-label">SERVICIO</span> - 5. PUNTUALIDAD</td><td class="center">{% if manifiesto.eval_puntualidad == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_puntualidad == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_puntualidad == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_puntualidad == 4 %}X{% endif %}</td></tr>
-            <tr><td>6. CALIDAD DEL SERVICIO</td><td class="center">{% if manifiesto.eval_calidad_servicio == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_calidad_servicio == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_calidad_servicio == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_calidad_servicio == 4 %}X{% endif %}</td></tr>
-            <tr><td>7. OPORTUNIDAD</td><td class="center">{% if manifiesto.eval_oportunidad == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_oportunidad == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_oportunidad == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_oportunidad == 4 %}X{% endif %}</td></tr>
-            <tr><td>8. CUMPLIMIENTO DE CONDICIONES</td><td class="center">{% if manifiesto.eval_cumplimiento_condiciones == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_cumplimiento_condiciones == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_cumplimiento_condiciones == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_cumplimiento_condiciones == 4 %}X{% endif %}</td></tr>
-            <tr><td><span class="field-label">OTROS ASPECTOS</span> - 9. SOLUCIÓN DE PROBLEMAS</td><td class="center">{% if manifiesto.eval_solucion_problemas == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_problemas == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_problemas == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_solucion_problemas == 4 %}X{% endif %}</td></tr>
-            <tr><td>10. NOS VOLVERÍA A CONTRATAR</td><td class="center">{% if manifiesto.eval_volveria_contratar == 1 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_volveria_contratar == 2 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_volveria_contratar == 3 %}X{% endif %}</td><td class="center">{% if manifiesto.eval_volveria_contratar == 4 %}X{% endif %}</td></tr>
-            <tr><td style="border-bottom: none;">11. NOS RECOMENDARÍA</td><td class="center" style="border-bottom: none;">{% if manifiesto.eval_nos_recomendaria == 1 %}X{% endif %}</td><td class="center" style="border-bottom: none;">{% if manifiesto.eval_nos_recomendaria == 2 %}X{% endif %}</td><td class="center" style="border-bottom: none;">{% if manifiesto.eval_nos_recomendaria == 3 %}X{% endif %}</td><td class="center" style="border-bottom: none;">{% if manifiesto.eval_nos_recomendaria == 4 %}X{% endif %}</td></tr>
-        </tbody>
-    </table></td></tr>
-    
-    <tr><td colspan="4" class="section-title">OBSERVACIONES</td></tr>
-    <tr><td colspan="4" style="height: 50px;">{{ manifiesto.observaciones|linebreaksbr }}</td></tr>
-</table>
+        <div class="row services-row">
+            <div class="col" style="width: 35%;">
+                <span class="check">{% if manifiesto.succ_canecas %}[X]{% else %}[  ]{% endif %}</span>
+                Canecas
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_canecas_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="check">{% if manifiesto.sond_red_aguas_lluvias %}[X]{% else %}[  ]{% endif %}</span>
+                Red de agua lluvias
+                <span style="float: right;">H/ML: {{ manifiesto.sond_red_aguas_lluvias_cant }}</span>
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Concepto:</span> {{ manifiesto.lavado_concepto }}
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Tipo:</span> {{ manifiesto.transporte_tipo }}
+            </div>
+        </div>
 
-<div class="footer">
-    Cra. 69A No. 24 Sur - 17 • Tels.: (601) 403 2799 - (601) 679 2566 • Cel.: 313 466 4660<br>
-    e-mail: info@solmed.com.co • www.solmed.com.co • Bogotá, D.C. - Colombia
-</div>
+        <div class="row services-row">
+            <div class="col" style="width: 35%;">
+                <span class="check">{% if manifiesto.succ_pozos_inspeccion %}[X]{% else %}[  ]{% endif %}</span>
+                Pozos de inspección
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_pozos_inspeccion_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="check">{% if manifiesto.sond_red_aguas_negras %}[X]{% else %}[  ]{% endif %}</span>
+                Red de aguas negras
+                <span style="float: right;">H/ML: {{ manifiesto.sond_red_aguas_negras_cant }}</span>
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Cantidad:</span> {{ manifiesto.lavado_cantidad }}
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Cantidad:</span> {{ manifiesto.transporte_cantidad }}
+            </div>
+        </div>
 
+        <div class="row services-row">
+            <div class="col" style="width: 35%;">
+                <span class="check">{% if manifiesto.succ_pozos_septicos %}[X]{% else %}[  ]{% endif %}</span>
+                Pozos Sépticos
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_pozos_septicos_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="check">{% if manifiesto.sond_red_acueducto %}[X]{% else %}[  ]{% endif %}</span>
+                Red Acueducto
+                <span style="float: right;">H/ML: {{ manifiesto.sond_red_acueducto_cant }}</span>
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Correctivo:</span> {{ manifiesto.lavado_correctivo }}
+            </div>
+            <div class="col" style="width: 20%;"></div>
+        </div>
+
+        <div class="row services-row">
+            <div class="col" style="width: 35%;">
+                <span class="check">{% if manifiesto.succ_tanques %}[X]{% else %}[  ]{% endif %}</span>
+                Tanques
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_tanques_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="check">{% if manifiesto.sond_correctivo %}[X]{% else %}[  ]{% endif %}</span>
+                Correctivo
+                <span style="float: right;">Valor: {{ manifiesto.sond_correctivo_cant }}</span>
+            </div>
+            <div class="col" style="width: 20%;">
+                <span class="field-label">Preventivo:</span> {{ manifiesto.lavado_preventivo }}
+            </div>
+            <div class="col" style="width: 20%;"></div>
+        </div>
+
+        <div class="row services-row">
+            <div class="col" style="width: 35%;">
+                <span class="check">{% if manifiesto.succ_trampas_grasa %}[X]{% else %}[  ]{% endif %}</span>
+                Trampas de Grasa
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_trampas_grasa_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="check">{% if manifiesto.sond_preventivo %}[X]{% else %}[  ]{% endif %}</span>
+                Preventivo
+                <span style="float: right;">Valor: {{ manifiesto.sond_preventivo_cant }}</span>
+            </div>
+            <div class="col" style="width: 20%;"></div>
+            <div class="col" style="width: 20%;"></div>
+        </div>
+
+        <div class="row services-row" style="border-bottom: none;">
+            <div class="col" style="width: 35%;">
+                ¿Cuál?: {{ manifiesto.succ_otros }}
+                <span style="float: right;">Ton/M³: {{ manifiesto.succ_otros_cant }}</span>
+            </div>
+            <div class="col" style="width: 25%;">
+                <span class="field-label">Diámetro:</span> {{ manifiesto.sond_diametro }}
+            </div>
+            <div class="col" style="width: 20%;"></div>
+            <div class="col" style="width: 20%;"></div>
+        </div>
+    </div>
+
+    <!-- TIEMPOS / HORÓMETRO / KILÓMETROS -->
+    <div class="section">
+        <div class="section-title">TIEMPOS - HORÓMETRO SISTEMA DE VACÍO - KILÓMETROS</div>
+        <table class="timing-table">
+            <thead>
+                <tr>
+                    <th style="width: 34%;">Tiempos</th>
+                    <th style="width: 33%;">Horómetro sistema de vacío</th>
+                    <th style="width: 33%;">Kilómetros</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>
+                        <div class="timing-label">H. Inicio Operativo:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.tiempo_inicio_operativo %}
+                                {{ manifiesto.tiempo_inicio_operativo|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="timing-label">H. Inicio:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.horometro_inicio %}
+                                {{ manifiesto.horometro_inicio|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="timing-label">Salida SolMed:</div>
+                        <div class="timing-value">
+                            {{ manifiesto.km_salida_solmed }}
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="timing-label">H. Final Operativo:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.tiempo_final_operativo %}
+                                {{ manifiesto.tiempo_final_operativo|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="timing-label">H. Final:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.horometro_final %}
+                                {{ manifiesto.horometro_final|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="timing-label">Llegada Empresa:</div>
+                        <div class="timing-value">
+                            {{ manifiesto.km_llegada_empresa }}
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="timing-label">H. Llegada sitio Disposición:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.tiempo_llegada_disposicion %}
+                                {{ manifiesto.tiempo_llegada_disposicion|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        &nbsp;
+                    </td>
+                    <td>
+                        <div class="timing-label">Llegada Sitio Disposición:</div>
+                        <div class="timing-value">
+                            {{ manifiesto.km_llegada_disposicion }}
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="timing-label">H. Salida sitio Disposición:</div>
+                        <div class="timing-value">
+                            {% if manifiesto.tiempo_salida_disposicion %}
+                                {{ manifiesto.tiempo_salida_disposicion|time:"H:i" }}
+                            {% else %}&nbsp;{% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        &nbsp;
+                    </td>
+                    <td>
+                        <div class="timing-label">Llegada Solmed:</div>
+                        <div class="timing-value">
+                            {{ manifiesto.km_llegada_solmed }}
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- FIRMAS -->
+    <div class="section">
+        <div class="row">
+            <div class="col bordered-right" style="width: 50%;">
+                <div class="signature-title">RESPONSABLE</div>
+                <div class="signature-box">
+                    {% if firma_cliente_b64 %}
+                        <img src="{{ firma_cliente_b64 }}" style="max-height: 50px;">
+                    {% endif %}
+                </div>
+                <div class="signature-name">
+                    <span class="field-label">NOMBRE:</span> {{ manifiesto.nombre_responsable_cliente }}
+                </div>
+            </div>
+            <div class="col" style="width: 50%;">
+                <div class="signature-title">RESPONSABLE EMPRESA</div>
+                <div class="signature-box"></div>
+                <div class="signature-name">
+                    <span class="field-label">NOMBRE:</span> {{ manifiesto.nombre_responsable_empresa }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SATISFACCIÓN -->
+    <div class="section">
+        <div class="section-title">MIDA SU SATISFACCIÓN</div>
+        <table class="rating-table">
+            <thead>
+                <tr>
+                    <th style="width: 60%; border-left: none;"></th>
+                    <th style="width: 10%;"><span class="field-label">Deficiente</span></th>
+                    <th style="width: 10%;"><span class="field-label">Regular</span></th>
+                    <th style="width: 10%;"><span class="field-label">Bueno</span></th>
+                    <th style="width: 10%;"><span class="field-label">Excelente</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="field-label">TALENTO HUMANO</span> - 1. ATENCIÓN</td>
+                    <td>{% if manifiesto.eval_atencion == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_atencion == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_atencion == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_atencion == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>2. AMABILIDAD</td>
+                    <td>{% if manifiesto.eval_amabilidad == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_amabilidad == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_amabilidad == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_amabilidad == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>3. SOLUCIÓN DE INQUIETUDES</td>
+                    <td>{% if manifiesto.eval_solucion_inquietudes == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_inquietudes == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_inquietudes == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_inquietudes == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>4. ASESORÍA</td>
+                    <td>{% if manifiesto.eval_asesoria == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_asesoria == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_asesoria == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_asesoria == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td><span class="field-label">SERVICIO</span> - 5. PUNTUALIDAD</td>
+                    <td>{% if manifiesto.eval_puntualidad == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_puntualidad == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_puntualidad == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_puntualidad == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>6. CALIDAD DEL SERVICIO</td>
+                    <td>{% if manifiesto.eval_calidad_servicio == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_calidad_servicio == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_calidad_servicio == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_calidad_servicio == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>7. OPORTUNIDAD</td>
+                    <td>{% if manifiesto.eval_oportunidad == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_oportunidad == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_oportunidad == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_oportunidad == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>8. CUMPLIMIENTO DE CONDICIONES</td>
+                    <td>{% if manifiesto.eval_cumplimiento_condiciones == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_cumplimiento_condiciones == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_cumplimiento_condiciones == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_cumplimiento_condiciones == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td><span class="field-label">OTROS ASPECTOS</span> - 9. SOLUCIÓN DE PROBLEMAS</td>
+                    <td>{% if manifiesto.eval_solucion_problemas == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_problemas == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_problemas == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_solucion_problemas == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>10. NOS VOLVERÍA A CONTRATAR</td>
+                    <td>{% if manifiesto.eval_volveria_contratar == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_volveria_contratar == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_volveria_contratar == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_volveria_contratar == 4 %}X{% endif %}</td>
+                </tr>
+                <tr>
+                    <td>11. NOS RECOMENDARÍA</td>
+                    <td>{% if manifiesto.eval_nos_recomendaria == 1 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_nos_recomendaria == 2 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_nos_recomendaria == 3 %}X{% endif %}</td>
+                    <td>{% if manifiesto.eval_nos_recomendaria == 4 %}X{% endif %}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- OBSERVACIONES -->
+    <div class="section">
+        <div class="section-title">OBSERVACIONES</div>
+        <div class="observaciones-box">
+            {{ manifiesto.observaciones|linebreaksbr }}
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        Cra. 69A No. 24 Sur - 17 • Tels.: (601) 403 2799 - (601) 679 2566 • Cel.: 313 466 4660<br>
+        e-mail: info@solmed.com.co • www.solmed.com.co • Bogotá, D.C. - Colombia
+    </div>
 </body>
 </html>

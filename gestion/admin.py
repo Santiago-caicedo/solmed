@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, DocumentoOrden, Vehiculo, OrdenServicio
+from .models import Cliente, DocumentoOrden, Manifiesto, Vehiculo, OrdenServicio
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
@@ -31,3 +31,18 @@ class OrdenServicioAdmin(admin.ModelAdmin):
     display_vehiculos.short_description = 'Vehículos Asignados'
 class DocumentoOrdenAdmin(admin.ModelAdmin):
     list_display = ('orden', 'archivo', 'descripcion', 'fecha_subida')
+
+
+
+@admin.register(Manifiesto)
+class ManifiestoAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 
+        'recorrido', 
+        'fecha_creacion', 
+        'tiempo_inicio_operativo', 
+        'horometro_inicio', 
+        'km_salida_solmed'
+    )
+    list_filter = ('recorrido__fecha_recorrido',)
+    search_fields = ('recorrido__orden__cliente__nombre',)
