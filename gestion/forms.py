@@ -148,31 +148,39 @@ class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / L
             'transporte_tipo': 'Tipo', 'transporte_cantidad': 'Cantidad',
         }
 
-class ManifiestoPaso3Form(forms.ModelForm): # Tiempos / Horómetro / Kilómetros
+class ManifiestoPaso3Form(forms.ModelForm):
     class Meta:
         model = Manifiesto
         fields = [
             'tiempo_inicio_operativo', 'tiempo_final_operativo',
+            'tiempo_llegada_disposicion', 'tiempo_salida_disposicion',
             'horometro_inicio', 'horometro_final',
             'km_salida_solmed', 'km_llegada_empresa', 'km_llegada_disposicion',
+            'km_llegada_solmed'
         ]
         widgets = {
+            # --- Campos de Tiempos ---
             'tiempo_inicio_operativo': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
             'tiempo_final_operativo': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
-            'horometro_inicio': forms.NumberInput(attrs={'class': 'form-control'}),
-            'horometro_final': forms.NumberInput(attrs={'class': 'form-control'}),
+            'tiempo_llegada_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
+            'tiempo_salida_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
+            
+            # --- Campos de Horómetro (AHORA TIPO TIME) ---
+            'horometro_inicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # CAMBIADO
+            'horometro_final': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # CAMBIADO
+            
+            # --- Campos de Kilómetros ---
             'km_salida_solmed': forms.NumberInput(attrs={'class': 'form-control'}),
             'km_llegada_empresa': forms.NumberInput(attrs={'class': 'form-control'}),
             'km_llegada_disposicion': forms.NumberInput(attrs={'class': 'form-control'}),
+            'km_llegada_solmed': forms.NumberInput(attrs={'class': 'form-control'}), # NUEVO
         }
         labels = {
-            'tiempo_inicio_operativo': 'H. Inicio Operativo',
-            'tiempo_final_operativo': 'H. Final Operativo',
+            'tiempo_llegada_disposicion': 'H. Llegada sitio Disposición', # NUEVO
+            'tiempo_salida_disposicion': 'H. Salida sitio Disposición', # NUEVO
             'horometro_inicio': 'H. Inicio',
             'horometro_final': 'H. Final',
-            'km_salida_solmed': 'Salida SolMed',
-            'km_llegada_empresa': 'Llegada Empresa',
-            'km_llegada_disposicion': 'Llegada Sitio Disposición',
+            'km_llegada_solmed': 'Llegada Solmed', # NUEVO
         }
 
 class ManifiestoPaso4Form(forms.ModelForm): # Responsable / Firma / Observaciones

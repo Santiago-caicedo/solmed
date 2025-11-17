@@ -187,13 +187,16 @@ class Manifiesto(models.Model):
     transporte_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Transporte)")
     
     # --- Tiempos y Medidores ---
-    tiempo_inicio_operativo = models.TimeField(null=True, blank=True)
-    tiempo_final_operativo = models.TimeField(null=True, blank=True)
-    horometro_inicio = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    horometro_final = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    km_salida_solmed = models.IntegerField(null=True, blank=True)
-    km_llegada_empresa = models.IntegerField(null=True, blank=True)
-    km_llegada_disposicion = models.IntegerField(null=True, blank=True)
+    tiempo_inicio_operativo = models.TimeField(null=True, blank=True, verbose_name="H. Inicio Operativo")
+    tiempo_final_operativo = models.TimeField(null=True, blank=True, verbose_name="H. Final Operativo")
+    tiempo_llegada_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Llegada sitio Disposición") 
+    tiempo_salida_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Salida sitio Disposición") 
+    horometro_inicio = models.TimeField(null=True, blank=True, verbose_name="H. Inicio (Horómetro)")
+    horometro_final = models.TimeField(null=True, blank=True, verbose_name="H. Final (Horómetro)")
+    km_salida_solmed = models.IntegerField(null=True, blank=True, verbose_name="Salida SolMed (Km)")
+    km_llegada_empresa = models.IntegerField(null=True, blank=True, verbose_name="Llegada Empresa (Km)")
+    km_llegada_disposicion = models.IntegerField(null=True, blank=True, verbose_name="Llegada Sitio Disposición (Km)")
+    km_llegada_solmed = models.IntegerField(null=True, blank=True, verbose_name="Llegada Solmed (Km)") 
     
     # --- Evaluación de Satisfacción ---
     SATISFACCION_CHOICES = [(1, 'Deficiente'), (2, 'Regular'), (3, 'Bueno'), (4, 'Excelente')]

@@ -2,7 +2,7 @@
 
 {% block content %}
 <style>
-    /* Estilos generales para el wizard (puedes moverlos a un CSS global más adelante) */
+    /* Estilos del Wizard (asegúrate de que estén aquí o en un CSS base) */
     .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
     .wizard-header { text-align: center; margin-bottom: 2rem; }
     .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
@@ -35,14 +35,10 @@
             <div class="form-section-title">TIEMPOS</div>
             <div class="form-section-content">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        {{ form.tiempo_inicio_operativo.label_tag }}
-                        {{ form.tiempo_inicio_operativo }}
-                    </div>
-                    <div class="col-md-6">
-                        {{ form.tiempo_final_operativo.label_tag }}
-                        {{ form.tiempo_final_operativo }}
-                    </div>
+                    <div class="col-md-6">{{ form.tiempo_inicio_operativo.label_tag }} {{ form.tiempo_inicio_operativo }}</div>
+                    <div class="col-md-6">{{ form.tiempo_final_operativo.label_tag }} {{ form.tiempo_final_operativo }}</div>
+                    <div class="col-md-6">{{ form.tiempo_llegada_disposicion.label_tag }} {{ form.tiempo_llegada_disposicion }}</div>
+                    <div class="col-md-6">{{ form.tiempo_salida_disposicion.label_tag }} {{ form.tiempo_salida_disposicion }}</div>
                 </div>
             </div>
         </div>
@@ -51,14 +47,8 @@
             <div class="form-section-title">HORÓMETRO SISTEMA DE VACÍO</div>
             <div class="form-section-content">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        {{ form.horometro_inicio.label_tag }}
-                        {{ form.horometro_inicio }}
-                    </div>
-                    <div class="col-md-6">
-                        {{ form.horometro_final.label_tag }}
-                        {{ form.horometro_final }}
-                    </div>
+                    <div class="col-md-6">{{ form.horometro_inicio.label_tag }} {{ form.horometro_inicio }}</div>
+                    <div class="col-md-6">{{ form.horometro_final.label_tag }} {{ form.horometro_final }}</div>
                 </div>
             </div>
         </div>
@@ -67,18 +57,10 @@
             <div class="form-section-title">KILÓMETROS</div>
             <div class="form-section-content">
                 <div class="row g-3">
-                    <div class="col-md-4">
-                        {{ form.km_salida_solmed.label_tag }}
-                        {{ form.km_salida_solmed }}
-                    </div>
-                    <div class="col-md-4">
-                        {{ form.km_llegada_empresa.label_tag }}
-                        {{ form.km_llegada_empresa }}
-                    </div>
-                    <div class="col-md-4">
-                        {{ form.km_llegada_disposicion.label_tag }}
-                        {{ form.km_llegada_disposicion }}
-                    </div>
+                    <div class="col-md-3">{{ form.km_salida_solmed.label_tag }} {{ form.km_salida_solmed }}</div>
+                    <div class="col-md-3">{{ form.km_llegada_empresa.label_tag }} {{ form.km_llegada_empresa }}</div>
+                    <div class="col-md-3">{{ form.km_llegada_disposicion.label_tag }} {{ form.km_llegada_disposicion }}</div>
+                    <div class="col-md-3">{{ form.km_llegada_solmed.label_tag }} {{ form.km_llegada_solmed }}</div>
                 </div>
             </div>
         </div>
