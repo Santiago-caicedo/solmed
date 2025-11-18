@@ -199,7 +199,7 @@
         .timing-table th,
         .timing-table td {
             border: 1px solid #000;
-            padding: 3px 4px;
+            padding: 4px 5px;
             font-size: 8pt;
             vertical-align: top;
         }
@@ -208,15 +208,6 @@
             background-color: #F2F2F2;
             text-align: center;
             text-transform: uppercase;
-        }
-
-        .timing-label {
-            font-weight: bold;
-            white-space: nowrap;
-        }
-
-        .timing-value {
-            margin-top: 2px;
         }
 
         /* Firmas */
@@ -320,19 +311,23 @@
         </div>
 
         <div class="row services-row">
+            <!-- SUCCIÓN -->
             <div class="col" style="width: 35%;">
                 <span class="check">{% if manifiesto.succ_canecas %}[X]{% else %}[  ]{% endif %}</span>
                 Canecas
                 <span style="float: right;">Ton/M³: {{ manifiesto.succ_canecas_cant }}</span>
             </div>
+            <!-- SONDEO -->
             <div class="col" style="width: 25%;">
                 <span class="check">{% if manifiesto.sond_red_aguas_lluvias %}[X]{% else %}[  ]{% endif %}</span>
                 Red de agua lluvias
-                <span style="float: right;">H/ML: {{ manifiesto.sond_red_aguas_lluvias_cant }}</span>
+                &nbsp;&nbsp;<span class="field-label">H/ML:</span> {{ manifiesto.sond_red_aguas_lluvias_cant }}
             </div>
+            <!-- LAVADO -->
             <div class="col" style="width: 20%;">
                 <span class="field-label">Concepto:</span> {{ manifiesto.lavado_concepto }}
             </div>
+            <!-- TRANSPORTE -->
             <div class="col" style="width: 20%;">
                 <span class="field-label">Tipo:</span> {{ manifiesto.transporte_tipo }}
             </div>
@@ -347,7 +342,7 @@
             <div class="col" style="width: 25%;">
                 <span class="check">{% if manifiesto.sond_red_aguas_negras %}[X]{% else %}[  ]{% endif %}</span>
                 Red de aguas negras
-                <span style="float: right;">H/ML: {{ manifiesto.sond_red_aguas_negras_cant }}</span>
+                &nbsp;&nbsp;<span class="field-label">H/ML:</span> {{ manifiesto.sond_red_aguas_negras_cant }}
             </div>
             <div class="col" style="width: 20%;">
                 <span class="field-label">Cantidad:</span> {{ manifiesto.lavado_cantidad }}
@@ -366,7 +361,7 @@
             <div class="col" style="width: 25%;">
                 <span class="check">{% if manifiesto.sond_red_acueducto %}[X]{% else %}[  ]{% endif %}</span>
                 Red Acueducto
-                <span style="float: right;">H/ML: {{ manifiesto.sond_red_acueducto_cant }}</span>
+                &nbsp;&nbsp;<span class="field-label">H/ML:</span> {{ manifiesto.sond_red_acueducto_cant }}
             </div>
             <div class="col" style="width: 20%;">
                 <span class="field-label">Correctivo:</span> {{ manifiesto.lavado_correctivo }}
@@ -383,7 +378,7 @@
             <div class="col" style="width: 25%;">
                 <span class="check">{% if manifiesto.sond_correctivo %}[X]{% else %}[  ]{% endif %}</span>
                 Correctivo
-                <span style="float: right;">Valor: {{ manifiesto.sond_correctivo_cant }}</span>
+                &nbsp;&nbsp;<span class="field-label">Valor:</span> {{ manifiesto.sond_correctivo_cant }}
             </div>
             <div class="col" style="width: 20%;">
                 <span class="field-label">Preventivo:</span> {{ manifiesto.lavado_preventivo }}
@@ -400,7 +395,7 @@
             <div class="col" style="width: 25%;">
                 <span class="check">{% if manifiesto.sond_preventivo %}[X]{% else %}[  ]{% endif %}</span>
                 Preventivo
-                <span style="float: right;">Valor: {{ manifiesto.sond_preventivo_cant }}</span>
+                &nbsp;&nbsp;<span class="field-label">Valor:</span> {{ manifiesto.sond_preventivo_cant }}
             </div>
             <div class="col" style="width: 20%;"></div>
             <div class="col" style="width: 20%;"></div>
@@ -419,7 +414,7 @@
         </div>
     </div>
 
-    <!-- TIEMPOS / HORÓMETRO / KILÓMETROS -->
+    <!-- TIEMPOS / HORÓMETRO / KILÓMETROS (HORAS SIN SEGUNDOS) -->
     <div class="section">
         <div class="section-title">TIEMPOS - HORÓMETRO SISTEMA DE VACÍO - KILÓMETROS</div>
         <table class="timing-table">
@@ -432,89 +427,39 @@
             </thead>
             <tbody>
                 <tr>
-                    <td>
-                        <div class="timing-label">H. Inicio Operativo:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.tiempo_inicio_operativo %}
-                                {{ manifiesto.tiempo_inicio_operativo|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
+                    <td style="border-right: 1px solid #000;">
+                        <span class="field-label">H. Inicio Operativo:</span>
+                        {% if manifiesto.tiempo_inicio_operativo %}
+                            {{ manifiesto.tiempo_inicio_operativo|slice:":5" }}
+                        {% endif %}<br>
+                        <span class="field-label">H. Final Operativo:</span>
+                        {% if manifiesto.tiempo_final_operativo %}
+                            {{ manifiesto.tiempo_final_operativo|slice:":5" }}
+                        {% endif %}<br>
+                        <span class="field-label">H. Llegada sitio Disposición:</span>
+                        {% if manifiesto.tiempo_llegada_disposicion %}
+                            {{ manifiesto.tiempo_llegada_disposicion|slice:":5" }}
+                        {% endif %}<br>
+                        <span class="field-label">H. Salida sitio Disposición:</span>
+                        {% if manifiesto.tiempo_salida_disposicion %}
+                            {{ manifiesto.tiempo_salida_disposicion|slice:":5" }}
+                        {% endif %}
+                    </td>
+                    <td style="border-right: 1px solid #000;">
+                        <span class="field-label">H. Inicio:</span>
+                        {% if manifiesto.horometro_inicio %}
+                            {{ manifiesto.horometro_inicio|slice:":5" }}
+                        {% endif %}<br>
+                        <span class="field-label">H. Final:</span>
+                        {% if manifiesto.horometro_final %}
+                            {{ manifiesto.horometro_final|slice:":5" }}
+                        {% endif %}
                     </td>
                     <td>
-                        <div class="timing-label">H. Inicio:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.horometro_inicio %}
-                                {{ manifiesto.horometro_inicio|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        <div class="timing-label">Salida SolMed:</div>
-                        <div class="timing-value">
-                            {{ manifiesto.km_salida_solmed }}
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <div class="timing-label">H. Final Operativo:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.tiempo_final_operativo %}
-                                {{ manifiesto.tiempo_final_operativo|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        <div class="timing-label">H. Final:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.horometro_final %}
-                                {{ manifiesto.horometro_final|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        <div class="timing-label">Llegada Empresa:</div>
-                        <div class="timing-value">
-                            {{ manifiesto.km_llegada_empresa }}
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <div class="timing-label">H. Llegada sitio Disposición:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.tiempo_llegada_disposicion %}
-                                {{ manifiesto.tiempo_llegada_disposicion|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        &nbsp;
-                    </td>
-                    <td>
-                        <div class="timing-label">Llegada Sitio Disposición:</div>
-                        <div class="timing-value">
-                            {{ manifiesto.km_llegada_disposicion }}
-                        </div>
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <div class="timing-label">H. Salida sitio Disposición:</div>
-                        <div class="timing-value">
-                            {% if manifiesto.tiempo_salida_disposicion %}
-                                {{ manifiesto.tiempo_salida_disposicion|time:"H:i" }}
-                            {% else %}&nbsp;{% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        &nbsp;
-                    </td>
-                    <td>
-                        <div class="timing-label">Llegada Solmed:</div>
-                        <div class="timing-value">
-                            {{ manifiesto.km_llegada_solmed }}
-                        </div>
+                        <span class="field-label">Salida SolMed:</span> {{ manifiesto.km_salida_solmed }}<br>
+                        <span class="field-label">Llegada Empresa:</span> {{ manifiesto.km_llegada_empresa }}<br>
+                        <span class="field-label">Llegada Sitio Disposición:</span> {{ manifiesto.km_llegada_disposicion }}<br>
+                        <span class="field-label">Llegada Solmed:</span> {{ manifiesto.km_llegada_solmed }}
                     </td>
                 </tr>
             </tbody>
@@ -655,3 +600,4 @@
     </div>
 </body>
 </html>
+
