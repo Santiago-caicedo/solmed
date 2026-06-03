@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python.exe *)",
+      "Bash(grep -E '\\\\.env$')",
+      "Bash(python3 -c \"import django; print\\('django', django.get_version\\(\\)\\)\")",
+      "Bash(python3 manage.py showmigrations gestion)",
+      "Bash(python3 manage.py makemigrations gestion --check --dry-run)"
+    ]
+  }
+}

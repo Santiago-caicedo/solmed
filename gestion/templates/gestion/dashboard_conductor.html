@@ -22,13 +22,17 @@
                     <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
                     <small class="text-muted">Vehículo: {{ recorrido.vehiculo.placa }}</small>
                     <div class="mt-2">
-                        {% if not recorrido.manifiesto %}
-                        <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
-                            <i class="bi bi-pen-fill"></i> Llenar Manifiesto
-                        </a>
-                        {% elif recorrido.manifiesto.pdf_generado %}
+                        {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                         <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
                             <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
+                        </a>
+                        {% elif recorrido.manifiesto %}
+                        <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-sm btn-primary">
+                            <i class="bi bi-qr-code"></i> Ver QR para firma
+                        </a>
+                        {% else %}
+                        <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
+                            <i class="bi bi-pen-fill"></i> Llenar Manifiesto
                         </a>
                         {% endif %}
                     </div>

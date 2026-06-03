@@ -48,13 +48,17 @@
                             <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
                             
                             <td>
-                                {% if recorrido.manifiesto and recorrido.manifiesto.pdf_generado %}
+                                {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                                     <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
                                         <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
                                     </a>
+                                {% elif recorrido.manifiesto %}
+                                    <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-qr-code"></i> Ver QR / Firma
+                                    </a>
                                 {% else %}
                                     <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-pen-fill"></i> Firmar
+                                        <i class="bi bi-pen-fill"></i> Llenar
                                     </a>
                                 {% endif %}
                             </td>

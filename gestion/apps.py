@@ -47,8 +47,10 @@ def crear_roles(sender, **kwargs):
         # Iteramos sobre los modelos definidos para este rol
         for modelo, lista_permisos in permisos_rol.items():
             try:
-                # Obtenemos el "tipo de contenido" (el modelo) al que se aplican los permisos
-                ct = ContentType.objects.get(app_label='gestion', model=modelo)
+                # Obtenemos el "tipo de contenido" (el modelo) al que se aplican los permisos.
+                # El modelo 'user' vive en la app 'auth', el resto en 'gestion'.
+                app_label = 'auth' if modelo == 'user' else 'gestion'
+                ct = ContentType.objects.get(app_label=app_label, model=modelo)
                 
                 # Iteramos sobre la lista de permisos (add, change, view, delete)
                 for codename_permiso in lista_permisos:

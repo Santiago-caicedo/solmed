@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Solmed CRM — Presentación de Flujos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --solmed-dark: #2c3e50;
+            --solmed-darker: #1e2b38;
+            --solmed-green: #9cbe30;
+            --solmed-green-dark: #7fa024;
+            --solmed-blue: #008cba;
+            --soft-bg: #f4f6f9;
+            --card-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            --card-shadow-hover: 0 12px 40px rgba(0,0,0,0.12);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--soft-bg);
+            color: #1f2937;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        /* ============ NAV ============ */
+        .top-nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 0;
+        }
+        .top-nav-inner {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .nav-brand {
+            font-weight: 800;
+            font-size: 1.25rem;
+            color: var(--solmed-dark);
+            text-decoration: none;
+        }
+        .nav-brand span { color: var(--solmed-green); }
+        .nav-links a {
+            color: #6b7280;
+            text-decoration: none;
+            margin-left: 1.5rem;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: var(--solmed-dark); }
+
+        /* ============ HERO ============ */
+        .hero {
+            background: linear-gradient(135deg, var(--solmed-dark) 0%, var(--solmed-darker) 100%);
+            color: white;
+            padding: 6rem 1.5rem 5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before,
+        .hero::after {
+            content: '';
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.35;
+        }
+        .hero::before {
+            width: 500px; height: 500px;
+            background: var(--solmed-green);
+            top: -200px; right: -100px;
+        }
+        .hero::after {
+            width: 400px; height: 400px;
+            background: var(--solmed-blue);
+            bottom: -150px; left: -100px;
+        }
+        .hero-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+        .hero-badge {
+            display: inline-block;
+            background: rgba(156, 190, 48, 0.15);
+            color: var(--solmed-green);
+            padding: 0.5rem 1.25rem;
+            border-radius: 100px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(156, 190, 48, 0.3);
+        }
+        .hero h1 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 800;
+            line-height: 1.15;
+            margin-bottom: 1.25rem;
+            letter-spacing: -0.02em;
+        }
+        .hero h1 span { color: var(--solmed-green); }
+        .hero p {
+            font-size: 1.2rem;
+            opacity: 0.85;
+            max-width: 720px;
+            margin: 0 auto 2.5rem;
+        }
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.5rem;
+            max-width: 900px;
+            margin: 3rem auto 0;
+        }
+        .hero-stat {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .hero-stat .num {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--solmed-green);
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+        .hero-stat .label {
+            font-size: 0.9rem;
+            opacity: 0.85;
+        }
+
+        /* ============ SECTIONS ============ */
+        .section {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 5rem 1.5rem;
+        }
+        .section-header {
+            text-align: center;
+            margin-bottom: 3.5rem;
+        }
+        .section-eyebrow {
+            display: inline-block;
+            color: var(--solmed-green);
+            font-weight: 700;
+            font-size: 0.85rem;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+        }
+        .section-title {
+            font-size: clamp(1.75rem, 4vw, 2.5rem);
+            font-weight: 800;
+            color: var(--solmed-dark);
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+        }
+        .section-subtitle {
+            color: #6b7280;
+            font-size: 1.1rem;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        /* ============ ARQUITECTURA DE DATOS ============ */
+        .data-flow {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+            align-items: stretch;
+        }
+        .data-node {
+            background: white;
+            border-radius: 16px;
+            padding: 1.75rem 1.25rem;
+            text-align: center;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .data-node:hover {
+            transform: translateY(-6px);
+            box-shadow: var(--card-shadow-hover);
+        }
+        .data-node .icon-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            font-size: 1.75rem;
+            color: white;
+        }
+        .data-node:nth-child(1) .icon-circle { background: linear-gradient(135deg, #008cba, #006d92); }
+        .data-node:nth-child(2) .icon-circle { background: linear-gradient(135deg, #9cbe30, #7fa024); }
+        .data-node:nth-child(3) .icon-circle { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .data-node:nth-child(4) .icon-circle { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+        .data-node:nth-child(5) .icon-circle { background: linear-gradient(135deg, #10b981, #047857); }
+        .data-node h4 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--solmed-dark);
+            margin-bottom: 0.5rem;
+        }
+        .data-node p {
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin: 0;
+        }
+        .data-arrow {
+            position: absolute;
+            right: -1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #d1d5db;
+            font-size: 1.5rem;
+            z-index: 2;
+        }
+
+        /* ============ FLUJO POR ROL ============ */
+        .role-section { margin-bottom: 4rem; }
+        .role-card {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: var(--card-shadow);
+        }
+        .role-header {
+            padding: 2rem 2.5rem;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+        .role-header.asesor { background: linear-gradient(135deg, #008cba, #006d92); }
+        .role-header.conductor { background: linear-gradient(135deg, #9cbe30, #7fa024); }
+        .role-header.planificador { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .role-header.manifiesto { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+        .role-header.cobranza { background: linear-gradient(135deg, #10b981, #047857); }
+        .role-header.reportes { background: linear-gradient(135deg, #2c3e50, #1e2b38); }
+        .role-icon {
+            width: 64px;
+            height: 64px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            flex-shrink: 0;
+        }
+        .role-meta h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 0.25rem;
+        }
+        .role-meta p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 0.95rem;
+        }
+        .role-body {
+            padding: 2.5rem;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 0;
+        }
+        .timeline-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            position: relative;
+        }
+        .timeline-step {
+            background: #f9fafb;
+            border-radius: 14px;
+            padding: 1.5rem;
+            position: relative;
+            border: 1px solid #e5e7eb;
+            transition: all 0.25s;
+        }
+        .timeline-step:hover {
+            background: white;
+            border-color: var(--solmed-green);
+            transform: translateY(-2px);
+        }
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--solmed-dark);
+            color: white;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+        .timeline-step h5 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--solmed-dark);
+            margin: 0 0 0.5rem;
+        }
+        .timeline-step p {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin: 0;
+        }
+        .timeline-step .step-icon {
+            position: absolute;
+            top: 1.25rem;
+            right: 1.25rem;
+            color: #d1d5db;
+            font-size: 1.25rem;
+        }
+
+        /* ============ BENEFITS ============ */
+        .benefits-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        .benefit {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: var(--card-shadow);
+            border-top: 4px solid var(--solmed-green);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .benefit:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--card-shadow-hover);
+        }
+        .benefit-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(156, 190, 48, 0.12);
+            color: var(--solmed-green);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .benefit h4 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--solmed-dark);
+            margin: 0 0 0.5rem;
+        }
+        .benefit p {
+            color: #6b7280;
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+        /* ============ ROLES Y SEGURIDAD ============ */
+        .roles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+        }
+        .role-tile {
+            background: white;
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            text-align: center;
+            transition: transform 0.3s;
+        }
+        .role-tile:hover { transform: translateY(-4px); }
+        .role-tile .role-tile-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            font-size: 2rem;
+            color: white;
+        }
+        .role-tile h5 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--solmed-dark);
+            margin-bottom: 0.75rem;
+        }
+        .role-tile ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            text-align: left;
+        }
+        .role-tile ul li {
+            font-size: 0.9rem;
+            color: #6b7280;
+            padding: 0.35rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .role-tile ul li i {
+            color: var(--solmed-green);
+        }
+
+        /* ============ CTA ============ */
+        .cta {
+            background: linear-gradient(135deg, var(--solmed-dark) 0%, var(--solmed-darker) 100%);
+            color: white;
+            border-radius: 24px;
+            padding: 4rem 2rem;
+            text-align: center;
+            margin: 5rem auto;
+            max-width: 1100px;
+            position: relative;
+            overflow: hidden;
+        }
+        .cta::before {
+            content: '';
+            position: absolute;
+            width: 400px; height: 400px;
+            background: var(--solmed-green);
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.25;
+            top: -150px; right: -100px;
+        }
+        .cta-inner { position: relative; z-index: 1; }
+        .cta h2 {
+            font-size: clamp(1.75rem, 4vw, 2.5rem);
+            font-weight: 800;
+            margin-bottom: 1rem;
+        }
+        .cta p {
+            font-size: 1.15rem;
+            opacity: 0.85;
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+
+        /* ============ FOOTER ============ */
+        footer {
+            background: #1e2b38;
+            color: rgba(255,255,255,0.7);
+            padding: 2rem 1.5rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        footer .brand {
+            color: var(--solmed-green);
+            font-weight: 700;
+        }
+
+        /* ============ RESPONSIVE ============ */
+        @media (max-width: 900px) {
+            .data-flow { grid-template-columns: repeat(2, 1fr); }
+            .data-arrow { display: none; }
+            .role-header { flex-direction: column; text-align: center; padding: 1.5rem; }
+            .role-body { padding: 1.5rem; }
+        }
+        @media (max-width: 540px) {
+            .data-flow { grid-template-columns: 1fr; }
+            .nav-links { display: none; }
+            .section { padding: 3rem 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="top-nav">
+    <div class="top-nav-inner">
+        <a href="#" class="nav-brand">Solmed<span> CRM</span></a>
+        <div class="nav-links">
+            <a href="#arquitectura">Arquitectura</a>
+            <a href="#flujos">Flujos</a>
+            <a href="#roles">Roles</a>
+            <a href="#beneficios">Beneficios</a>
+        </div>
+    </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+    <div class="hero-inner">
+        <span class="hero-badge"><i class="bi bi-stars me-1"></i> CRM Operativo Solmed</span>
+        <h1>Toda tu operación de transporte <span>en un solo lugar.</span></h1>
+        <p>Desde la primera llamada del cliente hasta el manifiesto firmado y el pago registrado: un sistema que conecta a tu equipo comercial, planificación, conductores y dirección.</p>
+
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="num">4</div>
+                <div class="label">Roles de usuario</div>
+            </div>
+            <div class="hero-stat">
+                <div class="num">7</div>
+                <div class="label">Flujos operativos</div>
+            </div>
+            <div class="hero-stat">
+                <div class="num">100%</div>
+                <div class="label">Trazabilidad</div>
+            </div>
+            <div class="hero-stat">
+                <div class="num">PDF</div>
+                <div class="label">Manifiestos digitales</div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- ARQUITECTURA DE DATOS -->
+<section class="section" id="arquitectura">
+    <div class="section-header">
+        <span class="section-eyebrow">Arquitectura de información</span>
+        <h2 class="section-title">El recorrido de cada servicio</h2>
+        <p class="section-subtitle">Cada acción comercial deja una huella trazable. Así viaja la información en Solmed CRM, desde la captación del cliente hasta la cobranza.</p>
+    </div>
+
+    <div class="data-flow">
+        <div class="data-node">
+            <div class="icon-circle"><i class="bi bi-person-vcard"></i></div>
+            <h4>Cliente</h4>
+            <p>Datos de contacto, NIT, ubicación</p>
+            <i class="bi bi-arrow-right-short data-arrow"></i>
+        </div>
+        <div class="data-node">
+            <div class="icon-circle"><i class="bi bi-clipboard-data"></i></div>
+            <h4>Orden de Servicio</h4>
+            <p>Contrato comercial con valor pactado</p>
+            <i class="bi bi-arrow-right-short data-arrow"></i>
+        </div>
+        <div class="data-node">
+            <div class="icon-circle"><i class="bi bi-truck"></i></div>
+            <h4>Recorrido</h4>
+            <p>Asignación de vehículo y conductor</p>
+            <i class="bi bi-arrow-right-short data-arrow"></i>
+        </div>
+        <div class="data-node">
+            <div class="icon-circle"><i class="bi bi-file-earmark-pdf"></i></div>
+            <h4>Manifiesto</h4>
+            <p>Documento legal firmado en obra</p>
+            <i class="bi bi-arrow-right-short data-arrow"></i>
+        </div>
+        <div class="data-node">
+            <div class="icon-circle"><i class="bi bi-cash-coin"></i></div>
+            <h4>Pago</h4>
+            <p>Cierre del ciclo de cobranza</p>
+        </div>
+    </div>
+</section>
+
+<!-- FLUJOS POR ROL -->
+<section class="section" id="flujos" style="background: white;">
+    <div class="section-header">
+        <span class="section-eyebrow">Flujos operativos</span>
+        <h2 class="section-title">Cada rol con su proceso claro</h2>
+        <p class="section-subtitle">Cada persona del equipo accede solo a lo que necesita. Procesos simples, sin pasos manuales repetidos.</p>
+    </div>
+
+    <!-- FLUJO COMERCIAL -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header asesor">
+                <div class="role-icon"><i class="bi bi-headset"></i></div>
+                <div class="role-meta">
+                    <h3>Flujo Comercial — Asesor</h3>
+                    <p>Captación de clientes, contratación de servicios y seguimiento del expediente.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-person-plus step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Registro del cliente</h5>
+                        <p>El asesor da de alta al cliente con su NIT, contacto, dirección y ciudad.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-file-earmark-plus step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Creación de la orden</h5>
+                        <p>Se define el acuerdo: dirección de servicio, descripción y valor pactado.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-folder2-open step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Expediente de orden</h5>
+                        <p>Centro de control con recorridos, documentos adjuntos e historial de pagos.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-cloud-upload step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Documentación</h5>
+                        <p>Carga de remisiones, fotos de carga y soportes asociados a cada orden.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLUJO PLANIFICACIÓN -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header planificador">
+                <div class="role-icon"><i class="bi bi-calendar2-week"></i></div>
+                <div class="role-meta">
+                    <h3>Flujo de Planificación — Despachador</h3>
+                    <p>Asignación inteligente de flota y conductores día a día.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-calendar3 step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Tablero diario</h5>
+                        <p>Vista del día con todos los recorridos programados.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-truck-front-fill step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Flota disponible</h5>
+                        <p>Lista en tiempo real de vehículos operativos no asignados.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-people step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Conductores disponibles</h5>
+                        <p>Personal libre para asignar a recorridos del día.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-arrow-repeat step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Re-asignación rápida</h5>
+                        <p>Cambios de último minuto sin perder trazabilidad.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLUJO CONDUCTOR -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header conductor">
+                <div class="role-icon"><i class="bi bi-pin-map-fill"></i></div>
+                <div class="role-meta">
+                    <h3>Flujo Operativo — Conductor</h3>
+                    <p>Vista móvil simplificada: solo lo que tiene asignado para hoy.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-box-arrow-in-right step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Inicio de jornada</h5>
+                        <p>Al ingresar ve su agenda del día y próximos 7 días.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-geo-alt step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Ruta del recorrido</h5>
+                        <p>Cliente, dirección de servicio y vehículo asignado.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-pen step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Llenado del manifiesto</h5>
+                        <p>Wizard guiado de 5 pasos directamente desde el campo.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-check2-circle step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Firma y cierre</h5>
+                        <p>Firma del cliente capturada en pantalla, PDF generado al instante.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLUJO MANIFIESTO -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header manifiesto">
+                <div class="role-icon"><i class="bi bi-file-earmark-text"></i></div>
+                <div class="role-meta">
+                    <h3>Manifiesto Digital — Wizard de 5 pasos</h3>
+                    <p>El documento legal del servicio, totalmente digital, firmado y archivado.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-1-circle step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Cabecera</h5>
+                        <p>Auxiliares y datos generales del servicio.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-2-circle step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Servicios prestados</h5>
+                        <p>Succión, sondeo, lavado y transporte con cantidades.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-3-circle step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Tiempos y kilometrajes</h5>
+                        <p>Horómetro, salida, llegada al sitio de disposición.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-4-circle step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Responsable y observaciones</h5>
+                        <p>Datos del supervisor Solmed y notas del servicio.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-5-circle step-icon"></i>
+                        <div class="step-num">5</div>
+                        <h5>Encuesta de satisfacción</h5>
+                        <p>11 criterios evaluados por el cliente al recibir el servicio.</p>
+                    </li>
+                    <li class="timeline-step" style="border-color: var(--solmed-green); background: rgba(156, 190, 48, 0.08);">
+                        <i class="bi bi-pen-fill step-icon" style="color: var(--solmed-green);"></i>
+                        <div class="step-num" style="background: var(--solmed-green);"><i class="bi bi-check2"></i></div>
+                        <h5>Firma + PDF</h5>
+                        <p>Firma digital del cliente y generación automática del PDF.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLUJO COBRANZA -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header cobranza">
+                <div class="role-icon"><i class="bi bi-cash-coin"></i></div>
+                <div class="role-meta">
+                    <h3>Flujo de Cobranza</h3>
+                    <p>Registro de pagos parciales o totales con actualización automática.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-receipt step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Registrar pago</h5>
+                        <p>Monto, método (transferencia, efectivo, consignación) y notas.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-calculator step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Cálculo automático</h5>
+                        <p>El sistema suma los pagos y actualiza el saldo pendiente.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-tag step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Estado actualizado</h5>
+                        <p>Pendiente → Abonado → Pagado según el total acumulado.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-clock-history step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Historial de pagos</h5>
+                        <p>Trazabilidad completa de cada movimiento por orden.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLUJO REPORTES -->
+    <div class="role-section">
+        <div class="role-card">
+            <div class="role-header reportes">
+                <div class="role-icon"><i class="bi bi-bar-chart-line-fill"></i></div>
+                <div class="role-meta">
+                    <h3>Dashboards y Reportes — Dirección</h3>
+                    <p>Visibilidad completa del negocio para tomar decisiones.</p>
+                </div>
+            </div>
+            <div class="role-body">
+                <ul class="timeline-list">
+                    <li class="timeline-step">
+                        <i class="bi bi-speedometer2 step-icon"></i>
+                        <div class="step-num">1</div>
+                        <h5>Dashboard ejecutivo</h5>
+                        <p>Ingresos, cobranza pendiente, órdenes activas, utilización de flota.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-people-fill step-icon"></i>
+                        <div class="step-num">2</div>
+                        <h5>Facturación por cliente</h5>
+                        <p>Ranking de los clientes que más ingresos generan.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-truck step-icon"></i>
+                        <div class="step-num">3</div>
+                        <h5>Rendimiento por vehículo</h5>
+                        <p>Productividad de cada unidad de la flota.</p>
+                    </li>
+                    <li class="timeline-step">
+                        <i class="bi bi-graph-up step-icon"></i>
+                        <div class="step-num">4</div>
+                        <h5>Tendencia mensual</h5>
+                        <p>Evolución de ingresos a lo largo del año.</p>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</section>
+
+<!-- ROLES Y SEGURIDAD -->
+<section class="section" id="roles">
+    <div class="section-header">
+        <span class="section-eyebrow">Roles y seguridad</span>
+        <h2 class="section-title">Cada usuario ve solo lo que necesita</h2>
+        <p class="section-subtitle">Sistema de permisos granulares por rol. Acceso seguro con autenticación y trazabilidad de quién hace qué.</p>
+    </div>
+
+    <div class="roles-grid">
+        <div class="role-tile">
+            <div class="role-tile-icon" style="background: linear-gradient(135deg, #2c3e50, #1e2b38);">
+                <i class="bi bi-shield-lock"></i>
+            </div>
+            <h5>Administrador</h5>
+            <ul>
+                <li><i class="bi bi-check2"></i> Acceso total</li>
+                <li><i class="bi bi-check2"></i> Gestión de usuarios</li>
+                <li><i class="bi bi-check2"></i> Reportes ejecutivos</li>
+                <li><i class="bi bi-check2"></i> Configuración</li>
+            </ul>
+        </div>
+        <div class="role-tile">
+            <div class="role-tile-icon" style="background: linear-gradient(135deg, #008cba, #006d92);">
+                <i class="bi bi-headset"></i>
+            </div>
+            <h5>Asesor</h5>
+            <ul>
+                <li><i class="bi bi-check2"></i> Clientes y órdenes</li>
+                <li><i class="bi bi-check2"></i> Vehículos</li>
+                <li><i class="bi bi-check2"></i> Cobranza</li>
+                <li><i class="bi bi-check2"></i> Dashboard comercial</li>
+            </ul>
+        </div>
+        <div class="role-tile">
+            <div class="role-tile-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                <i class="bi bi-calendar2-week"></i>
+            </div>
+            <h5>Planificador</h5>
+            <ul>
+                <li><i class="bi bi-check2"></i> Tablero de planificación</li>
+                <li><i class="bi bi-check2"></i> Asignación de flota</li>
+                <li><i class="bi bi-check2"></i> Vista de conductores</li>
+                <li><i class="bi bi-check2"></i> Calendario general</li>
+            </ul>
+        </div>
+        <div class="role-tile">
+            <div class="role-tile-icon" style="background: linear-gradient(135deg, #9cbe30, #7fa024);">
+                <i class="bi bi-truck-front"></i>
+            </div>
+            <h5>Conductor</h5>
+            <ul>
+                <li><i class="bi bi-check2"></i> Sus recorridos del día</li>
+                <li><i class="bi bi-check2"></i> Llenado de manifiestos</li>
+                <li><i class="bi bi-check2"></i> Calendario personal</li>
+                <li><i class="bi bi-check2"></i> Acceso móvil</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- BENEFICIOS -->
+<section class="section" id="beneficios" style="background: white;">
+    <div class="section-header">
+        <span class="section-eyebrow">Beneficios clave</span>
+        <h2 class="section-title">Lo que ganas con Solmed CRM</h2>
+        <p class="section-subtitle">Más que un software, una forma de ordenar tu operación y dar visibilidad real a tu negocio.</p>
+    </div>
+
+    <div class="benefits-list">
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-clock-history"></i></div>
+            <h4>Cero papeles</h4>
+            <p>Adiós a las planillas en papel. Todo el manifiesto se llena y firma desde el celular, generando el PDF al instante.</p>
+        </div>
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-eye"></i></div>
+            <h4>Visibilidad total</h4>
+            <p>Sabes en tiempo real qué órdenes están activas, cuánto se debe cobrar y qué vehículos están ocupados.</p>
+        </div>
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-shield-check"></i></div>
+            <h4>Trazabilidad</h4>
+            <p>Cada acción queda registrada. Quién creó la orden, quién condujo el recorrido, quién firmó el manifiesto.</p>
+        </div>
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-cash-stack"></i></div>
+            <h4>Cobranza ordenada</h4>
+            <p>Pagos parciales, totales y abonos con cálculo automático del saldo pendiente.</p>
+        </div>
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-phone"></i></div>
+            <h4>Acceso desde cualquier dispositivo</h4>
+            <p>Oficina, celular, tablet. Tu equipo trabaja desde donde esté, con la misma información actualizada.</p>
+        </div>
+        <div class="benefit">
+            <div class="benefit-icon"><i class="bi bi-bar-chart"></i></div>
+            <h4>Reportes ejecutivos</h4>
+            <p>Tendencias mensuales, ranking de clientes, rendimiento por vehículo. Decisiones con datos.</p>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="padding-top: 0;">
+    <div class="cta">
+        <div class="cta-inner">
+            <h2>Listo para ver Solmed CRM en acción</h2>
+            <p>Una demo en vivo donde recorremos cada uno de los flujos con datos reales de tu operación.</p>
+        </div>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+    <p><span class="brand">Solmed CRM</span> &middot; Plataforma operativa para empresas de transporte y saneamiento</p>
+    <p style="opacity: 0.5; font-size: 0.8rem; margin-top: 0.5rem;">&copy; <script>document.write(new Date().getFullYear())</script> Solmed &middot; Todos los derechos reservados</p>
+</footer>
+
+</body>
+</html>

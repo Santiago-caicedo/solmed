@@ -16,6 +16,12 @@ urlpatterns = [
     path('recorrido/<int:pk>/firmar/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto'),
     path('recorrido/<int:pk>/firmar/<str:step>/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto_step'),
 
+    # --- Encuesta + firma del cliente vía QR ---
+    path('recorrido/<int:pk>/qr/', views.ManifiestoQRView.as_view(), name='manifiesto_qr'),
+    path('api/manifiesto/<int:pk>/estado/', views.manifiesto_estado_json, name='manifiesto_estado'),
+    # Página pública (sin login) que abre el cliente al escanear el QR.
+    path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
+
     # Aquí añadiremos las URLs para Clientes y Vehículos más adelante
 
     path('vehiculos/', views.ListaVehiculosView.as_view(), name='lista_vehiculos'),

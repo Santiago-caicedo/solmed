@@ -28,9 +28,13 @@
             
             <hr>
 
-            {% if recorrido.manifiesto and recorrido.manifiesto.pdf_generado %}
+            {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                 <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-danger">
                     <i class="bi bi-file-earmark-pdf-fill"></i> Ver Manifiesto Firmado
+                </a>
+            {% elif recorrido.manifiesto %}
+                <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-primary">
+                    <i class="bi bi-qr-code"></i> Ver QR para firma del cliente
                 </a>
             {% else %}
                 <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-success">

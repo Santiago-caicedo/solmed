@@ -14,6 +14,7 @@ from django.urls import reverse, reverse_lazy
 from django.core.files.base import ContentFile
 from django.views import View
 from io import BytesIO
+import qrcode
 from weasyprint import HTML
 from xhtml2pdf import pisa
 from django.db.models import Sum, Count
@@ -283,19 +284,78 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
 
 
 
+# --- HELPERS COMPARTIDOS PARA EL MANIFIESTO ---
+
+def _puede_gestionar_manifiesto(user, recorrido):
+    """Solo el conductor asignado, un Asesor o un superusuario pueden llenar el manifiesto."""
+    return (
+        user.is_superuser
+        or user.groups.filter(name='Asesores').exists()
+        or recorrido.conductor_id == user.id
+    )
+
+
+def _guardar_firma_cliente(manifiesto, signature_data, pk):
+    """Decodifica la firma en base64 (data-URL) y la guarda en el manifiesto."""
+    formato, imgstr = signature_data.split(';base64,')
+    ext = formato.split('/')[-1]
+    signature_file = ContentFile(base64.b64decode(imgstr), name=f'firma_cliente_{pk}.{ext}')
+    manifiesto.firma_cliente.save(signature_file.name, signature_file, save=True)
+
+
+def _generar_pdf_manifiesto(manifiesto, request):
+    """Renderiza el manifiesto a PDF (logo + firma embebidos en base64) y lo guarda."""
+    recorrido = manifiesto.recorrido
+    template = get_template('gestion/manifiesto_pdf.html')
+
+    # 1. Logo a base64
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, "rb") as image_file:
+        logo_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
+
+    # 2. Firma a base64
+    firma_cliente_b64 = None
+    if manifiesto.firma_cliente:
+        with open(manifiesto.firma_cliente.path, "rb") as image_file:
+            firma_cliente_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
+
+    context = {
+        'manifiesto': manifiesto, 'recorrido': recorrido, 'orden': recorrido.orden,
+        'logo_b64': logo_b64, 'firma_cliente_b64': firma_cliente_b64,
+    }
+    html_string = template.render(context)
+    html = HTML(string=html_string, base_url=request.build_absolute_uri())
+    pdf = html.write_pdf()
+
+    pdf_file = ContentFile(pdf, name=f'manifiesto_recorrido_{recorrido.pk}.pdf')
+    manifiesto.pdf_generado = pdf_file
+    manifiesto.save()
+
+
+def _qr_data_uri(url):
+    """Genera un PNG de código QR para la URL dada y lo devuelve como data-URI base64."""
+    qr_img = qrcode.make(url)
+    buffer = BytesIO()
+    qr_img.save(buffer, format='PNG')
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+
 class GenerarManifiestoView(LoginRequiredMixin, View):
+    """
+    Wizard que llena EL CONDUCTOR: solo los datos operativos (paso1-4).
+    Al terminar el paso 4 se persiste el manifiesto y se redirige a la pantalla
+    del QR; la encuesta de satisfacción y la firma las completa el cliente en su
+    propio dispositivo a través de la URL pública (EncuestaPublicaView).
+    """
     FORMS = [
         ("paso1", ManifiestoPaso1Form), ("paso2", ManifiestoPaso2Form),
         ("paso3", ManifiestoPaso3Form), ("paso4", ManifiestoPaso4Form),
-        ("paso5", ManifiestoPaso5Form),
     ]
     TEMPLATES = {
         "paso1": 'gestion/manifiesto_wizard/paso1.html',
         "paso2": 'gestion/manifiesto_wizard/paso2.html',
         "paso3": 'gestion/manifiesto_wizard/paso3.html',
         "paso4": 'gestion/manifiesto_wizard/paso4.html',
-        "paso5": 'gestion/manifiesto_wizard/paso5.html',
-        "firma": 'gestion/manifiesto_wizard/firma.html',
     }
 
     def get_form_step(self, step_name):
@@ -303,6 +363,15 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             if name == step_name:
                 return form_class
         return None
+
+    def dispatch(self, request, *args, **kwargs):
+        # Control de propiedad: evita que un usuario llene el manifiesto de otro recorrido.
+        if request.user.is_authenticated:
+            recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
+            if not _puede_gestionar_manifiesto(request.user, recorrido):
+                messages.error(request, "No tienes permiso para llenar este manifiesto.")
+                return redirect('gestion:dashboard_redirect')
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, pk, step='paso1'):
         recorrido = get_object_or_404(Recorrido, pk=pk)
@@ -312,13 +381,13 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         except Manifiesto.DoesNotExist:
             manifiesto_instance = None
 
+        FormClass = self.get_form_step(step)
         template_path = self.TEMPLATES.get(step)
-        if not template_path:
+        if not FormClass or not template_path:
             messages.error(request, "Paso de formulario inválido.")
             return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
 
-        FormClass = self.get_form_step(step) if step != 'firma' else None
-        form = FormClass(initial=manifiesto_data, instance=manifiesto_instance) if FormClass else None
+        form = FormClass(initial=manifiesto_data, instance=manifiesto_instance)
 
         return render(request, template_path, {
             'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
@@ -333,81 +402,140 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         except Manifiesto.DoesNotExist:
             manifiesto_instance = None
 
-        if 'submit_firma' in request.POST:
-            signature_data = request.POST.get('signature_data')
-            nombre_responsable_cliente = request.POST.get('nombre_responsable_cliente')
-
-            if signature_data and nombre_responsable_cliente:
-                # --- Guardado del Manifiesto ---
-                final_data = manifiesto_data
-                final_data['nombre_responsable_cliente'] = nombre_responsable_cliente
-                
-                manifiesto, created = Manifiesto.objects.update_or_create(
-                    recorrido=recorrido, defaults=final_data
-                )
-
-                # Guardar firma
-                format, imgstr = signature_data.split(';base64,')
-                ext = format.split('/')[-1]
-                signature_file = ContentFile(base64.b64decode(imgstr), name=f'firma_cliente_{pk}.{ext}')
-                manifiesto.firma_cliente.save(signature_file.name, signature_file, save=True)
-
-                # --- LÓGICA DEFINITIVA PARA IMÁGENES EN PDF ---
-                template = get_template('gestion/manifiesto_pdf.html')
-
-                # 1. Convertir el LOGO a Base64
-                logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
-                with open(logo_path, "rb") as image_file:
-                    logo_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
-                
-                # 2. Convertir la FIRMA a Base64
-                firma_cliente_b64 = None
-                if manifiesto.firma_cliente:
-                    with open(manifiesto.firma_cliente.path, "rb") as image_file:
-                        firma_cliente_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
-                
-                context = {
-                    'manifiesto': manifiesto, 'recorrido': recorrido, 'orden': recorrido.orden,
-                    'logo_b64': logo_b64, 'firma_cliente_b64': firma_cliente_b64
-                }
-                html_string = template.render(context)
-                html = HTML(string=html_string, base_url=request.build_absolute_uri())
-                pdf = html.write_pdf()
-
-                pdf_file = ContentFile(pdf, name=f'manifiesto_recorrido_{pk}.pdf')
-                manifiesto.pdf_generado = pdf_file
-                manifiesto.save()
-                
-                messages.success(request, 'Manifiesto generado y firmado exitosamente.')
-                if f'manifiesto_data_{pk}' in request.session:
-                    del request.session[f'manifiesto_data_{pk}']
-                return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
-
-            else:
-                messages.error(request, 'Falta la firma o el nombre del responsable.')
-                return render(request, self.TEMPLATES['firma'], {'recorrido': recorrido, 'pk': pk, 'current_step': 'firma'})
-        
-        # --- Lógica para pasos intermedios ---
         FormClass = self.get_form_step(step)
+        if FormClass is None:
+            messages.error(request, "Paso de formulario inválido.")
+            return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
+
         form = FormClass(request.POST, instance=manifiesto_instance)
-        if form.is_valid():
-            cleaned_data = form.cleaned_data
-            for key, value in cleaned_data.items():
-                if isinstance(value, (datetime.time, Decimal)):
-                    cleaned_data[key] = str(value)
-            
-            manifiesto_data.update(cleaned_data)
-            request.session[f'manifiesto_data_{pk}'] = manifiesto_data
-            
-            current_index = [name for name, _ in self.FORMS].index(step)
-            if current_index + 1 < len(self.FORMS):
-                next_step_name = self.FORMS[current_index + 1][0]
-                return redirect('gestion:firmar_manifiesto_step', pk=pk, step=next_step_name)
-            else:
-                return redirect('gestion:firmar_manifiesto_step', pk=pk, step='firma')
-        else:
+        if not form.is_valid():
             messages.error(request, "Por favor, corrija los errores en el formulario.")
-            return render(request, self.TEMPLATES[step], {'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk})
+            return render(request, self.TEMPLATES[step], {
+                'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
+            })
+
+        # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
+        cleaned_data = form.cleaned_data
+        for key, value in cleaned_data.items():
+            if isinstance(value, (datetime.time, Decimal)):
+                cleaned_data[key] = str(value)
+        manifiesto_data.update(cleaned_data)
+        request.session[f'manifiesto_data_{pk}'] = manifiesto_data
+
+        current_index = [name for name, _ in self.FORMS].index(step)
+        if current_index + 1 < len(self.FORMS):
+            next_step_name = self.FORMS[current_index + 1][0]
+            return redirect('gestion:firmar_manifiesto_step', pk=pk, step=next_step_name)
+
+        # --- Último paso del conductor: persistir el manifiesto y pasar al QR ---
+        Manifiesto.objects.update_or_create(
+            recorrido=recorrido,
+            defaults={**manifiesto_data, 'estado_firma': 'PENDIENTE_FIRMA'},
+        )
+        if f'manifiesto_data_{pk}' in request.session:
+            del request.session[f'manifiesto_data_{pk}']
+        return redirect('gestion:manifiesto_qr', pk=pk)
+
+
+class ManifiestoQRView(LoginRequiredMixin, View):
+    """Muestra al conductor el QR para que el cliente firme desde su dispositivo."""
+    template_name = 'gestion/manifiesto_wizard/qr.html'
+
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        if not _puede_gestionar_manifiesto(request.user, recorrido):
+            messages.error(request, "No tienes permiso para ver este manifiesto.")
+            return redirect('gestion:dashboard_redirect')
+
+        try:
+            manifiesto = recorrido.manifiesto
+        except Manifiesto.DoesNotExist:
+            messages.error(request, "Primero debes llenar los datos del manifiesto.")
+            return redirect('gestion:firmar_manifiesto_step', pk=pk, step='paso1')
+
+        url_publica = request.build_absolute_uri(
+            reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico})
+        )
+        return render(request, self.template_name, {
+            'recorrido': recorrido,
+            'manifiesto': manifiesto,
+            'url_publica': url_publica,
+            'qr_b64': _qr_data_uri(url_publica),
+        })
+
+
+@login_required
+def manifiesto_estado_json(request, pk):
+    """Endpoint de polling para que la pantalla del QR detecte cuándo firma el cliente."""
+    recorrido = get_object_or_404(Recorrido, pk=pk)
+    try:
+        manifiesto = recorrido.manifiesto
+    except Manifiesto.DoesNotExist:
+        return JsonResponse({'firmado': False, 'pdf_url': None})
+
+    pdf_url = manifiesto.pdf_generado.url if manifiesto.pdf_generado else None
+    return JsonResponse({
+        'firmado': manifiesto.estado_firma == 'FIRMADO',
+        'pdf_url': pdf_url,
+    })
+
+
+class EncuestaPublicaView(View):
+    """
+    Página PÚBLICA (sin login) que abre el cliente al escanear el QR.
+    Contiene la encuesta de satisfacción (paso5) + la firma de conformidad.
+    Es de un solo uso: una vez FIRMADO, el token deja de ser utilizable.
+    """
+    template_name = 'gestion/manifiesto_wizard/encuesta_publica.html'
+    template_gracias = 'gestion/manifiesto_wizard/encuesta_gracias.html'
+
+    def get(self, request, token):
+        manifiesto = get_object_or_404(Manifiesto, token_publico=token)
+        if manifiesto.estado_firma == 'FIRMADO':
+            return render(request, self.template_gracias, {
+                'manifiesto': manifiesto, 'ya_firmado': True,
+            })
+        return render(request, self.template_name, {
+            'manifiesto': manifiesto,
+            'recorrido': manifiesto.recorrido,
+            'orden': manifiesto.recorrido.orden,
+            'form': ManifiestoPaso5Form(instance=manifiesto),
+        })
+
+    def post(self, request, token):
+        manifiesto = get_object_or_404(Manifiesto, token_publico=token)
+        if manifiesto.estado_firma == 'FIRMADO':
+            return render(request, self.template_gracias, {
+                'manifiesto': manifiesto, 'ya_firmado': True,
+            })
+
+        form = ManifiestoPaso5Form(request.POST, instance=manifiesto)
+        signature_data = request.POST.get('signature_data')
+        nombre_responsable_cliente = request.POST.get('nombre_responsable_cliente')
+
+        if form.is_valid() and signature_data and nombre_responsable_cliente:
+            manifiesto = form.save(commit=False)
+            manifiesto.nombre_responsable_cliente = nombre_responsable_cliente
+            manifiesto.estado_firma = 'FIRMADO'
+            manifiesto.save()
+
+            _guardar_firma_cliente(manifiesto, signature_data, manifiesto.recorrido.pk)
+            _generar_pdf_manifiesto(manifiesto, request)
+
+            return render(request, self.template_gracias, {
+                'manifiesto': manifiesto, 'ya_firmado': False,
+            })
+
+        if not signature_data or not nombre_responsable_cliente:
+            messages.error(request, 'Falta la firma o el nombre de quien recibe.')
+        else:
+            messages.error(request, 'Por favor, corrija los errores en la encuesta.')
+        return render(request, self.template_name, {
+            'manifiesto': manifiesto,
+            'recorrido': manifiesto.recorrido,
+            'orden': manifiesto.recorrido.orden,
+            'form': form,
+        })
 
 
 

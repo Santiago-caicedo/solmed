@@ -1,0 +1,74 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    .qr-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 700px; margin: auto; text-align: center; }
+    .qr-img { width: 280px; height: 280px; border: 1px solid #dee2e6; padding: 8px; background: #fff; }
+    #estado-espera .spinner-border { width: 1.2rem; height: 1.2rem; }
+</style>
+
+<div class="qr-container">
+    <h1 class="mb-1">Firma del Cliente</h1>
+    <p class="text-muted">Manifiesto de la Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }}</p>
+
+    <hr>
+
+    {# --- Estado: esperando al cliente --- #}
+    <div id="estado-espera">
+        <p class="lead">Pide al funcionario del cliente que escanee este código para
+            <strong>responder la encuesta y firmar</strong> desde su dispositivo:</p>
+
+        <img src="{{ qr_b64 }}" alt="Código QR" class="qr-img my-3">
+
+        <div class="d-flex align-items-center justify-content-center text-primary mt-2">
+            <div class="spinner-border me-2" role="status"></div>
+            <span>Esperando que el cliente complete y firme…</span>
+        </div>
+
+        <div class="mt-4">
+            <p class="text-muted small mb-2">¿El cliente no puede escanear el código?</p>
+            <a href="{{ url_publica }}" class="btn btn-outline-secondary btn-sm" target="_blank">
+                <i class="bi bi-phone"></i> Llenar en este dispositivo
+            </a>
+        </div>
+    </div>
+
+    {# --- Estado: firmado --- #}
+    <div id="estado-firmado" style="display: none;">
+        <div class="text-success my-4">
+            <i class="bi bi-check2-circle" style="font-size: 4rem;"></i>
+            <h3 class="mt-2">¡Manifiesto firmado!</h3>
+            <p class="text-muted">El cliente completó la encuesta y firmó correctamente.</p>
+        </div>
+        <a id="ver-pdf" href="#" target="_blank" class="btn btn-danger me-2" style="display:none;">
+            <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
+        </a>
+        <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="btn btn-primary">
+            <i class="bi bi-box-arrow-right"></i> Volver a la Orden
+        </a>
+    </div>
+</div>
+
+<script>
+    (function () {
+        var estadoUrl = "{% url 'gestion:manifiesto_estado' recorrido.pk %}";
+        var intervalo = setInterval(function () {
+            fetch(estadoUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.firmado) {
+                        clearInterval(intervalo);
+                        document.getElementById('estado-espera').style.display = 'none';
+                        document.getElementById('estado-firmado').style.display = 'block';
+                        if (data.pdf_url) {
+                            var pdf = document.getElementById('ver-pdf');
+                            pdf.href = data.pdf_url;
+                            pdf.style.display = 'inline-block';
+                        }
+                    }
+                })
+                .catch(function () { /* reintenta en el siguiente ciclo */ });
+        }, 4000);
+    })();
+</script>
+{% endblock %}

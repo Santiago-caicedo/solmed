@@ -1,4 +1,5 @@
 # gestion/models.py
+import uuid
 from django.db import models
 from django.conf import settings # Para relacionar con el usuario/asesor
 from django.db.models import Sum
@@ -142,8 +143,21 @@ class Recorrido(models.Model):
 
 
 class Manifiesto(models.Model):
+    # --- Estado del ciclo de firma ---
+    # PENDIENTE_FIRMA: el conductor ya cargó los datos operativos (paso1-4) y se generó el QR;
+    #                  falta que el funcionario del cliente complete la encuesta y firme.
+    # FIRMADO:         el cliente ya firmó. El token público deja de ser utilizable.
+    ESTADO_FIRMA_CHOICES = [
+        ('PENDIENTE_FIRMA', 'Pendiente firma cliente'),
+        ('FIRMADO', 'Firmado'),
+    ]
+
     # Relación uno a uno con el recorrido. Cada viaje tiene un único manifiesto.
     recorrido = models.OneToOneField(Recorrido, on_delete=models.CASCADE, related_name='manifiesto')
+
+    # Token aleatorio para el enlace público (QR) que abre el cliente sin iniciar sesión.
+    token_publico = models.UUIDField(default=uuid.uuid4, editable=False, null=True, unique=True)
+    estado_firma = models.CharField(max_length=20, choices=ESTADO_FIRMA_CHOICES, default='PENDIENTE_FIRMA')
 
     # --- Cabecera ---
     auxiliar1 = models.CharField(max_length=100, blank=True, verbose_name="Auxiliar 1")

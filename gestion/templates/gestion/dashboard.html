@@ -69,11 +69,28 @@
     <div class="col-lg-6 mb-4">
         <div class="card shadow h-100">
             <div class="card-body">
-                <h5 class="card-title">Tasa de Utilización de Vehículos</h5>
-                <div class="progress" style="height: 25px;">
-                    <div class="progress-bar" role="progressbar" style="width: {{ utilizacion_vehiculos }}%;" aria-valuenow="{{ utilizacion_vehiculos }}" aria-valuemin="0" aria-valuemax="100">{{ utilizacion_vehiculos }}%</div>
+                <h5 class="card-title mb-3">Tasa de Utilización de Vehículos</h5>
+                <div class="d-flex align-items-center justify-content-around flex-wrap">
+                    <div style="position: relative; width: 200px; height: 200px;">
+                        <canvas id="utilizacionChart"></canvas>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                            <div style="font-size: 2.25rem; font-weight: 700; color: #2c3e50; line-height: 1;">{{ utilizacion_vehiculos }}%</div>
+                            <div style="font-size: 0.75rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.25rem;">En servicio</div>
+                        </div>
+                    </div>
+                    <div class="ms-3">
+                        <div class="d-flex align-items-center mb-2">
+                            <span style="display: inline-block; width: 12px; height: 12px; background: #9cbe30; border-radius: 3px; margin-right: 0.5rem;"></span>
+                            <span class="text-muted small">Vehículos en servicio</span>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <span style="display: inline-block; width: 12px; height: 12px; background: #e9ecef; border-radius: 3px; margin-right: 0.5rem;"></span>
+                            <span class="text-muted small">Vehículos disponibles</span>
+                        </div>
+                        <hr class="my-2">
+                        <small class="text-muted d-block">Porcentaje de la flota operativa que se encuentra atendiendo órdenes en ejecución.</small>
+                    </div>
                 </div>
-                <small class="text-muted">Porcentaje de la flota que se encuentra "En Servicio" actualmente.</small>
             </div>
         </div>
     </div>
@@ -138,4 +155,41 @@
         </div>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const utilizacion = {{ utilizacion_vehiculos|default:0 }};
+        const disponible = 100 - utilizacion;
+
+        const ctx = document.getElementById('utilizacionChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['En servicio', 'Disponibles'],
+                datasets: [{
+                    data: [utilizacion, disponible],
+                    backgroundColor: ['#9cbe30', '#e9ecef'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                cutout: '75%',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                return context.label + ': ' + context.parsed + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
 {% endblock %}

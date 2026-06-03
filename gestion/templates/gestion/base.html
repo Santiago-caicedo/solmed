@@ -67,6 +67,56 @@
         .btn-primary:hover { background-color: #007bab; border-color: #007bab; }
         .btn-success { background-color: var(--verde-solmed-acento); border-color: var(--verde-solmed-acento); }
         .btn-success:hover { background-color: #8bab2b; border-color: #8bab2b; }
+
+        /* --- Sidebar footer: info de usuario + logout --- */
+        .sidebar { display: flex; flex-direction: column; }
+        .sidebar-footer {
+            margin-top: auto;
+        }
+        .sidebar-footer hr {
+            border-color: rgba(255,255,255,0.1);
+            margin: 0.5rem 1rem 1rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 1.5rem 1rem;
+            color: var(--sidebar-link-color);
+        }
+        .user-info i.bi-person-circle {
+            font-size: 2rem;
+            color: var(--verde-solmed-acento);
+        }
+        .user-info-text { overflow: hidden; }
+        .user-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .user-role {
+            color: rgba(255,255,255,0.55);
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+        }
+        .btn-logout {
+            background-color: transparent;
+            color: var(--sidebar-link-color);
+            border: 1px solid rgba(255,255,255,0.15);
+            font-weight: 500;
+            padding: 0.6rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+        .btn-logout:hover {
+            background-color: #c0392b;
+            color: white;
+            border-color: #c0392b;
+        }
+        .btn-logout i { color: inherit; }
     </style>
 </head>
 <body>
@@ -141,6 +191,29 @@
             </a>
         </li>
     </ul>
+    {% endif %}
+
+    {% if user.is_authenticated %}
+    <div class="sidebar-footer mt-auto">
+        <hr>
+        <div class="user-info">
+            <i class="bi bi-person-circle"></i>
+            <div class="user-info-text">
+                <div class="user-name">{{ user.get_full_name|default:user.username }}</div>
+                <small class="user-role">
+                    {% if user.is_superuser %}Administrador
+                    {% elif user.groups.all.0.name %}{{ user.groups.all.0.name }}
+                    {% else %}Usuario{% endif %}
+                </small>
+            </div>
+        </div>
+        <form method="post" action="{% url 'logout' %}" class="px-3 pb-3">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-logout w-100">
+                <i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión
+            </button>
+        </form>
+    </div>
     {% endif %}
 </div>
 
