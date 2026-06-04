@@ -50,7 +50,49 @@
                     {{ form.telefono }}
                 </div>
             </div>
-            
+
+            <h5>Contacto Adicional 2 <small class="text-muted">(opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.persona_contacto2.id_for_label }}" class="form-label">Nombre del Contacto</label>
+                    {{ form.persona_contacto2 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.cargo_contacto2.id_for_label }}" class="form-label">Cargo del Contacto</label>
+                    {{ form.cargo_contacto2 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.email_contacto2.id_for_label }}" class="form-label">Correo del Contacto</label>
+                    {{ form.email_contacto2 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.telefono_contacto2.id_for_label }}" class="form-label">Teléfono del Contacto</label>
+                    {{ form.telefono_contacto2 }}
+                </div>
+            </div>
+
+            <h5>Contacto Adicional 3 <small class="text-muted">(opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.persona_contacto3.id_for_label }}" class="form-label">Nombre del Contacto</label>
+                    {{ form.persona_contacto3 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.cargo_contacto3.id_for_label }}" class="form-label">Cargo del Contacto</label>
+                    {{ form.cargo_contacto3 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.email_contacto3.id_for_label }}" class="form-label">Correo del Contacto</label>
+                    {{ form.email_contacto3 }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.telefono_contacto3.id_for_label }}" class="form-label">Teléfono del Contacto</label>
+                    {{ form.telefono_contacto3 }}
+                </div>
+            </div>
+
             <div class="d-flex justify-content-end">
                 <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-secondary me-2">Cancelar</a>
                 <button type="submit" class="btn btn-success">

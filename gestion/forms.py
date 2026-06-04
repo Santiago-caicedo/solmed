@@ -43,8 +43,10 @@ class ClienteForm(forms.ModelForm):
         model = Cliente
         # Añadimos los nuevos campos a la lista
         fields = [
-            'nombre', 'identificacion', 'direccion', 'ciudad', 
-            'persona_contacto', 'cargo_contacto', 'email', 'telefono'
+            'nombre', 'identificacion', 'direccion', 'ciudad',
+            'persona_contacto', 'cargo_contacto', 'email', 'telefono',
+            'persona_contacto2', 'cargo_contacto2', 'email_contacto2', 'telefono_contacto2',
+            'persona_contacto3', 'cargo_contacto3', 'email_contacto3', 'telefono_contacto3',
         ]
         widgets = {
             'nombre': forms.TextInput(attrs={'class': 'form-control'}),
@@ -55,6 +57,14 @@ class ClienteForm(forms.ModelForm):
             'cargo_contacto': forms.TextInput(attrs={'class': 'form-control'}),
             'email': forms.EmailInput(attrs={'class': 'form-control'}),
             'telefono': forms.TextInput(attrs={'class': 'form-control'}),
+            'persona_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
+            'cargo_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
+            'email_contacto2': forms.EmailInput(attrs={'class': 'form-control'}),
+            'telefono_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
+            'persona_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
+            'cargo_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
+            'email_contacto3': forms.EmailInput(attrs={'class': 'form-control'}),
+            'telefono_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
 

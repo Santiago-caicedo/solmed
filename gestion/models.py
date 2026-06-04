@@ -21,6 +21,18 @@ class Cliente(models.Model):
     email = models.EmailField(blank=True, help_text="Correo electrónico del contacto")
     telefono = models.CharField(max_length=20, blank=True, help_text="Teléfono del contacto")
 
+    # --- Contacto adicional 2 (opcional) ---
+    persona_contacto2 = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto 2")
+    cargo_contacto2 = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto 2")
+    email_contacto2 = models.EmailField(blank=True, verbose_name="Correo del Contacto 2")
+    telefono_contacto2 = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Contacto 2")
+
+    # --- Contacto adicional 3 (opcional) ---
+    persona_contacto3 = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto 3")
+    cargo_contacto3 = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto 3")
+    email_contacto3 = models.EmailField(blank=True, verbose_name="Correo del Contacto 3")
+    telefono_contacto3 = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Contacto 3")
+
     def __str__(self):
         return self.nombre
 
