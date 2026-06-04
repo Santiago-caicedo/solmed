@@ -21,7 +21,9 @@
       "Read(//home/santiago/**)",
       "Bash(git --version)",
       "Bash(python3 -m py_compile config/settings.py)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)",
+      "Bash(git check-ignore *)"
     ]
   }
 }
