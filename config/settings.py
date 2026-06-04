@@ -35,6 +35,21 @@ ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if
 if DEBUG and not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
+# --- CSRF detrás de HTTPS / proxy (Django >= 4) ---
+# Para que los formularios POST (login, etc.) funcionen por HTTPS, Django exige
+# declarar el origen completo (con esquema). Se derivan de ALLOWED_HOSTS y se
+# pueden ampliar con CSRF_TRUSTED_ORIGINS en el .env (separados por comas).
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{h}' for h in ALLOWED_HOSTS if h not in ('localhost', '127.0.0.1')
+]
+CSRF_TRUSTED_ORIGINS += [
+    o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
+
+# Detrás de Nginx/Load Balancer que termina el TLS: confiar en el proto reenviado
+# para que Django sepa que la petición original llegó por HTTPS.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 
 # Application definition
 
