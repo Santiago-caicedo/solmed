@@ -9,7 +9,19 @@
       "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/views.py gestion/urls.py gestion/admin.py)",
       "Bash(python3 -m py_compile gestion/models.py gestion/views.py)",
       "Bash(python3 -m py_compile gestion/views.py)",
-      "Bash(python3 -m py_compile gestion/views.py gestion/urls.py)"
+      "Bash(python3 -m py_compile gestion/views.py gestion/urls.py)",
+      "Bash(gh auth *)",
+      "Bash(GIT_TERMINAL_PROMPT=0 timeout 25 git ls-remote origin)",
+      "Bash(echo \"[exit: $?]\")",
+      "Bash(timeout 10 getent hosts github.com)",
+      "Bash(timeout 20 curl -sS -o /dev/null -w \"HTTP %{http_code} en %{time_total}s\\\\n\" https://github.com)",
+      "Bash(timeout 20 curl -sS -o /dev/null -w \"HTTP %{http_code} en %{time_total}s\\\\n\" https://github.com/Santiago-caicedo/solmed.git/info/refs?service=git-upload-pack)",
+      "Bash(git config *)",
+      "Bash(echo \"[$?]\")",
+      "Read(//home/santiago/**)",
+      "Bash(git --version)",
+      "Bash(python3 -m py_compile config/settings.py)",
+      "Bash(python3 -c ' *)"
     ]
   }
 }
