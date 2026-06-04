@@ -139,8 +139,18 @@
 
         {% if user.groups.all.0.name == 'Conductores' %}
         <li class="nav-item">
+            <a href="{% url 'gestion:dashboard_conductor' %}" class="nav-link {% if 'dashboard-conductor' in request.path %}active{% endif %}">
+                <i class="bi bi-house-door-fill"></i>Mi Jornada
+            </a>
+        </li>
+        <li class="nav-item">
             <a href="{% url 'gestion:mis_recorridos' %}" class="nav-link {% if 'mis_recorridos' in request.path %}active{% endif %}">
                 <i class="bi bi-pin-map-fill"></i>Mis Recorridos
+            </a>
+        </li>
+        <li class="nav-item">
+            <a href="{% url 'gestion:historial_conductor' %}" class="nav-link {% if 'historial' in request.path %}active{% endif %}">
+                <i class="bi bi-clock-history"></i>Historial
             </a>
         </li>
         {% endif %}

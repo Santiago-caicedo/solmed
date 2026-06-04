@@ -16,7 +16,10 @@
                 {% for recorrido in recorridos_hoy %}
                 <div class="list-group-item">
                     <div class="d-flex w-100 justify-content-between">
-                        <h6 class="mb-1">Orden #{{ recorrido.orden.numero_orden }} - {{ recorrido.orden.cliente.nombre }}</h6>
+                        <h6 class="mb-1">
+                            <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}">Orden #{{ recorrido.orden.numero_orden }}</a>
+                            - {{ recorrido.orden.cliente.nombre }}
+                        </h6>
                         <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
                     </div>
                     <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
@@ -26,6 +29,15 @@
                         <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
                             <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
                         </a>
+                        {% if not recorrido.encuesta_conductor %}
+                        <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-sm btn-warning">
+                            <i class="bi bi-clipboard-check"></i> Encuesta de cierre
+                        </a>
+                        {% elif recorrido.encuesta_conductor.pdf_generado %}
+                        <a href="{{ recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
+                        </a>
+                        {% endif %}
                         {% elif recorrido.manifiesto %}
                         <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-sm btn-primary">
                             <i class="bi bi-qr-code"></i> Ver QR para firma

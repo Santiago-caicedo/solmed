@@ -5,7 +5,11 @@
       "Bash(grep -E '\\\\.env$')",
       "Bash(python3 -c \"import django; print\\('django', django.get_version\\(\\)\\)\")",
       "Bash(python3 manage.py showmigrations gestion)",
-      "Bash(python3 manage.py makemigrations gestion --check --dry-run)"
+      "Bash(python3 manage.py makemigrations gestion --check --dry-run)",
+      "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/views.py gestion/urls.py gestion/admin.py)",
+      "Bash(python3 -m py_compile gestion/models.py gestion/views.py)",
+      "Bash(python3 -m py_compile gestion/views.py)",
+      "Bash(python3 -m py_compile gestion/views.py gestion/urls.py)"
     ]
   }
 }

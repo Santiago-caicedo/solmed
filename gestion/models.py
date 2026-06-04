@@ -293,3 +293,132 @@ class Pago(models.Model):
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs) # Borra el pago
         self._actualizar_estado_orden() # Actualiza la orden
+
+
+class Dispositor(models.Model):
+    """
+    Gestor / planta o celda de seguridad autorizada para la disposición final de
+    residuos. Es parametrizable desde el admin para alimentar el desplegable de
+    'Dispositor final' de la encuesta del conductor (trazabilidad de la cuna a la tumba).
+    """
+    nombre = models.CharField(max_length=200, verbose_name="Nombre del gestor / dispositor")
+    descripcion = models.CharField(
+        max_length=255, blank=True,
+        help_text="Tipo de planta o celda, licencia ambiental, ciudad, etc."
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarlo de los formularios sin borrar el histórico."
+    )
+
+    class Meta:
+        verbose_name = "Dispositor final autorizado"
+        verbose_name_plural = "Dispositores finales autorizados"
+        ordering = ['nombre']
+
+    def __str__(self):
+        return self.nombre
+
+
+class EncuestaConductor(models.Model):
+    """
+    Encuesta operativa que llena EL CONDUCTOR al cerrar el servicio, una vez firmado
+    el manifiesto del cliente. Es evidencia de cumplimiento del PESV (Plan Estratégico
+    de Seguridad Vial) y de la gestión ambiental de SOLMED SAS.
+    Diligenciarla marca automáticamente el recorrido como COMPLETADO (es obligatoria).
+    """
+    SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
+
+    NIVEL_COMBUSTIBLE_CHOICES = [
+        ('1/4', '¼'),
+        ('1/2', '½'),
+        ('3/4', '¾'),
+        ('FULL', 'Full'),
+    ]
+
+    TIPO_RESIDUO_CHOICES = [
+        ('AGUAS_DOM_SEPT', 'Aguas domésticas/sépticas'),
+        ('AGUAS_LLUVIAS', 'Aguas lluvias'),
+        ('TRAMPAS_GRASA', 'Trampas de grasa'),
+        ('AGUAS_HIDROCARBURADAS', 'Aguas hidrocarburadas (RESPEL)'),
+        ('OTROS_RESPEL', 'Otros RESPEL'),
+        ('ORGANICOS', 'Orgánicos'),
+        ('ESCOMBROS', 'Escombros'),
+    ]
+
+    RIESGO_VIAL_CHOICES = [
+        ('NINGUNA', 'Ninguna'),
+        ('VIA_MAL_ESTADO', 'Vía en mal estado/huecos'),
+        ('FALTA_ILUMINACION', 'Falta de iluminación'),
+        ('SENALIZACION_DEFICIENTE', 'Señalización deficiente'),
+        ('PUNTO_CRITICO', 'Punto crítico de accidentes'),
+    ]
+
+    TIPO_INCIDENTE_CHOICES = [
+        ('FALLA_MECANICA', 'Falla mecánica (Varada)'),
+        ('INCIDENTE_MENOR', 'Incidente menor (Roce o golpe simple)'),
+        ('SINIESTRO_TERCEROS', 'Siniestro vial con terceros'),
+    ]
+
+    recorrido = models.OneToOneField(
+        Recorrido, on_delete=models.CASCADE, related_name='encuesta_conductor'
+    )
+
+    # --- 1. Control de Fatiga y Nivel de Combustible ---
+    presento_fatiga = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Presentó síntomas de fatiga, cansancio o microsueños durante la ruta?"
+    )
+    nivel_combustible = models.CharField(
+        max_length=4, choices=NIVEL_COMBUSTIBLE_CHOICES,
+        verbose_name="Nivel de combustible al cierre del servicio"
+    )
+
+    # --- 2. Caracterización del Residuo y Dispositor Final ---
+    tipo_residuo = models.CharField(
+        max_length=30, choices=TIPO_RESIDUO_CHOICES,
+        verbose_name="Tipo de residuo transportado"
+    )
+    dispositor_final = models.ForeignKey(
+        Dispositor, on_delete=models.PROTECT, related_name='encuestas',
+        verbose_name="Dispositor final / destino autorizado"
+    )
+
+    # --- 3. Reporte de Novedades en la Vía ---
+    riesgo_vial = models.CharField(
+        max_length=30, choices=RIESGO_VIAL_CHOICES, default='NINGUNA',
+        verbose_name="Condiciones de riesgo identificadas en la infraestructura vial"
+    )
+
+    # --- 4. Gestión de Incidentes en Ruta ---
+    hubo_incidente = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Se presentó algún incidente, varada o evento vial durante el trayecto?"
+    )
+    tipo_incidente = models.CharField(
+        max_length=20, choices=TIPO_INCIDENTE_CHOICES, blank=True,
+        verbose_name="Tipo de evento"
+    )
+    descripcion_incidente = models.TextField(
+        blank=True, verbose_name="Descripción del incidente (opcional)"
+    )
+
+    # --- PDF generado (evidencia documental independiente) ---
+    pdf_generado = models.FileField(upload_to='encuestas_conductor_pdf/', blank=True, null=True)
+    fecha_diligenciamiento = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Encuesta de cierre del conductor"
+        verbose_name_plural = "Encuestas de cierre del conductor"
+
+    def __str__(self):
+        return f"Encuesta de cierre - Recorrido #{self.recorrido_id}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Diligenciar la encuesta de cierre marca el recorrido como COMPLETADO,
+        # lo que a su vez actualiza el estado de la orden padre (lógica de Recorrido.save).
+        recorrido = self.recorrido
+        if recorrido.estado != 'COMPLETADO':
+            recorrido.estado = 'COMPLETADO'
+            recorrido.save()

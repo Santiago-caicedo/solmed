@@ -39,7 +39,7 @@
                 <h6>Recorridos Programados y Realizados</h6>
                 {% if orden.recorridos.all %}
                 <table class="table table-sm table-hover">
-                    <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Acción</th></tr></thead>
+                    <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
                     <tbody>
                         {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
                         <tr>
@@ -64,11 +64,22 @@
                             </td>
 
                             <td>
-                                {% if recorrido.estado != 'COMPLETADO' %}
-                                <form method="post" action="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="d-inline">
-                                    {% csrf_token %}
-                                    <button type="submit" class="btn btn-success btn-sm">Marcar como Completado</button>
-                                </form>
+                                {% if recorrido.encuesta_conductor %}
+                                    {% if recorrido.encuesta_conductor.pdf_generado %}
+                                    <a href="{{ recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
+                                        <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
+                                    </a>
+                                    {% else %}
+                                    <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-outline-success btn-sm">
+                                        <i class="bi bi-clipboard-check"></i> Diligenciada
+                                    </a>
+                                    {% endif %}
+                                {% elif recorrido.manifiesto.estado_firma == 'FIRMADO' %}
+                                    <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning btn-sm">
+                                        <i class="bi bi-clipboard-x"></i> Pendiente
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted small">—</span>
                                 {% endif %}
                             </td>
                         </tr>

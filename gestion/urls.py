@@ -19,6 +19,9 @@ urlpatterns = [
     # --- Encuesta + firma del cliente vía QR ---
     path('recorrido/<int:pk>/qr/', views.ManifiestoQRView.as_view(), name='manifiesto_qr'),
     path('api/manifiesto/<int:pk>/estado/', views.manifiesto_estado_json, name='manifiesto_estado'),
+
+    # --- Encuesta de cierre del conductor (PESV + ambiental) ---
+    path('recorrido/<int:pk>/encuesta-conductor/', views.EncuestaConductorView.as_view(), name='encuesta_conductor'),
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
 
@@ -46,6 +49,8 @@ urlpatterns = [
     path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
     path('dashboard/redirect/', views.dashboard_redirect_view, name='dashboard_redirect'),
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),
+    path('historial/', views.HistorialConductorView.as_view(), name='historial_conductor'),
+    path('conductor/orden/<int:pk>/', views.OrdenConductorDetailView.as_view(), name='detalle_orden_conductor'),
     path('planificacion/', views.PlanificacionView.as_view(), name='planificacion'),
 
     path('ordenes/<int:orden_pk>/registrar-pago/', views.RegistrarPagoView.as_view(), name='registrar_pago'),

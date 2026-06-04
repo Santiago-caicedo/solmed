@@ -58,6 +58,11 @@
                 .then(function (data) {
                     if (data.firmado) {
                         clearInterval(intervalo);
+                        // Si falta la encuesta de cierre del conductor, lo llevamos directo a ella.
+                        if (data.encuesta_pendiente && data.encuesta_url) {
+                            window.location.href = data.encuesta_url;
+                            return;
+                        }
                         document.getElementById('estado-espera').style.display = 'none';
                         document.getElementById('estado-firmado').style.display = 'block';
                         if (data.pdf_url) {

@@ -27,9 +27,9 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import Manifiesto, OrdenServicio, Pago, Recorrido
+from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Recorrido
 from django.http import JsonResponse
-from .forms import DocumentoOrdenForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente
 
 
@@ -47,6 +47,19 @@ class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """
     def test_func(self):
         return self.request.user.is_superuser or self.request.user.groups.filter(name='Asesores').exists()
+
+
+# --- MIXIN QUE BLOQUEA A LOS CONDUCTORES ---
+class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    Permite el acceso a cualquier usuario autenticado EXCEPTO a los conductores.
+    Se usa en vistas de gestión (como el expediente de la orden) a las que el
+    conductor no debe entrar.
+    """
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or not user.groups.filter(name='Conductores').exists()
+
 
 # --- Vista Principal (Dashboard) ---
 # Se protege con LoginRequiredMixin para que sea la página de inicio después del login.
@@ -332,6 +345,29 @@ def _generar_pdf_manifiesto(manifiesto, request):
     manifiesto.save()
 
 
+def _generar_pdf_encuesta_conductor(encuesta, request):
+    """Renderiza la encuesta de cierre del conductor a un PDF independiente y lo guarda."""
+    recorrido = encuesta.recorrido
+    template = get_template('gestion/encuesta_conductor_pdf.html')
+
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, "rb") as image_file:
+        logo_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
+
+    context = {
+        'encuesta': encuesta,
+        'recorrido': recorrido,
+        'orden': recorrido.orden,
+        'logo_b64': logo_b64,
+    }
+    html_string = template.render(context)
+    html = HTML(string=html_string, base_url=request.build_absolute_uri())
+    pdf = html.write_pdf()
+
+    pdf_file = ContentFile(pdf, name=f'encuesta_conductor_recorrido_{recorrido.pk}.pdf')
+    encuesta.pdf_generado.save(pdf_file.name, pdf_file, save=True)
+
+
 def _qr_data_uri(url):
     """Genera un PNG de código QR para la URL dada y lo devuelve como data-URI base64."""
     qr_img = qrcode.make(url)
@@ -474,10 +510,70 @@ def manifiesto_estado_json(request, pk):
         return JsonResponse({'firmado': False, 'pdf_url': None})
 
     pdf_url = manifiesto.pdf_generado.url if manifiesto.pdf_generado else None
+    try:
+        recorrido.encuesta_conductor
+        encuesta_pendiente = False
+    except EncuestaConductor.DoesNotExist:
+        encuesta_pendiente = True
     return JsonResponse({
         'firmado': manifiesto.estado_firma == 'FIRMADO',
         'pdf_url': pdf_url,
+        'encuesta_pendiente': encuesta_pendiente,
+        'encuesta_url': reverse('gestion:encuesta_conductor', kwargs={'pk': pk}),
     })
+
+
+class EncuestaConductorView(LoginRequiredMixin, View):
+    """
+    Encuesta de cierre (PESV + gestión ambiental) que llena EL CONDUCTOR tras
+    firmarse el manifiesto del cliente. Diligenciarla marca el recorrido como
+    COMPLETADO. Solo el conductor asignado, un Asesor o un superusuario acceden.
+    """
+    template_name = 'gestion/encuesta_conductor.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
+            if not _puede_gestionar_manifiesto(request.user, recorrido):
+                messages.error(request, "No tienes permiso para llenar esta encuesta.")
+                return redirect('gestion:dashboard_redirect')
+        return super().dispatch(request, *args, **kwargs)
+
+    def _get_instancia(self, recorrido):
+        try:
+            return recorrido.encuesta_conductor
+        except EncuestaConductor.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        instancia = self._get_instancia(recorrido)
+        return render(request, self.template_name, {
+            'recorrido': recorrido,
+            'form': EncuestaConductorForm(instance=instancia),
+            'ya_diligenciada': instancia is not None,
+        })
+
+    def post(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        instancia = self._get_instancia(recorrido)
+        form = EncuestaConductorForm(request.POST, instance=instancia)
+        if form.is_valid():
+            encuesta = form.save(commit=False)
+            encuesta.recorrido = recorrido
+            encuesta.save()  # marca el recorrido como COMPLETADO
+            _generar_pdf_encuesta_conductor(encuesta, request)  # genera el PDF de evidencia
+            messages.success(
+                request,
+                "Encuesta de cierre registrada. El recorrido fue marcado como completado."
+            )
+            return redirect('gestion:dashboard_redirect')
+        messages.error(request, "Por favor, corrige los errores en la encuesta.")
+        return render(request, self.template_name, {
+            'recorrido': recorrido,
+            'form': form,
+            'ya_diligenciada': instancia is not None,
+        })
 
 
 class EncuestaPublicaView(View):
@@ -588,7 +684,7 @@ class ActualizarUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, UpdateV
         return response
 
 
-class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
+class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
     model = OrdenServicio
     template_name = 'gestion/ordenservicio_detail.html'
     context_object_name = 'orden'
@@ -815,6 +911,48 @@ class MisRecorridosView(ConductorRequiredMixin, ListView):
             estado__in=['PROGRAMADO', 'EN_CURSO']
         ).order_by('fecha_recorrido')
 
+
+# --- HISTORIAL DEL CONDUCTOR ---
+class HistorialConductorView(ConductorRequiredMixin, ListView):
+    """
+    Historial de TODOS los recorridos del conductor (los más recientes primero).
+    Surface también las encuestas de cierre pendientes para que pueda completarlas.
+    """
+    model = Recorrido
+    template_name = 'gestion/historial_conductor.html'
+    context_object_name = 'recorridos'
+    paginate_by = 25
+
+    def get_queryset(self):
+        return Recorrido.objects.filter(
+            conductor=self.request.user
+        ).select_related('orden', 'orden__cliente', 'vehiculo').order_by('-fecha_recorrido')
+
+
+# --- VISTA DE ORDEN (SOLO LECTURA) PARA EL CONDUCTOR ---
+class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
+    """
+    Ficha de SOLO LECTURA de la orden, pensada para el conductor.
+    Solo deja ver órdenes en las que el conductor tiene algún recorrido asignado
+    (cualquier otra devuelve 404). No expone datos financieros ni de gestión.
+    """
+    model = OrdenServicio
+    template_name = 'gestion/orden_conductor_detail.html'
+    context_object_name = 'orden'
+
+    def get_queryset(self):
+        # Restringe el acceso a las órdenes propias del conductor.
+        return OrdenServicio.objects.filter(
+            recorridos__conductor=self.request.user
+        ).distinct()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Solo los recorridos de esta orden asignados a este conductor.
+        context['mis_recorridos'] = self.object.recorridos.filter(
+            conductor=self.request.user
+        ).select_related('vehiculo').order_by('-fecha_recorrido')
+        return context
 
 
 # --- NUEVA VISTA: TABLERO DE PLANIFICACIÓN ---

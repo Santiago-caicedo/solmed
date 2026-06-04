@@ -1,0 +1,145 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<style>
+    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
+    .wizard-header { text-align: center; margin-bottom: 1.5rem; }
+    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; border-radius: 6px; overflow: hidden; }
+    .form-section-title { background-color: #f8f9fa; padding: 0.75rem 1rem; font-weight: bold; border-bottom: 1px solid #dee2e6; }
+    .form-section-title small { display: block; font-weight: normal; color: #6c757d; font-size: 0.8rem; margin-top: 0.15rem; }
+    .form-section-content { padding: 1rem; }
+    .form-section-content label { font-weight: 600; }
+    /* Radios SÍ/NO y combustible en línea */
+    .form-section-content ul { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-wrap: wrap; gap: 1.25rem; }
+    .form-section-content ul li label { font-weight: 400; }
+</style>
+
+<div class="wizard-container">
+    <div class="wizard-header">
+        <h1 class="h3 mb-1">Encuesta de Cierre del Conductor</h1>
+        <p class="text-muted mb-1">
+            Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }} ·
+            Recorrido del {{ recorrido.fecha_recorrido }} · Vehículo {{ recorrido.vehiculo.placa }}
+        </p>
+        <p class="text-muted small">Evidencia de cumplimiento PESV (Seguridad Vial) y Gestión Ambiental — SOLMED SAS.</p>
+    </div>
+
+    {% if ya_diligenciada %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-1"></i>
+        Esta encuesta ya fue diligenciada. Puedes revisarla o actualizarla.
+    </div>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        <!-- 1. Control de Fatiga y Combustible -->
+        <div class="form-section">
+            <div class="form-section-title">
+                1. Control de Fatiga y Nivel de Combustible
+                <small>Auto-reporte de condiciones de salud y línea base de eficiencia energética / huella de carbono.</small>
+            </div>
+            <div class="form-section-content">
+                <div class="mb-3">
+                    {{ form.presento_fatiga.label_tag }}
+                    {{ form.presento_fatiga }}
+                    {% for e in form.presento_fatiga.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                </div>
+                <div>
+                    {{ form.nivel_combustible.label_tag }}
+                    {{ form.nivel_combustible }}
+                    {% for e in form.nivel_combustible.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Caracterización del Residuo y Dispositor Final -->
+        <div class="form-section">
+            <div class="form-section-title">
+                2. Caracterización del Residuo y Dispositor Final
+                <small>Trazabilidad obligatoria de la carga (de la cuna a la tumba) y control de centro de gravedad.</small>
+            </div>
+            <div class="form-section-content">
+                <div class="mb-3">
+                    {{ form.tipo_residuo.label_tag }}
+                    {{ form.tipo_residuo }}
+                    {% for e in form.tipo_residuo.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                </div>
+                <div>
+                    {{ form.dispositor_final.label_tag }}
+                    {{ form.dispositor_final }}
+                    {% for e in form.dispositor_final.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                    <div class="form-text">Si el destino no aparece, pídele al administrador que lo registre como gestor avalado.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Reporte de Novedades en la Vía -->
+        <div class="form-section">
+            <div class="form-section-title">
+                3. Reporte de Novedades en la Vía
+                <small>Alimenta la Matriz de Rutas Planificadas y permite alertas tempranas del Líder de Seguridad Vial.</small>
+            </div>
+            <div class="form-section-content">
+                {{ form.riesgo_vial.label_tag }}
+                {{ form.riesgo_vial }}
+                {% for e in form.riesgo_vial.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            </div>
+        </div>
+
+        <!-- 4. Gestión de Incidentes en Ruta -->
+        <div class="form-section">
+            <div class="form-section-title">
+                4. Gestión de Incidentes en Ruta
+                <small>Activa los protocolos de atención a emergencias y el Plan de Contingencia Ambiental.</small>
+            </div>
+            <div class="form-section-content">
+                <div class="mb-3">
+                    {{ form.hubo_incidente.label_tag }}
+                    {{ form.hubo_incidente }}
+                    {% for e in form.hubo_incidente.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                </div>
+                <div id="bloque-incidente">
+                    <div class="mb-3">
+                        {{ form.tipo_incidente.label_tag }}
+                        {{ form.tipo_incidente }}
+                        {% for e in form.tipo_incidente.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                    </div>
+                    <div>
+                        {{ form.descripcion_incidente.label_tag }}
+                        {{ form.descripcion_incidente }}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-4">
+            <button type="submit" class="btn btn-success btn-lg">
+                <i class="bi bi-check2-circle me-1"></i> Registrar encuesta y cerrar recorrido
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Muestra/oculta el detalle del incidente según la respuesta SÍ/NO.
+    (function () {
+        var bloque = document.getElementById('bloque-incidente');
+        function radiosHubo() {
+            return document.querySelectorAll('input[name="hubo_incidente"]');
+        }
+        function sync() {
+            var marcado = document.querySelector('input[name="hubo_incidente"]:checked');
+            var mostrar = marcado && marcado.value === 'SI';
+            bloque.style.display = mostrar ? 'block' : 'none';
+        }
+        radiosHubo().forEach(function (r) { r.addEventListener('change', sync); });
+        sync();
+    })();
+</script>
+{% endblock %}

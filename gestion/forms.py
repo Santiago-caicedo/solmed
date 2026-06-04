@@ -1,5 +1,5 @@
 from django import forms
-from .models import DocumentoOrden, Manifiesto, OrdenServicio, Pago, Recorrido, Vehiculo, Cliente
+from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 import datetime
@@ -352,3 +352,42 @@ class PagoForm(forms.ModelForm):
             'metodo_pago': forms.Select(attrs={'class': 'form-select'}),
             'notas': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
+
+
+class EncuestaConductorForm(forms.ModelForm):
+    """Encuesta de cierre (PESV + ambiental) que diligencia el conductor."""
+    class Meta:
+        model = EncuestaConductor
+        fields = [
+            'presento_fatiga', 'nivel_combustible',
+            'tipo_residuo', 'dispositor_final',
+            'riesgo_vial',
+            'hubo_incidente', 'tipo_incidente', 'descripcion_incidente',
+        ]
+        widgets = {
+            'presento_fatiga': forms.RadioSelect,
+            'nivel_combustible': forms.RadioSelect,
+            'tipo_residuo': forms.Select(attrs={'class': 'form-select'}),
+            'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
+            'riesgo_vial': forms.Select(attrs={'class': 'form-select'}),
+            'hubo_incidente': forms.RadioSelect,
+            'tipo_incidente': forms.Select(attrs={'class': 'form-select'}),
+            'descripcion_incidente': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Solo dispositores activos en el desplegable.
+        self.fields['dispositor_final'].queryset = Dispositor.objects.filter(activo=True)
+        # Estos campos solo se exigen si hubo incidente (ver clean()).
+        self.fields['tipo_incidente'].required = False
+        self.fields['descripcion_incidente'].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('hubo_incidente') == 'SI' and not cleaned.get('tipo_incidente'):
+            self.add_error(
+                'tipo_incidente',
+                'Debes seleccionar el tipo de evento cuando reportas un incidente.'
+            )
+        return cleaned

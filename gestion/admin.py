@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, DocumentoOrden, Manifiesto, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, Vehiculo, OrdenServicio
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
@@ -45,4 +45,21 @@ class ManifiestoAdmin(admin.ModelAdmin):
         'km_salida_solmed'
     )
     list_filter = ('recorrido__fecha_recorrido',)
+    search_fields = ('recorrido__orden__cliente__nombre',)
+
+
+@admin.register(Dispositor)
+class DispositorAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'descripcion', 'activo')
+    list_filter = ('activo',)
+    search_fields = ('nombre', 'descripcion')
+
+
+@admin.register(EncuestaConductor)
+class EncuestaConductorAdmin(admin.ModelAdmin):
+    list_display = (
+        'recorrido', 'fecha_diligenciamiento', 'presento_fatiga',
+        'nivel_combustible', 'tipo_residuo', 'dispositor_final', 'hubo_incidente',
+    )
+    list_filter = ('presento_fatiga', 'hubo_incidente', 'riesgo_vial', 'tipo_residuo')
     search_fields = ('recorrido__orden__cliente__nombre',)

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Encuesta de Cierre del Conductor - Recorrido #{{ recorrido.pk }}</title>
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0.6in;
+        }
+        body {
+            font-family: "Helvetica", Arial, sans-serif;
+            font-size: 9pt;
+            color: #000;
+            line-height: 1.35;
+        }
+        .header {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+        .header img { height: 48px; margin-right: 14px; }
+        .header .title { font-size: 13pt; font-weight: bold; color: #2c3e50; }
+        .header .subtitle { font-size: 8pt; color: #555; }
+
+        .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        .meta-table td { border: 1px solid #999; padding: 4px 6px; font-size: 8.5pt; }
+        .meta-table .lbl { background: #E9ECEF; font-weight: bold; width: 22%; }
+
+        .section { border: 1px solid #000; border-radius: 3px; margin-bottom: 8px; overflow: hidden; }
+        .section-title {
+            font-weight: bold;
+            background-color: #E9ECEF;
+            padding: 4px 6px;
+            border-bottom: 1px solid #000;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            font-size: 8.5pt;
+        }
+        .qa { padding: 5px 8px; border-bottom: 1px solid #ddd; }
+        .qa:last-child { border-bottom: none; }
+        .q { font-weight: bold; }
+        .a { margin-top: 2px; padding: 2px 8px; background: #f6f8fa; border-left: 3px solid #9cbe30; }
+        .footer { margin-top: 20px; font-size: 7.5pt; color: #666; text-align: center; border-top: 1px solid #ccc; padding-top: 6px; }
+        .sign-row { display: flex; flex-direction: row; justify-content: space-between; margin-top: 30px; }
+        .sign-box { width: 45%; text-align: center; border-top: 1px solid #000; padding-top: 4px; font-size: 8pt; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {% if logo_b64 %}<img src="{{ logo_b64 }}" alt="SOLMED">{% endif %}
+        <div>
+            <div class="title">Encuesta de Cierre del Conductor</div>
+            <div class="subtitle">Evidencia de cumplimiento PESV (Seguridad Vial) y Gestión Ambiental — SOLMED SAS</div>
+        </div>
+    </div>
+
+    <table class="meta-table">
+        <tr>
+            <td class="lbl">Orden de servicio</td><td>#{{ orden.numero_orden }}</td>
+            <td class="lbl">Cliente</td><td>{{ orden.cliente.nombre }}</td>
+        </tr>
+        <tr>
+            <td class="lbl">Recorrido</td><td>#{{ recorrido.pk }} — {{ recorrido.fecha_recorrido }}</td>
+            <td class="lbl">Vehículo</td><td>{{ recorrido.vehiculo.placa }}</td>
+        </tr>
+        <tr>
+            <td class="lbl">Conductor</td><td>{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}</td>
+            <td class="lbl">Diligenciada</td><td>{{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}</td>
+        </tr>
+    </table>
+
+    <!-- 1 -->
+    <div class="section">
+        <div class="section-title">1. Control de Fatiga y Nivel de Combustible</div>
+        <div class="qa">
+            <div class="q">¿Presentó síntomas de fatiga, cansancio o microsueños durante la ruta?</div>
+            <div class="a">{{ encuesta.get_presento_fatiga_display }}</div>
+        </div>
+        <div class="qa">
+            <div class="q">Nivel de combustible al cierre del servicio</div>
+            <div class="a">{{ encuesta.get_nivel_combustible_display }}</div>
+        </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="section">
+        <div class="section-title">2. Caracterización del Residuo y Dispositor Final</div>
+        <div class="qa">
+            <div class="q">Tipo de residuo transportado</div>
+            <div class="a">{{ encuesta.get_tipo_residuo_display }}</div>
+        </div>
+        <div class="qa">
+            <div class="q">Dispositor final / destino autorizado</div>
+            <div class="a">
+                {{ encuesta.dispositor_final.nombre }}
+                {% if encuesta.dispositor_final.descripcion %} — {{ encuesta.dispositor_final.descripcion }}{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="section">
+        <div class="section-title">3. Reporte de Novedades en la Vía</div>
+        <div class="qa">
+            <div class="q">Condiciones de riesgo identificadas en la infraestructura vial</div>
+            <div class="a">{{ encuesta.get_riesgo_vial_display }}</div>
+        </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="section">
+        <div class="section-title">4. Gestión de Incidentes en Ruta</div>
+        <div class="qa">
+            <div class="q">¿Se presentó algún incidente, varada o evento vial durante el trayecto?</div>
+            <div class="a">{{ encuesta.get_hubo_incidente_display }}</div>
+        </div>
+        {% if encuesta.hubo_incidente == 'SI' %}
+        <div class="qa">
+            <div class="q">Tipo de evento</div>
+            <div class="a">{{ encuesta.get_tipo_incidente_display|default:"—" }}</div>
+        </div>
+        {% if encuesta.descripcion_incidente %}
+        <div class="qa">
+            <div class="q">Descripción del incidente</div>
+            <div class="a">{{ encuesta.descripcion_incidente }}</div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="sign-row">
+        <div class="sign-box">{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}<br>Conductor</div>
+        <div class="sign-box">Líder de Seguridad Vial / SST<br>SOLMED SAS</div>
+    </div>
+
+    <div class="footer">
+        Documento generado automáticamente por el sistema de gestión SOLMED SAS ·
+        Recorrido #{{ recorrido.pk }} · {{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}
+    </div>
+</body>
+</html>
