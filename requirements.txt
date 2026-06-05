@@ -10,6 +10,10 @@ python-dotenv==1.1.1
 sqlparse==0.5.3
 asgiref==3.9.1
 
+# --- Almacenamiento en AWS S3 (produccion) ---
+django-storages==1.14.4
+boto3==1.35.49
+
 # --- Generacion de PDF (manifiestos y encuestas) ---
 weasyprint==66.0
 xhtml2pdf==0.2.17

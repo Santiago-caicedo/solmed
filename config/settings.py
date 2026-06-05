@@ -143,14 +143,15 @@ USE_L10N = True
 
 USE_THOUSAND_SEPARATOR = True
 
-# Static files (CSS, JavaScript, Images)
+# Static & Media files — almacenamiento híbrido (local en desarrollo, AWS S3 en producción).
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
-
+# Carpeta(s) de origen de los estáticos del proyecto.
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
+# Destino de collectstatic (requerido para servir estáticos en producción).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -163,11 +164,45 @@ LOGIN_REDIRECT_URL = 'gestion:dashboard' # A dónde ir después de loguearse
 LOGOUT_REDIRECT_URL = 'login' # A dónde ir después de cerrar sesión
 
 
-# URL que se usará para acceder a los archivos subidos
-MEDIA_URL = '/media/'
-
-# Ruta en el disco donde se guardarán los archivos
+# Ruta en disco para archivos subidos en desarrollo.
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# --- Almacenamiento híbrido: LOCAL (DEBUG=True) vs AWS S3 (DEBUG=False) ---
+if DEBUG:
+    # MODO DESARROLLO (LOCAL)
+    STATIC_URL = '/static/'
+    MEDIA_URL = '/media/'
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+else:
+    # MODO PRODUCCIÓN (AWS S3). Credenciales vía IAM Role del EC2 (sin access keys).
+    from storages.backends.s3boto3 import S3Boto3Storage
+
+    AWS_STORAGE_BUCKET_NAME = 'vadomdata'
+    AWS_S3_REGION_NAME = 'us-east-1'
+    AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+    AWS_DEFAULT_ACL = None
+
+    # Prefijo (carpeta) de este cliente dentro del bucket compartido.
+    S3_PREFIX = os.getenv('S3_CLIENT_PREFIX', 'default_prefix')
+
+    class StaticStorage(S3Boto3Storage):
+        location = f'{S3_PREFIX}/static'
+        default_acl = None
+
+    class MediaStorage(S3Boto3Storage):
+        location = f'{S3_PREFIX}/media'
+        default_acl = None
+
+    STATIC_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{S3_PREFIX}/static/'
+    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{S3_PREFIX}/media/'
+
+    STORAGES = {
+        "default": {"BACKEND": "config.settings.MediaStorage"},
+        "staticfiles": {"BACKEND": "config.settings.StaticStorage"},
+    }
 
 
 # La URL a la que se redirigirá a los usuarios si intentan acceder a una página protegida sin estar logueados.

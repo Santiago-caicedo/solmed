@@ -329,7 +329,8 @@ def _generar_pdf_manifiesto(manifiesto, request):
     # 2. Firma a base64
     firma_cliente_b64 = None
     if manifiesto.firma_cliente:
-        with open(manifiesto.firma_cliente.path, "rb") as image_file:
+        # .open() funciona tanto con el storage local como con S3 (a diferencia de .path).
+        with manifiesto.firma_cliente.open("rb") as image_file:
             firma_cliente_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
 
     context = {
