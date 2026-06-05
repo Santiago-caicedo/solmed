@@ -8,7 +8,23 @@
     <div class="card-body p-4">
         <form method="post" novalidate>
             {% csrf_token %}
-            
+
+            {% if form.errors %}
+            <div class="alert alert-danger">
+                <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Revisa el formulario:</strong>
+                <ul class="mb-0">
+                    {% for field in form %}
+                        {% for error in field.errors %}
+                            <li>{{ field.label }}: {{ error }}</li>
+                        {% endfor %}
+                    {% endfor %}
+                    {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
             <h5>Información de la Empresa</h5>
             <hr>
             <div class="row g-3 mb-4">

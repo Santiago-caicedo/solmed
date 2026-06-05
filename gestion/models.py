@@ -9,7 +9,7 @@ from django.utils import timezone
 class Cliente(models.Model):
     # --- Campos existentes ---
     nombre = models.CharField(max_length=200, help_text="Razón Social de la empresa cliente")
-    identificacion = models.CharField(max_length=50, unique=True, help_text="NIT o Cédula")
+    identificacion = models.CharField(max_length=50, help_text="NIT o Cédula (puede repetirse entre sedes del mismo cliente, ej. D1 Ibagué y D1 Manizales)")
     direccion = models.CharField(max_length=255, blank=True)
     
     # --- Nuevos campos ---
