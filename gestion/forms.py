@@ -31,7 +31,9 @@ class VehiculoForm(forms.ModelForm):
         model = Vehiculo
         fields = [
             'placa', 'marca', 'modelo', 'capacidad', 'estado',
-            'fecha_vencimiento_tarjeta', 'fecha_vencimiento_soat', 'fecha_vencimiento_tecnomecanica',
+            'archivo_tarjeta',
+            'fecha_vencimiento_soat', 'archivo_soat',
+            'fecha_vencimiento_tecnomecanica', 'archivo_tecnomecanica',
         ]
         widgets = {
             'placa': forms.TextInput(attrs={'class': 'form-control'}),
@@ -39,9 +41,11 @@ class VehiculoForm(forms.ModelForm):
             'modelo': forms.TextInput(attrs={'class': 'form-control'}),
             'capacidad': forms.TextInput(attrs={'class': 'form-control'}),
             'estado': forms.Select(attrs={'class': 'form-select'}),
-            'fecha_vencimiento_tarjeta': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'archivo_tarjeta': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
             'fecha_vencimiento_soat': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'archivo_soat': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
             'fecha_vencimiento_tecnomecanica': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'archivo_tecnomecanica': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
         }
 
 class ClienteForm(forms.ModelForm):

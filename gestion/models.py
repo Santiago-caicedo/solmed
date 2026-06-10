@@ -51,15 +51,27 @@ class Vehiculo(models.Model):
     capacidad = models.CharField(max_length=100, help_text="Ej: '3 toneladas', '20 m³'")
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='OPERATIVO')
 
-    # --- Documentos legales: fechas de vencimiento ---
-    fecha_vencimiento_tarjeta = models.DateField(
-        null=True, blank=True, verbose_name="Vencimiento Tarjeta de Propiedad"
+    # --- Documentos legales ---
+    # Tarjeta de propiedad: solo se adjunta el PDF (no tiene vencimiento ni alerta).
+    archivo_tarjeta = models.FileField(
+        upload_to='vehiculos_documentos/', blank=True, null=True,
+        verbose_name="PDF Tarjeta de Propiedad"
     )
+    # SOAT: fecha de vencimiento (con alerta) + PDF adjunto.
     fecha_vencimiento_soat = models.DateField(
         null=True, blank=True, verbose_name="Vencimiento SOAT"
     )
+    archivo_soat = models.FileField(
+        upload_to='vehiculos_documentos/', blank=True, null=True,
+        verbose_name="PDF SOAT"
+    )
+    # Tecnomecánica: fecha de vencimiento (con alerta) + PDF adjunto.
     fecha_vencimiento_tecnomecanica = models.DateField(
         null=True, blank=True, verbose_name="Vencimiento Tecnomecánica"
+    )
+    archivo_tecnomecanica = models.FileField(
+        upload_to='vehiculos_documentos/', blank=True, null=True,
+        verbose_name="PDF Tecnomecánica"
     )
 
     def __str__(self):
@@ -75,7 +87,6 @@ class Vehiculo(models.Model):
             dias = self.DIAS_ALERTA_VENCIMIENTO
         hoy = timezone.localdate()
         documentos = [
-            ("Tarjeta de Propiedad", self.fecha_vencimiento_tarjeta),
             ("SOAT", self.fecha_vencimiento_soat),
             ("Tecnomecánica", self.fecha_vencimiento_tecnomecanica),
         ]

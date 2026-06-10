@@ -81,9 +81,20 @@
                 <li class="list-group-item"><strong>Marca:</strong> {{ vehiculo.marca }}</li>
                 <li class="list-group-item"><strong>Modelo:</strong> {{ vehiculo.modelo }}</li>
                 <li class="list-group-item"><strong>Capacidad:</strong> {{ vehiculo.capacidad }}</li>
-                <li class="list-group-item"><strong>Tarjeta de Propiedad:</strong> {{ vehiculo.fecha_vencimiento_tarjeta|date:"d/m/Y"|default:"—" }}</li>
-                <li class="list-group-item"><strong>SOAT:</strong> {{ vehiculo.fecha_vencimiento_soat|date:"d/m/Y"|default:"—" }}</li>
-                <li class="list-group-item"><strong>Tecnomecánica:</strong> {{ vehiculo.fecha_vencimiento_tecnomecanica|date:"d/m/Y"|default:"—" }}</li>
+                <li class="list-group-item">
+                    <strong>Tarjeta de Propiedad:</strong>
+                    {% if vehiculo.archivo_tarjeta %}<a href="{{ vehiculo.archivo_tarjeta.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> Ver PDF</a>{% else %}<span class="text-muted">Sin adjuntar</span>{% endif %}
+                </li>
+                <li class="list-group-item">
+                    <strong>SOAT:</strong>
+                    {{ vehiculo.fecha_vencimiento_soat|date:"d/m/Y"|default:"—" }}
+                    {% if vehiculo.archivo_soat %}· <a href="{{ vehiculo.archivo_soat.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> PDF</a>{% endif %}
+                </li>
+                <li class="list-group-item">
+                    <strong>Tecnomecánica:</strong>
+                    {{ vehiculo.fecha_vencimiento_tecnomecanica|date:"d/m/Y"|default:"—" }}
+                    {% if vehiculo.archivo_tecnomecanica %}· <a href="{{ vehiculo.archivo_tecnomecanica.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> PDF</a>{% endif %}
+                </li>
             </ul>
         </div>
         <div class="card shadow mb-4 text-center">
