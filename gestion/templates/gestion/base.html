@@ -24,7 +24,8 @@
         }
         .sidebar {
             width: 280px;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden; /* el scroll lo maneja .sidebar-scroll, no toda la barra */
             position: fixed;
             top: 0;
             left: 0;
@@ -70,8 +71,18 @@
 
         /* --- Sidebar footer: info de usuario + logout --- */
         .sidebar { display: flex; flex-direction: column; }
+        /* Zona de navegación scrolleable: si hay muchos ítems, hace scroll
+           interno y el footer (cerrar sesión) SIEMPRE queda visible abajo. */
+        .sidebar-scroll {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        /* Scrollbar discreta dentro de la barra oscura */
+        .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
         .sidebar-footer {
-            margin-top: auto;
+            flex-shrink: 0;
         }
         .sidebar-footer hr {
             border-color: rgba(255,255,255,0.1);
@@ -128,7 +139,8 @@
         </a>
     </div>
     
-    <ul class="nav nav-pills flex-column mb-auto">
+    <div class="sidebar-scroll">
+    <ul class="nav nav-pills flex-column">
         {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
         <li class="nav-item">
             <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if 'dashboard' == request.resolver_match.view_name %}active{% endif %}">
@@ -202,9 +214,10 @@
         </li>
     </ul>
     {% endif %}
+    </div>
 
     {% if user.is_authenticated %}
-    <div class="sidebar-footer mt-auto">
+    <div class="sidebar-footer">
         <hr>
         <div class="user-info">
             <i class="bi bi-person-circle"></i>

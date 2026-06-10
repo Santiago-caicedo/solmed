@@ -2,6 +2,11 @@
 {% load humanize %} {% block content %}
 <h1 class="mb-4">Dashboard</h1>
 
+{# Avisos de documentos de vehículos vencidos / por vencer #}
+{% for vehiculo in vehiculos_con_alerta %}
+    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
+{% endfor %}
+
 <div class="row">
     <div class="col-xl-3 col-md-6 mb-4">
         <div class="card border-left-primary shadow h-100 py-2">

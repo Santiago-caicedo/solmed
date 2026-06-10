@@ -29,13 +29,19 @@ class OrdenServicioForm(forms.ModelForm):
 class VehiculoForm(forms.ModelForm):
     class Meta:
         model = Vehiculo
-        fields = ['placa', 'marca', 'modelo', 'capacidad', 'estado']
+        fields = [
+            'placa', 'marca', 'modelo', 'capacidad', 'estado',
+            'fecha_vencimiento_tarjeta', 'fecha_vencimiento_soat', 'fecha_vencimiento_tecnomecanica',
+        ]
         widgets = {
             'placa': forms.TextInput(attrs={'class': 'form-control'}),
             'marca': forms.TextInput(attrs={'class': 'form-control'}),
             'modelo': forms.TextInput(attrs={'class': 'form-control'}),
             'capacidad': forms.TextInput(attrs={'class': 'form-control'}),
             'estado': forms.Select(attrs={'class': 'form-select'}),
+            'fecha_vencimiento_tarjeta': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'fecha_vencimiento_soat': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'fecha_vencimiento_tecnomecanica': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
         }
 
 class ClienteForm(forms.ModelForm):

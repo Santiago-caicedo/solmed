@@ -42,14 +42,61 @@ class Vehiculo(models.Model):
         ('MANTENIMIENTO', 'Mantenimiento'),
     ]
 
+    # Días de antelación con los que se empieza a avisar de un documento por vencer.
+    DIAS_ALERTA_VENCIMIENTO = 20
+
     placa = models.CharField(max_length=10, unique=True, help_text="Placa del vehículo")
     marca = models.CharField(max_length=50)
     modelo = models.CharField(max_length=50)
     capacidad = models.CharField(max_length=100, help_text="Ej: '3 toneladas', '20 m³'")
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='OPERATIVO')
 
+    # --- Documentos legales: fechas de vencimiento ---
+    fecha_vencimiento_tarjeta = models.DateField(
+        null=True, blank=True, verbose_name="Vencimiento Tarjeta de Propiedad"
+    )
+    fecha_vencimiento_soat = models.DateField(
+        null=True, blank=True, verbose_name="Vencimiento SOAT"
+    )
+    fecha_vencimiento_tecnomecanica = models.DateField(
+        null=True, blank=True, verbose_name="Vencimiento Tecnomecánica"
+    )
+
     def __str__(self):
         return f"{self.marca} {self.modelo} ({self.placa})"
+
+    def documentos_por_vencer(self, dias=None):
+        """
+        Devuelve los documentos vencidos o próximos a vencer (dentro de `dias`,
+        por defecto DIAS_ALERTA_VENCIMIENTO). Se recalcula en cada llamada usando
+        la fecha de hoy, por lo que el conteo de días se actualiza solo cada día.
+        """
+        if dias is None:
+            dias = self.DIAS_ALERTA_VENCIMIENTO
+        hoy = timezone.localdate()
+        documentos = [
+            ("Tarjeta de Propiedad", self.fecha_vencimiento_tarjeta),
+            ("SOAT", self.fecha_vencimiento_soat),
+            ("Tecnomecánica", self.fecha_vencimiento_tecnomecanica),
+        ]
+        alertas = []
+        for nombre, fecha in documentos:
+            if not fecha:
+                continue
+            dias_restantes = (fecha - hoy).days
+            if dias_restantes <= dias:
+                alertas.append({
+                    'documento': nombre,
+                    'fecha': fecha,
+                    'dias_restantes': dias_restantes,
+                    'dias_abs': abs(dias_restantes),
+                    'vencido': dias_restantes < 0,
+                })
+        return alertas
+
+    @property
+    def tiene_alerta_documentos(self):
+        return bool(self.documentos_por_vencer())
 
 class OrdenServicio(models.Model):
     # --- NUEVOS ESTADOS AUTOMÁTICOS PARA LA ORDEN ---

@@ -1,0 +1,24 @@
+{# Aviso de documentos del vehiculo vencidos o por vencer. Recibe la variable "vehiculo". #}
+{% with alertas=vehiculo.documentos_por_vencer %}
+{% if alertas %}
+<div class="alert alert-danger d-flex align-items-start gap-3 shadow-sm border-2">
+    <i class="bi bi-exclamation-triangle-fill" style="font-size: 2rem;"></i>
+    <div class="w-100">
+        <h5 class="alert-heading mb-2">Documentos del vehículo {{ vehiculo.placa }} requieren atención</h5>
+        <ul class="mb-0">
+            {% for doc in alertas %}
+            <li>
+                <strong>{{ doc.documento }}:</strong>
+                {% if doc.vencido %}
+                    <span class="badge bg-dark">VENCIDO</span>
+                    hace {{ doc.dias_abs }} día{{ doc.dias_abs|pluralize }} ({{ doc.fecha|date:"d/m/Y" }})
+                {% else %}
+                    vence en <strong>{{ doc.dias_restantes }}</strong> día{{ doc.dias_restantes|pluralize }} ({{ doc.fecha|date:"d/m/Y" }})
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+{% endwith %}

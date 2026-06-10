@@ -108,9 +108,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         )
         
         context['cobranza_prioritaria'] = OrdenServicio.objects.filter(
-            estado_orden='FINALIZADA', 
+            estado_orden='FINALIZADA',
             estado_pago='PENDIENTE'
         ).order_by('fecha_creacion')
+
+        # Vehículos con documentos vencidos o próximos a vencer (para el aviso del dashboard).
+        context['vehiculos_con_alerta'] = [
+            v for v in Vehiculo.objects.all() if v.tiene_alerta_documentos
+        ]
 
         return context
 
@@ -696,6 +701,10 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         context['form_recorrido'] = RecorridoForm()
         # Mantenemos el formulario para subir documentos
         context['form_documento'] = DocumentoOrdenForm()
+        # Vehículos operativos con documentos vencidos/por vencer (aviso al asignar).
+        context['vehiculos_con_alerta'] = [
+            v for v in Vehiculo.objects.filter(estado='OPERATIVO') if v.tiene_alerta_documentos
+        ]
         return context
 
     def post(self, request, *args, **kwargs):

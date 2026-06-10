@@ -28,7 +28,9 @@
                     <li><i class="bi bi-info-circle-fill me-2"></i><strong>Nota:</strong> {{ recorrido.descripcion }}</li>
                 {% endif %}
             </ul>
-            
+
+            {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
+
             <hr>
 
             {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}

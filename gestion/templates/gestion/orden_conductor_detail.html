@@ -45,6 +45,7 @@
                             <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
                         </div>
                         <small class="text-muted d-block mb-2"><i class="bi bi-truck me-1"></i>Vehículo: {{ recorrido.vehiculo.placa }}{% if recorrido.descripcion %} · {{ recorrido.descripcion }}{% endif %}</small>
+                        {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
 
                         {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                             <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">

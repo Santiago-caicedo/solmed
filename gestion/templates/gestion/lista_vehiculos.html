@@ -6,6 +6,11 @@
     <a href="{% url 'gestion:crear_vehiculo' %}" class="btn btn-primary">Añadir Vehículo</a>
 </div>
 
+{# Avisos grandes de documentos por vencer / vencidos #}
+{% for vehiculo in vehiculos %}
+    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
+{% endfor %}
+
 <table class="table table-striped">
     <thead>
         <tr>
@@ -19,7 +24,12 @@
     <tbody>
         {% for vehiculo in vehiculos %}
         <tr>
-            <td><strong><a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}">{{ vehiculo.placa }}</a></strong></td>
+            <td>
+                <strong><a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}">{{ vehiculo.placa }}</a></strong>
+                {% if vehiculo.tiene_alerta_documentos %}
+                <span class="badge bg-danger ms-1" title="Tiene documentos vencidos o por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                {% endif %}
+            </td>
             <td>{{ vehiculo.marca }} {{ vehiculo.modelo }}</td>
             <td>{{ vehiculo.capacidad }}</td>
             <td>{{ vehiculo.get_estado_display }}</td>

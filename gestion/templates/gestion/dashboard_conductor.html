@@ -24,6 +24,7 @@
                     </div>
                     <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
                     <small class="text-muted">Vehículo: {{ recorrido.vehiculo.placa }}</small>
+                    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
                     <div class="mt-2">
                         {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                         <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">

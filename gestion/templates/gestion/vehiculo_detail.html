@@ -11,6 +11,8 @@
     </div>
 </div>
 
+{% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
+
 <div class="row">
     <div class="col-lg-8">
 
@@ -79,6 +81,9 @@
                 <li class="list-group-item"><strong>Marca:</strong> {{ vehiculo.marca }}</li>
                 <li class="list-group-item"><strong>Modelo:</strong> {{ vehiculo.modelo }}</li>
                 <li class="list-group-item"><strong>Capacidad:</strong> {{ vehiculo.capacidad }}</li>
+                <li class="list-group-item"><strong>Tarjeta de Propiedad:</strong> {{ vehiculo.fecha_vencimiento_tarjeta|date:"d/m/Y"|default:"—" }}</li>
+                <li class="list-group-item"><strong>SOAT:</strong> {{ vehiculo.fecha_vencimiento_soat|date:"d/m/Y"|default:"—" }}</li>
+                <li class="list-group-item"><strong>Tecnomecánica:</strong> {{ vehiculo.fecha_vencimiento_tecnomecanica|date:"d/m/Y"|default:"—" }}</li>
             </ul>
         </div>
         <div class="card shadow mb-4 text-center">

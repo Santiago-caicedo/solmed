@@ -24,6 +24,11 @@
                 <h5 class="mb-0">Gestión de Recorridos</h5>
             </div>
             <div class="card-body">
+                {# Avisos de vehículos con documentos vencidos/por vencer (a tener en cuenta al asignar) #}
+                {% for vehiculo in vehiculos_con_alerta %}
+                    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
+                {% endfor %}
+
                 <h6>Añadir Nuevo Recorrido</h6>
                 <form method="post" class="mb-4">
                     {% csrf_token %}
@@ -44,7 +49,12 @@
                         {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
                         <tr>
                             <td>{{ recorrido.fecha_recorrido }}</td>
-                            <td>{{ recorrido.vehiculo.placa }}</td>
+                            <td>
+                                {{ recorrido.vehiculo.placa }}
+                                {% if recorrido.vehiculo.tiene_alerta_documentos %}
+                                <span class="badge bg-danger" title="Documentos vencidos o por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                                {% endif %}
+                            </td>
                             <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
                             
                             <td>
