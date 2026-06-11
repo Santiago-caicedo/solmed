@@ -32,7 +32,11 @@
             </td>
             <td>{{ vehiculo.marca }} {{ vehiculo.modelo }}</td>
             <td>{{ vehiculo.capacidad }}</td>
-            <td>{{ vehiculo.get_estado_display }}</td>
+            <td>
+                <span class="badge {% if vehiculo.estado == 'OPERATIVO' %}bg-success{% elif vehiculo.estado == 'MANTENIMIENTO' %}bg-warning text-dark{% else %}bg-dark{% endif %}">
+                    {{ vehiculo.get_estado_display }}
+                </span>
+            </td>
             <td>
                 <a href="{% url 'gestion:actualizar_vehiculo' vehiculo.pk %}" class="btn btn-sm btn-secondary">Editar</a>
             </td>

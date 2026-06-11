@@ -117,6 +117,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             v for v in Vehiculo.objects.all() if v.tiene_alerta_documentos
         ]
 
+        # Vehículos fuera de servicio (mantenimiento + stand by).
+        context['vehiculos_mantenimiento'] = Vehiculo.objects.filter(estado='MANTENIMIENTO').count()
+        context['vehiculos_stand_by'] = Vehiculo.objects.filter(estado='STAND_BY').count()
+        context['vehiculos_fuera_servicio'] = context['vehiculos_mantenimiento'] + context['vehiculos_stand_by']
+
         return context
 
 

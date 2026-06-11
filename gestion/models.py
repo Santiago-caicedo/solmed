@@ -39,7 +39,8 @@ class Cliente(models.Model):
 class Vehiculo(models.Model):
     ESTADO_CHOICES = [
         ('OPERATIVO', 'Operativo'),
-        ('MANTENIMIENTO', 'Mantenimiento'),
+        ('MANTENIMIENTO', 'En mantenimiento'),
+        ('STAND_BY', 'Stand by (reparación mayor)'),
     ]
 
     # Días de antelación con los que se empieza a avisar de un documento por vencer.
