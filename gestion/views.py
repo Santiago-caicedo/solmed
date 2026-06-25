@@ -30,7 +30,7 @@ from django.db.models import Q
 from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Recorrido
 from django.http import JsonResponse
 from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente
+from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
@@ -227,14 +227,30 @@ class ListaClientesView(LoginRequiredMixin, ListView):
     template_name = 'gestion/lista_clientes.html'
     context_object_name = 'clientes'
 
-class CrearClienteView(LoginRequiredMixin, CreateView):
+
+class DocumentosAmbientalesClienteMixin:
+    """
+    Procesa la carga MÚLTIPLE de documentos ambientales (input file 'documentos_ambientales')
+    y la eliminación de los marcados ('eliminar_doc_ambiental'), tras guardar el cliente.
+    """
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        ids_eliminar = self.request.POST.getlist('eliminar_doc_ambiental')
+        if ids_eliminar:
+            self.object.documentos_ambientales.filter(pk__in=ids_eliminar).delete()
+        for archivo in self.request.FILES.getlist('documentos_ambientales'):
+            DocumentoAmbientalCliente.objects.create(cliente=self.object, archivo=archivo)
+        return response
+
+
+class CrearClienteView(DocumentosAmbientalesClienteMixin, LoginRequiredMixin, CreateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
     success_message = "¡Cliente creado exitosamente!"
 
-class ActualizarClienteView(LoginRequiredMixin, UpdateView):
+class ActualizarClienteView(DocumentosAmbientalesClienteMixin, LoginRequiredMixin, UpdateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'

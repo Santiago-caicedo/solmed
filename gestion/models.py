@@ -9,11 +9,14 @@ from django.utils import timezone
 class Cliente(models.Model):
     # --- Campos existentes ---
     nombre = models.CharField(max_length=200, help_text="Razón Social de la empresa cliente")
+    sigla = models.CharField(max_length=100, blank=True, verbose_name="Sigla")
     identificacion = models.CharField(max_length=50, help_text="NIT o Cédula (puede repetirse entre sedes del mismo cliente, ej. D1 Ibagué y D1 Manizales)")
     direccion = models.CharField(max_length=255, blank=True)
     
     # --- Nuevos campos ---
     ciudad = models.CharField(max_length=100, blank=True)
+    telefono_fijo = models.CharField(max_length=20, blank=True, verbose_name="Teléfono Fijo")
+    telefono_celular = models.CharField(max_length=20, blank=True, verbose_name="Teléfono Celular")
     persona_contacto = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto")
     cargo_contacto = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto")
     
@@ -21,20 +24,57 @@ class Cliente(models.Model):
     email = models.EmailField(blank=True, help_text="Correo electrónico del contacto")
     telefono = models.CharField(max_length=20, blank=True, help_text="Teléfono del contacto")
 
-    # --- Contacto adicional 2 (opcional) ---
-    persona_contacto2 = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto 2")
-    cargo_contacto2 = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto 2")
-    email_contacto2 = models.EmailField(blank=True, verbose_name="Correo del Contacto 2")
-    telefono_contacto2 = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Contacto 2")
+    # --- Contacto Comercial ---
+    comercial_nombre = models.CharField(max_length=200, blank=True, verbose_name="Comercial - Nombre")
+    comercial_telefono = models.CharField(max_length=20, blank=True, verbose_name="Comercial - Teléfono")
+    comercial_cargo = models.CharField(max_length=200, blank=True, verbose_name="Comercial - Cargo")
+    comercial_correo = models.EmailField(blank=True, verbose_name="Comercial - Correo")
 
-    # --- Contacto adicional 3 (opcional) ---
-    persona_contacto3 = models.CharField(max_length=200, blank=True, verbose_name="Persona de Contacto 3")
-    cargo_contacto3 = models.CharField(max_length=200, blank=True, verbose_name="Cargo del Contacto 3")
-    email_contacto3 = models.EmailField(blank=True, verbose_name="Correo del Contacto 3")
-    telefono_contacto3 = models.CharField(max_length=20, blank=True, verbose_name="Teléfono del Contacto 3")
+    # --- Contacto Contabilidad y Facturación Electrónica ---
+    contab_nombre = models.CharField(max_length=200, blank=True, verbose_name="Contabilidad - Nombre")
+    contab_telefono = models.CharField(max_length=20, blank=True, verbose_name="Contabilidad - Teléfono")
+    contab_cargo = models.CharField(max_length=200, blank=True, verbose_name="Contabilidad - Cargo")
+    contab_correo = models.EmailField(blank=True, verbose_name="Contabilidad - Correo")
+    contab_correo_facturacion = models.EmailField(blank=True, verbose_name="Correo de Facturación Electrónica")
+    contab_domicilio_fiscal = models.CharField(max_length=255, blank=True, verbose_name="Domicilio Fiscal")
+
+    # --- Contacto Ambiental ---
+    ambiental_nombre = models.CharField(max_length=200, blank=True, verbose_name="Ambiental - Nombre")
+    ambiental_telefono = models.CharField(max_length=20, blank=True, verbose_name="Ambiental - Teléfono")
+    ambiental_cargo = models.CharField(max_length=200, blank=True, verbose_name="Ambiental - Cargo")
+    ambiental_correo = models.EmailField(blank=True, verbose_name="Ambiental - Correo")
+
+    # --- Contacto SST ---
+    sst_nombre = models.CharField(max_length=200, blank=True, verbose_name="SST - Nombre")
+    sst_telefono = models.CharField(max_length=20, blank=True, verbose_name="SST - Teléfono")
+    sst_cargo = models.CharField(max_length=200, blank=True, verbose_name="SST - Cargo")
+    sst_correo = models.EmailField(blank=True, verbose_name="SST - Correo")
+
+    # --- Documentos a adjuntar (archivos fijos) ---
+    doc_rut = models.FileField(upload_to='clientes_documentos/', blank=True, null=True, verbose_name="RUT actualizado")
+    doc_camara_comercio = models.FileField(upload_to='clientes_documentos/', blank=True, null=True, verbose_name="Cámara de Comercio")
+    doc_cedula_rep_legal = models.FileField(upload_to='clientes_documentos/', blank=True, null=True, verbose_name="Cédula del Representante Legal")
 
     def __str__(self):
         return self.nombre
+
+
+class DocumentoAmbientalCliente(models.Model):
+    """
+    Documentos ambientales del cliente (carga múltiple): Documento Ambiental,
+    Caracterización, Análisis Químico, Declaración de Residuo, Soporte de
+    Conocimiento del Residuo, etc. Se pueden adjuntar varios por cliente.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='documentos_ambientales')
+    archivo = models.FileField(upload_to='clientes_documentos/ambientales/')
+    descripcion = models.CharField(max_length=255, blank=True)
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_subida']
+
+    def __str__(self):
+        return self.archivo.name.split('/')[-1]
 
 class Vehiculo(models.Model):
     ESTADO_CHOICES = [

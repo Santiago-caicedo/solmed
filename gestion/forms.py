@@ -53,29 +53,46 @@ class ClienteForm(forms.ModelForm):
         model = Cliente
         # Añadimos los nuevos campos a la lista
         fields = [
-            'nombre', 'identificacion', 'direccion', 'ciudad',
+            'nombre', 'sigla', 'identificacion', 'direccion', 'ciudad',
+            'telefono_fijo', 'telefono_celular',
             'persona_contacto', 'cargo_contacto', 'email', 'telefono',
-            'persona_contacto2', 'cargo_contacto2', 'email_contacto2', 'telefono_contacto2',
-            'persona_contacto3', 'cargo_contacto3', 'email_contacto3', 'telefono_contacto3',
+            # Contacto Comercial
+            'comercial_nombre', 'comercial_telefono', 'comercial_cargo', 'comercial_correo',
+            # Contacto Contabilidad y Facturación Electrónica
+            'contab_nombre', 'contab_telefono', 'contab_cargo', 'contab_correo',
+            'contab_correo_facturacion', 'contab_domicilio_fiscal',
+            # Contacto Ambiental
+            'ambiental_nombre', 'ambiental_telefono', 'ambiental_cargo', 'ambiental_correo',
+            # Contacto SST
+            'sst_nombre', 'sst_telefono', 'sst_cargo', 'sst_correo',
+            # Documentos a adjuntar (fijos)
+            'doc_rut', 'doc_camara_comercio', 'doc_cedula_rep_legal',
         ]
         widgets = {
             'nombre': forms.TextInput(attrs={'class': 'form-control'}),
+            'sigla': forms.TextInput(attrs={'class': 'form-control'}),
             'identificacion': forms.TextInput(attrs={'class': 'form-control'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
             'ciudad': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefono_fijo': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefono_celular': forms.TextInput(attrs={'class': 'form-control'}),
             'persona_contacto': forms.TextInput(attrs={'class': 'form-control'}),
             'cargo_contacto': forms.TextInput(attrs={'class': 'form-control'}),
             'email': forms.EmailInput(attrs={'class': 'form-control'}),
             'telefono': forms.TextInput(attrs={'class': 'form-control'}),
-            'persona_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
-            'cargo_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
-            'email_contacto2': forms.EmailInput(attrs={'class': 'form-control'}),
-            'telefono_contacto2': forms.TextInput(attrs={'class': 'form-control'}),
-            'persona_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
-            'cargo_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
-            'email_contacto3': forms.EmailInput(attrs={'class': 'form-control'}),
-            'telefono_contacto3': forms.TextInput(attrs={'class': 'form-control'}),
+            'doc_rut': forms.ClearableFileInput(attrs={'class': 'form-control'}),
+            'doc_camara_comercio': forms.ClearableFileInput(attrs={'class': 'form-control'}),
+            'doc_cedula_rep_legal': forms.ClearableFileInput(attrs={'class': 'form-control'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Aplica el estilo Bootstrap a los campos que no tienen un widget explícito
+        # (las secciones de contacto Comercial / Contabilidad / Ambiental / SST).
+        for field in self.fields.values():
+            css = field.widget.attrs.get('class', '')
+            if 'form-control' not in css and 'form-select' not in css:
+                field.widget.attrs['class'] = (css + ' form-control').strip()
 
 
 class DocumentoOrdenForm(forms.ModelForm):

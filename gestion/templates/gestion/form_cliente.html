@@ -6,7 +6,7 @@
         <h4 class="mb-0">{% if object %}Editar Cliente{% else %}Añadir Nuevo Cliente{% endif %}</h4>
     </div>
     <div class="card-body p-4">
-        <form method="post" novalidate>
+        <form method="post" enctype="multipart/form-data" novalidate>
             {% csrf_token %}
 
             {% if form.errors %}
@@ -28,9 +28,13 @@
             <h5>Información de la Empresa</h5>
             <hr>
             <div class="row g-3 mb-4">
-                <div class="col-md-6">
+                <div class="col-md-8">
                     <label for="{{ form.nombre.id_for_label }}" class="form-label">Razón Social</label>
                     {{ form.nombre }}
+                </div>
+                <div class="col-md-4">
+                    <label for="{{ form.sigla.id_for_label }}" class="form-label">Sigla</label>
+                    {{ form.sigla }}
                 </div>
                 <div class="col-md-6">
                     <label for="{{ form.identificacion.id_for_label }}" class="form-label">NIT / Identificación</label>
@@ -40,9 +44,17 @@
                     <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
                     {{ form.direccion }}
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label for="{{ form.ciudad.id_for_label }}" class="form-label">Ciudad</label>
                     {{ form.ciudad }}
+                </div>
+                <div class="col-md-4">
+                    <label for="{{ form.telefono_fijo.id_for_label }}" class="form-label">Teléfono Fijo</label>
+                    {{ form.telefono_fijo }}
+                </div>
+                <div class="col-md-4">
+                    <label for="{{ form.telefono_celular.id_for_label }}" class="form-label">Teléfono Celular</label>
+                    {{ form.telefono_celular }}
                 </div>
             </div>
 
@@ -67,46 +79,141 @@
                 </div>
             </div>
 
-            <h5>Contacto Adicional 2 <small class="text-muted">(opcional)</small></h5>
+            <h5>Contacto Comercial <small class="text-muted">(opcional)</small></h5>
             <hr>
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
-                    <label for="{{ form.persona_contacto2.id_for_label }}" class="form-label">Nombre del Contacto</label>
-                    {{ form.persona_contacto2 }}
+                    <label for="{{ form.comercial_nombre.id_for_label }}" class="form-label">Nombre</label>
+                    {{ form.comercial_nombre }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.cargo_contacto2.id_for_label }}" class="form-label">Cargo del Contacto</label>
-                    {{ form.cargo_contacto2 }}
+                    <label for="{{ form.comercial_cargo.id_for_label }}" class="form-label">Cargo</label>
+                    {{ form.comercial_cargo }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.email_contacto2.id_for_label }}" class="form-label">Correo del Contacto</label>
-                    {{ form.email_contacto2 }}
+                    <label for="{{ form.comercial_telefono.id_for_label }}" class="form-label">Teléfono</label>
+                    {{ form.comercial_telefono }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.telefono_contacto2.id_for_label }}" class="form-label">Teléfono del Contacto</label>
-                    {{ form.telefono_contacto2 }}
+                    <label for="{{ form.comercial_correo.id_for_label }}" class="form-label">Correo</label>
+                    {{ form.comercial_correo }}
                 </div>
             </div>
 
-            <h5>Contacto Adicional 3 <small class="text-muted">(opcional)</small></h5>
+            <h5>Contacto Contabilidad - Facturación Electrónica <small class="text-muted">(opcional)</small></h5>
             <hr>
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
-                    <label for="{{ form.persona_contacto3.id_for_label }}" class="form-label">Nombre del Contacto</label>
-                    {{ form.persona_contacto3 }}
+                    <label for="{{ form.contab_nombre.id_for_label }}" class="form-label">Nombre</label>
+                    {{ form.contab_nombre }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.cargo_contacto3.id_for_label }}" class="form-label">Cargo del Contacto</label>
-                    {{ form.cargo_contacto3 }}
+                    <label for="{{ form.contab_cargo.id_for_label }}" class="form-label">Cargo</label>
+                    {{ form.contab_cargo }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.email_contacto3.id_for_label }}" class="form-label">Correo del Contacto</label>
-                    {{ form.email_contacto3 }}
+                    <label for="{{ form.contab_telefono.id_for_label }}" class="form-label">Teléfono</label>
+                    {{ form.contab_telefono }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.telefono_contacto3.id_for_label }}" class="form-label">Teléfono del Contacto</label>
-                    {{ form.telefono_contacto3 }}
+                    <label for="{{ form.contab_correo.id_for_label }}" class="form-label">Correo</label>
+                    {{ form.contab_correo }}
                 </div>
+                <div class="col-md-6">
+                    <label for="{{ form.contab_correo_facturacion.id_for_label }}" class="form-label">Correo de Facturación Electrónica</label>
+                    {{ form.contab_correo_facturacion }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.contab_domicilio_fiscal.id_for_label }}" class="form-label">Domicilio Fiscal</label>
+                    {{ form.contab_domicilio_fiscal }}
+                </div>
+            </div>
+
+            <h5>Contacto Ambiental <small class="text-muted">(opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.ambiental_nombre.id_for_label }}" class="form-label">Nombre</label>
+                    {{ form.ambiental_nombre }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ambiental_cargo.id_for_label }}" class="form-label">Cargo</label>
+                    {{ form.ambiental_cargo }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ambiental_telefono.id_for_label }}" class="form-label">Teléfono</label>
+                    {{ form.ambiental_telefono }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ambiental_correo.id_for_label }}" class="form-label">Correo</label>
+                    {{ form.ambiental_correo }}
+                </div>
+            </div>
+
+            <h5>Contacto SST <small class="text-muted">(opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label for="{{ form.sst_nombre.id_for_label }}" class="form-label">Nombre</label>
+                    {{ form.sst_nombre }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.sst_cargo.id_for_label }}" class="form-label">Cargo</label>
+                    {{ form.sst_cargo }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.sst_telefono.id_for_label }}" class="form-label">Teléfono</label>
+                    {{ form.sst_telefono }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.sst_correo.id_for_label }}" class="form-label">Correo</label>
+                    {{ form.sst_correo }}
+                </div>
+            </div>
+
+            <h5>Documentos a Adjuntar <small class="text-muted">(opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <label for="{{ form.doc_rut.id_for_label }}" class="form-label">RUT actualizado</label>
+                    {{ form.doc_rut }}
+                    {% if form.instance.doc_rut %}<small class="form-text">Actual: <a href="{{ form.instance.doc_rut.url }}" target="_blank">ver</a></small>{% endif %}
+                </div>
+                <div class="col-md-4">
+                    <label for="{{ form.doc_camara_comercio.id_for_label }}" class="form-label">Cámara de Comercio</label>
+                    {{ form.doc_camara_comercio }}
+                    {% if form.instance.doc_camara_comercio %}<small class="form-text">Actual: <a href="{{ form.instance.doc_camara_comercio.url }}" target="_blank">ver</a></small>{% endif %}
+                </div>
+                <div class="col-md-4">
+                    <label for="{{ form.doc_cedula_rep_legal.id_for_label }}" class="form-label">Cédula del Representante Legal</label>
+                    {{ form.doc_cedula_rep_legal }}
+                    {% if form.instance.doc_cedula_rep_legal %}<small class="form-text">Actual: <a href="{{ form.instance.doc_cedula_rep_legal.url }}" target="_blank">ver</a></small>{% endif %}
+                </div>
+            </div>
+
+            <h5>Documentos Ambientales <small class="text-muted">(carga múltiple, opcional)</small></h5>
+            <hr>
+            <div class="row g-3 mb-4">
+                <div class="col-md-12">
+                    <label for="id_documentos_ambientales" class="form-label">Subir documentos</label>
+                    <input type="file" name="documentos_ambientales" id="id_documentos_ambientales" class="form-control" multiple>
+                    <small class="form-text">Documento Ambiental, Caracterización, Análisis Químico, Declaración de Residuo, Soporte de Conocimiento del Residuo, etc. Puedes seleccionar varios archivos a la vez.</small>
+                </div>
+                {% if object.documentos_ambientales.all %}
+                <div class="col-md-12">
+                    <label class="form-label">Documentos ambientales cargados:</label>
+                    <ul class="list-group">
+                        {% for doc in object.documentos_ambientales.all %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-file-earmark-text me-1"></i><a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a> <small class="text-muted">({{ doc.fecha_subida|date:"d/m/Y" }})</small></span>
+                            <label class="text-danger small mb-0">
+                                <input type="checkbox" name="eliminar_doc_ambiental" value="{{ doc.pk }}"> Eliminar
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
 
             <div class="d-flex justify-content-end">
