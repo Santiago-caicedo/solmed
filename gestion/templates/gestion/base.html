@@ -9,125 +9,225 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <style>
-        :root {
-            --sidebar-bg: #2c3e50; /* Un azul-gris oscuro y profesional */
-            --sidebar-link-color: #ecf0f1; /* Un blanco suave para el texto */
-            --verde-solmed-acento: #9cbe30;
-        }
+    /* =====================================================================
+       SOLMED OPERATIONS CONSOLE — sistema de diseño corporativo
+       Capa de presentación sobre Bootstrap 5.3 (no altera marcado ni backend)
+       ===================================================================== */
+    :root{
+        /* Tinta / barra lateral */
+        --ink-900:#14202c; --ink-800:#1b2a38; --ink-700:#243443;
+        /* Marca Solmed */
+        --brand:#9cbe30; --brand-strong:#7fa024; --brand-tint:#eef4dd;
+        --blue:#1c7da6; --blue-strong:#176a8d;
+        /* Neutros */
+        --surface:#f4f6f8; --card:#ffffff; --line:#e4e7ec; --line-2:#eef1f4;
+        --text:#1b2733; --text-2:#586575; --text-3:#9aa6b2;
+        --sidebar-w:268px;
+        --radius:12px;
 
-        body {
-            display: flex;
-            min-height: 100vh;
-            flex-direction: row;
-            background-color: #f4f6f9; /* Un fondo principal más suave */
-        }
-        .sidebar {
-            width: 280px;
-            height: 100vh;
-            overflow: hidden; /* el scroll lo maneja .sidebar-scroll, no toda la barra */
-            position: fixed;
-            top: 0;
-            left: 0;
-            background-color: var(--sidebar-bg);
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1); /* Sombra sutil */
-        }
-        .main-content {
-            margin-left: 280px;
-            padding: 2.5rem; /* Un poco más de espacio */
-            flex-grow: 1;
-        }
-        .sidebar .sidebar-header {
-            padding: 1.5rem 1rem;
-            text-align: center;
-        }
-        .sidebar .nav-link {
-            color: var(--sidebar-link-color);
-            padding: 0.8rem 1.5rem;
-            margin: 0.2rem 0;
-            border-left: 4px solid transparent; /* Borde izquierdo invisible por defecto */
-            font-size: 1.05rem;
-            transition: all 0.2s ease-in-out;
-        }
-        .sidebar .nav-link:hover {
-            background-color: rgba(255, 255, 255, 0.05);
-            border-left: 4px solid var(--verde-solmed-acento);
-        }
-        .sidebar .nav-link.active {
-            color: #fff;
-            background-color: rgba(156, 190, 48, 0.2); /* Fondo verde muy sutil */
-            border-left: 4px solid var(--verde-solmed-acento); /* Borde verde visible */
-        }
-        .sidebar .nav-link i {
-            margin-right: 0.8rem;
-            width: 20px; /* Alinea los iconos */
-        }
+        /* Re-mapeo de la paleta de Bootstrap (utilidades bg-*/text-* y badges) */
+        --bs-primary:#1c7da6; --bs-primary-rgb:28,125,166;
+        --bs-success:#3c8a3f; --bs-success-rgb:60,138,63;
+        --bs-info:#1c7da6;    --bs-info-rgb:28,125,166;
+        --bs-warning:#c4831a; --bs-warning-rgb:196,131,26;
+        --bs-danger:#c0473a;  --bs-danger-rgb:192,71,58;
+        --bs-secondary:#64748b; --bs-secondary-rgb:100,116,139;
+        --bs-dark:#14202c; --bs-dark-rgb:20,32,44;
+        --bs-body-color:#1b2733; --bs-body-bg:#f4f6f8;
+        --bs-border-color:#e4e7ec;
+        --bs-link-color:#1c7da6; --bs-link-color-rgb:28,125,166;
+        --bs-link-hover-color:#176a8d;
+        --bs-font-sans-serif:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
 
-        /* Ajustes a los botones y alertas para que usen el verde Solmed */
-        .btn-primary { background-color: #008cba; border-color: #008cba; }
-        .btn-primary:hover { background-color: #007bab; border-color: #007bab; }
-        .btn-success { background-color: var(--verde-solmed-acento); border-color: var(--verde-solmed-acento); }
-        .btn-success:hover { background-color: #8bab2b; border-color: #8bab2b; }
+    *{ box-sizing:border-box; }
+    body{
+        display:flex; min-height:100vh; flex-direction:row;
+        background-color:var(--surface);
+        font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+        color:var(--text); font-size:14px; line-height:1.55;
+        -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    }
+    a{ color:var(--blue); text-decoration:none; }
+    a:not(.btn):not(.nav-link):not(.list-group-item-action):hover{ color:var(--blue-strong); text-decoration:underline; }
+    .text-muted{ color:var(--text-2)!important; }
+    hr{ border-color:var(--line); opacity:1; }
 
-        /* --- Sidebar footer: info de usuario + logout --- */
-        .sidebar { display: flex; flex-direction: column; }
-        /* Zona de navegación scrolleable: si hay muchos ítems, hace scroll
-           interno y el footer (cerrar sesión) SIEMPRE queda visible abajo. */
-        .sidebar-scroll {
-            flex: 1 1 auto;
-            overflow-y: auto;
-            overflow-x: hidden;
-        }
-        /* Scrollbar discreta dentro de la barra oscura */
-        .sidebar-scroll::-webkit-scrollbar { width: 6px; }
-        .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-        .sidebar-footer {
-            flex-shrink: 0;
-        }
-        .sidebar-footer hr {
-            border-color: rgba(255,255,255,0.1);
-            margin: 0.5rem 1rem 1rem;
-        }
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem 1.5rem 1rem;
-            color: var(--sidebar-link-color);
-        }
-        .user-info i.bi-person-circle {
-            font-size: 2rem;
-            color: var(--verde-solmed-acento);
-        }
-        .user-info-text { overflow: hidden; }
-        .user-name {
-            font-weight: 600;
-            font-size: 0.95rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .user-role {
-            color: rgba(255,255,255,0.55);
-            text-transform: uppercase;
-            font-size: 0.7rem;
-            letter-spacing: 0.5px;
-        }
-        .btn-logout {
-            background-color: transparent;
-            color: var(--sidebar-link-color);
-            border: 1px solid rgba(255,255,255,0.15);
-            font-weight: 500;
-            padding: 0.6rem 1rem;
-            border-radius: 8px;
-            transition: all 0.2s ease;
-        }
-        .btn-logout:hover {
-            background-color: #c0392b;
-            color: white;
-            border-color: #c0392b;
-        }
-        .btn-logout i { color: inherit; }
+    /* ===================== SIDEBAR ===================== */
+    .sidebar{
+        width:var(--sidebar-w); height:100vh; overflow:hidden;
+        position:fixed; top:0; left:0;
+        display:flex; flex-direction:column;
+        background:linear-gradient(180deg,var(--ink-800) 0%,var(--ink-900) 100%);
+        border-right:1px solid rgba(255,255,255,.06);
+    }
+    .main-content{ margin-left:var(--sidebar-w); padding:2rem 2.25rem; flex-grow:1; min-width:0; }
+
+    .sidebar .sidebar-header{
+        padding:1.35rem 1.3rem 1.15rem; text-align:left;
+        border-bottom:1px solid rgba(255,255,255,.07);
+    }
+    .sidebar .sidebar-header img{ max-width:150px!important; height:auto; }
+
+    .sidebar-scroll{ flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:.8rem .7rem; }
+    .sidebar-scroll::-webkit-scrollbar{ width:6px; }
+    .sidebar-scroll::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.14); border-radius:3px; }
+
+    .sidebar .nav-link{
+        display:flex; align-items:center; position:relative;
+        color:#aeb8c4; padding:.58rem .8rem; margin:.1rem 0;
+        font-size:.875rem; font-weight:500; letter-spacing:.005em;
+        border-radius:8px; border-left:0;
+        transition:background .15s ease,color .15s ease;
+    }
+    .sidebar .nav-link:hover{ background:rgba(255,255,255,.06); color:#fff; border-left:0; }
+    .sidebar .nav-link.active{ background:rgba(156,190,48,.14); color:#fff; border-left:0; }
+    .sidebar .nav-link.active::before{
+        content:""; position:absolute; left:-.7rem; top:.4rem; bottom:.4rem;
+        width:3px; border-radius:0 3px 3px 0; background:var(--brand);
+    }
+    .sidebar .nav-link i{ margin-right:.7rem; width:18px; font-size:1rem; color:#7f8b99; transition:color .15s ease; }
+    .sidebar .nav-link:hover i, .sidebar .nav-link.active i{ color:var(--brand); }
+    .sidebar hr{ border-color:rgba(255,255,255,.08); margin:.55rem .4rem; }
+
+    .sidebar-footer{ flex-shrink:0; border-top:1px solid rgba(255,255,255,.07); }
+    .sidebar-footer hr{ display:none; }
+    .user-info{ display:flex; align-items:center; gap:.7rem; padding:.85rem 1.15rem .35rem; color:#cfd6df; }
+    .user-info i.bi-person-circle{ font-size:1.9rem; color:var(--brand); }
+    .user-info-text{ overflow:hidden; }
+    .user-name{ font-weight:600; font-size:.9rem; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .user-role{ color:#8b96a3; text-transform:uppercase; font-size:.66rem; letter-spacing:.08em; font-weight:600; }
+    .btn-logout{
+        background:transparent; color:#cfd6df; border:1px solid rgba(255,255,255,.14);
+        font-weight:500; font-size:.85rem; padding:.5rem 1rem; border-radius:8px; transition:all .15s ease;
+    }
+    .btn-logout:hover{ background:rgba(192,71,58,.92); color:#fff; border-color:transparent; }
+    .btn-logout i{ color:inherit; }
+
+    /* ===================== TIPOGRAFÍA ===================== */
+    h1,.h1{ font-size:1.6rem; font-weight:700; letter-spacing:-.02em; color:var(--text); }
+    h2,.h2{ font-size:1.35rem; font-weight:700; letter-spacing:-.015em; color:var(--text); }
+    h3,.h3{ font-size:1.15rem; font-weight:700; letter-spacing:-.01em; color:var(--text); }
+    h4,.h4{ font-size:1.05rem; font-weight:600; color:var(--text); }
+    h5,.h5{ font-size:.95rem; font-weight:600; letter-spacing:-.005em; color:var(--text); }
+    h6,.h6{ font-size:.85rem; font-weight:600; color:var(--text); }
+    .lead{ font-size:1rem; color:var(--text-2); font-weight:400; }
+    .display-4{ font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+
+    /* ===================== TARJETAS ===================== */
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:0 1px 2px rgba(16,24,40,.04); }
+    .shadow,.shadow-sm{ box-shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04)!important; }
+    .card-header{ background:transparent; border-bottom:1px solid var(--line); padding:.95rem 1.15rem; font-weight:600; }
+    .card-header h5,.card-header h6{ margin:0; font-weight:600; color:var(--text); }
+    .card-body{ padding:1.15rem; }
+    .card-header.bg-primary{ background:var(--ink-800)!important; border-bottom:0; }
+
+    /* ===================== TABLAS ===================== */
+    .table{ --bs-table-bg:transparent; --bs-table-striped-bg:#fafbfc; color:var(--text); margin-bottom:0; }
+    .table thead th{
+        text-transform:uppercase; font-size:.7rem; letter-spacing:.06em; font-weight:600;
+        color:var(--text-3); border-bottom:1px solid var(--line); padding:.7rem .85rem; white-space:nowrap;
+    }
+    .table tbody td{ padding:.72rem .85rem; border-bottom:1px solid var(--line-2); vertical-align:middle; }
+    .table tbody tr:last-child td{ border-bottom:0; }
+    .table-hover tbody tr:hover{ background:#f7f9fb; }
+
+    /* ===================== BOTONES ===================== */
+    .btn{ font-weight:600; font-size:.875rem; border-radius:8px; padding:.5rem .95rem; letter-spacing:.01em; }
+    .btn-sm{ font-size:.8rem; padding:.34rem .68rem; border-radius:7px; }
+    .btn-lg{ font-size:.95rem; padding:.7rem 1.3rem; }
+    .btn-primary{ --bs-btn-bg:var(--blue); --bs-btn-border-color:var(--blue); --bs-btn-hover-bg:var(--blue-strong); --bs-btn-hover-border-color:var(--blue-strong); --bs-btn-active-bg:var(--blue-strong); --bs-btn-active-border-color:var(--blue-strong); --bs-btn-disabled-bg:var(--blue); --bs-btn-disabled-border-color:var(--blue); }
+    .btn-success{ --bs-btn-bg:var(--brand); --bs-btn-border-color:var(--brand); --bs-btn-color:#16202b; --bs-btn-hover-bg:var(--brand-strong); --bs-btn-hover-border-color:var(--brand-strong); --bs-btn-hover-color:#fff; --bs-btn-active-bg:var(--brand-strong); --bs-btn-active-color:#fff; --bs-btn-disabled-bg:var(--brand); --bs-btn-disabled-border-color:var(--brand); --bs-btn-disabled-color:#16202b; }
+    .btn-secondary{ --bs-btn-bg:#fff; --bs-btn-border-color:var(--line); --bs-btn-color:var(--text-2); --bs-btn-hover-bg:#f4f6f8; --bs-btn-hover-border-color:#d4d9e0; --bs-btn-hover-color:var(--text); --bs-btn-active-bg:#eef1f4; --bs-btn-active-color:var(--text); }
+    .btn-warning{ --bs-btn-bg:var(--bs-warning); --bs-btn-border-color:var(--bs-warning); --bs-btn-color:#fff; --bs-btn-hover-color:#fff; --bs-btn-hover-bg:#a96f15; --bs-btn-hover-border-color:#a96f15; }
+    .btn-outline-primary{ --bs-btn-color:var(--blue); --bs-btn-border-color:#cddbe3; --bs-btn-hover-bg:var(--blue); --bs-btn-hover-border-color:var(--blue); }
+    .btn-outline-secondary{ --bs-btn-color:var(--text-2); --bs-btn-border-color:var(--line); --bs-btn-hover-bg:#f4f6f8; --bs-btn-hover-color:var(--text); --bs-btn-hover-border-color:#d4d9e0; }
+    .btn-outline-success{ --bs-btn-color:var(--brand-strong); --bs-btn-border-color:#cfe0a8; --bs-btn-hover-bg:var(--brand-strong); --bs-btn-hover-border-color:var(--brand-strong); --bs-btn-hover-color:#fff; }
+    .btn-outline-danger{ --bs-btn-color:var(--bs-danger); --bs-btn-border-color:#e7c3bd; --bs-btn-hover-bg:var(--bs-danger); --bs-btn-hover-border-color:var(--bs-danger); }
+
+    /* ===================== BADGES (pills de estado) ===================== */
+    .badge{ font-weight:600; font-size:.7rem; letter-spacing:.03em; padding:.42em .65em; border-radius:6px; }
+
+    /* ===================== FORMULARIOS ===================== */
+    .form-label{ font-weight:600; font-size:.8rem; color:var(--text-2); margin-bottom:.35rem; }
+    .form-control,.form-select{ border:1px solid var(--line); border-radius:8px; padding:.5rem .7rem; font-size:.875rem; color:var(--text); background-color:#fff; }
+    .form-control::placeholder{ color:var(--text-3); }
+    .form-control:focus,.form-select:focus{ border-color:var(--brand-strong); box-shadow:0 0 0 3px rgba(127,160,36,.15); }
+    .form-control-sm,.form-select-sm{ font-size:.8rem; padding:.32rem .55rem; }
+    .form-text{ color:var(--text-3); font-size:.78rem; }
+    .input-group-text{ background:#f4f6f8; border:1px solid var(--line); color:var(--text-2); }
+    .form-check-input:checked{ background-color:var(--brand-strong); border-color:var(--brand-strong); }
+    .form-check-input:focus{ border-color:var(--brand-strong); box-shadow:0 0 0 3px rgba(127,160,36,.15); }
+
+    /* ===================== ALERTAS ===================== */
+    .alert{ border:1px solid var(--line); border-radius:10px; padding:.85rem 1rem; font-size:.9rem; }
+    .alert-success{ --bs-alert-bg:#eef6ee; --bs-alert-border-color:#cfe5cf; --bs-alert-color:#2a6b2e; }
+    .alert-danger{ --bs-alert-bg:#fbeeec; --bs-alert-border-color:#f0cdc7; --bs-alert-color:#9c382c; }
+    .alert-info{ --bs-alert-bg:#eaf3f8; --bs-alert-border-color:#c8e0ec; --bs-alert-color:#1a5e7e; }
+    .alert-warning{ --bs-alert-bg:#fbf3e3; --bs-alert-border-color:#f0dcb4; --bs-alert-color:#8a6014; }
+
+    /* ===================== LIST GROUP ===================== */
+    .list-group-item{ border-color:var(--line-2); padding:.72rem .9rem; color:var(--text); }
+
+    /* ===================== CLASES HEREDADAS (KPIs del dashboard) ===================== */
+    .text-xs{ font-size:.7rem; letter-spacing:.05em; }
+    .text-uppercase{ letter-spacing:.05em; }
+    .font-weight-bold{ font-weight:700!important; }
+    .text-gray-800{ color:var(--text)!important; font-variant-numeric:tabular-nums; }
+    .text-gray-300{ color:#d4dae1!important; }
+    .border-left-primary{ border-left:3px solid var(--blue)!important; }
+    .border-left-success{ border-left:3px solid var(--brand-strong)!important; }
+    .border-left-info{ border-left:3px solid var(--blue)!important; }
+    .border-left-warning{ border-left:3px solid var(--bs-warning)!important; }
+
+    /* ===================== SECCIONES DE FORMULARIO ===================== */
+    form h5{ font-size:.8rem; text-transform:uppercase; letter-spacing:.07em; color:var(--text-2); font-weight:700; margin:.5rem 0 0; }
+    form h5 small{ text-transform:none; letter-spacing:0; font-weight:500; color:var(--text-3); }
+    form hr{ margin:.5rem 0 1.15rem; border-color:var(--line); opacity:1; }
+
+    /* ===================== SUBIDA DE ARCHIVOS ===================== */
+    input[type=file].form-control{ padding:.28rem .45rem; cursor:pointer; line-height:1.9; }
+    input[type=file].form-control::file-selector-button{
+        margin:-.28rem .7rem -.28rem -.45rem; padding:.5rem .9rem;
+        border:0; border-right:1px solid var(--line);
+        background:#f1f4f7; color:var(--text); font-weight:600; font-size:.8rem;
+        border-radius:8px 0 0 8px; cursor:pointer; transition:background .15s ease,color .15s ease;
+    }
+    input[type=file].form-control::file-selector-button:hover{ background:#e7ecf1; color:var(--brand-strong); }
+
+    /* Chip del archivo actualmente cargado */
+    .file-chip{
+        display:flex; align-items:center; gap:.55rem; flex-wrap:wrap;
+        background:var(--brand-tint); border:1px solid #d9e6b8; border-radius:8px;
+        padding:.5rem .75rem; margin-bottom:.5rem; font-size:.85rem;
+    }
+    .file-chip > i{ font-size:1.05rem; color:var(--brand-strong); }
+    .file-chip a{ font-weight:600; color:var(--text); }
+    .file-chip a:hover{ color:var(--brand-strong); }
+    .file-chip .file-chip-hint{ color:var(--text-2); font-size:.76rem; margin-left:auto; }
+
+    /* Zona de carga múltiple */
+    .dropzone{
+        border:1.5px dashed #cdd4dd; border-radius:10px; background:#fbfcfd;
+        padding:1.15rem 1rem; text-align:center; transition:border-color .15s ease,background .15s ease;
+    }
+    .dropzone:hover{ border-color:var(--brand-strong); background:var(--brand-tint); }
+    .dropzone .dz-icon{ font-size:1.7rem; color:var(--text-3); display:block; margin-bottom:.3rem; }
+    .dropzone .dz-title{ font-weight:600; color:var(--text); font-size:.9rem; }
+    .dropzone .dz-hint{ color:var(--text-3); font-size:.78rem; margin-bottom:.7rem; }
+    .dropzone input[type=file]{ max-width:340px; margin:0 auto; }
+    .doc-list .list-group-item{ border:1px solid var(--line); border-radius:8px!important; margin-bottom:.4rem; }
+    .doc-list .list-group-item:last-child{ margin-bottom:0; }
+
+    /* ===================== ACCESIBILIDAD / RESPONSIVE ===================== */
+    :focus-visible{ outline:2px solid var(--brand-strong); outline-offset:2px; }
+    @media (prefers-reduced-motion: reduce){ *{ transition:none!important; animation:none!important; } }
+    @media (max-width:768px){ .main-content{ padding:1.25rem 1rem; } }
     </style>
 </head>
 <body>

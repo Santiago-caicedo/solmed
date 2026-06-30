@@ -176,43 +176,62 @@
             <div class="row g-3 mb-4">
                 <div class="col-md-4">
                     <label for="{{ form.doc_rut.id_for_label }}" class="form-label">RUT actualizado</label>
+                    {% if form.instance.doc_rut %}
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-text-fill"></i>
+                        <a href="{{ form.instance.doc_rut.url }}" target="_blank">Ver documento actual</a>
+                    </div>
+                    {% endif %}
                     {{ form.doc_rut }}
-                    {% if form.instance.doc_rut %}<small class="form-text">Actual: <a href="{{ form.instance.doc_rut.url }}" target="_blank">ver</a></small>{% endif %}
                 </div>
                 <div class="col-md-4">
                     <label for="{{ form.doc_camara_comercio.id_for_label }}" class="form-label">Cámara de Comercio</label>
+                    {% if form.instance.doc_camara_comercio %}
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-text-fill"></i>
+                        <a href="{{ form.instance.doc_camara_comercio.url }}" target="_blank">Ver documento actual</a>
+                    </div>
+                    {% endif %}
                     {{ form.doc_camara_comercio }}
-                    {% if form.instance.doc_camara_comercio %}<small class="form-text">Actual: <a href="{{ form.instance.doc_camara_comercio.url }}" target="_blank">ver</a></small>{% endif %}
                 </div>
                 <div class="col-md-4">
                     <label for="{{ form.doc_cedula_rep_legal.id_for_label }}" class="form-label">Cédula del Representante Legal</label>
+                    {% if form.instance.doc_cedula_rep_legal %}
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-text-fill"></i>
+                        <a href="{{ form.instance.doc_cedula_rep_legal.url }}" target="_blank">Ver documento actual</a>
+                    </div>
+                    {% endif %}
                     {{ form.doc_cedula_rep_legal }}
-                    {% if form.instance.doc_cedula_rep_legal %}<small class="form-text">Actual: <a href="{{ form.instance.doc_cedula_rep_legal.url }}" target="_blank">ver</a></small>{% endif %}
                 </div>
             </div>
 
             <h5>Documentos Ambientales <small class="text-muted">(carga múltiple, opcional)</small></h5>
             <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-12">
-                    <label for="id_documentos_ambientales" class="form-label">Subir documentos</label>
+            <div class="mb-4">
+                <div class="dropzone">
+                    <i class="bi bi-cloud-arrow-up dz-icon"></i>
+                    <div class="dz-title">Subir documentos ambientales</div>
+                    <div class="dz-hint">Documento Ambiental, Caracterización, Análisis Químico, Declaración de Residuo, Soporte de Conocimiento del Residuo… Puedes seleccionar varios a la vez.</div>
                     <input type="file" name="documentos_ambientales" id="id_documentos_ambientales" class="form-control" multiple>
-                    <small class="form-text">Documento Ambiental, Caracterización, Análisis Químico, Declaración de Residuo, Soporte de Conocimiento del Residuo, etc. Puedes seleccionar varios archivos a la vez.</small>
                 </div>
+
                 {% if object.documentos_ambientales.all %}
-                <div class="col-md-12">
-                    <label class="form-label">Documentos ambientales cargados:</label>
-                    <ul class="list-group">
-                        {% for doc in object.documentos_ambientales.all %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-file-earmark-text me-1"></i><a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a> <small class="text-muted">({{ doc.fecha_subida|date:"d/m/Y" }})</small></span>
-                            <label class="text-danger small mb-0">
-                                <input type="checkbox" name="eliminar_doc_ambiental" value="{{ doc.pk }}"> Eliminar
-                            </label>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </div>
+                <label class="form-label mt-3">Documentos cargados</label>
+                <ul class="list-group doc-list">
+                    {% for doc in object.documentos_ambientales.all %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span class="text-truncate">
+                            <i class="bi bi-file-earmark-text me-1 text-muted"></i>
+                            <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
+                            <small class="text-muted ms-1">{{ doc.fecha_subida|date:"d/m/Y" }}</small>
+                        </span>
+                        <label class="text-danger small mb-0 ms-2 text-nowrap">
+                            <input type="checkbox" name="eliminar_doc_ambiental" value="{{ doc.pk }}"> Eliminar
+                        </label>
+                    </li>
+                    {% endfor %}
+                </ul>
                 {% endif %}
             </div>
 

@@ -41,11 +41,11 @@ class VehiculoForm(forms.ModelForm):
             'modelo': forms.TextInput(attrs={'class': 'form-control'}),
             'capacidad': forms.TextInput(attrs={'class': 'form-control'}),
             'estado': forms.Select(attrs={'class': 'form-select'}),
-            'archivo_tarjeta': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
+            'archivo_tarjeta': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
             'fecha_vencimiento_soat': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
-            'archivo_soat': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
+            'archivo_soat': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
             'fecha_vencimiento_tecnomecanica': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
-            'archivo_tecnomecanica': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
+            'archivo_tecnomecanica': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
         }
 
 class ClienteForm(forms.ModelForm):
@@ -80,9 +80,9 @@ class ClienteForm(forms.ModelForm):
             'cargo_contacto': forms.TextInput(attrs={'class': 'form-control'}),
             'email': forms.EmailInput(attrs={'class': 'form-control'}),
             'telefono': forms.TextInput(attrs={'class': 'form-control'}),
-            'doc_rut': forms.ClearableFileInput(attrs={'class': 'form-control'}),
-            'doc_camara_comercio': forms.ClearableFileInput(attrs={'class': 'form-control'}),
-            'doc_cedula_rep_legal': forms.ClearableFileInput(attrs={'class': 'form-control'}),
+            'doc_rut': forms.FileInput(attrs={'class': 'form-control'}),
+            'doc_camara_comercio': forms.FileInput(attrs={'class': 'form-control'}),
+            'doc_cedula_rep_legal': forms.FileInput(attrs={'class': 'form-control'}),
         }
 
     def __init__(self, *args, **kwargs):

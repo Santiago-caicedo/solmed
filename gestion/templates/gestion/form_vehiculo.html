@@ -54,10 +54,14 @@
             <div class="row g-3 mb-3">
                 <div class="col-md-12">
                     <label for="{{ form.archivo_tarjeta.id_for_label }}" class="form-label">Tarjeta de Propiedad (PDF)</label>
-                    {{ form.archivo_tarjeta }}
                     {% if form.instance.archivo_tarjeta %}
-                    <small class="form-text">Actual: <a href="{{ form.instance.archivo_tarjeta.url }}" target="_blank">ver PDF</a></small>
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-pdf-fill"></i>
+                        <a href="{{ form.instance.archivo_tarjeta.url }}" target="_blank">Ver documento actual</a>
+                        <span class="file-chip-hint">Sube uno nuevo para reemplazarlo</span>
+                    </div>
                     {% endif %}
+                    {{ form.archivo_tarjeta }}
                 </div>
             </div>
 
@@ -69,10 +73,14 @@
                 </div>
                 <div class="col-md-8">
                     <label for="{{ form.archivo_soat.id_for_label }}" class="form-label">SOAT (PDF)</label>
-                    {{ form.archivo_soat }}
                     {% if form.instance.archivo_soat %}
-                    <small class="form-text">Actual: <a href="{{ form.instance.archivo_soat.url }}" target="_blank">ver PDF</a></small>
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-pdf-fill"></i>
+                        <a href="{{ form.instance.archivo_soat.url }}" target="_blank">Ver documento actual</a>
+                        <span class="file-chip-hint">Sube uno nuevo para reemplazarlo</span>
+                    </div>
                     {% endif %}
+                    {{ form.archivo_soat }}
                 </div>
             </div>
 
@@ -84,10 +92,14 @@
                 </div>
                 <div class="col-md-8">
                     <label for="{{ form.archivo_tecnomecanica.id_for_label }}" class="form-label">Tecnomecánica (PDF)</label>
-                    {{ form.archivo_tecnomecanica }}
                     {% if form.instance.archivo_tecnomecanica %}
-                    <small class="form-text">Actual: <a href="{{ form.instance.archivo_tecnomecanica.url }}" target="_blank">ver PDF</a></small>
+                    <div class="file-chip">
+                        <i class="bi bi-file-earmark-pdf-fill"></i>
+                        <a href="{{ form.instance.archivo_tecnomecanica.url }}" target="_blank">Ver documento actual</a>
+                        <span class="file-chip-hint">Sube uno nuevo para reemplazarlo</span>
+                    </div>
                     {% endif %}
+                    {{ form.archivo_tecnomecanica }}
                 </div>
             </div>
 
