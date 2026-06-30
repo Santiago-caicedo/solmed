@@ -224,7 +224,15 @@ class Recorrido(models.Model):
         related_name='recorridos',
         null=True, blank=True
     )
-    
+
+    # Ayudante del conductor (rol 'Ayudantes'). Opcional.
+    ayudante = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='recorridos_como_ayudante',
+        null=True, blank=True
+    )
+
     fecha_recorrido = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
     descripcion = models.CharField(max_length=255, blank=True, help_text="Descripción específica de este recorrido si es necesaria")

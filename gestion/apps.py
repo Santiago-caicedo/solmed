@@ -25,6 +25,11 @@ def crear_roles(sender, **kwargs):
             "manifiesto": ["add", "view"], # Permitirles crear y ver manifiestos
         },
 
+        "Ayudantes": {
+            "ordenservicio": ["view"],
+            "vehiculo": ["view"],
+        },
+
         "Planificadores": {
             "recorrido": ["view", "change"], # Puede ver y MODIFICAR recorridos
             "vehiculo": ["view"],             # Necesita ver la lista de vehículos

@@ -61,6 +61,10 @@
                     {{ form_recorrido.conductor }}
                 </div>
                 <div class="col-md-3">
+                    <label for="{{ form_recorrido.ayudante.id_for_label }}" class="form-label">Ayudante <span class="text-muted">(opcional)</span></label>
+                    {{ form_recorrido.ayudante }}
+                </div>
+                <div class="col-12">
                     <label for="{{ form_recorrido.descripcion.id_for_label }}" class="form-label">Nota (opcional)</label>
                     {{ form_recorrido.descripcion }}
                 </div>
@@ -87,13 +91,14 @@
         {% if object.recorridos.all %}
         <div class="table-responsive mb-4">
             <table class="table table-hover">
-                <thead><tr><th>Fecha</th><th>Vehículo</th><th>Conductor</th><th>Estado</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Vehículo</th><th>Conductor</th><th>Ayudante</th><th>Estado</th></tr></thead>
                 <tbody>
                     {% for r in object.recorridos.all|dictsort:"fecha_recorrido" %}
                     <tr>
                         <td>{{ r.fecha_recorrido }}</td>
                         <td>{{ r.vehiculo.placa }}</td>
                         <td>{% if r.conductor %}{{ r.conductor.get_full_name|default:r.conductor.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td>{% if r.ayudante %}{{ r.ayudante.get_full_name|default:r.ayudante.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                         <td><span class="badge {% if r.estado == 'COMPLETADO' %}bg-success{% elif r.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ r.get_estado_display }}</span></td>
                     </tr>
                     {% endfor %}
@@ -127,6 +132,10 @@
                     {{ form_recorrido.conductor }}
                 </div>
                 <div class="col-md-3">
+                    <label for="{{ form_recorrido.ayudante.id_for_label }}" class="form-label">Ayudante <span class="text-muted">(opcional)</span></label>
+                    {{ form_recorrido.ayudante }}
+                </div>
+                <div class="col-12">
                     <label for="{{ form_recorrido.descripcion.id_for_label }}" class="form-label">Nota (opcional)</label>
                     {{ form_recorrido.descripcion }}
                 </div>
