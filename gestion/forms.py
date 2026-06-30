@@ -9,21 +9,17 @@ class OrdenServicioForm(forms.ModelForm):
     # Ya no necesitamos el método __init__ para este formulario
     class Meta:
         model = OrdenServicio
-        # Lista de campos actualizada: sin fecha_servicio ni vehiculo_asignado
+        # Campos de pago (valor_servicio, estado_pago) ocultos por ahora.
         fields = [
-            'cliente', 
-            'direccion_servicio', 
-            'descripcion', 
-            'valor_servicio',
-            'estado_pago'
+            'cliente',
+            'direccion_servicio',
+            'descripcion',
         ]
 
         widgets = {
             'cliente': forms.Select(attrs={'class': 'form-select'}),
             'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'valor_servicio': forms.NumberInput(attrs={'class': 'form-control'}),
-            'estado_pago': forms.Select(attrs={'class': 'form-select'}),
         }
 
 class VehiculoForm(forms.ModelForm):

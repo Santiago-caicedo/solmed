@@ -4,139 +4,90 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h1 class="mb-0">Expediente de Orden #{{ orden.numero_orden }}</h1>
-        <span class="badge fs-6" style="background-color: #008cba;">{{ orden.get_estado_orden_display }}</span>
+        <h1 class="mb-1">Expediente de Orden #{{ orden.numero_orden }}</h1>
+        <span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span>
     </div>
-    <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-secondary">
-        <i class="bi bi-pencil-square me-1"></i> Editar Datos Generales
+    <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
+        <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
     </a>
-    {% if orden.estado_pago != 'PAGADO' %}
-    <a href="{% url 'gestion:registrar_pago' orden.pk %}" class="btn btn-success ms-2">
-        <i class="bi bi-cash-coin me-1"></i> Registrar Pago
-    </a>
-    {% endif %}
 </div>
 
 <div class="row">
     <div class="col-lg-8">
         <div class="card shadow mb-4">
-            <div class="card-header">
-                <h5 class="mb-0">Gestión de Recorridos</h5>
-            </div>
+            <div class="card-header"><h5 class="mb-0">Recorridos</h5></div>
             <div class="card-body">
-                {# Avisos de vehículos con documentos vencidos/por vencer (a tener en cuenta al asignar) #}
-                {% for vehiculo in vehiculos_con_alerta %}
-                    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
-                {% endfor %}
-
-                <h6>Añadir Nuevo Recorrido</h6>
-                <form method="post" class="mb-4">
-                    {% csrf_token %}
-                    <div class="row g-2 align-items-end">
-                        <div class="col-md-3">{{ form_recorrido.fecha_recorrido.label_tag }} {{ form_recorrido.fecha_recorrido }}</div>
-                        <div class="col-md-3">{{ form_recorrido.vehiculo.label_tag }} {{ form_recorrido.vehiculo }}</div>
-                        <div class="col-md-3">{{ form_recorrido.conductor.label_tag }} {{ form_recorrido.conductor }}</div>
-                        <div class="col-md-3">{{ form_recorrido.descripcion.label_tag }} {{ form_recorrido.descripcion }}</div>
-                    </div>
-                    <button type="submit" name="submit_recorrido" class="btn btn-primary mt-2">Añadir Recorrido</button>
-                </form>
-                <hr>
-                <h6>Recorridos Programados y Realizados</h6>
                 {% if orden.recorridos.all %}
-                <table class="table table-sm table-hover">
-                    <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
-                    <tbody>
-                        {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
-                        <tr>
-                            <td>{{ recorrido.fecha_recorrido }}</td>
-                            <td>
-                                {{ recorrido.vehiculo.placa }}
-                                {% if recorrido.vehiculo.tiene_alerta_documentos %}
-                                <span class="badge bg-danger" title="Documentos vencidos o por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>
-                                {% endif %}
-                            </td>
-                            <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
-                            
-                            <td>
-                                {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                    <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
-                                        <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
-                                    </a>
-                                {% elif recorrido.manifiesto %}
-                                    <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-qr-code"></i> Ver QR / Firma
-                                    </a>
-                                {% else %}
-                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-primary btn-sm">
-                                        <i class="bi bi-pen-fill"></i> Llenar
-                                    </a>
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if recorrido.encuesta_conductor %}
-                                    {% if recorrido.encuesta_conductor.pdf_generado %}
-                                    <a href="{{ recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
-                                        <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
-                                    </a>
-                                    {% else %}
-                                    <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-outline-success btn-sm">
-                                        <i class="bi bi-clipboard-check"></i> Diligenciada
-                                    </a>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
+                        <tbody>
+                            {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
+                            <tr>
+                                <td>{{ recorrido.fecha_recorrido }}</td>
+                                <td>
+                                    {{ recorrido.vehiculo.placa }}
+                                    {% if recorrido.vehiculo.tiene_alerta_documentos %}
+                                    <span class="badge bg-danger" title="Documentos vencidos o por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>
                                     {% endif %}
-                                {% elif recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                    <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning btn-sm">
-                                        <i class="bi bi-clipboard-x"></i> Pendiente
-                                    </a>
-                                {% else %}
-                                    <span class="text-muted small">—</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                </td>
+                                <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
+                                <td>
+                                    {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
+                                        <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
+                                            <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
+                                        </a>
+                                    {% elif recorrido.manifiesto %}
+                                        <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-qr-code"></i> Ver QR / Firma
+                                        </a>
+                                    {% else %}
+                                        <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-pen-fill"></i> Llenar
+                                        </a>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if recorrido.encuesta_conductor %}
+                                        {% if recorrido.encuesta_conductor.pdf_generado %}
+                                        <a href="{{ recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
+                                            <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
+                                        </a>
+                                        {% else %}
+                                        <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-outline-success btn-sm">
+                                            <i class="bi bi-clipboard-check"></i> Diligenciada
+                                        </a>
+                                        {% endif %}
+                                    {% elif recorrido.manifiesto.estado_firma == 'FIRMADO' %}
+                                        <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning btn-sm">
+                                            <i class="bi bi-clipboard-x"></i> Pendiente
+                                        </a>
+                                    {% else %}
+                                        <span class="text-muted small">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
                 {% else %}
-                <p class="text-muted">Aún no se han añadido recorridos a esta orden.</p>
+                <p class="text-muted mb-0">Esta orden aún no tiene recorridos. Usa <strong>Editar orden / recorridos</strong> para añadir uno.</p>
                 {% endif %}
             </div>
         </div>
-        </div>
+    </div>
 
     <div class="col-lg-4">
         <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Detalles del Contrato</h5></div>
+            <div class="card-header"><h5 class="mb-0">Detalles de la orden</h5></div>
             <div class="card-body">
                 <p><strong>Cliente:</strong> {{ orden.cliente.nombre }}</p>
-                <p><strong>Dirección Principal:</strong> {{ orden.direccion_servicio }}</p>
-                <p><strong>Pago:</strong> <span class="badge bg-warning text-dark">{{ orden.get_estado_pago_display }}</span></p>
-                <p><strong>Valor Total:</strong> ${{ orden.valor_servicio|floatformat:0|intcomma }}</p>
+                <p><strong>Dirección:</strong> {{ orden.direccion_servicio }}</p>
+                <p><strong>Asesor:</strong> {{ orden.asesor.get_full_name|default:orden.asesor.username }}</p>
+                <p><strong>Creada:</strong> {{ orden.fecha_creacion|date:"d/m/Y" }}</p>
                 <hr>
-                <p><strong>Descripción General:</strong><br>{{ orden.descripcion|linebreaks }}</p>
-            </div>
-        </div>
-        <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Historial de Pagos</h5></div>
-            <div class="card-body">
-                {% if orden.pagos.all %}
-                    <ul class="list-group list-group-flush">
-                    {% for pago in orden.pagos.all %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <strong>${{ pago.monto|floatformat:0|intcomma }}</strong>
-                                <small class="d-block text-muted">{{ pago.fecha_pago|date:"d/m/Y, h:i a" }} ({{ pago.get_metodo_pago_display }})</small>
-                            </div>
-                            </li>
-                    {% endfor %}
-                    </ul>
-                    <hr>
-                    <div class="d-flex justify-content-between fs-5 fw-bold">
-                        <span>Total Pagado:</span>
-                        <span class="text-success">${{ orden.pagos.all.total_pagado|floatformat:0|intcomma }}</span>
-                    </div>
-                {% else %}
-                    <p class="text-muted text-center">No se han registrado pagos para esta orden.</p>
-                {% endif %}
+                <p class="mb-0"><strong>Descripción:</strong><br>{{ orden.descripcion|linebreaks }}</p>
             </div>
         </div>
     </div>

@@ -171,36 +171,76 @@ class ListaOrdenesView(AsesorRequiredMixin, ListView):
         context['current_pago'] = self.request.GET.get('pago', '')
         return context
 
-class CrearOrdenView(LoginRequiredMixin, SuccessMessageMixin, CreateView):
+class CrearOrdenView(LoginRequiredMixin, CreateView):
+    """
+    Crea la orden Y agenda su PRIMER recorrido en el mismo formulario.
+    El recorrido usa prefix='rec' para no chocar con el campo 'descripcion'
+    que existe en ambos formularios.
+    """
     model = OrdenServicio
     form_class = OrdenServicioForm
     template_name = 'gestion/form_orden.html'
     success_url = reverse_lazy('gestion:lista_ordenes')
-    success_message = "¡Orden de servicio creada exitosamente!"
 
-    # REEMPLAZA TU MÉTODO form_valid CON ESTE
-    def form_valid(self, form):
-        # Asigna el asesor antes de guardar
-        form.instance.asesor = self.request.user
-        
-        # Guarda el formulario. El objeto principal se crea y guarda.
-        self.object = form.save()
-        
-        # Redirige a la URL de éxito.
-        # Los mixins se encargarán de mostrar el mensaje de éxito.
-        return HttpResponseRedirect(self.get_success_url())
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.setdefault('form_recorrido', RecorridoForm(prefix='rec'))
+        return context
 
-class ActualizarOrdenView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
+    def post(self, request, *args, **kwargs):
+        self.object = None
+        form = self.get_form()
+        form_recorrido = RecorridoForm(request.POST, prefix='rec')
+        if form.is_valid() and form_recorrido.is_valid():
+            form.instance.asesor = request.user
+            self.object = form.save()
+            recorrido = form_recorrido.save(commit=False)
+            recorrido.orden = self.object
+            recorrido.save()  # actualiza el estado de la orden (lógica de Recorrido.save)
+            messages.success(request, "Orden creada y primer recorrido agendado.")
+            return HttpResponseRedirect(self.get_success_url())
+        return self.render_to_response(
+            self.get_context_data(form=form, form_recorrido=form_recorrido)
+        )
+
+
+class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
+    """
+    Edita los datos de la orden y permite AÑADIR más recorridos (uno a uno).
+    """
     model = OrdenServicio
     form_class = OrdenServicioForm
     template_name = 'gestion/form_orden.html'
     success_url = reverse_lazy('gestion:lista_ordenes')
-    success_message = "¡Orden de servicio actualizada exitosamente!"
 
-    # AÑADE ESTE MÉTODO form_valid TAMBIÉN AQUÍ
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.setdefault('form_recorrido', RecorridoForm(prefix='rec'))
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        # Acción: añadir un recorrido a la orden existente.
+        if 'submit_recorrido' in request.POST:
+            form_recorrido = RecorridoForm(request.POST, prefix='rec')
+            if form_recorrido.is_valid():
+                recorrido = form_recorrido.save(commit=False)
+                recorrido.orden = self.object
+                recorrido.save()
+                messages.success(request, "Recorrido añadido a la orden.")
+                return HttpResponseRedirect(reverse('gestion:actualizar_orden', kwargs={'pk': self.object.pk}))
+            # Recorrido inválido: re-render con el formulario de la orden SIN enlazar
+            # (mostrando los datos actuales), solo con los errores del recorrido.
+            form = self.form_class(instance=self.object)
+            return self.render_to_response(
+                self.get_context_data(form=form, form_recorrido=form_recorrido)
+            )
+        # Acción: guardar los cambios de la orden.
+        return super().post(request, *args, **kwargs)
+
     def form_valid(self, form):
-        # El proceso es idéntico para actualizar
         self.object = form.save()
+        messages.success(self.request, "Orden actualizada.")
         return HttpResponseRedirect(self.get_success_url())
 
 # --- Vistas para Vehículos ---
