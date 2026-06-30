@@ -93,7 +93,7 @@
                     <tr>
                         <td>{{ r.fecha_recorrido }}</td>
                         <td>{{ r.vehiculo.placa }}</td>
-                        <td>{{ r.conductor.get_full_name|default:r.conductor.username|default:"—" }}</td>
+                        <td>{% if r.conductor %}{{ r.conductor.get_full_name|default:r.conductor.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                         <td><span class="badge {% if r.estado == 'COMPLETADO' %}bg-success{% elif r.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ r.get_estado_display }}</span></td>
                     </tr>
                     {% endfor %}

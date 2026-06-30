@@ -68,7 +68,7 @@
             <td class="lbl">Vehículo</td><td>{{ recorrido.vehiculo.placa }}</td>
         </tr>
         <tr>
-            <td class="lbl">Conductor</td><td>{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}</td>
+            <td class="lbl">Conductor</td><td>{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</td>
             <td class="lbl">Diligenciada</td><td>{{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}</td>
         </tr>
     </table>
@@ -133,7 +133,7 @@
     </div>
 
     <div class="sign-row">
-        <div class="sign-box">{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}<br>Conductor</div>
+        <div class="sign-box">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}<br>Conductor</div>
         <div class="sign-box">Líder de Seguridad Vial / SST<br>SOLMED SAS</div>
     </div>
 
