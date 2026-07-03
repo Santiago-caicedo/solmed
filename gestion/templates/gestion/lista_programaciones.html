@@ -39,9 +39,8 @@
                         <th>#</th>
                         <th>Cliente</th>
                         <th>Fecha</th>
-                        <th>Vehículo</th>
-                        <th>Conductor</th>
-                        <th>Ayudante</th>
+                        <th>Hora servicio</th>
+                        <th>Cuadrillas</th>
                         <th>Estado</th>
                         <th class="text-end">Acciones</th>
                     </tr>
@@ -50,11 +49,10 @@
                     {% for p in programaciones %}
                     <tr>
                         <td><strong>#{{ p.pk }}</strong></td>
-                        <td>{{ p.cliente.nombre }}</td>
+                        <td>{{ p.cliente.nombre }}{% if p.sede %} <span class="text-muted">/ {{ p.sede }}</span>{% endif %}</td>
                         <td>{{ p.fecha|date:"d/m/Y" }}</td>
-                        <td>{% if p.vehiculo %}{{ p.vehiculo.placa }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                        <td>{% if p.conductor %}{{ p.conductor.get_full_name|default:p.conductor.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                        <td>{% if p.ayudante %}{{ p.ayudante.get_full_name|default:p.ayudante.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td>{% if p.hora_servicio %}{{ p.hora_servicio|time:"H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td><span class="badge bg-secondary">{{ p.cuadrillas.count }}</span></td>
                         <td>
                             <span class="badge {% if p.estado == 'CONVERTIDA' %}bg-success{% elif p.estado == 'CONFIRMADA' %}bg-info{% elif p.estado == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
                                 {{ p.get_estado_display }}
@@ -88,7 +86,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" class="text-center text-muted py-4">No hay programaciones registradas.</td>
+                        <td colspan="7" class="text-center text-muted py-4">No hay programaciones registradas.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

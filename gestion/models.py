@@ -547,10 +547,12 @@ class Programacion(models.Model):
     """
     Programación anticipada: paso PREVIO a la Orden de Servicio.
 
-    El asesor define aquí, de forma anticipada, el cliente, el vehículo, el
-    conductor, el ayudante y la fecha del primer recorrido. Al confirmarla se
-    genera automáticamente la OrdenServicio y su primer Recorrido arrastrando
-    estos datos, y ambas quedan enlazadas (Programacion.orden ↔ orden).
+    La persona que planea diligencia esto el día anterior (antes de mediodía) para
+    organizar al personal. Reproduce el formato operativo de SOLMED: cabecera del
+    servicio, checklist operativo (báscula, registro fotográfico, paleada, SG,
+    cursos) y las cuadrillas (conductor + placa + ayudante) en el modelo hijo
+    `ProgramacionCuadrilla`. Al confirmarla se genera la OrdenServicio y un
+    Recorrido por cada cuadrilla con vehículo, y ambas quedan enlazadas.
     """
     ESTADO_CHOICES = [
         ('BORRADOR', 'Borrador'),
@@ -558,26 +560,60 @@ class Programacion(models.Model):
         ('CONVERTIDA', 'Convertida en orden'),
         ('CANCELADA', 'Cancelada'),
     ]
+    SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
+    BASCULA_CHOICES = [
+        ('PESAN', 'Pesan'),
+        ('NO_PESAN', 'No pesan'),
+        ('PESO_CLIENTE', 'Peso del cliente'),
+    ]
+    PALEADA_CHOICES = [
+        ('SAVICOL', 'Palea Savicol'),
+        ('EMPOLLACOL', 'Palea Empollacol'),
+        ('NO_REQUIERE', 'No requiere paleada'),
+    ]
+    CURSOS_CHOICES = [
+        ('ALTURAS', 'Alturas'),
+        ('CONFINADOS', 'Confinados'),
+        ('NO_REQUIERE', 'No requiere'),
+    ]
+
+    # --- Cabecera del servicio ---
+    fecha = models.DateField(verbose_name="Fecha del servicio")
+    hora_ingreso_bodega = models.TimeField(null=True, blank=True, verbose_name="Hora ingreso a bodega")
+    hora_servicio = models.TimeField(null=True, blank=True, verbose_name="Hora del servicio")
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='programaciones')
-    vehiculo = models.ForeignKey(
-        Vehiculo, on_delete=models.PROTECT, related_name='programaciones',
-        null=True, blank=True, verbose_name="Vehículo a asignar"
-    )
-    conductor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name='programaciones_como_conductor', null=True, blank=True
-    )
-    ayudante = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name='programaciones_como_ayudante', null=True, blank=True
-    )
-    fecha = models.DateField(verbose_name="Fecha del primer recorrido")
-    direccion_servicio = models.CharField(
+    sede = models.CharField(max_length=150, blank=True)
+    direccion = models.CharField(
         max_length=255, blank=True,
         help_text="Se arrastra a la orden al convertir. Si se deja vacío se usa la dirección del cliente."
     )
-    descripcion = models.TextField(blank=True, help_text="Descripción del servicio previsto")
+    correo_seguridad_social = models.EmailField(
+        blank=True, verbose_name="Correo del cliente (seguridad social)",
+        help_text="Correo del cliente a donde se comparten los documentos de seguridad social."
+    )
+    observaciones_servicio = models.TextField(
+        blank=True, verbose_name="Observaciones detalladas del servicio a prestar"
+    )
+
+    # --- Checklist operativo (desplegables + adjuntos del formato) ---
+    bascula = models.CharField(max_length=20, choices=BASCULA_CHOICES, blank=True, verbose_name="Báscula")
+    bascula_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto báscula")
+
+    registro_fotografico = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Registro fotográfico")
+    registro_fotografico_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto registro fotográfico")
+
+    paleada = models.CharField(max_length=20, choices=PALEADA_CHOICES, blank=True, verbose_name="Paleada")
+
+    responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
+    responsable_sg_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto documentos seguridad social")
+
+    ayudantes_cursos = models.CharField(max_length=20, choices=CURSOS_CHOICES, blank=True, verbose_name="Ayudantes con cursos")
+    ayudantes_cursos_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto cursos")
+
+    nombre_contacto_recibe = models.CharField(
+        max_length=200, blank=True, verbose_name="Nombre / contacto de quien recibe el servicio"
+    )
 
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='BORRADOR')
 
@@ -604,39 +640,84 @@ class Programacion(models.Model):
 
     @property
     def puede_convertirse(self):
-        """Se puede generar la orden si aún no tiene una, no está cancelada y tiene vehículo."""
+        """Se puede generar la orden si no tiene una, no está cancelada y hay al menos una cuadrilla con vehículo."""
         return (
             self.orden_id is None
             and self.estado in ('BORRADOR', 'CONFIRMADA')
-            and self.vehiculo_id is not None
+            and self.cuadrillas.filter(vehiculo__isnull=False).exists()
         )
 
     def convertir_en_orden(self, usuario):
         """
-        Genera la OrdenServicio y su primer Recorrido arrastrando los datos de la
-        programación, enlaza ambas y marca la programación como CONVERTIDA.
-        Idempotente: si ya tiene orden, la devuelve sin duplicar. El recorrido
-        requiere vehículo (por eso `puede_convertirse` lo exige).
+        Genera la OrdenServicio y un Recorrido por CADA cuadrilla con vehículo
+        (misma fecha del servicio), enlaza ambas y marca la programación como
+        CONVERTIDA. Idempotente: si ya tiene orden, la devuelve sin duplicar.
         """
         if self.orden_id:
             return self.orden
+
+        cuadrillas = list(self.cuadrillas.filter(vehiculo__isnull=False))
+        if not cuadrillas:
+            raise ValueError("La programación no tiene ninguna cuadrilla con vehículo asignado.")
 
         with transaction.atomic():
             orden = OrdenServicio.objects.create(
                 cliente=self.cliente,
                 asesor=usuario,
-                direccion_servicio=self.direccion_servicio or self.cliente.direccion or 'Por definir',
-                descripcion=self.descripcion or f'Orden generada desde la programación #{self.pk}',
+                direccion_servicio=self.direccion or self.cliente.direccion or 'Por definir',
+                descripcion=self.observaciones_servicio or f'Orden generada desde la programación #{self.pk}',
             )
-            Recorrido.objects.create(
-                orden=orden,
-                vehiculo=self.vehiculo,
-                conductor=self.conductor,
-                ayudante=self.ayudante,
-                fecha_recorrido=self.fecha,
-                descripcion=(self.descripcion or '')[:255],
-            )
+            for c in cuadrillas:
+                Recorrido.objects.create(
+                    orden=orden,
+                    vehiculo=c.vehiculo,
+                    conductor=c.conductor,
+                    ayudante=c.ayudante,
+                    fecha_recorrido=self.fecha,
+                )
             self.orden = orden
             self.estado = 'CONVERTIDA'
             self.save()
         return orden
+
+
+class ProgramacionCuadrilla(models.Model):
+    """
+    Una fila del bloque CONDUCTOR / PLACA / AYUDANTE del formato de programación.
+    Cada cuadrilla con vehículo genera un Recorrido al convertir la programación.
+    `conductor_novedad` / `ayudante_novedad` capturan el bloque "OBSERVACIONES DEL
+    AYUDANTE-CONDUCTOR" (inicia en bodega, incapacidad, descansa, permiso).
+    """
+    NOVEDAD_CHOICES = [
+        ('NORMAL', 'Normal / trabaja'),
+        ('INICIA_BODEGA', 'Inicia en bodega'),
+        ('INCAPACIDAD', 'Incapacidad'),
+        ('DESCANSA', 'Descansa'),
+        ('PERMISO', 'Permiso'),
+    ]
+
+    programacion = models.ForeignKey(Programacion, on_delete=models.CASCADE, related_name='cuadrillas')
+    conductor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='cuadrillas_como_conductor', null=True, blank=True
+    )
+    vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, related_name='cuadrillas',
+        null=True, blank=True, verbose_name="Placa / vehículo"
+    )
+    ayudante = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='cuadrillas_como_ayudante', null=True, blank=True
+    )
+    conductor_novedad = models.CharField(max_length=20, choices=NOVEDAD_CHOICES, default='NORMAL', blank=True)
+    ayudante_novedad = models.CharField(max_length=20, choices=NOVEDAD_CHOICES, default='NORMAL', blank=True)
+    orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
+
+    class Meta:
+        ordering = ['orden_fila', 'id']
+        verbose_name = "Cuadrilla de programación"
+        verbose_name_plural = "Cuadrillas de programación"
+
+    def __str__(self):
+        placa = self.vehiculo.placa if self.vehiculo else 'sin placa'
+        return f"Cuadrilla ({placa}) - Programación #{self.programacion_id}"

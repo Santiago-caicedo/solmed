@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, Recorrido, Vehiculo, Cliente
+from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, ProgramacionCuadrilla, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 import datetime
@@ -350,38 +350,69 @@ class RecorridoForm(forms.ModelForm):
 
 class ProgramacionForm(forms.ModelForm):
     """
-    Programación anticipada (paso previo a la orden). Reutiliza el mismo filtrado
-    de recursos que RecorridoForm: vehículos operativos y usuarios por rol.
+    Cabecera + checklist operativo de la programación anticipada. Las cuadrillas
+    (conductor/placa/ayudante) se manejan aparte en ProgramacionCuadrillaFormSet.
     """
     class Meta:
         model = Programacion
-        fields = ['cliente', 'vehiculo', 'conductor', 'ayudante', 'fecha',
-                  'direccion_servicio', 'descripcion']
+        fields = [
+            'fecha', 'hora_ingreso_bodega', 'hora_servicio',
+            'cliente', 'sede', 'direccion', 'correo_seguridad_social',
+            'observaciones_servicio',
+            'bascula', 'bascula_adjunto',
+            'registro_fotografico', 'registro_fotografico_adjunto',
+            'paleada',
+            'responsable_sg', 'responsable_sg_adjunto',
+            'ayudantes_cursos', 'ayudantes_cursos_adjunto',
+            'nombre_contacto_recibe',
+        ]
         widgets = {
-            'cliente': forms.Select(attrs={'class': 'form-select'}),
-            'vehiculo': forms.Select(attrs={'class': 'form-select'}),
-            'conductor': forms.Select(attrs={'class': 'form-select'}),
-            'ayudante': forms.Select(attrs={'class': 'form-select'}),
             'fecha': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
-            'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
-            'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-        }
-        labels = {
-            'fecha': 'Fecha del primer recorrido',
-            'vehiculo': 'Vehículo a asignar',
-            'conductor': 'Conductor a asignar',
-            'ayudante': 'Ayudante (opcional)',
-            'direccion_servicio': 'Dirección del servicio (opcional)',
-            'descripcion': 'Descripción del servicio (opcional)',
+            'hora_ingreso_bodega': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'hora_servicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'cliente': forms.Select(attrs={'class': 'form-select'}),
+            'sede': forms.TextInput(attrs={'class': 'form-control'}),
+            'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
+            'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'bascula': forms.Select(attrs={'class': 'form-select'}),
+            'bascula_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
+            'registro_fotografico_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'paleada': forms.Select(attrs={'class': 'form-select'}),
+            'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
+            'responsable_sg_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'ayudantes_cursos': forms.Select(attrs={'class': 'form-select'}),
+            'ayudantes_cursos_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
-        # Solo vehículos operativos.
+        # Los desplegables con opciones vacías muestran "---------".
+        for campo in ('bascula', 'registro_fotografico', 'paleada', 'responsable_sg', 'ayudantes_cursos'):
+            self.fields[campo].empty_label = '---------'
+
+
+class ProgramacionCuadrillaForm(forms.ModelForm):
+    """Una fila CONDUCTOR / PLACA / AYUDANTE del formato, con sus novedades."""
+    class Meta:
+        model = ProgramacionCuadrilla
+        fields = ['conductor', 'vehiculo', 'ayudante', 'conductor_novedad', 'ayudante_novedad']
+        widgets = {
+            'conductor': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'vehiculo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'ayudante': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'conductor_novedad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'ayudante_novedad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Solo vehículos operativos y usuarios por rol (igual que RecorridoForm).
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-        # Conductores y ayudantes por rol.
         try:
             self.fields['conductor'].queryset = Group.objects.get(name='Conductores').user_set.all()
         except Group.DoesNotExist:
@@ -390,6 +421,14 @@ class ProgramacionForm(forms.ModelForm):
             self.fields['ayudante'].queryset = Group.objects.get(name='Ayudantes').user_set.all()
         except Group.DoesNotExist:
             self.fields['ayudante'].queryset = User.objects.none()
+
+
+# Formset en línea: hasta 3 cuadrillas nuevas por defecto (CONDUCTOR 1/2/3 del formato).
+ProgramacionCuadrillaFormSet = forms.inlineformset_factory(
+    Programacion, ProgramacionCuadrilla,
+    form=ProgramacionCuadrillaForm,
+    extra=3, can_delete=True,
+)
 
 
 class ReporteFiltroForm(forms.Form):

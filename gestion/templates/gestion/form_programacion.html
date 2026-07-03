@@ -10,69 +10,165 @@
     </a>
 </div>
 
-<div class="card shadow mb-4">
-    <div class="card-header">
-        <h5 class="mb-0">Datos de la programación anticipada</h5>
+<form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+
+    {% if form.errors or formset.errors or formset.non_form_errors %}
+    <div class="alert alert-danger">
+        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Corrige los siguientes errores:</strong>
+        <ul class="mb-0">
+            {% for field in form %}{% for e in field.errors %}<li>{{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}
+            {% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
     </div>
-    <div class="card-body p-4">
-        <form method="post" novalidate>
-            {% csrf_token %}
+    {% endif %}
 
-            {% if form.errors %}
-            <div class="alert alert-danger">
-                <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Corrige los siguientes errores:</strong>
-                <ul class="mb-0">
-                    {% for field in form %}{% for e in field.errors %}<li>{{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
+    {# ============ CABECERA DEL SERVICIO ============ #}
+    <div class="card shadow mb-4">
+        <div class="card-header"><h5 class="mb-0">Datos del servicio</h5></div>
+        <div class="card-body p-4">
             <div class="row g-3">
-                <div class="col-md-6">
-                    <label for="{{ form.cliente.id_for_label }}" class="form-label">Cliente</label>
-                    {{ form.cliente }}
-                </div>
                 <div class="col-md-3">
-                    <label for="{{ form.fecha.id_for_label }}" class="form-label">Fecha del primer recorrido</label>
+                    <label for="{{ form.fecha.id_for_label }}" class="form-label">Fecha del servicio</label>
                     {{ form.fecha }}
                 </div>
                 <div class="col-md-3">
-                    <label for="{{ form.vehiculo.id_for_label }}" class="form-label">Vehículo a asignar</label>
-                    {{ form.vehiculo }}
+                    <label for="{{ form.hora_ingreso_bodega.id_for_label }}" class="form-label">Hora ingreso a bodega</label>
+                    {{ form.hora_ingreso_bodega }}
+                </div>
+                <div class="col-md-3">
+                    <label for="{{ form.hora_servicio.id_for_label }}" class="form-label">Hora del servicio</label>
+                    {{ form.hora_servicio }}
+                </div>
+                <div class="col-md-3">
+                    <label for="{{ form.cliente.id_for_label }}" class="form-label">Cliente</label>
+                    {{ form.cliente }}
                 </div>
                 <div class="col-md-4">
-                    <label for="{{ form.conductor.id_for_label }}" class="form-label">Conductor</label>
-                    {{ form.conductor }}
+                    <label for="{{ form.sede.id_for_label }}" class="form-label">Sede</label>
+                    {{ form.sede }}
                 </div>
                 <div class="col-md-4">
-                    <label for="{{ form.ayudante.id_for_label }}" class="form-label">Ayudante <span class="text-muted">(opcional)</span></label>
-                    {{ form.ayudante }}
+                    <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
+                    {{ form.direccion }}
                 </div>
                 <div class="col-md-4">
-                    <label for="{{ form.direccion_servicio.id_for_label }}" class="form-label">Dirección del servicio <span class="text-muted">(opcional)</span></label>
-                    {{ form.direccion_servicio }}
+                    <label for="{{ form.correo_seguridad_social.id_for_label }}" class="form-label">Correo cliente (seguridad social)</label>
+                    {{ form.correo_seguridad_social }}
                 </div>
                 <div class="col-12">
-                    <label for="{{ form.descripcion.id_for_label }}" class="form-label">Descripción <span class="text-muted">(opcional)</span></label>
-                    {{ form.descripcion }}
+                    <label for="{{ form.observaciones_servicio.id_for_label }}" class="form-label">Observaciones detalladas del servicio a prestar</label>
+                    {{ form.observaciones_servicio }}
+                </div>
+                <div class="col-12">
+                    <label for="{{ form.nombre_contacto_recibe.id_for_label }}" class="form-label">Nombre / contacto de quien recibe el servicio</label>
+                    {{ form.nombre_contacto_recibe }}
                 </div>
             </div>
-
-            <div class="alert alert-info mt-4 mb-0">
-                <i class="bi bi-info-circle me-1"></i>
-                Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una
-                nueva Orden de Servicio y a su primer recorrido. El vehículo es obligatorio para generar la orden.
-            </div>
-
-            <hr class="my-4">
-            <div class="d-flex justify-content-end">
-                <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-secondary me-2">Cancelar</a>
-                <button type="submit" class="btn btn-success">
-                    <i class="bi bi-check-circle me-1"></i>
-                    {% if object %}Guardar cambios{% else %}Crear programación{% endif %}
-                </button>
-            </div>
-        </form>
+        </div>
     </div>
-</div>
+
+    {# ============ CHECKLIST OPERATIVO ============ #}
+    <div class="card shadow mb-4">
+        <div class="card-header"><h5 class="mb-0">Checklist operativo</h5></div>
+        <div class="card-body p-4">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.bascula.id_for_label }}" class="form-label">Báscula</label>
+                    {{ form.bascula }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.bascula_adjunto.id_for_label }}" class="form-label">Adjunto báscula</label>
+                    {{ form.bascula_adjunto }}
+                    {% if object.bascula_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.bascula_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">Registro fotográfico</label>
+                    {{ form.registro_fotografico }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.registro_fotografico_adjunto.id_for_label }}" class="form-label">Adjunto registro fotográfico</label>
+                    {{ form.registro_fotografico_adjunto }}
+                    {% if object.registro_fotografico_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.registro_fotografico_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.paleada.id_for_label }}" class="form-label">Paleada</label>
+                    {{ form.paleada }}
+                </div>
+                <div class="col-md-6"></div>
+                <div class="col-md-6">
+                    <label for="{{ form.responsable_sg.id_for_label }}" class="form-label">Responsable SG</label>
+                    {{ form.responsable_sg }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.responsable_sg_adjunto.id_for_label }}" class="form-label">Adjunto documentos seguridad social</label>
+                    {{ form.responsable_sg_adjunto }}
+                    {% if object.responsable_sg_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.responsable_sg_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ayudantes_cursos.id_for_label }}" class="form-label">Ayudantes con cursos</label>
+                    {{ form.ayudantes_cursos }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ayudantes_cursos_adjunto.id_for_label }}" class="form-label">Adjunto cursos</label>
+                    {{ form.ayudantes_cursos_adjunto }}
+                    {% if object.ayudantes_cursos_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.ayudantes_cursos_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ============ CUADRILLAS (CONDUCTOR / PLACA / AYUDANTE) ============ #}
+    <div class="card shadow mb-4">
+        <div class="card-header"><h5 class="mb-0">Cuadrillas — conductor, placa y ayudante</h5></div>
+        <div class="card-body p-4">
+            <p class="text-muted small">
+                Cada fila con vehículo genera un recorrido al convertir la programación en orden.
+                Las novedades registran el estado del día de cada persona (inicia en bodega, incapacidad, descansa, permiso).
+            </p>
+            {{ formset.management_form }}
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="min-width:170px">Conductor</th>
+                            <th style="min-width:140px">Placa / vehículo</th>
+                            <th style="min-width:150px">Novedad conductor</th>
+                            <th style="min-width:170px">Ayudante</th>
+                            <th style="min-width:150px">Novedad ayudante</th>
+                            {% if formset.can_delete %}<th>Quitar</th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cf in formset %}
+                        <tr>
+                            {% for hidden in cf.hidden_fields %}{{ hidden }}{% endfor %}
+                            <td>{{ cf.conductor }}</td>
+                            <td>{{ cf.vehiculo }}</td>
+                            <td>{{ cf.conductor_novedad }}</td>
+                            <td>{{ cf.ayudante }}</td>
+                            <td>{{ cf.ayudante_novedad }}</td>
+                            {% if formset.can_delete %}<td class="text-center">{{ cf.DELETE }}</td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="alert alert-info mb-4">
+        <i class="bi bi-info-circle me-1"></i>
+        Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una nueva
+        Orden de Servicio y se crea un recorrido por cada cuadrilla con vehículo. Se requiere al menos una.
+    </div>
+
+    <div class="d-flex justify-content-end mb-5">
+        <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-secondary me-2">Cancelar</a>
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-circle me-1"></i>
+            {% if object %}Guardar cambios{% else %}Crear programación{% endif %}
+        </button>
+    </div>
+</form>
 {% endblock %}

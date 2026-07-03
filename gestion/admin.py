@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, Programacion, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, Programacion, ProgramacionCuadrilla, Vehiculo, OrdenServicio
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
@@ -55,12 +55,19 @@ class DispositorAdmin(admin.ModelAdmin):
     search_fields = ('nombre', 'descripcion')
 
 
+class ProgramacionCuadrillaInline(admin.TabularInline):
+    model = ProgramacionCuadrilla
+    extra = 0
+    autocomplete_fields = ('vehiculo',)
+
+
 @admin.register(Programacion)
 class ProgramacionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'cliente', 'fecha', 'vehiculo', 'conductor', 'estado', 'orden')
+    list_display = ('id', 'cliente', 'fecha', 'hora_servicio', 'estado', 'orden')
     list_filter = ('estado', 'fecha')
-    search_fields = ('cliente__nombre', 'vehiculo__placa')
-    autocomplete_fields = ('cliente', 'vehiculo')
+    search_fields = ('cliente__nombre', 'cuadrillas__vehiculo__placa')
+    autocomplete_fields = ('cliente',)
+    inlines = [ProgramacionCuadrillaInline]
 
 
 @admin.register(EncuestaConductor)

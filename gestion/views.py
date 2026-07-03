@@ -29,7 +29,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, Recorrido
 from django.http import JsonResponse
-from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, ProgramacionForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
@@ -1133,24 +1133,40 @@ class ListaProgramacionesView(AsesorRequiredMixin, ListView):
         return context
 
 
-class CrearProgramacionView(AsesorRequiredMixin, SuccessMessageMixin, CreateView):
+class CrearProgramacionView(AsesorRequiredMixin, CreateView):
     model = Programacion
     form_class = ProgramacionForm
     template_name = 'gestion/form_programacion.html'
     success_url = reverse_lazy('gestion:lista_programaciones')
-    success_message = "Programación creada."
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.method == 'POST':
+            context['formset'] = ProgramacionCuadrillaFormSet(
+                self.request.POST, prefix='cuadrilla'
+            )
+        else:
+            context['formset'] = ProgramacionCuadrillaFormSet(prefix='cuadrilla')
+        return context
 
     def form_valid(self, form):
+        context = self.get_context_data()
+        formset = context['formset']
+        if not formset.is_valid():
+            return self.form_invalid(form)
         form.instance.creado_por = self.request.user
-        return super().form_valid(form)
+        self.object = form.save()
+        formset.instance = self.object
+        formset.save()
+        messages.success(self.request, "Programación creada.")
+        return HttpResponseRedirect(self.get_success_url())
 
 
-class ActualizarProgramacionView(AsesorRequiredMixin, SuccessMessageMixin, UpdateView):
+class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
     model = Programacion
     form_class = ProgramacionForm
     template_name = 'gestion/form_programacion.html'
     success_url = reverse_lazy('gestion:lista_programaciones')
-    success_message = "Programación actualizada."
 
     def dispatch(self, request, *args, **kwargs):
         # Una programación ya convertida en orden es de solo lectura.
@@ -1160,9 +1176,32 @@ class ActualizarProgramacionView(AsesorRequiredMixin, SuccessMessageMixin, Updat
             return redirect('gestion:detalle_orden', pk=self.object.orden_id)
         return super().dispatch(request, *args, **kwargs)
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.method == 'POST':
+            context['formset'] = ProgramacionCuadrillaFormSet(
+                self.request.POST, instance=self.object, prefix='cuadrilla'
+            )
+        else:
+            context['formset'] = ProgramacionCuadrillaFormSet(
+                instance=self.object, prefix='cuadrilla'
+            )
+        return context
+
+    def form_valid(self, form):
+        context = self.get_context_data()
+        formset = context['formset']
+        if not formset.is_valid():
+            return self.form_invalid(form)
+        self.object = form.save()
+        formset.instance = self.object
+        formset.save()
+        messages.success(self.request, "Programación actualizada.")
+        return HttpResponseRedirect(self.get_success_url())
+
 
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
-    """Genera la Orden de Servicio + primer recorrido desde la programación (solo POST)."""
+    """Genera la Orden de Servicio + un recorrido por cuadrilla (solo POST)."""
     def post(self, request, pk):
         programacion = get_object_or_404(Programacion, pk=pk)
 
@@ -1172,15 +1211,17 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
         if programacion.estado == 'CANCELADA':
             messages.error(request, "No puedes generar una orden desde una programación cancelada.")
             return redirect('gestion:lista_programaciones')
-        if not programacion.vehiculo_id:
-            messages.error(request, "Asigna un vehículo a la programación antes de generar la orden.")
+
+        try:
+            orden = programacion.convertir_en_orden(request.user)
+        except ValueError as e:
+            messages.error(request, str(e))
             return redirect('gestion:actualizar_programacion', pk=pk)
 
-        orden = programacion.convertir_en_orden(request.user)
         messages.success(
             request,
-            f"Orden #{orden.numero_orden} generada desde la programación. "
-            "Completa el valor y los documentos que falten."
+            f"Orden #{orden.numero_orden} generada desde la programación "
+            f"({orden.recorridos.count()} recorrido(s)). Completa el valor y los documentos que falten."
         )
         return redirect('gestion:detalle_orden', pk=orden.pk)
 
