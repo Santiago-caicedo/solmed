@@ -282,6 +282,11 @@
 
         {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
             <li>
+                <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
+                    <i class="bi bi-calendar-plus"></i>Programación
+                </a>
+            </li>
+            <li>
                 <a href="{% url 'gestion:lista_ordenes' %}" class="nav-link {% if 'ordenes' in request.path %}active{% endif %}">
                     <i class="bi bi-clipboard-data"></i>Órdenes de Servicio
                 </a>

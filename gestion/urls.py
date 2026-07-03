@@ -55,4 +55,11 @@ urlpatterns = [
 
     path('ordenes/<int:orden_pk>/registrar-pago/', views.RegistrarPagoView.as_view(), name='registrar_pago'),
 
+    # --- Módulo de Programación (paso previo a la orden) ---
+    path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),
+    path('programaciones/nueva/', views.CrearProgramacionView.as_view(), name='crear_programacion'),
+    path('programaciones/<int:pk>/editar/', views.ActualizarProgramacionView.as_view(), name='actualizar_programacion'),
+    path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
+    path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),
+
 ]

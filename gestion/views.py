@@ -27,9 +27,9 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Recorrido
+from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, Recorrido
 from django.http import JsonResponse
-from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, ProgramacionForm, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
@@ -1104,3 +1104,95 @@ class RegistrarPagoView(AsesorRequiredMixin, CreateView):
     def get_success_url(self):
         # Después de registrar el pago, volvemos al expediente de la orden
         return reverse('gestion:detalle_orden', kwargs={'pk': self.kwargs['orden_pk']})
+
+
+# ============================================================
+#  MÓDULO DE PROGRAMACIÓN (paso PREVIO a la Orden de Servicio)
+#  Lo gestionan los Asesores (y superusuarios). Al confirmar una
+#  programación se genera automáticamente la orden + primer recorrido.
+# ============================================================
+
+class ListaProgramacionesView(AsesorRequiredMixin, ListView):
+    model = Programacion
+    template_name = 'gestion/lista_programaciones.html'
+    context_object_name = 'programaciones'
+
+    def get_queryset(self):
+        qs = Programacion.objects.select_related(
+            'cliente', 'vehiculo', 'conductor', 'ayudante', 'orden'
+        )
+        estado_filtro = self.request.GET.get('estado')
+        if estado_filtro:
+            qs = qs.filter(estado=estado_filtro)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['estado_choices'] = Programacion.ESTADO_CHOICES
+        context['current_estado'] = self.request.GET.get('estado', '')
+        return context
+
+
+class CrearProgramacionView(AsesorRequiredMixin, SuccessMessageMixin, CreateView):
+    model = Programacion
+    form_class = ProgramacionForm
+    template_name = 'gestion/form_programacion.html'
+    success_url = reverse_lazy('gestion:lista_programaciones')
+    success_message = "Programación creada."
+
+    def form_valid(self, form):
+        form.instance.creado_por = self.request.user
+        return super().form_valid(form)
+
+
+class ActualizarProgramacionView(AsesorRequiredMixin, SuccessMessageMixin, UpdateView):
+    model = Programacion
+    form_class = ProgramacionForm
+    template_name = 'gestion/form_programacion.html'
+    success_url = reverse_lazy('gestion:lista_programaciones')
+    success_message = "Programación actualizada."
+
+    def dispatch(self, request, *args, **kwargs):
+        # Una programación ya convertida en orden es de solo lectura.
+        self.object = self.get_object()
+        if self.object.orden_id:
+            messages.info(request, "Esta programación ya generó una orden y no puede editarse.")
+            return redirect('gestion:detalle_orden', pk=self.object.orden_id)
+        return super().dispatch(request, *args, **kwargs)
+
+
+class ConvertirProgramacionView(AsesorRequiredMixin, View):
+    """Genera la Orden de Servicio + primer recorrido desde la programación (solo POST)."""
+    def post(self, request, pk):
+        programacion = get_object_or_404(Programacion, pk=pk)
+
+        if programacion.orden_id:
+            messages.info(request, "Esta programación ya tiene una orden generada.")
+            return redirect('gestion:detalle_orden', pk=programacion.orden_id)
+        if programacion.estado == 'CANCELADA':
+            messages.error(request, "No puedes generar una orden desde una programación cancelada.")
+            return redirect('gestion:lista_programaciones')
+        if not programacion.vehiculo_id:
+            messages.error(request, "Asigna un vehículo a la programación antes de generar la orden.")
+            return redirect('gestion:actualizar_programacion', pk=pk)
+
+        orden = programacion.convertir_en_orden(request.user)
+        messages.success(
+            request,
+            f"Orden #{orden.numero_orden} generada desde la programación. "
+            "Completa el valor y los documentos que falten."
+        )
+        return redirect('gestion:detalle_orden', pk=orden.pk)
+
+
+class CancelarProgramacionView(AsesorRequiredMixin, View):
+    """Marca la programación como CANCELADA (solo POST). No aplica si ya generó orden."""
+    def post(self, request, pk):
+        programacion = get_object_or_404(Programacion, pk=pk)
+        if programacion.orden_id:
+            messages.error(request, "No puedes cancelar una programación que ya generó una orden.")
+        else:
+            programacion.estado = 'CANCELADA'
+            programacion.save()
+            messages.success(request, "Programación cancelada.")
+        return redirect('gestion:lista_programaciones')

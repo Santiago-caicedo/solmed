@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Recorrido, Vehiculo, Cliente
+from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 import datetime
@@ -346,6 +346,50 @@ class RecorridoForm(forms.ModelForm):
         except Group.DoesNotExist:
             self.fields['ayudante'].queryset = User.objects.none()
 
+
+
+class ProgramacionForm(forms.ModelForm):
+    """
+    Programación anticipada (paso previo a la orden). Reutiliza el mismo filtrado
+    de recursos que RecorridoForm: vehículos operativos y usuarios por rol.
+    """
+    class Meta:
+        model = Programacion
+        fields = ['cliente', 'vehiculo', 'conductor', 'ayudante', 'fecha',
+                  'direccion_servicio', 'descripcion']
+        widgets = {
+            'cliente': forms.Select(attrs={'class': 'form-select'}),
+            'vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'conductor': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante': forms.Select(attrs={'class': 'form-select'}),
+            'fecha': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
+            'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+        }
+        labels = {
+            'fecha': 'Fecha del primer recorrido',
+            'vehiculo': 'Vehículo a asignar',
+            'conductor': 'Conductor a asignar',
+            'ayudante': 'Ayudante (opcional)',
+            'direccion_servicio': 'Dirección del servicio (opcional)',
+            'descripcion': 'Descripción del servicio (opcional)',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
+        self.fields['fecha'].input_formats = ['%Y-%m-%d']
+        # Solo vehículos operativos.
+        self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+        # Conductores y ayudantes por rol.
+        try:
+            self.fields['conductor'].queryset = Group.objects.get(name='Conductores').user_set.all()
+        except Group.DoesNotExist:
+            self.fields['conductor'].queryset = User.objects.none()
+        try:
+            self.fields['ayudante'].queryset = Group.objects.get(name='Ayudantes').user_set.all()
+        except Group.DoesNotExist:
+            self.fields['ayudante'].queryset = User.objects.none()
 
 
 class ReporteFiltroForm(forms.Form):

@@ -18,6 +18,7 @@ def crear_roles(sender, **kwargs):
             "vehiculo": ["add", "change", "view", "delete"],
             "documentoorden": ["add", "change", "view", "delete"],
             "manifiesto": ["add", "change", "view", "delete"],
+            "programacion": ["add", "change", "view", "delete"],
         },
         "Conductores": {
             "ordenservicio": ["view"],

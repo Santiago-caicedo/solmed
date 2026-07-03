@@ -1,6 +1,6 @@
 # gestion/models.py
 import uuid
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings # Para relacionar con el usuario/asesor
 from django.db.models import Sum
 from django.utils import timezone
@@ -541,3 +541,102 @@ class EncuestaConductor(models.Model):
         if recorrido.estado != 'COMPLETADO':
             recorrido.estado = 'COMPLETADO'
             recorrido.save()
+
+
+class Programacion(models.Model):
+    """
+    Programación anticipada: paso PREVIO a la Orden de Servicio.
+
+    El asesor define aquí, de forma anticipada, el cliente, el vehículo, el
+    conductor, el ayudante y la fecha del primer recorrido. Al confirmarla se
+    genera automáticamente la OrdenServicio y su primer Recorrido arrastrando
+    estos datos, y ambas quedan enlazadas (Programacion.orden ↔ orden).
+    """
+    ESTADO_CHOICES = [
+        ('BORRADOR', 'Borrador'),
+        ('CONFIRMADA', 'Confirmada'),
+        ('CONVERTIDA', 'Convertida en orden'),
+        ('CANCELADA', 'Cancelada'),
+    ]
+
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='programaciones')
+    vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, related_name='programaciones',
+        null=True, blank=True, verbose_name="Vehículo a asignar"
+    )
+    conductor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='programaciones_como_conductor', null=True, blank=True
+    )
+    ayudante = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='programaciones_como_ayudante', null=True, blank=True
+    )
+    fecha = models.DateField(verbose_name="Fecha del primer recorrido")
+    direccion_servicio = models.CharField(
+        max_length=255, blank=True,
+        help_text="Se arrastra a la orden al convertir. Si se deja vacío se usa la dirección del cliente."
+    )
+    descripcion = models.TextField(blank=True, help_text="Descripción del servicio previsto")
+
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='BORRADOR')
+
+    # Orden generada al convertir la programación (queda enlazada). Se conserva la
+    # programación como registro histórico de planeación aunque se borre la orden.
+    orden = models.OneToOneField(
+        OrdenServicio, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='programacion_origen'
+    )
+
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='programaciones_creadas', null=True, blank=True
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_creacion']
+        verbose_name = "Programación"
+        verbose_name_plural = "Programaciones"
+
+    def __str__(self):
+        return f"Programación #{self.pk} - {self.cliente.nombre} ({self.fecha})"
+
+    @property
+    def puede_convertirse(self):
+        """Se puede generar la orden si aún no tiene una, no está cancelada y tiene vehículo."""
+        return (
+            self.orden_id is None
+            and self.estado in ('BORRADOR', 'CONFIRMADA')
+            and self.vehiculo_id is not None
+        )
+
+    def convertir_en_orden(self, usuario):
+        """
+        Genera la OrdenServicio y su primer Recorrido arrastrando los datos de la
+        programación, enlaza ambas y marca la programación como CONVERTIDA.
+        Idempotente: si ya tiene orden, la devuelve sin duplicar. El recorrido
+        requiere vehículo (por eso `puede_convertirse` lo exige).
+        """
+        if self.orden_id:
+            return self.orden
+
+        with transaction.atomic():
+            orden = OrdenServicio.objects.create(
+                cliente=self.cliente,
+                asesor=usuario,
+                direccion_servicio=self.direccion_servicio or self.cliente.direccion or 'Por definir',
+                descripcion=self.descripcion or f'Orden generada desde la programación #{self.pk}',
+            )
+            Recorrido.objects.create(
+                orden=orden,
+                vehiculo=self.vehiculo,
+                conductor=self.conductor,
+                ayudante=self.ayudante,
+                fecha_recorrido=self.fecha,
+                descripcion=(self.descripcion or '')[:255],
+            )
+            self.orden = orden
+            self.estado = 'CONVERTIDA'
+            self.save()
+        return orden
