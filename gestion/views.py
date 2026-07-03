@@ -1119,8 +1119,8 @@ class ListaProgramacionesView(AsesorRequiredMixin, ListView):
 
     def get_queryset(self):
         qs = Programacion.objects.select_related(
-            'cliente', 'vehiculo', 'conductor', 'ayudante', 'orden'
-        )
+            'cliente', 'orden'
+        ).prefetch_related('cuadrillas')
         estado_filtro = self.request.GET.get('estado')
         if estado_filtro:
             qs = qs.filter(estado=estado_filtro)
