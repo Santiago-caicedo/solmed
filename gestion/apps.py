@@ -19,6 +19,9 @@ def crear_roles(sender, **kwargs):
             "documentoorden": ["add", "change", "view", "delete"],
             "manifiesto": ["add", "change", "view", "delete"],
             "programacion": ["add", "change", "view", "delete"],
+            "documentopersonal": ["add", "change", "view", "delete"],
+            "perfilpersona": ["add", "change", "view", "delete"],
+            "user": ["add", "change", "view"],
         },
         "Conductores": {
             "ordenservicio": ["view"],

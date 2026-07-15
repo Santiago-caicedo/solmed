@@ -27,9 +27,10 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, Recorrido
+from .models import DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido
 from django.http import JsonResponse
-from .forms import DocumentoOrdenForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from django.contrib.auth.forms import SetPasswordForm
+from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
@@ -756,6 +757,14 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
     template_name = 'gestion/ordenservicio_detail.html'
     context_object_name = 'orden'
 
+    def get_queryset(self):
+        # Precargamos personal y sus documentos (se usan varias veces en la plantilla).
+        return super().get_queryset().prefetch_related(
+            'recorridos__vehiculo',
+            'recorridos__conductor__documentos_personales',
+            'recorridos__ayudante__documentos_personales',
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         # Añadimos el formulario para añadir nuevos recorridos
@@ -766,6 +775,19 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         context['vehiculos_con_alerta'] = [
             v for v in Vehiculo.objects.filter(estado='OPERATIVO') if v.tiene_alerta_documentos
         ]
+
+        # Personal (conductores/ayudantes) de esta orden con documentos vencidos o
+        # por vencer, para avisar en el expediente. Se recorre una sola vez.
+        personal_con_alerta = []
+        vistos = set()
+        for recorrido in self.object.recorridos.all():
+            for persona in (recorrido.conductor, recorrido.ayudante):
+                if persona and persona.pk not in vistos:
+                    vistos.add(persona.pk)
+                    docs_alerta = [d for d in persona.documentos_personales.all() if d.tiene_alerta]
+                    if docs_alerta:
+                        personal_con_alerta.append({'persona': persona, 'documentos': docs_alerta})
+        context['personal_con_alerta'] = personal_con_alerta
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1112,6 +1134,65 @@ class RegistrarPagoView(AsesorRequiredMixin, CreateView):
 #  programación se genera automáticamente la orden + primer recorrido.
 # ============================================================
 
+# Documentos estándar del expediente (también define el orden de presentación).
+DOCUMENTOS_ESTANDAR = [
+    ('CEDULA', 'Cédula de ciudadanía'),
+    ('SEGURIDAD_SOCIAL', 'Seguridad social (mes actual)'),
+    ('LICENCIA', 'Licencia de conducción'),
+    ('CURSO_ALTURAS', 'Certificado curso de alturas'),
+    ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
+]
+
+
+def _documentos_requeridos_por_rol(nombres_grupos):
+    """Tipos de documento obligatorios según el/los rol(es) de la persona."""
+    requeridos = set()
+    if 'Conductores' in nombres_grupos:
+        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'LICENCIA'}
+    if 'Ayudantes' in nombres_grupos:
+        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+    return requeridos
+
+
+def _estado_documentos_personal():
+    """
+    Por cada conductor y ayudante, los documentos REQUERIDOS que le faltan y el
+    enlace a su ficha. Se pasa a la plantilla de programación (JSON) para avisar
+    en vivo cuando se asigna a alguien sin la documentación al día.
+      - Conductores: cédula, seguridad social del mes y licencia.
+      - Ayudantes:   cédula, seguridad social del mes y cursos (alturas y confinados).
+    """
+    tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
+    mes_actual = timezone.localdate().strftime('%Y-%m')
+    usuarios = (
+        User.objects.filter(groups__name__in=['Conductores', 'Ayudantes'])
+        .distinct()
+        .prefetch_related('groups', 'documentos_personales')
+    )
+    data = {}
+    for u in usuarios:
+        nombres = set(u.groups.values_list('name', flat=True))
+        requeridos = _documentos_requeridos_por_rol(nombres)
+        docs = list(u.documentos_personales.all())
+        subidos = {d.tipo for d in docs}
+        faltan = []
+        for tipo, _label in DOCUMENTOS_ESTANDAR:   # orden estable de presentación
+            if tipo not in requeridos:
+                continue
+            if tipo == 'SEGURIDAD_SOCIAL':
+                # Mensual: debe existir la del mes actual.
+                al_dia = any(d.tipo == 'SEGURIDAD_SOCIAL' and d.periodo == mes_actual for d in docs)
+                if not al_dia:
+                    faltan.append(f'Seguridad social del mes ({mes_actual})')
+            elif tipo not in subidos:
+                faltan.append(tipo_label[tipo])
+        data[u.id] = {
+            'faltan': faltan,
+            'url': reverse('gestion:ficha_persona', args=[u.id]),
+        }
+    return data
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
@@ -1147,6 +1228,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
             )
         else:
             context['formset'] = ProgramacionCuadrillaFormSet(prefix='cuadrilla')
+        context['personal_docs'] = _estado_documentos_personal()
         return context
 
     def form_valid(self, form):
@@ -1186,6 +1268,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
             context['formset'] = ProgramacionCuadrillaFormSet(
                 instance=self.object, prefix='cuadrilla'
             )
+        context['personal_docs'] = _estado_documentos_personal()
         return context
 
     def form_valid(self, form):
@@ -1237,3 +1320,192 @@ class CancelarProgramacionView(AsesorRequiredMixin, View):
             programacion.save()
             messages.success(request, "Programación cancelada.")
         return redirect('gestion:lista_programaciones')
+
+
+# ============================================================
+#  MÓDULO PERSONAL (personas de la plataforma)
+#  Panel dedicado a las personas: cuenta (accesos), datos personales y
+#  expediente documental, todo en una sola ficha. Gestionado por Asesores
+#  y superusuarios.
+# ============================================================
+
+def _perfil_de(persona):
+    """Devuelve (creándolo si no existe) el perfil de datos de la persona."""
+    perfil, _ = PerfilPersona.objects.get_or_create(usuario=persona)
+    return perfil
+
+
+class ListaPersonalView(AsesorRequiredMixin, ListView):
+    model = User
+    template_name = 'gestion/lista_personal.html'
+    context_object_name = 'usuarios'
+
+    def get_queryset(self):
+        return User.objects.all().prefetch_related('groups', 'documentos_personales').order_by('first_name', 'username')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Estado documental (faltantes) para conductores/ayudantes.
+        docs = _estado_documentos_personal()
+        for usuario in context['usuarios']:
+            info = docs.get(usuario.id)
+            usuario.doc_faltan = info['faltan'] if info else None
+            usuario.tiene_requisitos = info is not None
+        return context
+
+
+class CrearPersonaView(AsesorRequiredMixin, View):
+    """Da de alta la cuenta (usuario + rol + contraseña) y su perfil de datos."""
+    template_name = 'gestion/form_persona.html'
+
+    def get(self, request):
+        return render(request, self.template_name, {
+            'form': CrearUsuarioForm(),
+            'perfil_form': PerfilPersonaForm(),
+            'crear': True,
+        })
+
+    def post(self, request):
+        form = CrearUsuarioForm(request.POST)
+        perfil_form = PerfilPersonaForm(request.POST)
+        if form.is_valid() and perfil_form.is_valid():
+            usuario = form.save()
+            usuario.groups.add(form.cleaned_data['grupo'])
+            perfil = perfil_form.save(commit=False)
+            perfil.usuario = usuario
+            perfil.save()
+            messages.success(request, "Persona creada correctamente.")
+            return redirect('gestion:ficha_persona', pk=usuario.pk)
+        return render(request, self.template_name, {
+            'form': form, 'perfil_form': perfil_form, 'crear': True,
+        })
+
+
+class FichaPersonaView(AsesorRequiredMixin, View):
+    """Ficha completa de la persona: accesos, datos personales y expediente."""
+    template_name = 'gestion/ficha_persona.html'
+
+    def _context(self, persona):
+        mes_actual = timezone.localdate().strftime('%Y-%m')
+        docs = list(persona.documentos_personales.all())
+        por_tipo = {}
+        for d in docs:
+            por_tipo.setdefault(d.tipo, []).append(d)
+
+        grupos = set(persona.groups.values_list('name', flat=True))
+        es_conductor = 'Conductores' in grupos
+        es_ayudante = 'Ayudantes' in grupos
+        requeridos = _documentos_requeridos_por_rol(grupos)
+
+        # Una casilla por cada documento estándar, con su estado.
+        slots = []
+        for tipo, label in DOCUMENTOS_ESTANDAR:
+            if tipo == 'SEGURIDAD_SOCIAL':
+                # Cargada = existe la del mes actual.
+                doc = next((d for d in por_tipo.get(tipo, []) if d.periodo == mes_actual), None)
+            else:
+                lista = por_tipo.get(tipo, [])
+                doc = lista[0] if lista else None   # el más reciente (orden -fecha_subida)
+            slots.append({
+                'tipo': tipo, 'label': label, 'doc': doc,
+                'cargado': doc is not None,
+                'requerido': tipo in requeridos,
+                'es_ss': tipo == 'SEGURIDAD_SOCIAL',
+                'es_licencia': tipo == 'LICENCIA',
+            })
+
+        ss_historico = [d for d in por_tipo.get('SEGURIDAD_SOCIAL', []) if d.periodo != mes_actual]
+        otros = por_tipo.get('OTRO', [])
+        faltan_requeridos = [s['label'] for s in slots if s['requerido'] and not s['cargado']]
+
+        return {
+            'persona': persona,
+            'perfil': _perfil_de(persona),
+            'mes_actual': mes_actual,
+            'es_personal': es_conductor or es_ayudante,
+            'ss_al_dia': any(s['es_ss'] and s['cargado'] for s in slots),
+            'slots': slots,
+            'ss_historico': ss_historico,
+            'otros': otros,
+            'faltan_requeridos': faltan_requeridos,
+        }
+
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        return render(request, self.template_name, self._context(persona))
+
+    def post(self, request, pk):
+        # Carga de un documento al expediente (cada casilla envía su 'tipo').
+        persona = get_object_or_404(User, pk=pk)
+        form = DocumentoPersonalForm(request.POST, request.FILES)
+        if form.is_valid():
+            documento = form.save(commit=False)
+            documento.usuario = persona
+            documento.save()
+            messages.success(request, "Documento cargado.")
+        else:
+            messages.error(request, "No se pudo cargar el documento (revisa el archivo).")
+        return redirect('gestion:ficha_persona', pk=pk)
+
+
+class EditarCuentaPersonaView(AsesorRequiredMixin, View):
+    """Edita la cuenta (usuario, nombre, correo, rol, estado) y el perfil de datos."""
+    template_name = 'gestion/form_persona.html'
+
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        return render(request, self.template_name, {
+            'form': ActualizarUsuarioForm(instance=persona),
+            'perfil_form': PerfilPersonaForm(instance=_perfil_de(persona)),
+            'persona': persona,
+            'crear': False,
+        })
+
+    def post(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        form = ActualizarUsuarioForm(request.POST, instance=persona)
+        perfil_form = PerfilPersonaForm(request.POST, instance=_perfil_de(persona))
+        if form.is_valid() and perfil_form.is_valid():
+            usuario = form.save()
+            usuario.groups.clear()
+            usuario.groups.add(form.cleaned_data['grupo'])
+            perfil_form.save()
+            messages.success(request, "Datos de la persona actualizados.")
+            return redirect('gestion:ficha_persona', pk=usuario.pk)
+        return render(request, self.template_name, {
+            'form': form, 'perfil_form': perfil_form, 'persona': persona, 'crear': False,
+        })
+
+
+class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
+    """Cambia la contraseña de acceso de una persona."""
+    template_name = 'gestion/cambiar_password.html'
+
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        return render(request, self.template_name, {'form': self._form(persona), 'persona': persona})
+
+    def post(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        form = self._form(persona, request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Contraseña actualizada.")
+            return redirect('gestion:ficha_persona', pk=persona.pk)
+        return render(request, self.template_name, {'form': form, 'persona': persona})
+
+    def _form(self, persona, data=None):
+        form = SetPasswordForm(persona, data)
+        for field in form.fields.values():
+            field.widget.attrs['class'] = 'form-control'
+        return form
+
+
+class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):
+    """Elimina un documento del expediente (solo POST)."""
+    def post(self, request, pk):
+        documento = get_object_or_404(DocumentoPersonal, pk=pk)
+        usuario_pk = documento.usuario_id
+        documento.delete()
+        messages.success(request, "Documento eliminado del expediente.")
+        return redirect('gestion:ficha_persona', pk=usuario_pk)

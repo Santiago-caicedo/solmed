@@ -62,4 +62,12 @@ urlpatterns = [
     path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
     path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),
 
+    # --- Módulo Personal (personas: cuenta + datos + expediente) ---
+    path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
+    path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
+    path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),
+    path('personal/<int:pk>/cuenta/', views.EditarCuentaPersonaView.as_view(), name='editar_cuenta_persona'),
+    path('personal/<int:pk>/password/', views.CambiarPasswordPersonaView.as_view(), name='cambiar_password_persona'),
+    path('documento-personal/<int:pk>/eliminar/', views.EliminarDocumentoPersonalView.as_view(), name='eliminar_documento_personal'),
+
 ]

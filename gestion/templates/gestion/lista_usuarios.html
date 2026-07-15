@@ -36,6 +36,9 @@
                         </td>
                         <td>
                             <a href="{% url 'gestion:actualizar_usuario' usuario.pk %}" class="btn btn-sm btn-secondary">Editar</a>
+                            <a href="{% url 'gestion:ficha_persona' usuario.pk %}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-folder2-open me-1"></i>Expediente
+                            </a>
                         </td>
                     </tr>
                     {% endfor %}

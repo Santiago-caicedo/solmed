@@ -1,0 +1,183 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-person-vcard me-2"></i>{{ persona.get_full_name|default:persona.username }}</h1>
+        <div>
+            {% for group in persona.groups.all %}
+                <span class="badge bg-info text-dark">{{ group.name }}</span>
+            {% empty %}
+                {% if persona.is_superuser %}<span class="badge bg-dark">Administrador</span>
+                {% else %}<span class="badge bg-secondary">Sin rol</span>{% endif %}
+            {% endfor %}
+            {% if persona.is_active %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+        </div>
+    </div>
+    <a href="{% url 'gestion:lista_personal' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Personal
+    </a>
+</div>
+
+{% if es_personal %}
+<div class="alert {% if ss_al_dia %}alert-success{% else %}alert-warning{% endif %} d-flex align-items-center">
+    <i class="bi {% if ss_al_dia %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2"></i>
+    <div>Seguridad social del mes <strong>{{ mes_actual }}</strong>:
+        <strong>{% if ss_al_dia %}cargada{% else %}pendiente{% endif %}</strong>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-lg-7">
+        {# ===== Datos personales ===== #}
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Datos personales</h5>
+                <a href="{% url 'gestion:editar_cuenta_persona' persona.pk %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-pencil-square me-1"></i> Editar
+                </a>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-2"><strong>Nombre:</strong> {{ persona.get_full_name|default:"—" }}</div>
+                    <div class="col-md-6 mb-2"><strong>Correo:</strong> {{ persona.email|default:"—" }}</div>
+                    <div class="col-md-6 mb-2"><strong>Cédula:</strong> {{ perfil.numero_documento|default:"—" }}</div>
+                    <div class="col-md-6 mb-2"><strong>Teléfono:</strong> {{ perfil.telefono|default:"—" }}</div>
+                    <div class="col-md-6 mb-2"><strong>Cargo:</strong> {{ perfil.cargo|default:"—" }}</div>
+                    <div class="col-md-6 mb-2"><strong>Dirección:</strong> {{ perfil.direccion|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        {# ===== Documentos / expediente (casillas por documento) ===== #}
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Expediente — documentos</h5>
+                {% if es_personal %}
+                    {% if faltan_requeridos %}
+                        <span class="badge bg-warning text-dark">Faltan {{ faltan_requeridos|length }}</span>
+                    {% else %}
+                        <span class="badge bg-success">Completo</span>
+                    {% endif %}
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">El sistema muestra cada documento y si está cargado o hace falta. Sube el archivo directamente en la casilla.</p>
+
+                <div class="list-group mb-4">
+                    {% for slot in slots %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <strong>{{ slot.label }}</strong>
+                                {% if slot.requerido %}<span class="badge bg-light text-dark border ms-1">Requerido</span>{% endif %}
+                                {% if slot.cargado %}
+                                    <span class="badge bg-success ms-1"><i class="bi bi-check-circle"></i> Cargado</span>
+                                    {% if slot.es_ss %}<span class="badge bg-light text-dark border">Mes {{ slot.doc.periodo }}</span>{% endif %}
+                                    {% if slot.doc.fecha_vencimiento %}
+                                        {% if slot.doc.vencido %}<span class="badge bg-danger">Vencido</span>
+                                        {% elif slot.doc.por_vencer %}<span class="badge bg-warning text-dark">Por vencer ({{ slot.doc.dias_restantes }} d)</span>
+                                        {% else %}<small class="text-muted">Vence {{ slot.doc.fecha_vencimiento|date:"d/m/Y" }}</small>{% endif %}
+                                    {% endif %}
+                                {% elif slot.requerido %}
+                                    <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle"></i> Falta</span>
+                                {% else %}
+                                    <span class="badge bg-secondary ms-1">No cargado</span>
+                                {% endif %}
+                            </div>
+                            {% if slot.cargado %}
+                            <div class="d-flex gap-1">
+                                <a href="{{ slot.doc.archivo.url }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-arrow-down"></i> Ver</a>
+                                <form method="post" action="{% url 'gestion:eliminar_documento_personal' slot.doc.pk %}" onsubmit="return confirm('¿Eliminar este documento?');">
+                                    {% csrf_token %}
+                                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% if not slot.cargado %}
+                        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="tipo" value="{{ slot.tipo }}">
+                            {% if slot.es_ss %}
+                            <div class="col-auto"><input type="month" name="periodo" value="{{ mes_actual }}" class="form-control form-control-sm" title="Mes que cubre"></div>
+                            {% endif %}
+                            <div class="col flex-grow-1"><input type="file" name="archivo" class="form-control form-control-sm" required></div>
+                            {% if slot.es_licencia %}
+                            <div class="col-auto"><input type="date" name="fecha_vencimiento" class="form-control form-control-sm" title="Vencimiento (opcional)"></div>
+                            {% endif %}
+                            <div class="col-auto"><button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button></div>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% if ss_historico %}
+                <h6>Seguridad social (meses anteriores)</h6>
+                <ul class="list-unstyled small mb-4">
+                    {% for d in ss_historico %}
+                    <li class="d-flex justify-content-between border-bottom py-1">
+                        <span>Mes {{ d.periodo|default:"—" }}</span>
+                        <span>
+                            <a href="{{ d.archivo.url }}" target="_blank">Ver</a>
+                            <form method="post" action="{% url 'gestion:eliminar_documento_personal' d.pk %}" class="d-inline" onsubmit="return confirm('¿Eliminar?');">{% csrf_token %}<button class="btn btn-link btn-sm text-danger p-0 ms-2">Eliminar</button></form>
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                <h6>Otros documentos</h6>
+                {% if otros %}
+                <ul class="list-unstyled small mb-2">
+                    {% for d in otros %}
+                    <li class="d-flex justify-content-between border-bottom py-1">
+                        <span>{{ d.descripcion|default:"Otro documento" }}</span>
+                        <span>
+                            <a href="{{ d.archivo.url }}" target="_blank">Ver</a>
+                            <form method="post" action="{% url 'gestion:eliminar_documento_personal' d.pk %}" class="d-inline" onsubmit="return confirm('¿Eliminar?');">{% csrf_token %}<button class="btn btn-link btn-sm text-danger p-0 ms-2">Eliminar</button></form>
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center">
+                    {% csrf_token %}
+                    <input type="hidden" name="tipo" value="OTRO">
+                    <div class="col-auto flex-grow-1"><input type="text" name="descripcion" class="form-control form-control-sm" placeholder="Descripción del documento"></div>
+                    <div class="col-auto flex-grow-1"><input type="file" name="archivo" class="form-control form-control-sm" required></div>
+                    <div class="col-auto"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus-circle me-1"></i>Agregar otro</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        {# ===== Accesos a la plataforma ===== #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-shield-lock me-1"></i>Accesos a la plataforma</h5></div>
+            <div class="card-body">
+                <p class="mb-2"><strong>Usuario:</strong> {{ persona.username }}</p>
+                <p class="mb-2"><strong>Rol:</strong>
+                    {% for group in persona.groups.all %}{{ group.name }}{% empty %}{% if persona.is_superuser %}Administrador{% else %}Sin rol{% endif %}{% endfor %}
+                </p>
+                <p class="mb-2"><strong>Estado:</strong>
+                    {% if persona.is_active %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+                </p>
+                <p class="mb-3"><strong>Último acceso:</strong> {% if persona.last_login %}{{ persona.last_login|date:"d/m/Y H:i" }}{% else %}Nunca{% endif %}</p>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'gestion:editar_cuenta_persona' persona.pk %}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-pencil-square me-1"></i> Editar cuenta
+                    </a>
+                    <a href="{% url 'gestion:cambiar_password_persona' persona.pk %}" class="btn btn-outline-warning btn-sm">
+                        <i class="bi bi-key me-1"></i> Cambiar contraseña
+                    </a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

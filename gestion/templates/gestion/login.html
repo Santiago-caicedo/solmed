@@ -4,413 +4,168 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Iniciar Sesión | Solmed CRM</title>
+    <title>Acceso · Solmed Consola de Operaciones</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --solmed-dark: #2c3e50;
-            --solmed-darker: #1e2b38;
-            --solmed-green: #9cbe30;
-            --solmed-green-dark: #7fa024;
-            --solmed-blue: #008cba;
+        :root{
+            --g-900:#0E1723; --g-800:#16222F; --g-950:#0A111A;
+            --brand:#9CBE30; --brand-600:#5E8C1B; --brand-700:#4d7416;
+            --steel:#215E8C; --line:#DCE1E8; --ink:#111A24; --ink-2:#51606E; --ink-3:#8A97A5;
+            --mono:'IBM Plex Mono',ui-monospace,monospace;
+            --sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
         }
+        *{ box-sizing:border-box; }
+        html,body{ margin:0; height:100%; font-family:var(--sans); background:#EDF0F4; color:var(--ink); }
+        .login-wrapper{ display:flex; min-height:100vh; }
 
-        * { box-sizing: border-box; }
+        /* ---------- Panel de marca (rail grafito) ---------- */
+        .brand-panel{
+            flex:1; position:relative; overflow:hidden; color:#e7edf3;
+            background:linear-gradient(185deg,var(--g-800) 0%,var(--g-900) 55%,var(--g-950) 100%);
+            display:flex; flex-direction:column; justify-content:space-between; padding:3rem 3.25rem;
+        }
+        /* Retícula técnica de fondo */
+        .brand-panel::before{
+            content:""; position:absolute; inset:0; opacity:.5;
+            background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+                             linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+            background-size:40px 40px;
+        }
+        .brand-glow{ content:""; position:absolute; width:360px; height:360px; border-radius:50%; filter:blur(90px); opacity:.25; background:var(--brand); top:-110px; right:-90px; }
+        .brand-content,.brand-features,.brand-footer{ position:relative; z-index:1; }
+        .brand-logo{ max-width:190px; background:#fff; padding:.85rem 1.2rem; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+        .brand-kicker{ font-family:var(--mono); text-transform:uppercase; letter-spacing:.22em; font-size:.7rem; color:var(--brand); margin:2.5rem 0 1rem; display:flex; align-items:center; gap:.5rem; }
+        .brand-kicker .dot{ width:7px; height:7px; border-radius:50%; background:var(--brand); box-shadow:0 0 0 3px rgba(156,190,48,.2); }
+        .brand-tagline h2{ font-size:2.15rem; font-weight:700; line-height:1.18; letter-spacing:-.02em; margin:0 0 1rem; }
+        .brand-tagline h2 span{ color:var(--brand); }
+        .brand-tagline p{ font-size:1rem; color:#aeb9c6; max-width:420px; line-height:1.6; margin:0; }
+        .brand-features{ display:grid; grid-template-columns:repeat(2,1fr); gap:.9rem; margin-top:2.25rem; max-width:460px; }
+        .feature-item{ display:flex; align-items:center; gap:.7rem; font-size:.88rem; color:#c2ccd8; }
+        .feature-item i{ display:flex; align-items:center; justify-content:center; width:34px; height:34px; background:rgba(156,190,48,.14); color:var(--brand); border-radius:6px; font-size:1rem; flex-shrink:0; }
+        .brand-footer{ font-family:var(--mono); font-size:.72rem; letter-spacing:.05em; color:#6b7887; }
 
-        html, body {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background-color: #f4f6f9;
-        }
+        /* ---------- Panel de formulario ---------- */
+        .form-panel{ flex:0 0 460px; background:#fff; display:flex; align-items:center; justify-content:center; padding:3rem 2.75rem; border-left:1px solid var(--line); }
+        .login-form{ width:100%; max-width:350px; }
+        .mobile-logo{ display:none; text-align:center; margin-bottom:2rem; }
+        .mobile-logo img{ max-width:150px; }
 
-        .login-wrapper {
-            display: flex;
-            min-height: 100vh;
-        }
+        .form-eyebrow{ font-family:var(--mono); text-transform:uppercase; letter-spacing:.16em; font-size:.66rem; color:var(--ink-3); }
+        .form-header h1{ font-size:1.6rem; font-weight:700; letter-spacing:-.02em; color:var(--ink); margin:.4rem 0 .3rem; }
+        .form-header p{ color:var(--ink-2); font-size:.9rem; margin:0 0 1.75rem; }
 
-        /* ----------- PANEL IZQUIERDO: MARCA ----------- */
-        .brand-panel {
-            flex: 1;
-            position: relative;
-            background: linear-gradient(135deg, var(--solmed-dark) 0%, var(--solmed-darker) 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 3rem;
-            color: #ecf0f1;
-            overflow: hidden;
-        }
+        .field{ margin-bottom:1rem; }
+        .field label{ font-size:.76rem; font-weight:600; color:var(--ink-2); margin-bottom:.35rem; display:block; }
+        .field-wrap{ position:relative; }
+        .field-wrap .fi{ position:absolute; left:.85rem; top:50%; transform:translateY(-50%); color:var(--ink-3); font-size:1rem; pointer-events:none; }
+        .field-wrap input{ width:100%; height:46px; border:1px solid var(--line); border-radius:4px; padding:0 2.6rem; font-size:.9rem; color:var(--ink); background:#fff; transition:border-color .15s,box-shadow .15s; }
+        .field-wrap input:focus{ outline:none; border-color:var(--brand-600); box-shadow:0 0 0 3px rgba(94,140,27,.16); }
+        .pw-toggle{ position:absolute; right:.6rem; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--ink-3); cursor:pointer; font-size:1rem; padding:.25rem; }
+        .pw-toggle:hover{ color:var(--ink); }
 
-        /* Decorativos: círculos difuminados */
-        .brand-panel::before,
-        .brand-panel::after {
-            content: '';
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(80px);
-            opacity: 0.35;
-            z-index: 0;
-        }
-        .brand-panel::before {
-            width: 380px;
-            height: 380px;
-            background: var(--solmed-green);
-            top: -120px;
-            right: -120px;
-        }
-        .brand-panel::after {
-            width: 320px;
-            height: 320px;
-            background: var(--solmed-blue);
-            bottom: -100px;
-            left: -100px;
-        }
+        .form-options{ display:flex; align-items:center; margin:.25rem 0 1.4rem; font-size:.85rem; }
+        .form-check-input:checked{ background-color:var(--brand-600); border-color:var(--brand-600); }
 
-        .brand-content {
-            position: relative;
-            z-index: 1;
-        }
+        .btn-login{ width:100%; padding:.8rem; font-weight:600; font-size:.95rem; background:var(--brand-600); border:0; border-radius:4px; color:#fff; transition:background .15s,transform .1s; letter-spacing:.01em; }
+        .btn-login:hover{ background:var(--brand-700); }
+        .btn-login:active{ transform:translateY(1px); }
 
-        .brand-logo {
-            max-width: 240px;
-            margin-bottom: 3rem;
-            background: #ffffff;
-            padding: 1rem 1.5rem;
-            border-radius: 14px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-        }
+        .alert-error{ display:flex; align-items:center; gap:.55rem; background:#fbeceb; color:#8f1c14; border:1px solid #eec4c0; border-left:3px solid #B42318; border-radius:4px; padding:.7rem .85rem; font-size:.85rem; margin-bottom:1.25rem; }
 
-        .brand-tagline h2 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            line-height: 1.2;
-            margin-bottom: 1rem;
-        }
-        .brand-tagline h2 span {
-            color: var(--solmed-green);
-        }
-        .brand-tagline p {
-            font-size: 1.1rem;
-            opacity: 0.85;
-            max-width: 420px;
-            line-height: 1.6;
-        }
+        .form-footer{ text-align:center; margin-top:1.75rem; font-size:.8rem; color:var(--ink-3); font-family:var(--mono); letter-spacing:.02em; }
 
-        .brand-features {
-            position: relative;
-            z-index: 1;
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1.25rem;
-            margin-top: 2.5rem;
-            max-width: 480px;
-        }
-        .feature-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            font-size: 0.95rem;
-            opacity: 0.9;
-        }
-        .feature-item i {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 38px;
-            height: 38px;
-            background: rgba(156, 190, 48, 0.15);
-            color: var(--solmed-green);
-            border-radius: 10px;
-            font-size: 1.1rem;
-        }
-
-        .brand-footer {
-            position: relative;
-            z-index: 1;
-            font-size: 0.85rem;
-            opacity: 0.6;
-        }
-
-        /* ----------- PANEL DERECHO: FORMULARIO ----------- */
-        .form-panel {
-            flex: 0 0 480px;
-            background: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 3rem 2.5rem;
-        }
-
-        .login-form {
-            width: 100%;
-            max-width: 360px;
-        }
-
-        .form-header {
-            margin-bottom: 2rem;
-        }
-        .form-header h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            color: var(--solmed-dark);
-            margin-bottom: 0.5rem;
-        }
-        .form-header p {
-            color: #6c757d;
-            font-size: 0.95rem;
-            margin: 0;
-        }
-
-        .form-floating > .form-control {
-            border-radius: 10px;
-            border: 1px solid #dee2e6;
-            padding: 1.25rem 0.75rem 0.5rem 2.75rem;
-            height: 58px;
-            font-size: 0.95rem;
-            transition: all 0.2s ease;
-        }
-        .form-floating > .form-control:focus {
-            border-color: var(--solmed-green);
-            box-shadow: 0 0 0 0.2rem rgba(156, 190, 48, 0.15);
-        }
-        .form-floating > label {
-            padding-left: 2.75rem;
-            color: #6c757d;
-        }
-        .form-floating > .form-control:focus ~ label,
-        .form-floating > .form-control:not(:placeholder-shown) ~ label {
-            transform: scale(0.85) translateY(-0.5rem) translateX(0.15rem);
-        }
-
-        .input-group-custom {
-            position: relative;
-        }
-        .input-icon {
-            position: absolute;
-            left: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #adb5bd;
-            font-size: 1.1rem;
-            z-index: 4;
-            pointer-events: none;
-        }
-        .password-toggle {
-            position: absolute;
-            right: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: #adb5bd;
-            cursor: pointer;
-            z-index: 4;
-            font-size: 1.1rem;
-            padding: 0.25rem;
-        }
-        .password-toggle:hover {
-            color: var(--solmed-dark);
-        }
-
-        .form-options {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin: 1rem 0 1.5rem;
-            font-size: 0.9rem;
-        }
-        .form-check-input:checked {
-            background-color: var(--solmed-green);
-            border-color: var(--solmed-green);
-        }
-
-        .btn-login {
-            width: 100%;
-            padding: 0.875rem;
-            font-weight: 600;
-            font-size: 1rem;
-            background: var(--solmed-green);
-            border: none;
-            border-radius: 10px;
-            color: white;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(156, 190, 48, 0.3);
-        }
-        .btn-login:hover {
-            background: var(--solmed-green-dark);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 16px rgba(156, 190, 48, 0.4);
-        }
-        .btn-login:active {
-            transform: translateY(0);
-        }
-
-        .alert-error {
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
-            border-radius: 10px;
-            padding: 0.75rem 1rem;
-            font-size: 0.9rem;
-            margin-bottom: 1.25rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .form-footer {
-            text-align: center;
-            margin-top: 2rem;
-            font-size: 0.85rem;
-            color: #adb5bd;
-        }
-
-        /* ----------- LOGO MÓVIL (oculto en desktop) ----------- */
-        .mobile-logo {
-            display: none;
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        .mobile-logo img {
-            max-width: 160px;
-        }
-
-        /* ----------- RESPONSIVE ----------- */
-        @media (max-width: 992px) {
-            .brand-panel {
-                display: none;
-            }
-            .form-panel {
-                flex: 1;
-                padding: 2rem 1.5rem;
-            }
-            .mobile-logo {
-                display: block;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .form-panel {
-                padding: 1.5rem 1rem;
-            }
-            .form-header h1 {
-                font-size: 1.5rem;
-            }
+        @media (max-width:992px){
+            .brand-panel{ display:none; }
+            .form-panel{ flex:1; padding:2rem 1.5rem; border-left:0; }
+            .mobile-logo{ display:block; }
         }
     </style>
 </head>
 <body>
-
 <div class="login-wrapper">
-
-    <!-- PANEL IZQUIERDO: Marca -->
     <aside class="brand-panel">
+        <span class="brand-glow"></span>
         <div class="brand-content">
-            <img class="brand-logo" src="{% static 'images/logo-solmed.png' %}" alt="Logo Solmed">
+            <img class="brand-logo" src="{% static 'images/logo-solmed.png' %}" alt="Solmed">
+            <div class="brand-kicker"><span class="dot"></span> Consola de operaciones</div>
             <div class="brand-tagline">
-                <h2>Todo tu negocio, <span>un solo software.</span></h2>
-                <p>La plataforma integral de Solmed: gestiona clientes, órdenes, operaciones, manifiestos digitales y cobranza desde un mismo lugar.</p>
+                <h2>Toda la operación,<br><span>un solo tablero.</span></h2>
+                <p>Programación, órdenes de servicio, flota, personal y manifiestos digitales — control operativo de punta a punta.</p>
             </div>
-
             <div class="brand-features">
-                <div class="feature-item">
-                    <i class="bi bi-truck-front"></i>
-                    <span>Control de flota</span>
-                </div>
-                <div class="feature-item">
-                    <i class="bi bi-clipboard-data"></i>
-                    <span>Órdenes de servicio</span>
-                </div>
-                <div class="feature-item">
-                    <i class="bi bi-file-earmark-pdf"></i>
-                    <span>Manifiestos digitales</span>
-                </div>
-                <div class="feature-item">
-                    <i class="bi bi-graph-up-arrow"></i>
-                    <span>Reportes en vivo</span>
-                </div>
+                <div class="feature-item"><i class="bi bi-truck-front"></i><span>Control de flota</span></div>
+                <div class="feature-item"><i class="bi bi-clipboard-data"></i><span>Órdenes de servicio</span></div>
+                <div class="feature-item"><i class="bi bi-file-earmark-pdf"></i><span>Manifiestos digitales</span></div>
+                <div class="feature-item"><i class="bi bi-people-fill"></i><span>Expedientes de personal</span></div>
             </div>
         </div>
-
-        <div class="brand-footer">
-            &copy; Solmed {% now "Y" %} &middot; Todos los derechos reservados
-        </div>
+        <div class="brand-footer">© Solmed {% now "Y" %} · Todos los derechos reservados</div>
     </aside>
 
-    <!-- PANEL DERECHO: Formulario -->
     <main class="form-panel">
         <div class="login-form">
-
-            <div class="mobile-logo">
-                <img src="{% static 'images/logo-solmed.png' %}" alt="Logo Solmed">
-            </div>
+            <div class="mobile-logo"><img src="{% static 'images/logo-solmed.png' %}" alt="Solmed"></div>
 
             <div class="form-header">
-                <h1>Bienvenido de nuevo</h1>
-                <p>Ingresa tus credenciales para acceder al CRM.</p>
+                <div class="form-eyebrow">Acceso al sistema</div>
+                <h1>Iniciar sesión</h1>
+                <p>Ingresa tus credenciales para entrar a la consola.</p>
             </div>
 
             {% if form.errors %}
             <div class="alert-error">
-                <i class="bi bi-exclamation-circle-fill"></i>
+                <i class="bi bi-x-octagon-fill"></i>
                 <span>Usuario o contraseña incorrectos. Intenta de nuevo.</span>
             </div>
             {% endif %}
 
             <form method="post" action="{% url 'login' %}">
                 {% csrf_token %}
-
-                <div class="input-group-custom form-floating mb-3">
-                    <i class="bi bi-person input-icon"></i>
-                    <input type="text" name="username" class="form-control" id="id_username" placeholder="Usuario" required autofocus>
+                <div class="field">
                     <label for="id_username">Usuario</label>
+                    <div class="field-wrap">
+                        <i class="bi bi-person fi"></i>
+                        <input type="text" name="username" id="id_username" placeholder="tu.usuario" required autofocus>
+                    </div>
                 </div>
-
-                <div class="input-group-custom form-floating">
-                    <i class="bi bi-lock input-icon"></i>
-                    <input type="password" name="password" class="form-control" id="id_password" placeholder="Contraseña" required>
+                <div class="field">
                     <label for="id_password">Contraseña</label>
-                    <button type="button" class="password-toggle" id="togglePassword" aria-label="Mostrar contraseña">
-                        <i class="bi bi-eye" id="toggleIcon"></i>
-                    </button>
+                    <div class="field-wrap">
+                        <i class="bi bi-lock fi"></i>
+                        <input type="password" name="password" id="id_password" placeholder="••••••••" required>
+                        <button type="button" class="pw-toggle" id="togglePassword" aria-label="Mostrar contraseña"><i class="bi bi-eye" id="toggleIcon"></i></button>
+                    </div>
                 </div>
 
                 <div class="form-options">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="rememberMe" name="remember">
-                        <label class="form-check-label text-muted" for="rememberMe">Recordarme</label>
+                        <label class="form-check-label text-muted" for="rememberMe">Mantener sesión</label>
                     </div>
                 </div>
 
-                <button class="btn-login" type="submit">
-                    <i class="bi bi-box-arrow-in-right me-2"></i>Ingresar
-                </button>
+                <button class="btn-login" type="submit"><i class="bi bi-box-arrow-in-right me-2"></i>Ingresar</button>
             </form>
 
-            <div class="form-footer">
-                ¿Problemas para acceder? Contacta al administrador del sistema.
-            </div>
+            <div class="form-footer">¿Problemas para acceder? Contacta al administrador.</div>
         </div>
     </main>
-
 </div>
 
 <script>
-    const toggleBtn = document.getElementById('togglePassword');
-    const passwordInput = document.getElementById('id_password');
-    const toggleIcon = document.getElementById('toggleIcon');
-
+    var toggleBtn = document.getElementById('togglePassword');
+    var passwordInput = document.getElementById('id_password');
+    var toggleIcon = document.getElementById('toggleIcon');
     toggleBtn.addEventListener('click', function () {
-        const isPassword = passwordInput.type === 'password';
-        passwordInput.type = isPassword ? 'text' : 'password';
+        var isPw = passwordInput.type === 'password';
+        passwordInput.type = isPw ? 'text' : 'password';
         toggleIcon.classList.toggle('bi-eye');
         toggleIcon.classList.toggle('bi-eye-slash');
     });
 </script>
-
 </body>
 </html>

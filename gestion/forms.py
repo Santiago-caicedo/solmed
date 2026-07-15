@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoOrden, EncuestaConductor, Manifiesto, OrdenServicio, Pago, Programacion, ProgramacionCuadrilla, Recorrido, Vehiculo, Cliente
+from .models import Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 import datetime
@@ -284,6 +284,19 @@ class CrearUsuarioForm(UserCreationForm):
             'password2': forms.PasswordInput(attrs={'class': 'form-control'}),
         }
 
+class PerfilPersonaForm(forms.ModelForm):
+    """Datos personales de la persona (complementan la cuenta de usuario)."""
+    class Meta:
+        model = PerfilPersona
+        fields = ['numero_documento', 'telefono', 'cargo', 'direccion']
+        widgets = {
+            'numero_documento': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefono': forms.TextInput(attrs={'class': 'form-control'}),
+            'cargo': forms.TextInput(attrs={'class': 'form-control'}),
+            'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+        }
+
+
 class ActualizarUsuarioForm(forms.ModelForm):
     grupo = forms.ModelChoiceField(queryset=Group.objects.all(), required=True, widget=forms.Select(attrs={'class': 'form-select'}))
 
@@ -362,8 +375,7 @@ class ProgramacionForm(forms.ModelForm):
             'bascula', 'bascula_adjunto',
             'registro_fotografico', 'registro_fotografico_adjunto',
             'paleada',
-            'responsable_sg', 'responsable_sg_adjunto',
-            'ayudantes_cursos', 'ayudantes_cursos_adjunto',
+            'responsable_sg',
             'nombre_contacto_recibe',
         ]
         widgets = {
@@ -381,9 +393,6 @@ class ProgramacionForm(forms.ModelForm):
             'registro_fotografico_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
-            'responsable_sg_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
-            'ayudantes_cursos': forms.Select(attrs={'class': 'form-select'}),
-            'ayudantes_cursos_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
@@ -392,7 +401,7 @@ class ProgramacionForm(forms.ModelForm):
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
         # Los desplegables con opciones vacías muestran "---------".
-        for campo in ('bascula', 'registro_fotografico', 'paleada', 'responsable_sg', 'ayudantes_cursos'):
+        for campo in ('bascula', 'registro_fotografico', 'paleada', 'responsable_sg'):
             self.fields[campo].empty_label = '---------'
 
 
@@ -429,6 +438,45 @@ ProgramacionCuadrillaFormSet = forms.inlineformset_factory(
     form=ProgramacionCuadrillaForm,
     extra=3, can_delete=True,
 )
+
+
+class DocumentoPersonalForm(forms.ModelForm):
+    """Carga de un documento al expediente de un conductor o ayudante."""
+    class Meta:
+        model = DocumentoPersonal
+        fields = ['tipo', 'periodo', 'archivo', 'descripcion', 'fecha_vencimiento']
+        widgets = {
+            'tipo': forms.Select(attrs={'class': 'form-select'}),
+            'periodo': forms.TextInput(attrs={'class': 'form-control', 'type': 'month'}),
+            'archivo': forms.FileInput(attrs={'class': 'form-control'}),
+            'descripcion': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional'}),
+            'fecha_vencimiento': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+        }
+        labels = {
+            'periodo': 'Mes que cubre (solo seguridad social)',
+            'fecha_vencimiento': 'Vencimiento (solo licencia)',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['fecha_vencimiento'].input_formats = ['%Y-%m-%d']
+        self.fields['descripcion'].required = False
+        self.fields['fecha_vencimiento'].required = False
+        self.fields['periodo'].required = False
+        # Sugerir el mes actual (útil para la seguridad social).
+        if not self.is_bound and not self.initial.get('periodo'):
+            self.fields['periodo'].initial = datetime.date.today().strftime('%Y-%m')
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('tipo') == 'SEGURIDAD_SOCIAL':
+            # La seguridad social es mensual: si no indican el mes, se asume el actual.
+            if not cleaned.get('periodo'):
+                cleaned['periodo'] = datetime.date.today().strftime('%Y-%m')
+        else:
+            # El periodo solo aplica a seguridad social.
+            cleaned['periodo'] = ''
+        return cleaned
 
 
 class ReporteFiltroForm(forms.Form):

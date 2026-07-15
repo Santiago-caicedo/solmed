@@ -571,11 +571,6 @@ class Programacion(models.Model):
         ('EMPOLLACOL', 'Palea Empollacol'),
         ('NO_REQUIERE', 'No requiere paleada'),
     ]
-    CURSOS_CHOICES = [
-        ('ALTURAS', 'Alturas'),
-        ('CONFINADOS', 'Confinados'),
-        ('NO_REQUIERE', 'No requiere'),
-    ]
 
     # --- Cabecera del servicio ---
     fecha = models.DateField(verbose_name="Fecha del servicio")
@@ -606,10 +601,6 @@ class Programacion(models.Model):
     paleada = models.CharField(max_length=20, choices=PALEADA_CHOICES, blank=True, verbose_name="Paleada")
 
     responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
-    responsable_sg_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto documentos seguridad social")
-
-    ayudantes_cursos = models.CharField(max_length=20, choices=CURSOS_CHOICES, blank=True, verbose_name="Ayudantes con cursos")
-    ayudantes_cursos_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto cursos")
 
     nombre_contacto_recibe = models.CharField(
         max_length=200, blank=True, verbose_name="Nombre / contacto de quien recibe el servicio"
@@ -721,3 +712,97 @@ class ProgramacionCuadrilla(models.Model):
     def __str__(self):
         placa = self.vehiculo.placa if self.vehiculo else 'sin placa'
         return f"Cuadrilla ({placa}) - Programación #{self.programacion_id}"
+
+
+class DocumentoPersonal(models.Model):
+    """
+    Documento del expediente de una persona (conductor o ayudante): cédula,
+    seguridad social, licencia de conducción, cursos, etc. Los documentos que
+    vencen (licencia, seguridad social) llevan fecha de vencimiento con alerta,
+    igual que los documentos de los vehículos (misma antelación de 20 días).
+
+    El expediente de una persona = todos sus DocumentoPersonal. En el expediente
+    de la orden se muestran EN VIVO los documentos del conductor/ayudante de cada
+    recorrido (enlace, no copia): actualizar un documento se refleja en todas las
+    órdenes.
+    """
+    DIAS_ALERTA_VENCIMIENTO = 20
+
+    TIPO_CHOICES = [
+        ('CEDULA', 'Cédula de ciudadanía'),
+        ('SEGURIDAD_SOCIAL', 'Seguridad social (EPS/ARL/Pensión)'),
+        ('LICENCIA', 'Licencia de conducción'),
+        ('CURSO_ALTURAS', 'Certificado curso de alturas'),
+        ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
+        ('OTRO', 'Otro documento'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='documentos_personales'
+    )
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    archivo = models.FileField(upload_to='personal_documentos/')
+    descripcion = models.CharField(
+        max_length=200, blank=True,
+        help_text="Detalle del documento, sobre todo si el tipo es 'Otro'."
+    )
+    # Mes que cubre el documento (formato AAAA-MM). Solo aplica a la seguridad
+    # social, que se carga cada mes: se considera "al día" si existe la del mes actual.
+    periodo = models.CharField(
+        max_length=7, blank=True, verbose_name="Mes que cubre (seguridad social)",
+        help_text="Formato AAAA-MM. La seguridad social se carga cada mes."
+    )
+    fecha_vencimiento = models.DateField(
+        null=True, blank=True, verbose_name="Fecha de vencimiento (si aplica)"
+    )
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tipo', '-fecha_subida']
+        verbose_name = "Documento del personal"
+        verbose_name_plural = "Documentos del personal"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} - {self.usuario.get_full_name() or self.usuario.username}"
+
+    @property
+    def dias_restantes(self):
+        if not self.fecha_vencimiento:
+            return None
+        return (self.fecha_vencimiento - timezone.localdate()).days
+
+    @property
+    def vencido(self):
+        dias = self.dias_restantes
+        return dias is not None and dias < 0
+
+    @property
+    def por_vencer(self):
+        dias = self.dias_restantes
+        return dias is not None and 0 <= dias <= self.DIAS_ALERTA_VENCIMIENTO
+
+    @property
+    def tiene_alerta(self):
+        return self.vencido or self.por_vencer
+
+
+class PerfilPersona(models.Model):
+    """
+    Datos personales de una persona (extiende la cuenta de usuario). La ficha de
+    la persona = cuenta (User) + este perfil + su expediente de documentos.
+    """
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='perfil'
+    )
+    numero_documento = models.CharField(max_length=30, blank=True, verbose_name="Número de documento (cédula)")
+    telefono = models.CharField(max_length=30, blank=True, verbose_name="Teléfono")
+    cargo = models.CharField(max_length=100, blank=True, verbose_name="Cargo")
+    direccion = models.CharField(max_length=255, blank=True, verbose_name="Dirección")
+
+    class Meta:
+        verbose_name = "Perfil de persona"
+        verbose_name_plural = "Perfiles de personas"
+
+    def __str__(self):
+        return f"Perfil de {self.usuario.get_full_name() or self.usuario.username}"

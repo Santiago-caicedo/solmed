@@ -99,20 +99,7 @@
                 <div class="col-md-6">
                     <label for="{{ form.responsable_sg.id_for_label }}" class="form-label">Responsable SG</label>
                     {{ form.responsable_sg }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.responsable_sg_adjunto.id_for_label }}" class="form-label">Adjunto documentos seguridad social</label>
-                    {{ form.responsable_sg_adjunto }}
-                    {% if object.responsable_sg_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.responsable_sg_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.ayudantes_cursos.id_for_label }}" class="form-label">Ayudantes con cursos</label>
-                    {{ form.ayudantes_cursos }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.ayudantes_cursos_adjunto.id_for_label }}" class="form-label">Adjunto cursos</label>
-                    {{ form.ayudantes_cursos_adjunto }}
-                    {% if object.ayudantes_cursos_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.ayudantes_cursos_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                    <small class="text-muted d-block mt-1">Los documentos de seguridad social y cursos ahora viven en el expediente de cada persona.</small>
                 </div>
             </div>
         </div>
@@ -136,26 +123,59 @@
                             <th style="min-width:150px">Novedad conductor</th>
                             <th style="min-width:170px">Ayudante</th>
                             <th style="min-width:150px">Novedad ayudante</th>
-                            {% if formset.can_delete %}<th>Quitar</th>{% endif %}
+                            {% if formset.can_delete %}<th class="text-center" style="width:48px"><i class="bi bi-trash"></i></th>{% endif %}
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="cuadrillas-tbody">
                         {% for cf in formset %}
-                        <tr>
+                        <tr class="cuadrilla-row">
                             {% for hidden in cf.hidden_fields %}{{ hidden }}{% endfor %}
                             <td>{{ cf.conductor }}</td>
                             <td>{{ cf.vehiculo }}</td>
                             <td>{{ cf.conductor_novedad }}</td>
                             <td>{{ cf.ayudante }}</td>
                             <td>{{ cf.ayudante_novedad }}</td>
-                            {% if formset.can_delete %}<td class="text-center">{{ cf.DELETE }}</td>{% endif %}
+                            {% if formset.can_delete %}
+                            <td class="text-center align-middle">
+                                <span class="d-none">{{ cf.DELETE }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-cuadrilla" title="Eliminar fila" aria-label="Eliminar fila">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+
+            <button type="button" id="btn-agregar-cuadrilla" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-plus-circle me-1"></i> Añadir fila
+            </button>
+
+            {# Plantilla de fila vacía; el JS reemplaza __prefix__ por el índice nuevo #}
+            <template id="cuadrilla-empty-form">
+                <tr class="cuadrilla-row">
+                    {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+                    <td>{{ formset.empty_form.conductor }}</td>
+                    <td>{{ formset.empty_form.vehiculo }}</td>
+                    <td>{{ formset.empty_form.conductor_novedad }}</td>
+                    <td>{{ formset.empty_form.ayudante }}</td>
+                    <td>{{ formset.empty_form.ayudante_novedad }}</td>
+                    {% if formset.can_delete %}
+                    <td class="text-center align-middle">
+                        <span class="d-none">{{ formset.empty_form.DELETE }}</span>
+                        <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-cuadrilla" title="Eliminar fila" aria-label="Eliminar fila">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                    {% endif %}
+                </tr>
+            </template>
         </div>
     </div>
+
+    <div id="alertas-documentos"></div>
 
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-1"></i>
@@ -171,4 +191,106 @@
         </button>
     </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+{{ personal_docs|json_script:"personal-docs-data" }}
+<script>
+// Estado documental del personal: { "<id>": { faltan: [...], url: "..." } }
+var personalDocs = JSON.parse(document.getElementById('personal-docs-data').textContent);
+var contenedorAlertas = document.getElementById('alertas-documentos');
+
+// Revisa todos los conductores/ayudantes seleccionados y muestra un aviso con
+// enlace al expediente por cada persona a la que le falten documentos.
+function revisarDocumentos() {
+    if (!contenedorAlertas) return;
+    var selects = document.querySelectorAll(
+        '#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]'
+    );
+    var avisos = [];
+    var vistos = {};
+    selects.forEach(function (sel) {
+        var fila = sel.closest('.cuadrilla-row');
+        if (fila && fila.style.display === 'none') return;   // fila eliminada
+        var id = sel.value;
+        if (!id) return;
+        var info = personalDocs[id];
+        if (!info || !info.faltan || info.faltan.length === 0) return;
+        var esConductor = sel.name.indexOf('-conductor') > -1;
+        var clave = id + (esConductor ? '-c' : '-a');
+        if (vistos[clave]) return;
+        vistos[clave] = true;
+        var opt = sel.options[sel.selectedIndex];
+        avisos.push({
+            nombre: opt ? opt.text : 'Persona',
+            rol: esConductor ? 'Conductor' : 'Ayudante',
+            faltan: info.faltan,
+            url: info.url,
+        });
+    });
+
+    if (avisos.length === 0) { contenedorAlertas.innerHTML = ''; return; }
+
+    var html = '<div class="alert alert-warning">'
+        + '<strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Falta documentación del personal asignado:</strong>'
+        + '<ul class="mb-0 mt-1">';
+    avisos.forEach(function (a) {
+        html += '<li>' + a.rol + ' <strong>' + a.nombre + '</strong>: falta ' + a.faltan.join(', ')
+            + ' &mdash; <a href="' + a.url + '" target="_blank" class="alert-link">'
+            + '<i class="bi bi-folder2-open"></i> Ir al expediente</a></li>';
+    });
+    html += '</ul></div>';
+    contenedorAlertas.innerHTML = html;
+}
+
+document.addEventListener('change', function (e) {
+    if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')) {
+        revisarDocumentos();
+    }
+});
+
+// Papelera de cada fila de cuadrilla: marca la casilla DELETE del formset (oculta)
+// y esconde la fila. Al guardar, Django elimina esa cuadrilla (o la ignora si era nueva).
+document.addEventListener('click', function (e) {
+    var boton = e.target.closest('.btn-eliminar-cuadrilla');
+    if (!boton) return;
+    var fila = boton.closest('.cuadrilla-row');
+    if (!fila) return;
+    var checkboxDelete = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
+    if (checkboxDelete) {
+        checkboxDelete.checked = true;
+        fila.style.display = 'none';
+    } else {
+        fila.remove();
+    }
+    revisarDocumentos();   // quitar el aviso de la persona que estaba en esa fila
+});
+
+// Botón "Añadir fila": clona la plantilla empty_form, reemplaza __prefix__ por el
+// índice siguiente y actualiza el contador TOTAL_FORMS del formset.
+var btnAgregar = document.getElementById('btn-agregar-cuadrilla');
+if (btnAgregar) {
+    btnAgregar.addEventListener('click', function () {
+        var tbody = document.getElementById('cuadrillas-tbody');
+        var totalInput = document.querySelector('input[name="cuadrilla-TOTAL_FORMS"]');
+        var plantilla = document.getElementById('cuadrilla-empty-form');
+        if (!tbody || !totalInput || !plantilla) return;
+
+        var index = parseInt(totalInput.value, 10);
+        var html = plantilla.innerHTML.replace(/__prefix__/g, index).trim();
+
+        // Un <tbody> temporal permite parsear un <tr> suelto correctamente.
+        var temp = document.createElement('tbody');
+        temp.innerHTML = html;
+        var nuevaFila = temp.querySelector('tr');
+        if (!nuevaFila) return;
+
+        tbody.appendChild(nuevaFila);
+        totalInput.value = index + 1;
+    });
+}
+
+// Revisar al cargar la página (por si se edita con personal ya asignado).
+revisarDocumentos();
+</script>
 {% endblock %}

@@ -12,6 +12,20 @@
     </a>
 </div>
 
+{% if personal_con_alerta %}
+<div class="alert alert-warning">
+    <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Personal con documentos vencidos o por vencer:</strong>
+    <ul class="mb-0 mt-1">
+        {% for item in personal_con_alerta %}
+        <li>
+            <a href="{% url 'gestion:ficha_persona' item.persona.pk %}">{{ item.persona.get_full_name|default:item.persona.username }}</a>:
+            {% for doc in item.documentos %}{{ doc.get_tipo_display }}{% if doc.vencido %} (vencido){% else %} (por vencer){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-lg-8">
         <div class="card shadow mb-4">
@@ -20,7 +34,7 @@
                 {% if orden.recorridos.all %}
                 <div class="table-responsive">
                     <table class="table table-hover">
-                        <thead><tr><th>Fecha</th><th>Vehículo</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
+                        <thead><tr><th>Fecha</th><th>Vehículo</th><th>Personal</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
                         <tbody>
                             {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
                             <tr>
@@ -30,6 +44,25 @@
                                     {% if recorrido.vehiculo.tiene_alerta_documentos %}
                                     <span class="badge bg-danger" title="Documentos vencidos o por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>
                                     {% endif %}
+                                </td>
+                                <td>
+                                    {% if recorrido.conductor %}
+                                        <div>
+                                            <a href="{% url 'gestion:ficha_persona' recorrido.conductor.pk %}" title="Ver expediente">
+                                                <i class="bi bi-person-badge"></i> {{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}
+                                            </a>
+                                            {% for doc in recorrido.conductor.documentos_personales.all %}{% if doc.tiene_alerta %}<span class="badge bg-danger" title="{{ doc.get_tipo_display }} vencido/por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>{% endif %}{% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    {% if recorrido.ayudante %}
+                                        <div>
+                                            <a href="{% url 'gestion:ficha_persona' recorrido.ayudante.pk %}" title="Ver expediente">
+                                                <i class="bi bi-person"></i> {{ recorrido.ayudante.get_full_name|default:recorrido.ayudante.username }}
+                                            </a>
+                                            {% for doc in recorrido.ayudante.documentos_personales.all %}{% if doc.tiene_alerta %}<span class="badge bg-danger" title="{{ doc.get_tipo_display }} vencido/por vencer"><i class="bi bi-exclamation-triangle-fill"></i></span>{% endif %}{% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    {% if not recorrido.conductor and not recorrido.ayudante %}<span class="text-muted">—</span>{% endif %}
                                 </td>
                                 <td><span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span></td>
                                 <td>
@@ -74,6 +107,47 @@
                 {% else %}
                 <p class="text-muted mb-0">Esta orden aún no tiene recorridos. Usa <strong>Editar orden / recorridos</strong> para añadir uno.</p>
                 {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0">Documentos del personal asignado</h5></div>
+            <div class="card-body">
+                {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
+                    {% if recorrido.conductor or recorrido.ayudante %}
+                    <div class="mb-3 pb-2 border-bottom">
+                        <div class="small text-muted mb-1">{{ recorrido.fecha_recorrido }} · {{ recorrido.vehiculo.placa }}</div>
+
+                        {% if recorrido.conductor %}
+                        <div class="mb-1">
+                            <i class="bi bi-person-badge"></i>
+                            <a href="{% url 'gestion:ficha_persona' recorrido.conductor.pk %}">{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}</a>
+                            <span class="text-muted small">(conductor)</span>
+                            {% for doc in recorrido.conductor.documentos_personales.all %}
+                                <a href="{{ doc.archivo.url }}" target="_blank" class="badge text-decoration-none {% if doc.vencido %}bg-danger{% elif doc.por_vencer %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %}">{{ doc.get_tipo_display }}</a>
+                            {% empty %}
+                                <span class="badge bg-secondary">Sin documentos</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        {% if recorrido.ayudante %}
+                        <div>
+                            <i class="bi bi-person"></i>
+                            <a href="{% url 'gestion:ficha_persona' recorrido.ayudante.pk %}">{{ recorrido.ayudante.get_full_name|default:recorrido.ayudante.username }}</a>
+                            <span class="text-muted small">(ayudante)</span>
+                            {% for doc in recorrido.ayudante.documentos_personales.all %}
+                                <a href="{{ doc.archivo.url }}" target="_blank" class="badge text-decoration-none {% if doc.vencido %}bg-danger{% elif doc.por_vencer %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %}">{{ doc.get_tipo_display }}</a>
+                            {% empty %}
+                                <span class="badge bg-secondary">Sin documentos</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                {% empty %}
+                    <p class="text-muted mb-0">No hay personal asignado todavía.</p>
+                {% endfor %}
             </div>
         </div>
     </div>

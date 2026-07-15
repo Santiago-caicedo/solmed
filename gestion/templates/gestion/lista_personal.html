@@ -1,0 +1,72 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0"><i class="bi bi-people-fill me-2"></i>Personal</h1>
+    <a href="{% url 'gestion:crear_persona' %}" class="btn btn-primary">
+        <i class="bi bi-person-plus-fill me-1"></i> Nueva persona
+    </a>
+</div>
+
+<div class="card shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Usuario</th>
+                        <th>Rol</th>
+                        <th>Estado</th>
+                        <th>Documentos</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for usuario in usuarios %}
+                    <tr>
+                        <td>{{ usuario.get_full_name|default:"—" }}</td>
+                        <td><strong>{{ usuario.username }}</strong></td>
+                        <td>
+                            {% for group in usuario.groups.all %}
+                                <span class="badge bg-info text-dark">{{ group.name }}</span>
+                            {% empty %}
+                                {% if usuario.is_superuser %}<span class="badge bg-dark">Administrador</span>
+                                {% else %}<span class="badge bg-secondary">Sin rol</span>{% endif %}
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if usuario.is_active %}
+                                <span class="badge bg-success">Activo</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if usuario.tiene_requisitos %}
+                                {% if usuario.doc_faltan %}
+                                    <span class="badge bg-warning text-dark" title="{{ usuario.doc_faltan|join:', ' }}">
+                                        <i class="bi bi-exclamation-triangle-fill"></i> Faltan {{ usuario.doc_faltan|length }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-success">Al día</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'gestion:ficha_persona' usuario.pk %}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-folder2-open me-1"></i> Ver ficha
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">No hay personas registradas.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
