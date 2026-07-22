@@ -96,6 +96,18 @@
                             </div>
                             {% endif %}
                         </div>
+
+                        {% if slot.cargado and slot.con_vigencia %}
+                        {# Botón que abre el pop-up para registrar/editar la vigencia del documento #}
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm {% if slot.doc.fecha_vencimiento %}btn-outline-secondary{% else %}btn-outline-warning{% endif %}"
+                                    data-bs-toggle="modal" data-bs-target="#modalVigencia{{ slot.doc.pk }}">
+                                <i class="bi bi-calendar-check me-1"></i>
+                                {% if slot.doc.fecha_vencimiento %}Editar vigencia{% else %}Añadir vigencia{% endif %}
+                            </button>
+                        </div>
+                        {% endif %}
+
                         {% if not slot.cargado %}
                         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center mt-2">
                             {% csrf_token %}
@@ -104,8 +116,8 @@
                             <div class="col-auto"><input type="month" name="periodo" value="{{ mes_actual }}" class="form-control form-control-sm" title="Mes que cubre"></div>
                             {% endif %}
                             <div class="col flex-grow-1"><input type="file" name="archivo" class="form-control form-control-sm" required></div>
-                            {% if slot.es_licencia %}
-                            <div class="col-auto"><input type="date" name="fecha_vencimiento" class="form-control form-control-sm" title="Vencimiento (opcional)"></div>
+                            {% if slot.con_vigencia %}
+                            <div class="col-auto"><input type="date" name="fecha_vencimiento" class="form-control form-control-sm" title="Vigencia (opcional, se puede añadir después)"></div>
                             {% endif %}
                             <div class="col-auto"><button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button></div>
                         </form>
@@ -155,6 +167,25 @@
     </div>
 
     <div class="col-lg-5">
+        {% if sin_acceso %}
+        {# ===== Persona sin acceso al sistema (ayudantes) ===== #}
+        <div class="card shadow mb-4 border-warning">
+            <div class="card-header bg-warning-subtle"><h5 class="mb-0"><i class="bi bi-shield-slash me-1"></i>Acceso a la plataforma</h5></div>
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <i class="bi bi-person-fill-slash text-warning" style="font-size:2.4rem"></i>
+                    <p class="mt-2 mb-1"><strong>Sin acceso al sistema</strong></p>
+                    <p class="text-muted small mb-0">
+                        Los ayudantes no tienen usuario ni contraseña. Este registro existe
+                        para su expediente y para poder asignarlo a las cuadrillas.
+                    </p>
+                </div>
+                <a href="{% url 'gestion:editar_cuenta_persona' persona.pk %}" class="btn btn-outline-secondary btn-sm w-100">
+                    <i class="bi bi-pencil-square me-1"></i> Editar datos o cambiar el rol
+                </a>
+            </div>
+        </div>
+        {% else %}
         {# ===== Accesos a la plataforma ===== #}
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-shield-lock me-1"></i>Accesos a la plataforma</h5></div>
@@ -177,7 +208,44 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
     </div>
 </div>
+
+{# ===== Pop-ups de vigencia de los documentos (cursos y licencia) ===== #}
+{% for slot in slots %}
+    {% if slot.cargado and slot.con_vigencia %}
+    <div class="modal fade" id="modalVigencia{{ slot.doc.pk }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form method="post" action="{% url 'gestion:vigencia_documento_personal' slot.doc.pk %}" class="modal-content">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-calendar-check me-1"></i>Vigencia &mdash; {{ slot.label }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">
+                        Indica hasta cuándo está vigente este documento. El sistema avisará
+                        {{ dias_alerta }} días antes del vencimiento.
+                    </p>
+                    <label for="vigencia{{ slot.doc.pk }}" class="form-label">Fecha de vencimiento</label>
+                    <input type="date" id="vigencia{{ slot.doc.pk }}" name="fecha_vencimiento" class="form-control"
+                           value="{{ slot.doc.fecha_vencimiento|date:'Y-m-d' }}">
+                    {% if slot.doc.fecha_vencimiento %}
+                    <small class="text-muted d-block mt-2">
+                        Vigencia actual: {{ slot.doc.fecha_vencimiento|date:"d/m/Y" }}.
+                        Deja el campo vacío para quitarla.
+                    </small>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Guardar vigencia</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+{% endfor %}
 {% endblock %}

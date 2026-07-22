@@ -166,6 +166,13 @@ class OrdenServicio(models.Model):
         ('ABONADO', 'Abonado'),
     ]
 
+    SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
+    BASCULA_CHOICES = [
+        ('PESAN', 'Pesan'),
+        ('NO_PESAN', 'No pesan'),
+        ('PESO_CLIENTE', 'Peso del cliente'),
+    ]
+
     # --- Relaciones Principales ---
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='ordenes')
     asesor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='ordenes_creadas')
@@ -183,6 +190,12 @@ class OrdenServicio(models.Model):
     direccion_servicio = models.CharField(max_length=255, help_text="Dirección principal del servicio o contrato")
     descripcion = models.TextField(help_text="Descripción general del acuerdo o contrato")
     valor_servicio = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, help_text="Costo total del acuerdo")
+
+    # --- Datos operativos (antes en la programación) ---
+    bascula = models.CharField(max_length=20, choices=BASCULA_CHOICES, blank=True, verbose_name="Báscula")
+    bascula_adjunto = models.FileField(upload_to='ordenes_documentos/', null=True, blank=True, verbose_name="Adjunto báscula")
+    registro_fotografico = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Registro fotográfico")
+    registro_fotografico_adjunto = models.FileField(upload_to='ordenes_documentos/', null=True, blank=True, verbose_name="Adjunto registro fotográfico")
 
     # --- Campos de Seguimiento ---
     estado_orden = models.CharField(max_length=20, choices=ESTADO_ORDEN_CHOICES, default='PROGRAMADA')
@@ -561,11 +574,6 @@ class Programacion(models.Model):
         ('CANCELADA', 'Cancelada'),
     ]
     SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
-    BASCULA_CHOICES = [
-        ('PESAN', 'Pesan'),
-        ('NO_PESAN', 'No pesan'),
-        ('PESO_CLIENTE', 'Peso del cliente'),
-    ]
     PALEADA_CHOICES = [
         ('SAVICOL', 'Palea Savicol'),
         ('EMPOLLACOL', 'Palea Empollacol'),
@@ -591,13 +599,7 @@ class Programacion(models.Model):
         blank=True, verbose_name="Observaciones detalladas del servicio a prestar"
     )
 
-    # --- Checklist operativo (desplegables + adjuntos del formato) ---
-    bascula = models.CharField(max_length=20, choices=BASCULA_CHOICES, blank=True, verbose_name="Báscula")
-    bascula_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto báscula")
-
-    registro_fotografico = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Registro fotográfico")
-    registro_fotografico_adjunto = models.FileField(upload_to='programaciones/', null=True, blank=True, verbose_name="Adjunto registro fotográfico")
-
+    # --- Checklist operativo (desplegables del formato) ---
     paleada = models.CharField(max_length=20, choices=PALEADA_CHOICES, blank=True, verbose_name="Paleada")
 
     responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
@@ -676,8 +678,8 @@ class ProgramacionCuadrilla(models.Model):
     """
     Una fila del bloque CONDUCTOR / PLACA / AYUDANTE del formato de programación.
     Cada cuadrilla con vehículo genera un Recorrido al convertir la programación.
-    `conductor_novedad` / `ayudante_novedad` capturan el bloque "OBSERVACIONES DEL
-    AYUDANTE-CONDUCTOR" (inicia en bodega, incapacidad, descansa, permiso).
+    `ayudante_novedad` captura la novedad del día del ayudante (inicia en bodega,
+    incapacidad, descansa, permiso).
     """
     NOVEDAD_CHOICES = [
         ('NORMAL', 'Normal / trabaja'),
@@ -700,7 +702,6 @@ class ProgramacionCuadrilla(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='cuadrillas_como_ayudante', null=True, blank=True
     )
-    conductor_novedad = models.CharField(max_length=20, choices=NOVEDAD_CHOICES, default='NORMAL', blank=True)
     ayudante_novedad = models.CharField(max_length=20, choices=NOVEDAD_CHOICES, default='NORMAL', blank=True)
     orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
 

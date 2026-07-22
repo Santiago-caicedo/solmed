@@ -15,7 +15,7 @@
 <div class="card shadow mb-4">
     <div class="card-header"><h5 class="mb-0">Datos de la orden</h5></div>
     <div class="card-body p-4">
-        <form method="post" novalidate>
+        <form method="post" enctype="multipart/form-data" novalidate>
             {% csrf_token %}
 
             {% if form.errors or form_recorrido.errors and not object %}
@@ -40,6 +40,29 @@
                 <div class="col-12">
                     <label for="{{ form.descripcion.id_for_label }}" class="form-label">Descripción</label>
                     {{ form.descripcion }}
+                </div>
+            </div>
+
+            <h5 class="mt-4">Datos operativos</h5>
+            <hr>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label for="{{ form.bascula.id_for_label }}" class="form-label">Báscula</label>
+                    {{ form.bascula }}
+                </div>
+                <div class="col-md-3">
+                    <label for="{{ form.bascula_adjunto.id_for_label }}" class="form-label">Adjunto báscula</label>
+                    {{ form.bascula_adjunto }}
+                    {% if object.bascula_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.bascula_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
+                </div>
+                <div class="col-md-3">
+                    <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">Registro fotográfico</label>
+                    {{ form.registro_fotografico }}
+                </div>
+                <div class="col-md-3">
+                    <label for="{{ form.registro_fotografico_adjunto.id_for_label }}" class="form-label">Adjunto registro</label>
+                    {{ form.registro_fotografico_adjunto }}
+                    {% if object.registro_fotografico_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.registro_fotografico_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
                 </div>
             </div>
 

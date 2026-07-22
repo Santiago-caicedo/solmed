@@ -2,6 +2,7 @@ from django import forms
 from .models import Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
+from django.utils.text import slugify
 import datetime
 
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
@@ -14,12 +15,18 @@ class OrdenServicioForm(forms.ModelForm):
             'cliente',
             'direccion_servicio',
             'descripcion',
+            'bascula', 'bascula_adjunto',
+            'registro_fotografico', 'registro_fotografico_adjunto',
         ]
 
         widgets = {
             'cliente': forms.Select(attrs={'class': 'form-select'}),
             'direccion_servicio': forms.TextInput(attrs={'class': 'form-control'}),
             'descripcion': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'bascula': forms.Select(attrs={'class': 'form-select'}),
+            'bascula_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
+            'registro_fotografico_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
         }
 
 class VehiculoForm(forms.ModelForm):
@@ -284,6 +291,74 @@ class CrearUsuarioForm(UserCreationForm):
             'password2': forms.PasswordInput(attrs={'class': 'form-control'}),
         }
 
+def generar_username(first_name, last_name, numero_documento=''):
+    """
+    Construye un identificador interno único para una persona SIN acceso al
+    sistema (ayudantes). No es una credencial: nunca se muestra como usuario ni
+    sirve para iniciar sesión; solo identifica el registro internamente.
+    """
+    base = slugify(numero_documento) or slugify(f"{first_name} {last_name}") or 'persona'
+    base = base.replace('-', '.')[:140]
+    username = base
+    contador = 2
+    while User.objects.filter(username=username).exists():
+        username = f"{base}.{contador}"
+        contador += 1
+    return username
+
+
+class PersonaSinAccesoForm(forms.ModelForm):
+    """
+    Alta/edición de una persona que NO accede a la plataforma (ayudantes): se
+    registra únicamente para su expediente y para poder asignarla a las
+    cuadrillas. No se le pide usuario ni contraseña; internamente la cuenta
+    queda inactiva y sin contraseña utilizable.
+    """
+    grupo = forms.ModelChoiceField(
+        queryset=Group.objects.all(), required=True,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email']
+        labels = {
+            'first_name': 'Nombres',
+            'last_name': 'Apellidos',
+            'email': 'Correo (opcional)',
+        }
+        widgets = {
+            'first_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'last_name': forms.TextInput(attrs={'class': 'form-control'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['first_name'].required = True
+        self.fields['last_name'].required = True
+        self.fields['email'].required = False
+        if self.instance.pk:
+            grupo_actual = self.instance.groups.first()
+            if grupo_actual:
+                self.fields['grupo'].initial = grupo_actual.pk
+
+    def save(self, commit=True):
+        usuario = super().save(commit=False)
+        if not usuario.pk:
+            # El número de documento viaja en el mismo POST (formulario de perfil).
+            usuario.username = generar_username(
+                usuario.first_name, usuario.last_name,
+                self.data.get('numero_documento', ''),
+            )
+        # Sin acceso: contraseña inutilizable y cuenta inactiva.
+        usuario.set_unusable_password()
+        usuario.is_active = False
+        if commit:
+            usuario.save()
+        return usuario
+
+
 class PerfilPersonaForm(forms.ModelForm):
     """Datos personales de la persona (complementan la cuenta de usuario)."""
     class Meta:
@@ -372,8 +447,6 @@ class ProgramacionForm(forms.ModelForm):
             'fecha', 'hora_ingreso_bodega', 'hora_servicio',
             'cliente', 'sede', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
-            'bascula', 'bascula_adjunto',
-            'registro_fotografico', 'registro_fotografico_adjunto',
             'paleada',
             'responsable_sg',
             'nombre_contacto_recibe',
@@ -387,10 +460,6 @@ class ProgramacionForm(forms.ModelForm):
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
             'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'bascula': forms.Select(attrs={'class': 'form-select'}),
-            'bascula_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
-            'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
-            'registro_fotografico_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
@@ -401,7 +470,7 @@ class ProgramacionForm(forms.ModelForm):
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
         # Los desplegables con opciones vacías muestran "---------".
-        for campo in ('bascula', 'registro_fotografico', 'paleada', 'responsable_sg'):
+        for campo in ('paleada', 'responsable_sg'):
             self.fields[campo].empty_label = '---------'
 
 
@@ -409,12 +478,11 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
     """Una fila CONDUCTOR / PLACA / AYUDANTE del formato, con sus novedades."""
     class Meta:
         model = ProgramacionCuadrilla
-        fields = ['conductor', 'vehiculo', 'ayudante', 'conductor_novedad', 'ayudante_novedad']
+        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante_novedad']
         widgets = {
             'conductor': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'ayudante': forms.Select(attrs={'class': 'form-select form-select-sm'}),
-            'conductor_novedad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'ayudante_novedad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
 

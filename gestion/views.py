@@ -16,7 +16,6 @@ from django.views import View
 from io import BytesIO
 import qrcode
 from weasyprint import HTML
-from xhtml2pdf import pisa
 from django.db.models import Sum, Count
 import base64
 import datetime
@@ -30,7 +29,7 @@ from django.db.models import Q
 from .models import DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
@@ -1145,13 +1144,58 @@ DOCUMENTOS_ESTANDAR = [
 
 
 def _documentos_requeridos_por_rol(nombres_grupos):
-    """Tipos de documento obligatorios según el/los rol(es) de la persona."""
+    """
+    Tipos de documento obligatorios según el/los rol(es) de la persona.
+    Los cursos (alturas y espacios confinados) son EXCLUSIVOS de los ayudantes;
+    la licencia de conducción, exclusiva de los conductores.
+    """
     requeridos = set()
     if 'Conductores' in nombres_grupos:
         requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'LICENCIA'}
     if 'Ayudantes' in nombres_grupos:
         requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
     return requeridos
+
+
+# Roles cuyas personas NO acceden a la plataforma: se registran solo para su
+# expediente y para poder asignarlas a las cuadrillas. No tienen usuario ni
+# contraseña utilizables (ver PersonaSinAccesoForm).
+GRUPOS_SIN_ACCESO = {'Ayudantes'}
+
+# Documentos que llevan fecha de vigencia (se puede fijar/editar con el botón
+# "Vigencia" del expediente).
+TIPOS_CON_VIGENCIA = {'LICENCIA', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+
+
+def _grupo_es_sin_acceso(grupo):
+    """True si el rol seleccionado no debe tener acceso al sistema."""
+    return grupo is not None and grupo.name in GRUPOS_SIN_ACCESO
+
+
+def _persona_sin_acceso(persona):
+    """True si la persona está registrada sin acceso a la plataforma."""
+    return bool(set(persona.groups.values_list('name', flat=True)) & GRUPOS_SIN_ACCESO)
+
+
+def _grupo_de_post(request):
+    """Grupo (rol) enviado en el POST del formulario de persona, si es válido."""
+    return Group.objects.filter(pk=request.POST.get('grupo')).first()
+
+
+def _ids_grupos_sin_acceso():
+    """IDs de los roles sin acceso, para que el formulario reaccione en vivo."""
+    return list(Group.objects.filter(name__in=GRUPOS_SIN_ACCESO).values_list('id', flat=True))
+
+
+def _documentos_aplicables_por_rol(nombres_grupos):
+    """
+    Casillas del expediente que se muestran para ese rol (en el orden estándar).
+    Quien no es conductor ni ayudante solo maneja la cédula.
+    """
+    requeridos = _documentos_requeridos_por_rol(nombres_grupos)
+    if not requeridos:
+        requeridos = {'CEDULA'}
+    return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in requeridos]
 
 
 def _estado_documentos_personal():
@@ -1351,11 +1395,17 @@ class ListaPersonalView(AsesorRequiredMixin, ListView):
             info = docs.get(usuario.id)
             usuario.doc_faltan = info['faltan'] if info else None
             usuario.tiene_requisitos = info is not None
+            usuario.sin_acceso = _persona_sin_acceso(usuario)
         return context
 
 
 class CrearPersonaView(AsesorRequiredMixin, View):
-    """Da de alta la cuenta (usuario + rol + contraseña) y su perfil de datos."""
+    """
+    Da de alta a una persona. El ROL se elige primero porque determina todo lo
+    demás: los roles con acceso (conductores, asesores...) llevan usuario y
+    contraseña; los ayudantes NO acceden al sistema, así que solo se registran
+    sus datos y su expediente documental.
+    """
     template_name = 'gestion/form_persona.html'
 
     def get(self, request):
@@ -1363,10 +1413,17 @@ class CrearPersonaView(AsesorRequiredMixin, View):
             'form': CrearUsuarioForm(),
             'perfil_form': PerfilPersonaForm(),
             'crear': True,
+            'grupos_sin_acceso_ids': json.dumps(_ids_grupos_sin_acceso()),
         })
 
     def post(self, request):
-        form = CrearUsuarioForm(request.POST)
+        grupo = _grupo_de_post(request)
+        sin_acceso = _grupo_es_sin_acceso(grupo)
+        # Los ayudantes no llevan usuario ni contraseña: se usa el formulario
+        # reducido, que crea la cuenta inactiva y sin contraseña utilizable.
+        FormClass = PersonaSinAccesoForm if sin_acceso else CrearUsuarioForm
+
+        form = FormClass(request.POST)
         perfil_form = PerfilPersonaForm(request.POST)
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
@@ -1374,10 +1431,18 @@ class CrearPersonaView(AsesorRequiredMixin, View):
             perfil = perfil_form.save(commit=False)
             perfil.usuario = usuario
             perfil.save()
-            messages.success(request, "Persona creada correctamente.")
+            if sin_acceso:
+                messages.success(
+                    request,
+                    "Ayudante registrado. No tiene acceso al sistema: solo se gestiona su expediente."
+                )
+            else:
+                messages.success(request, "Persona creada correctamente.")
             return redirect('gestion:ficha_persona', pk=usuario.pk)
         return render(request, self.template_name, {
             'form': form, 'perfil_form': perfil_form, 'crear': True,
+            'sin_acceso': sin_acceso,
+            'grupos_sin_acceso_ids': json.dumps(_ids_grupos_sin_acceso()),
         })
 
 
@@ -1397,9 +1462,10 @@ class FichaPersonaView(AsesorRequiredMixin, View):
         es_ayudante = 'Ayudantes' in grupos
         requeridos = _documentos_requeridos_por_rol(grupos)
 
-        # Una casilla por cada documento estándar, con su estado.
+        # Una casilla por cada documento que aplica al rol, con su estado.
+        # Los cursos solo aparecen en ayudantes; la licencia, solo en conductores.
         slots = []
-        for tipo, label in DOCUMENTOS_ESTANDAR:
+        for tipo, label in _documentos_aplicables_por_rol(grupos):
             if tipo == 'SEGURIDAD_SOCIAL':
                 # Cargada = existe la del mes actual.
                 doc = next((d for d in por_tipo.get(tipo, []) if d.periodo == mes_actual), None)
@@ -1412,6 +1478,8 @@ class FichaPersonaView(AsesorRequiredMixin, View):
                 'requerido': tipo in requeridos,
                 'es_ss': tipo == 'SEGURIDAD_SOCIAL',
                 'es_licencia': tipo == 'LICENCIA',
+                'es_curso': tipo in ('CURSO_ALTURAS', 'CURSO_CONFINADOS'),
+                'con_vigencia': tipo in TIPOS_CON_VIGENCIA,
             })
 
         ss_historico = [d for d in por_tipo.get('SEGURIDAD_SOCIAL', []) if d.periodo != mes_actual]
@@ -1423,6 +1491,8 @@ class FichaPersonaView(AsesorRequiredMixin, View):
             'perfil': _perfil_de(persona),
             'mes_actual': mes_actual,
             'es_personal': es_conductor or es_ayudante,
+            'sin_acceso': _persona_sin_acceso(persona),
+            'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
             'ss_al_dia': any(s['es_ss'] and s['cargado'] for s in slots),
             'slots': slots,
             'ss_historico': ss_historico,
@@ -1454,16 +1524,33 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
+        sin_acceso = _persona_sin_acceso(persona)
+        FormClass = PersonaSinAccesoForm if sin_acceso else ActualizarUsuarioForm
         return render(request, self.template_name, {
-            'form': ActualizarUsuarioForm(instance=persona),
+            'form': FormClass(instance=persona),
             'perfil_form': PerfilPersonaForm(instance=_perfil_de(persona)),
             'persona': persona,
             'crear': False,
+            'sin_acceso': sin_acceso,
+            'grupos_sin_acceso_ids': json.dumps(_ids_grupos_sin_acceso()),
         })
 
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        form = ActualizarUsuarioForm(request.POST, instance=persona)
+        grupo = _grupo_de_post(request)
+        sin_acceso = _grupo_es_sin_acceso(grupo)
+        FormClass = PersonaSinAccesoForm if sin_acceso else ActualizarUsuarioForm
+
+        datos = request.POST.copy()
+        # Al pasar de un rol sin acceso a uno con acceso, el formulario mostrado
+        # no traía usuario ni estado: se reutiliza el identificador existente y
+        # se activa la cuenta (la contraseña se define aparte).
+        daba_acceso_nuevo = not sin_acceso and _persona_sin_acceso(persona)
+        if daba_acceso_nuevo:
+            datos.setdefault('username', persona.username)
+            datos['is_active'] = 'on'
+
+        form = FormClass(datos, instance=persona)
         perfil_form = PerfilPersonaForm(request.POST, instance=_perfil_de(persona))
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
@@ -1471,15 +1558,35 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
             usuario.groups.add(form.cleaned_data['grupo'])
             perfil_form.save()
             messages.success(request, "Datos de la persona actualizados.")
+            if daba_acceso_nuevo:
+                messages.info(
+                    request,
+                    f"Esta persona ahora tiene acceso al sistema con el usuario "
+                    f"«{usuario.username}». Asígnale una contraseña para que pueda entrar."
+                )
             return redirect('gestion:ficha_persona', pk=usuario.pk)
         return render(request, self.template_name, {
             'form': form, 'perfil_form': perfil_form, 'persona': persona, 'crear': False,
+            'sin_acceso': sin_acceso,
+            'grupos_sin_acceso_ids': json.dumps(_ids_grupos_sin_acceso()),
         })
 
 
 class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
-    """Cambia la contraseña de acceso de una persona."""
+    """Cambia la contraseña de acceso de una persona (no aplica a los ayudantes)."""
     template_name = 'gestion/cambiar_password.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            persona = get_object_or_404(User, pk=kwargs.get('pk'))
+            if _persona_sin_acceso(persona):
+                messages.info(
+                    request,
+                    "Los ayudantes no acceden al sistema, así que no tienen contraseña. "
+                    "Cambia su rol si necesitas darle acceso."
+                )
+                return redirect('gestion:ficha_persona', pk=persona.pk)
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
@@ -1499,6 +1606,36 @@ class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
         for field in form.fields.values():
             field.widget.attrs['class'] = 'form-control'
         return form
+
+
+class ActualizarVigenciaDocumentoView(AsesorRequiredMixin, View):
+    """
+    Fija o edita la vigencia (fecha de vencimiento) de un documento del
+    expediente desde el pop-up de la ficha. Solo POST.
+    """
+    def post(self, request, pk):
+        documento = get_object_or_404(DocumentoPersonal, pk=pk)
+        fecha = request.POST.get('fecha_vencimiento', '').strip()
+
+        if not fecha:
+            # Vaciar el campo = el documento queda sin vigencia registrada.
+            documento.fecha_vencimiento = None
+            documento.save(update_fields=['fecha_vencimiento'])
+            messages.success(request, "Vigencia eliminada del documento.")
+            return redirect('gestion:ficha_persona', pk=documento.usuario_id)
+
+        try:
+            documento.fecha_vencimiento = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, "La fecha de vigencia no es válida.")
+            return redirect('gestion:ficha_persona', pk=documento.usuario_id)
+
+        documento.save(update_fields=['fecha_vencimiento'])
+        messages.success(
+            request,
+            f"Vigencia registrada: vence el {documento.fecha_vencimiento.strftime('%d/%m/%Y')}."
+        )
+        return redirect('gestion:ficha_persona', pk=documento.usuario_id)
 
 
 class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):

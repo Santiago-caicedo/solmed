@@ -28,7 +28,9 @@
       "Bash(venv/bin/python manage.py makemigrations --check --dry-run)",
       "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/views.py gestion/urls.py gestion/apps.py gestion/admin.py gestion/migrations/0015_programacion.py)",
       "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/views.py gestion/admin.py gestion/migrations/0015_programacion.py gestion/migrations/0016_programacion_formato_operativo.py)",
-      "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/migrations/0018_programacion_quitar_campos_personal.py)"
+      "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/migrations/0018_programacion_quitar_campos_personal.py)",
+      "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/migrations/0021_mover_bascula_registro_a_orden.py)",
+      "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/migrations/0022_remove_cuadrilla_conductor_novedad.py)"
     ]
   }
 }

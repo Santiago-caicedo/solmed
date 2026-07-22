@@ -15,9 +15,8 @@
                 <thead>
                     <tr>
                         <th>Nombre</th>
-                        <th>Usuario</th>
                         <th>Rol</th>
-                        <th>Estado</th>
+                        <th>Acceso</th>
                         <th>Documentos</th>
                         <th class="text-end">Acciones</th>
                     </tr>
@@ -26,7 +25,6 @@
                     {% for usuario in usuarios %}
                     <tr>
                         <td>{{ usuario.get_full_name|default:"—" }}</td>
-                        <td><strong>{{ usuario.username }}</strong></td>
                         <td>
                             {% for group in usuario.groups.all %}
                                 <span class="badge bg-info text-dark">{{ group.name }}</span>
@@ -36,10 +34,16 @@
                             {% endfor %}
                         </td>
                         <td>
-                            {% if usuario.is_active %}
+                            {% if usuario.sin_acceso %}
+                                <span class="badge bg-warning text-dark" title="No tiene usuario ni contraseña">
+                                    <i class="bi bi-shield-slash"></i> Sin acceso
+                                </span>
+                            {% elif usuario.is_active %}
                                 <span class="badge bg-success">Activo</span>
+                                <small class="text-muted d-block">{{ usuario.username }}</small>
                             {% else %}
                                 <span class="badge bg-secondary">Inactivo</span>
+                                <small class="text-muted d-block">{{ usuario.username }}</small>
                             {% endif %}
                         </td>
                         <td>
@@ -62,7 +66,7 @@
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center text-muted py-4">No hay personas registradas.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-4">No hay personas registradas.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
