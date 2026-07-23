@@ -39,8 +39,18 @@ def crear_roles(sender, **kwargs):
             "vehiculo": ["view"],             # Necesita ver la lista de vehículos
             "user": ["view"],                 # Necesita ver la lista de usuarios (conductores)
             "ordenservicio": ["view"],        # Necesita ver las órdenes a las que pertenecen los recorridos
-        }
-        
+        },
+
+        # --- Otros cargos del personal ---
+        # Se registran para su ficha y su expediente documental. No manejan
+        # módulos del CRM, por eso no llevan permisos: si más adelante alguno
+        # necesita entrar a una pantalla concreta, se le añaden aquí.
+        "Director Técnico": {},
+        "SISO": {},
+        "Soldador - Armador": {},
+        "Auxiliares Administrativas": {},
+        "Administrativo": {},
+
     }
 
     for nombre_rol, permisos_rol in ROLES.items():

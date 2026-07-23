@@ -74,11 +74,11 @@
         <div class="card-body p-4">
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label for="{{ form.paleada.id_for_label }}" class="form-label">Paleada</label>
+                    <label for="{{ form.paleada.id_for_label }}" class="form-label">¿Se requiere paleada?</label>
                     {{ form.paleada }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.responsable_sg.id_for_label }}" class="form-label">Responsable SG</label>
+                    <label for="{{ form.responsable_sg.id_for_label }}" class="form-label">¿Se requiere SGC?</label>
                     {{ form.responsable_sg }}
                 </div>
                 <div class="col-md-6">
@@ -153,7 +153,8 @@
         <div class="card-body p-4">
             <p class="text-muted small">
                 Cada fila con vehículo genera un recorrido al convertir la programación en orden.
-                Las novedades registran el estado del día de cada persona (inicia en bodega, incapacidad, descansa, permiso).
+                La novedad registra cómo cubre el turno el ayudante ese día: dónde lo inicia o lo termina,
+                si retorna a bodega o si apoya una disposición.
             </p>
             {{ formset.management_form }}
             <div class="table-responsive">
@@ -171,7 +172,12 @@
                         {% for cf in formset %}
                         <tr class="cuadrilla-row">
                             {% for hidden in cf.hidden_fields %}{{ hidden }}{% endfor %}
-                            <td>{{ cf.conductor }}</td>
+                            <td>
+                                {{ cf.conductor }}
+                                {% for e in cf.conductor.errors %}
+                                <div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
+                                {% endfor %}
+                            </td>
                             <td>{{ cf.vehiculo }}</td>
                             <td>
                                 {{ cf.ayudante }}
@@ -221,6 +227,38 @@
 
     <div id="alertas-documentos"></div>
 
+    {# ============ ENVÍO DE SEGURIDAD SOCIAL AL CLIENTE ============ #}
+    <div class="card shadow mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <h5 class="mb-0"><i class="bi bi-envelope-paper me-1"></i>Seguridad social a enviar al cliente</h5>
+            <span class="badge bg-secondary" id="ss-contador">0 documentos</span>
+        </div>
+        <div class="card-body p-4">
+            <p class="text-muted small">
+                Se enviará al cliente la seguridad social del mes de todo el personal asignado en las
+                cuadrillas. Escribe arriba el <strong>correo del cliente (seguridad social)</strong> y aquí
+                verás cómo quedará el correo. Si a alguien le falta la seguridad social del mes, se avisa
+                y no se puede guardar.
+            </p>
+
+            {# Vista previa del correo (maqueta) #}
+            <div class="border rounded overflow-hidden">
+                <div class="px-3 py-2 bg-light border-bottom small">
+                    <div><span class="text-muted" style="display:inline-block;min-width:64px">Para:</span>
+                        <strong id="ss-para" class="text-danger">— escribe el correo del cliente arriba —</strong></div>
+                    <div><span class="text-muted" style="display:inline-block;min-width:64px">Asunto:</span>
+                        <strong id="ss-asunto">Seguridad social del personal</strong></div>
+                </div>
+                <div class="px-3 py-3">
+                    <div id="ss-cuerpo" class="small mb-3"></div>
+
+                    <div class="fw-semibold small mb-2"><i class="bi bi-paperclip me-1"></i>Documentos adjuntos</div>
+                    <div id="ss-adjuntos" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-1"></i>
         Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una nueva
@@ -240,8 +278,9 @@
 {% block scripts %}
 {{ personal_docs|json_script:"personal-docs-data" }}
 <script>
-// Estado documental del personal:
-// { "<id>": { faltan: [...], cursos: {CURSO_ALTURAS: true, ...}, es_ayudante: bool, url: "..." } }
+// Estado documental del personal: { "<id>": { nombre, faltan: [...],
+//   cursos: {CURSO_ALTURAS: true, ...}, es_ayudante, url,
+//   ss_al_dia, ss_periodo, ss_url } }
 var personalDocs = JSON.parse(document.getElementById('personal-docs-data').textContent);
 var contenedorAlertas = document.getElementById('alertas-documentos');
 
@@ -279,60 +318,93 @@ function cursosQueLeFaltan(id) {
     }).map(function (curso) { return curso.nombre; });
 }
 
-// Revisa todos los conductores/ayudantes seleccionados y muestra un aviso con
-// enlace al expediente por cada persona a la que le falten documentos.
-function revisarDocumentos() {
-    if (!contenedorAlertas) return;
+// Escapa texto que se inyecta en el HTML de las vistas previas.
+function esc(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Recorre las cuadrillas UNA sola vez y recopila el personal seleccionado
+// (conductores y ayudantes, sin repetir), con su estado documental.
+function personalSeleccionado() {
     var selects = document.querySelectorAll(
         '#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]'
     );
-    var avisos = [];
-    var bloqueos = [];
+    var lista = [];
     var vistos = {};
     selects.forEach(function (sel) {
         var fila = sel.closest('.cuadrilla-row');
         if (fila && fila.style.display === 'none') return;   // fila eliminada
         var id = sel.value;
-        if (!id) return;
-        var info = personalDocs[id];
-        var esConductor = sel.name.indexOf('-conductor') > -1;
-        var clave = id + (esConductor ? '-c' : '-a');
-        if (vistos[clave]) return;
-        vistos[clave] = true;
+        if (!id || vistos[id]) return;
+        vistos[id] = true;
         var opt = sel.options[sel.selectedIndex];
-        var nombre = opt ? opt.text : 'Persona';
-
-        // Cursos exigidos por esta programación: bloquean el guardado.
-        if (!esConductor) {
-            var faltanCursos = cursosQueLeFaltan(id);
-            marcarFila(sel, faltanCursos.length > 0);
-            if (faltanCursos.length > 0) {
-                bloqueos.push({
-                    nombre: nombre,
-                    cursos: faltanCursos,
-                    url: info ? info.url : '#',
-                });
-            }
-        }
-
-        if (!info || !info.faltan || info.faltan.length === 0) return;
-        avisos.push({
-            nombre: nombre,
+        var esConductor = sel.name.indexOf('-conductor') > -1;
+        lista.push({
+            id: id,
+            sel: sel,
+            esConductor: esConductor,
             rol: esConductor ? 'Conductor' : 'Ayudante',
-            faltan: info.faltan,
-            url: info.url,
+            nombre: opt ? opt.text : 'Persona',
+            info: personalDocs[id] || null,
+            faltanCursos: esConductor ? [] : cursosQueLeFaltan(id),
         });
+    });
+    return lista;
+}
+
+// Analiza el personal, pinta las filas en rojo, muestra los avisos y actualiza
+// la vista previa del correo. Devuelve si hay algún bloqueo (cursos o SS).
+function revisarDocumentos() {
+    if (!contenedorAlertas) return;
+    var personal = personalSeleccionado();
+
+    var bloqueosCursos = [];
+    var bloqueosSS = [];
+    var avisos = [];
+
+    personal.forEach(function (p) {
+        var sinSS = !p.info || !p.info.ss_al_dia;
+        var sinCurso = p.faltanCursos.length > 0;
+        // La fila se pinta en rojo si le falta la SS del mes o un curso exigido.
+        p.sel.classList.toggle('is-invalid', sinSS || sinCurso);
+
+        if (sinCurso) {
+            bloqueosCursos.push({ nombre: p.nombre, cursos: p.faltanCursos,
+                                  url: p.info ? p.info.url : '#' });
+        }
+        if (sinSS) {
+            bloqueosSS.push({ nombre: p.nombre, rol: p.rol,
+                              url: p.info ? p.info.url : '#' });
+        }
+        // Otros documentos faltantes (aviso, no bloqueo).
+        if (p.info && p.info.faltan && p.info.faltan.length) {
+            avisos.push({ nombre: p.nombre, rol: p.rol, faltan: p.info.faltan, url: p.info.url });
+        }
     });
 
     var html = '';
 
-    if (bloqueos.length > 0) {
+    if (bloqueosSS.length > 0) {
+        html += '<div class="alert alert-danger">'
+            + '<strong><i class="bi bi-x-octagon-fill me-1"></i> No se puede guardar: '
+            + 'falta la seguridad social del mes de personal asignado (se enviará al cliente).</strong>'
+            + '<ul class="mb-0 mt-1">';
+        bloqueosSS.forEach(function (b) {
+            html += '<li>' + esc(b.rol) + ' <strong>' + esc(b.nombre) + '</strong>'
+                + ' &mdash; <a href="' + b.url + '" target="_blank" class="alert-link">'
+                + '<i class="bi bi-folder2-open"></i> Cargar seguridad social</a></li>';
+        });
+        html += '</ul></div>';
+    }
+
+    if (bloqueosCursos.length > 0) {
         html += '<div class="alert alert-danger">'
             + '<strong><i class="bi bi-x-octagon-fill me-1"></i> No se puede guardar: '
             + 'este servicio exige cursos que el ayudante no tiene vigentes.</strong>'
             + '<ul class="mb-0 mt-1">';
-        bloqueos.forEach(function (b) {
-            html += '<li><strong>' + b.nombre + '</strong>: le falta ' + b.cursos.join(' y ')
+        bloqueosCursos.forEach(function (b) {
+            html += '<li><strong>' + esc(b.nombre) + '</strong>: le falta ' + esc(b.cursos.join(' y '))
                 + ' &mdash; <a href="' + b.url + '" target="_blank" class="alert-link">'
                 + '<i class="bi bi-folder2-open"></i> Cargar en su expediente</a></li>';
         });
@@ -344,7 +416,7 @@ function revisarDocumentos() {
             + '<strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Falta documentación del personal asignado:</strong>'
             + '<ul class="mb-0 mt-1">';
         avisos.forEach(function (a) {
-            html += '<li>' + a.rol + ' <strong>' + a.nombre + '</strong>: falta ' + a.faltan.join(', ')
+            html += '<li>' + esc(a.rol) + ' <strong>' + esc(a.nombre) + '</strong>: falta ' + esc(a.faltan.join(', '))
                 + ' &mdash; <a href="' + a.url + '" target="_blank" class="alert-link">'
                 + '<i class="bi bi-folder2-open"></i> Ir al expediente</a></li>';
         });
@@ -352,21 +424,79 @@ function revisarDocumentos() {
     }
 
     contenedorAlertas.innerHTML = html;
-    bloquearGuardado(bloqueos.length > 0);
+
+    actualizarEnvioSS(personal);
+
+    var bloquear = (bloqueosSS.length + bloqueosCursos.length) > 0;
+    bloquearGuardado(bloquear);
+    return bloquear;
 }
 
-// Resalta en rojo el desplegable del ayudante que incumple.
-function marcarFila(sel, incumple) {
-    sel.classList.toggle('is-invalid', incumple);
+// Construye la vista previa del correo de seguridad social que se le enviará al
+// cliente: destinatario, cuerpo con el personal y los documentos adjuntos.
+function actualizarEnvioSS(personal) {
+    var campoCorreo = document.getElementById('id_correo_seguridad_social');
+    var correo = campoCorreo ? campoCorreo.value.trim() : '';
+
+    var elPara = document.getElementById('ss-para');
+    if (correo) {
+        elPara.textContent = correo;
+        elPara.classList.remove('text-danger');
+    } else {
+        elPara.textContent = '— escribe el correo del cliente arriba —';
+        elPara.classList.add('text-danger');
+    }
+
+    var cuerpo = document.getElementById('ss-cuerpo');
+    var adjuntos = document.getElementById('ss-adjuntos');
+    var contador = document.getElementById('ss-contador');
+
+    if (personal.length === 0) {
+        cuerpo.innerHTML = '<span class="text-muted">Asigna personal en las cuadrillas para ver el envío.</span>';
+        adjuntos.innerHTML = '<div class="list-group-item text-muted small">Aún no hay personal asignado.</div>';
+        contador.textContent = '0 documentos';
+        return;
+    }
+
+    cuerpo.innerHTML =
+        'Buen día,<br><br>Adjuntamos la seguridad social del mes en curso del personal '
+        + 'que participará en el servicio:<ul class="mt-2 mb-0">'
+        + personal.map(function (p) {
+            return '<li>' + esc(p.nombre) + ' <span class="text-muted">(' + esc(p.rol) + ')</span></li>';
+        }).join('')
+        + '</ul>';
+
+    var listos = 0;
+    adjuntos.innerHTML = personal.map(function (p) {
+        var alDia = p.info && p.info.ss_al_dia;
+        if (alDia) {
+            listos++;
+            return '<div class="list-group-item d-flex justify-content-between align-items-center">'
+                + '<span><i class="bi bi-file-earmark-pdf text-danger me-2"></i>'
+                + 'Seguridad social ' + esc(p.info.ss_periodo) + ' &mdash; <strong>' + esc(p.nombre) + '</strong>'
+                + ' <span class="text-muted small">(' + esc(p.rol) + ')</span></span>'
+                + '<a href="' + p.info.ss_url + '" target="_blank" class="btn btn-sm btn-outline-primary">'
+                + '<i class="bi bi-eye"></i> Ver</a></div>';
+        }
+        return '<div class="list-group-item d-flex justify-content-between align-items-center list-group-item-danger">'
+            + '<span><i class="bi bi-exclamation-triangle-fill me-2"></i>'
+            + '<strong>' + esc(p.nombre) + '</strong> <span class="small">(' + esc(p.rol) + ')</span> '
+            + '&mdash; falta la seguridad social del mes</span>'
+            + (p.info ? '<a href="' + p.info.url + '" target="_blank" class="btn btn-sm btn-outline-danger">'
+                + '<i class="bi bi-folder2-open"></i> Cargar</a>' : '')
+            + '</div>';
+    }).join('');
+
+    contador.textContent = listos + ' de ' + personal.length + ' documento' + (personal.length === 1 ? '' : 's');
 }
 
-// Deshabilita el botón de guardar mientras haya un ayudante sin los cursos exigidos.
+// Deshabilita el botón de guardar mientras haya un bloqueo (SS o cursos).
 function bloquearGuardado(bloquear) {
     var boton = document.querySelector('form button[type="submit"]');
     if (!boton) return;
     boton.disabled = bloquear;
     boton.title = bloquear
-        ? 'Hay ayudantes sin los cursos que exige este servicio'
+        ? 'Revisa la seguridad social y los cursos del personal asignado'
         : '';
 }
 
@@ -374,6 +504,13 @@ document.addEventListener('change', function (e) {
     if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')
         || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')) {
         pintarSwitches();
+        revisarDocumentos();
+    }
+});
+
+// El correo del cliente actualiza la vista previa mientras se escribe.
+document.addEventListener('input', function (e) {
+    if (e.target.matches('#id_correo_seguridad_social')) {
         revisarDocumentos();
     }
 });

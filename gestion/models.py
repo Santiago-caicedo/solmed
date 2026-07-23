@@ -660,7 +660,10 @@ class Programacion(models.Model):
     )
 
     # --- Checklist operativo (desplegables del formato) ---
-    paleada = models.CharField(max_length=20, choices=PALEADA_CHOICES, blank=True, verbose_name="Paleada")
+    paleada = models.CharField(
+        max_length=20, choices=PALEADA_CHOICES, blank=True,
+        verbose_name="¿Se requiere paleada?"
+    )
 
     # Se planean aquí y se arrastran a la orden al convertir (los adjuntos se
     # cargan luego en la orden, cuando ya se prestó el servicio).
@@ -673,7 +676,10 @@ class Programacion(models.Model):
         verbose_name="¿Requiere registro fotográfico?"
     )
 
-    responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
+    responsable_sg = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True,
+        verbose_name="¿Se requiere SGC?"
+    )
 
     # --- Cursos exigidos al ayudante para ESTE servicio ---
     # No son obligatorios en el expediente del ayudante: solo se validan cuando
@@ -804,15 +810,15 @@ class ProgramacionCuadrilla(models.Model):
     """
     Una fila del bloque CONDUCTOR / PLACA / AYUDANTE del formato de programación.
     Cada cuadrilla con vehículo genera un Recorrido al convertir la programación.
-    `ayudante_novedad` captura la novedad del día del ayudante (inicia en bodega,
-    incapacidad, descansa, permiso).
+    `ayudante_novedad` captura cómo cubre el turno el ayudante ese día (dónde lo
+    inicia o lo termina, si retorna a bodega o si apoya una disposición).
     """
     NOVEDAD_CHOICES = [
-        ('NORMAL', 'Normal / trabaja'),
-        ('INICIA_BODEGA', 'Inicia en bodega'),
-        ('INCAPACIDAD', 'Incapacidad'),
-        ('DESCANSA', 'Descansa'),
-        ('PERMISO', 'Permiso'),
+        ('TERMINA_CLIENTE', 'Termina turno donde el cliente'),
+        ('TERMINA_DISPOSICION', 'Termina turno en el sitio de disposición'),
+        ('RETORNA_BODEGA', 'Retorna a bodega'),
+        ('INICIA_CLIENTE', 'Inicia turno donde el cliente'),
+        ('APOYA_DISPOSICION', 'Apoya disposición de:'),
     ]
 
     programacion = models.ForeignKey(Programacion, on_delete=models.CASCADE, related_name='cuadrillas')
@@ -828,7 +834,10 @@ class ProgramacionCuadrilla(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='cuadrillas_como_ayudante', null=True, blank=True
     )
-    ayudante_novedad = models.CharField(max_length=20, choices=NOVEDAD_CHOICES, default='NORMAL', blank=True)
+    ayudante_novedad = models.CharField(
+        max_length=20, choices=NOVEDAD_CHOICES, blank=True, default='',
+        verbose_name="Novedad del ayudante"
+    )
     orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
 
     class Meta:

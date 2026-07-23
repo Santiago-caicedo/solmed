@@ -1,6 +1,8 @@
 import json
+import mimetypes
 import os
 from django.conf import settings
+from django.core.mail import EmailMessage
 from django.http import HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User, Group
@@ -1247,11 +1249,21 @@ def _estado_documentos_personal():
             tipo: any(d.tipo == tipo and not d.vencido for d in docs)
             for tipo, _etiqueta in CURSOS_EXIGIBLES
         }
+        # Seguridad social del mes en curso: es el documento que se enviará al
+        # cliente. Se guarda su estado y el enlace al archivo para la vista previa.
+        ss_doc = next(
+            (d for d in docs if d.tipo == 'SEGURIDAD_SOCIAL' and d.periodo == mes_actual),
+            None,
+        )
         data[u.id] = {
+            'nombre': u.get_full_name() or u.username,
             'faltan': faltan,
             'cursos': cursos,
             'es_ayudante': 'Ayudantes' in nombres,
             'url': reverse('gestion:ficha_persona', args=[u.id]),
+            'ss_al_dia': ss_doc is not None,
+            'ss_periodo': mes_actual if ss_doc else '',
+            'ss_url': ss_doc.archivo.url if ss_doc else '',
         }
     return data
 
@@ -1281,6 +1293,41 @@ def _validar_cursos_cuadrillas(form, formset):
                 'ayudante',
                 f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
                 f"carga el soporte en su expediente o asigna otro ayudante."
+            )
+    return todo_ok
+
+
+def _tiene_ss_del_mes(persona):
+    """True si la persona tiene cargada la seguridad social del mes en curso."""
+    if persona is None:
+        return True
+    mes_actual = timezone.localdate().strftime('%Y-%m')
+    return persona.documentos_personales.filter(
+        tipo='SEGURIDAD_SOCIAL', periodo=mes_actual
+    ).exists()
+
+
+def _validar_ss_cuadrillas(form, formset):
+    """
+    La seguridad social del mes de TODO el personal asignado (conductores y
+    ayudantes) debe estar cargada: es lo que se enviará al cliente. Si a alguien
+    le falta, se marca el error en su fila y no se deja guardar.
+    Devuelve True si todos la tienen al día.
+    """
+    todo_ok = True
+    for fila in formset.forms:
+        if not fila.cleaned_data or fila.cleaned_data.get('DELETE'):
+            continue
+        for rol, campo in (('conductor', 'conductor'), ('ayudante', 'ayudante')):
+            persona = fila.cleaned_data.get(campo)
+            if persona is None or _tiene_ss_del_mes(persona):
+                continue
+            todo_ok = False
+            nombre = persona.get_full_name() or persona.username
+            fila.add_error(
+                campo,
+                f"{nombre} no tiene cargada la seguridad social del mes. Se enviará "
+                f"al cliente, así que debe estar al día: cárgala en su expediente."
             )
     return todo_ok
 
@@ -1328,13 +1375,18 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         formset = context['formset']
         if not formset.is_valid():
             return self.form_invalid(form)
-        if not _validar_cursos_cuadrillas(form, formset):
+        # Se corren ambas validaciones (no se corta en la primera) para mostrar
+        # de una vez todos los problemas: cursos exigidos y seguridad social.
+        cursos_ok = _validar_cursos_cuadrillas(form, formset)
+        ss_ok = _validar_ss_cuadrillas(form, formset)
+        if not (cursos_ok and ss_ok):
             messages.error(
                 self.request,
-                "No se guardó: hay ayudantes sin los cursos que exige esta programación."
+                "No se guardó: revisa la documentación del personal asignado "
+                "(seguridad social del mes y cursos exigidos)."
             )
-            # Se re-renderiza ESTE formset (no uno nuevo) para conservar el
-            # error marcado en la fila del ayudante que incumple.
+            # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
+            # errores marcados en las filas del personal que incumple.
             context['form'] = form
             return self.render_to_response(context)
         form.instance.creado_por = self.request.user
@@ -1377,13 +1429,16 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         formset = context['formset']
         if not formset.is_valid():
             return self.form_invalid(form)
-        if not _validar_cursos_cuadrillas(form, formset):
+        cursos_ok = _validar_cursos_cuadrillas(form, formset)
+        ss_ok = _validar_ss_cuadrillas(form, formset)
+        if not (cursos_ok and ss_ok):
             messages.error(
                 self.request,
-                "No se guardó: hay ayudantes sin los cursos que exige esta programación."
+                "No se guardó: revisa la documentación del personal asignado "
+                "(seguridad social del mes y cursos exigidos)."
             )
-            # Se re-renderiza ESTE formset (no uno nuevo) para conservar el
-            # error marcado en la fila del ayudante que incumple.
+            # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
+            # errores marcados en las filas del personal que incumple.
             context['form'] = form
             return self.render_to_response(context)
         self.object = form.save()
@@ -1391,6 +1446,81 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         formset.save()
         messages.success(self.request, "Programación actualizada.")
         return HttpResponseRedirect(self.get_success_url())
+
+
+def _personal_de_la_orden(orden):
+    """Conductores y ayudantes (sin repetir) de todos los recorridos de la orden."""
+    personas = {}
+    for recorrido in orden.recorridos.select_related('conductor', 'ayudante'):
+        for persona, rol in ((recorrido.conductor, 'Conductor'), (recorrido.ayudante, 'Ayudante')):
+            if persona and persona.pk not in personas:
+                personas[persona.pk] = (persona, rol)
+    return list(personas.values())
+
+
+def _enviar_seguridad_social_cliente(orden, programacion):
+    """
+    Envía al cliente, por correo, la seguridad social del mes del personal de la
+    orden. Los archivos se leen del storage con .open() (funciona igual en S3 que
+    en local, a diferencia de .path). El asunto lleva el número de orden y SOLMED.
+
+    Devuelve (enviado: bool, detalle: str) para informar al usuario.
+    """
+    destinatario = (programacion.correo_seguridad_social or '').strip()
+    if not destinatario:
+        return False, "no se envió el correo de seguridad social: la programación no tiene correo del cliente."
+
+    mes = programacion.fecha.strftime('%Y-%m')
+    personal = _personal_de_la_orden(orden)
+    if not personal:
+        return False, "no se envió el correo: la orden no tiene personal asignado."
+
+    adjuntos = []          # (nombre_archivo, contenido, tipo)
+    lineas = []            # cuerpo del correo
+    sin_ss = []            # personas sin la SS del mes
+    for persona, rol in personal:
+        nombre = persona.get_full_name() or persona.username
+        doc = persona.documentos_personales.filter(
+            tipo='SEGURIDAD_SOCIAL', periodo=mes
+        ).order_by('-fecha_subida').first()
+        if not doc:
+            sin_ss.append(f"{nombre} ({rol})")
+            lineas.append(f"- {nombre} ({rol}): SIN seguridad social del mes {mes}")
+            continue
+        # Lectura segura tanto en S3 como en disco local.
+        with doc.archivo.open('rb') as fh:
+            contenido = fh.read()
+        base = os.path.basename(doc.archivo.name)
+        ext = os.path.splitext(base)[1] or '.pdf'
+        nombre_limpio = nombre.replace(' ', '_')
+        tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
+        adjuntos.append((f"SS_{mes}_{nombre_limpio}{ext}", contenido, tipo))
+        lineas.append(f"- {nombre} ({rol})")
+
+    asunto = f"SOLMED - Seguridad social - Orden de servicio #{orden.numero_orden}"
+    cuerpo = (
+        f"Buen día,\n\n"
+        f"Adjuntamos la seguridad social del mes ({mes}) del personal que participa "
+        f"en la orden de servicio #{orden.numero_orden}"
+        f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
+        + "\n".join(lineas)
+        + "\n\nCordialmente,\nSOLMED SAS"
+    )
+
+    correo = EmailMessage(
+        subject=asunto,
+        body=cuerpo,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[destinatario],
+    )
+    for nombre_archivo, contenido, tipo in adjuntos:
+        correo.attach(nombre_archivo, contenido, tipo)
+    correo.send(fail_silently=False)
+
+    detalle = f"correo de seguridad social enviado a {destinatario} ({len(adjuntos)} documento(s) adjunto(s))"
+    if sin_ss:
+        detalle += f". OJO: sin seguridad social del mes: {', '.join(sin_ss)}"
+    return True, detalle
 
 
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
@@ -1416,6 +1546,15 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
             f"Orden #{orden.numero_orden} generada desde la programación "
             f"({orden.recorridos.count()} recorrido(s)). Completa el valor y los documentos que falten."
         )
+
+        # Se envía la seguridad social al cliente. Un fallo del correo NO revierte
+        # la orden (ya está creada): solo se informa para reintentar.
+        try:
+            enviado, detalle = _enviar_seguridad_social_cliente(orden, programacion)
+        except Exception as e:
+            enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
+        (messages.success if enviado else messages.warning)(request, detalle.capitalize())
+
         return redirect('gestion:detalle_orden', pk=orden.pk)
 
 
