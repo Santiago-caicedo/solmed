@@ -1157,6 +1157,9 @@ def _documentos_requeridos_por_rol(nombres_grupos):
         requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'LICENCIA'}
     if 'Ayudantes' in nombres_grupos:
         requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL'}
+    if 'Asesores' in nombres_grupos:
+        # Los asesores también cargan su seguridad social cada mes.
+        requeridos |= {'SEGURIDAD_SOCIAL'}
     return requeridos
 
 
@@ -1194,9 +1197,9 @@ def _documentos_aplicables_por_rol(nombres_grupos):
     """
     Casillas del expediente que se muestran para ese rol (en el orden estándar).
     Los cursos solo aparecen en ayudantes y la licencia solo en conductores;
-    quien no es ninguno de los dos solo maneja la cédula.
+    la cédula está siempre disponible aunque no sea obligatoria.
     """
-    aplicables = _documentos_requeridos_por_rol(nombres_grupos) or {'CEDULA'}
+    aplicables = _documentos_requeridos_por_rol(nombres_grupos) | {'CEDULA'}
     if 'Ayudantes' in nombres_grupos:
         # Opcionales en el expediente, pero exigibles desde una programación.
         aplicables |= {'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
@@ -1205,16 +1208,19 @@ def _documentos_aplicables_por_rol(nombres_grupos):
 
 def _estado_documentos_personal():
     """
-    Por cada conductor y ayudante, los documentos REQUERIDOS que le faltan y el
-    enlace a su ficha. Se pasa a la plantilla de programación (JSON) para avisar
-    en vivo cuando se asigna a alguien sin la documentación al día.
+    Por cada persona con requisitos documentales, los documentos REQUERIDOS que
+    le faltan y el enlace a su ficha. Se pasa a la plantilla de programación
+    (JSON) para avisar en vivo cuando se asigna a alguien sin la documentación
+    al día.
       - Conductores: cédula, seguridad social del mes y licencia.
-      - Ayudantes:   cédula, seguridad social del mes y cursos (alturas y confinados).
+      - Ayudantes:   cédula y seguridad social del mes (los cursos se exigen
+                     desde cada programación, no en el expediente).
+      - Asesores:    seguridad social del mes.
     """
     tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
     mes_actual = timezone.localdate().strftime('%Y-%m')
     usuarios = (
-        User.objects.filter(groups__name__in=['Conductores', 'Ayudantes'])
+        User.objects.filter(groups__name__in=['Conductores', 'Ayudantes', 'Asesores'])
         .distinct()
         .prefetch_related('groups', 'documentos_personales')
     )
@@ -1518,8 +1524,6 @@ class FichaPersonaView(AsesorRequiredMixin, View):
             por_tipo.setdefault(d.tipo, []).append(d)
 
         grupos = set(persona.groups.values_list('name', flat=True))
-        es_conductor = 'Conductores' in grupos
-        es_ayudante = 'Ayudantes' in grupos
         requeridos = _documentos_requeridos_por_rol(grupos)
 
         # Una casilla por cada documento que aplica al rol, con su estado.
@@ -1555,7 +1559,10 @@ class FichaPersonaView(AsesorRequiredMixin, View):
             'persona': persona,
             'perfil': _perfil_de(persona),
             'mes_actual': mes_actual,
-            'es_personal': es_conductor or es_ayudante,
+            # Tiene requisitos documentales (conductores, ayudantes y asesores).
+            'es_personal': bool(requeridos),
+            # La seguridad social es mensual para todos los que la llevan.
+            'exige_ss': 'SEGURIDAD_SOCIAL' in requeridos,
             'sin_acceso': _persona_sin_acceso(persona),
             'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
             'ss_al_dia': any(s['es_ss'] and s['cargado'] for s in slots),

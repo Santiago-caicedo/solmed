@@ -80,7 +80,17 @@
                 <div class="col-md-6">
                     <label for="{{ form.responsable_sg.id_for_label }}" class="form-label">Responsable SG</label>
                     {{ form.responsable_sg }}
-                    <small class="text-muted d-block mt-1">Báscula y registro fotográfico ahora se registran en la orden de servicio.</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.bascula.id_for_label }}" class="form-label">¿Pesan en báscula?</label>
+                    {{ form.bascula }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">¿Requiere registro fotográfico?</label>
+                    {{ form.registro_fotografico }}
+                    <small class="text-muted d-block mt-1">
+                        Se arrastran a la orden al generarla; los adjuntos se cargan allí.
+                    </small>
                 </div>
             </div>
 
@@ -94,18 +104,46 @@
             </p>
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label for="{{ form.exige_curso_alturas.id_for_label }}" class="form-label">
-                        ¿El ayudante debe tener curso de alturas?
-                    </label>
-                    {{ form.exige_curso_alturas }}
+                    <div class="switch-si-no d-flex align-items-center justify-content-between border rounded p-3">
+                        <label for="{{ form.exige_curso_alturas.id_for_label }}" class="form-label mb-0 me-3">
+                            ¿El ayudante debe tener curso de alturas?
+                        </label>
+                        <div class="form-check form-switch d-flex align-items-center gap-2 mb-0">
+                            {{ form.exige_curso_alturas }}
+                            <span class="etiqueta-si-no badge"></span>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.exige_curso_confinados.id_for_label }}" class="form-label">
-                        ¿El ayudante debe tener curso de espacios confinados?
-                    </label>
-                    {{ form.exige_curso_confinados }}
+                    <div class="switch-si-no d-flex align-items-center justify-content-between border rounded p-3">
+                        <label for="{{ form.exige_curso_confinados.id_for_label }}" class="form-label mb-0 me-3">
+                            ¿El ayudante debe tener curso de espacios confinados?
+                        </label>
+                        <div class="form-check form-switch d-flex align-items-center gap-2 mb-0">
+                            {{ form.exige_curso_confinados }}
+                            <span class="etiqueta-si-no badge"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <style>
+                /* Interruptor Sí/No: verde encendido, rojo apagado. */
+                .switch-si-no .form-check-input{
+                    width:2.6rem; height:1.35rem; margin:0; cursor:pointer;
+                    background-color:#dc3545; border-color:#dc3545;
+                    /* Perilla blanca también cuando está apagado (por defecto es gris). */
+                    background-image:url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e");
+                }
+                .switch-si-no .form-check-input:checked{
+                    background-color:#198754; border-color:#198754;
+                }
+                .switch-si-no .form-check-input:focus{
+                    box-shadow:0 0 0 .2rem rgba(25,135,84,.25);
+                }
+                .switch-si-no .etiqueta-si-no{ min-width:2.6rem; }
+                .switch-si-no label{ cursor:pointer; }
+            </style>
         </div>
     </div>
 
@@ -215,8 +253,21 @@ var CURSOS = [
 
 function cursosExigidos() {
     return CURSOS.filter(function (curso) {
-        var sel = document.getElementById('id_' + curso.campo);
-        return sel && sel.value === 'SI';
+        var sw = document.getElementById('id_' + curso.campo);
+        return sw && sw.checked;
+    });
+}
+
+// Etiqueta SÍ/NO en verde o rojo junto a cada interruptor.
+function pintarSwitches() {
+    CURSOS.forEach(function (curso) {
+        var sw = document.getElementById('id_' + curso.campo);
+        if (!sw) return;
+        var etiqueta = sw.closest('.form-switch').querySelector('.etiqueta-si-no');
+        if (!etiqueta) return;
+        etiqueta.textContent = sw.checked ? 'SÍ' : 'NO';
+        etiqueta.classList.toggle('bg-success', sw.checked);
+        etiqueta.classList.toggle('bg-danger', !sw.checked);
     });
 }
 
@@ -322,6 +373,7 @@ function bloquearGuardado(bloquear) {
 document.addEventListener('change', function (e) {
     if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')
         || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')) {
+        pintarSwitches();
         revisarDocumentos();
     }
 });
@@ -368,6 +420,7 @@ if (btnAgregar) {
 }
 
 // Revisar al cargar la página (por si se edita con personal ya asignado).
+pintarSwitches();
 revisarDocumentos();
 </script>
 {% endblock %}

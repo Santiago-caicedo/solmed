@@ -50,7 +50,8 @@
                     <label for="{{ form.bascula.id_for_label }}" class="form-label">Báscula</label>
                     {{ form.bascula }}
                 </div>
-                <div class="col-md-3">
+                {# El adjunto solo aparece si se planeó que sí aplica #}
+                <div class="col-md-3{% if not object.requiere_bascula %} d-none{% endif %}" id="col-bascula-adjunto">
                     <label for="{{ form.bascula_adjunto.id_for_label }}" class="form-label">Adjunto báscula</label>
                     {{ form.bascula_adjunto }}
                     {% if object.bascula_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.bascula_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
@@ -59,7 +60,7 @@
                     <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">Registro fotográfico</label>
                     {{ form.registro_fotografico }}
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3{% if not object.requiere_registro_fotografico %} d-none{% endif %}" id="col-registro-adjunto">
                     <label for="{{ form.registro_fotografico_adjunto.id_for_label }}" class="form-label">Adjunto registro</label>
                     {{ form.registro_fotografico_adjunto }}
                     {% if object.registro_fotografico_adjunto %}<small class="text-muted d-block mt-1">Actual: <a href="{{ object.registro_fotografico_adjunto.url }}" target="_blank">ver archivo</a></small>{% endif %}
@@ -172,4 +173,34 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Los adjuntos de báscula y registro fotográfico solo se piden si el servicio
+// los requiere (lo que se marcó en la programación y quedó en la orden).
+(function () {
+    var REGLAS = [
+        { campo: 'id_bascula', columna: 'col-bascula-adjunto',
+          aplica: function (v) { return v === 'PESAN' || v === 'PESO_CLIENTE'; } },
+        { campo: 'id_registro_fotografico', columna: 'col-registro-adjunto',
+          aplica: function (v) { return v === 'SI'; } }
+    ];
+
+    function aplicar() {
+        REGLAS.forEach(function (regla) {
+            var selector = document.getElementById(regla.campo);
+            var columna = document.getElementById(regla.columna);
+            if (!selector || !columna) return;
+            columna.classList.toggle('d-none', !regla.aplica(selector.value));
+        });
+    }
+
+    REGLAS.forEach(function (regla) {
+        var selector = document.getElementById(regla.campo);
+        if (selector) selector.addEventListener('change', aplicar);
+    });
+    aplicar();
+})();
+</script>
 {% endblock %}

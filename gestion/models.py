@@ -168,9 +168,9 @@ class OrdenServicio(models.Model):
 
     SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
     BASCULA_CHOICES = [
-        ('PESAN', 'Pesan'),
-        ('NO_PESAN', 'No pesan'),
-        ('PESO_CLIENTE', 'Peso del cliente'),
+        ('PESAN', 'Sí'),
+        ('NO_PESAN', 'No'),
+        ('PESO_CLIENTE', 'Báscula del cliente'),
     ]
 
     # --- Relaciones Principales ---
@@ -203,6 +203,18 @@ class OrdenServicio(models.Model):
 
     def __str__(self):
         return f"Orden #{self.numero_orden} - {self.cliente.nombre}"
+
+    @property
+    def requiere_bascula(self):
+        """
+        Se planeó pesar (en báscula propia o del cliente), así que hay que
+        adjuntar el soporte. Con 'No' o sin definir, el adjunto no aplica.
+        """
+        return self.bascula in ('PESAN', 'PESO_CLIENTE')
+
+    @property
+    def requiere_registro_fotografico(self):
+        return self.registro_fotografico == 'SI'
 
     
 
@@ -624,6 +636,7 @@ class Programacion(models.Model):
     PALEADA_CHOICES = [
         ('SAVICOL', 'Palea Savicol'),
         ('EMPOLLACOL', 'Palea Empollacol'),
+        ('SOLO_PALEADA', 'Solo requiere paleada'),
         ('NO_REQUIERE', 'No requiere paleada'),
     ]
 
@@ -648,6 +661,17 @@ class Programacion(models.Model):
 
     # --- Checklist operativo (desplegables del formato) ---
     paleada = models.CharField(max_length=20, choices=PALEADA_CHOICES, blank=True, verbose_name="Paleada")
+
+    # Se planean aquí y se arrastran a la orden al convertir (los adjuntos se
+    # cargan luego en la orden, cuando ya se prestó el servicio).
+    bascula = models.CharField(
+        max_length=20, choices=OrdenServicio.BASCULA_CHOICES, blank=True,
+        verbose_name="¿Pesan en báscula?"
+    )
+    registro_fotografico = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True,
+        verbose_name="¿Requiere registro fotográfico?"
+    )
 
     responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
 
@@ -759,6 +783,8 @@ class Programacion(models.Model):
                 asesor=usuario,
                 direccion_servicio=self.direccion or self.cliente.direccion or 'Por definir',
                 descripcion=self.observaciones_servicio or f'Orden generada desde la programación #{self.pk}',
+                bascula=self.bascula,
+                registro_fotografico=self.registro_fotografico,
             )
             for c in cuadrillas:
                 Recorrido.objects.create(

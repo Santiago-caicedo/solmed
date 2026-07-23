@@ -277,10 +277,22 @@ class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
 
 
 class CrearUsuarioForm(UserCreationForm):
-    email = forms.EmailField(required=True, widget=forms.EmailInput(attrs={'class': 'form-control'}))
-    first_name = forms.CharField(required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    last_name = forms.CharField(required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    grupo = forms.ModelChoiceField(queryset=Group.objects.all(), required=True, widget=forms.Select(attrs={'class': 'form-select'}))
+    email = forms.EmailField(
+        label="Correo electrónico", required=True,
+        widget=forms.EmailInput(attrs={'class': 'form-control'})
+    )
+    first_name = forms.CharField(
+        label="Nombres", required=True,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    last_name = forms.CharField(
+        label="Apellidos", required=True,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+    grupo = forms.ModelChoiceField(
+        label="Rol", queryset=Group.objects.all(), required=True,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
 
     class Meta(UserCreationForm.Meta):
         model = User
@@ -290,6 +302,20 @@ class CrearUsuarioForm(UserCreationForm):
             'password1': forms.PasswordInput(attrs={'class': 'form-control'}),
             'password2': forms.PasswordInput(attrs={'class': 'form-control'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Etiquetas y ayudas en español (las de UserCreationForm vienen en inglés).
+        self.fields['username'].label = "Usuario para iniciar sesión"
+        self.fields['username'].help_text = (
+            "Hasta 150 caracteres. Solo letras, números y los signos @/./+/-/_"
+        )
+        self.fields['password1'].label = "Contraseña"
+        self.fields['password1'].help_text = (
+            "Mínimo 8 caracteres. No puede ser solo números ni una contraseña común."
+        )
+        self.fields['password2'].label = "Confirmar contraseña"
+        self.fields['password2'].help_text = "Escribe la misma contraseña para verificarla."
 
 def generar_username(first_name, last_name, numero_documento=''):
     """
@@ -315,7 +341,7 @@ class PersonaSinAccesoForm(forms.ModelForm):
     queda inactiva y sin contraseña utilizable.
     """
     grupo = forms.ModelChoiceField(
-        queryset=Group.objects.all(), required=True,
+        label="Rol", queryset=Group.objects.all(), required=True,
         widget=forms.Select(attrs={'class': 'form-select'})
     )
 
@@ -373,11 +399,25 @@ class PerfilPersonaForm(forms.ModelForm):
 
 
 class ActualizarUsuarioForm(forms.ModelForm):
-    grupo = forms.ModelChoiceField(queryset=Group.objects.all(), required=True, widget=forms.Select(attrs={'class': 'form-select'}))
+    grupo = forms.ModelChoiceField(
+        label="Rol", queryset=Group.objects.all(), required=True,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
 
     class Meta:
         model = User
         fields = ['username', 'first_name', 'last_name', 'email', 'is_active']
+        labels = {
+            'username': 'Usuario para iniciar sesión',
+            'first_name': 'Nombres',
+            'last_name': 'Apellidos',
+            'email': 'Correo electrónico',
+            'is_active': 'Cuenta activa (puede iniciar sesión)',
+        }
+        help_texts = {
+            'username': 'Hasta 150 caracteres. Solo letras, números y los signos @/./+/-/_',
+            'is_active': '',
+        }
         widgets = {
             'username': forms.TextInput(attrs={'class': 'form-control'}),
             'first_name': forms.TextInput(attrs={'class': 'form-control'}),
@@ -441,6 +481,19 @@ class ProgramacionForm(forms.ModelForm):
     Cabecera + checklist operativo de la programación anticipada. Las cuadrillas
     (conductor/placa/ayudante) se manejan aparte en ProgramacionCuadrillaFormSet.
     """
+    # Los cursos exigidos al ayudante se manejan como interruptores Sí/No.
+    # En el modelo siguen guardándose como 'SI'/'NO' (ver clean_* más abajo).
+    CAMPOS_SWITCH = ('exige_curso_alturas', 'exige_curso_confinados')
+
+    exige_curso_alturas = forms.BooleanField(
+        required=False, label="¿El ayudante debe tener curso de alturas?",
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'})
+    )
+    exige_curso_confinados = forms.BooleanField(
+        required=False, label="¿El ayudante debe tener curso de espacios confinados?",
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'})
+    )
+
     class Meta:
         model = Programacion
         fields = [
@@ -448,6 +501,8 @@ class ProgramacionForm(forms.ModelForm):
             'cliente', 'sede', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
             'paleada',
+            'bascula',
+            'registro_fotografico',
             'responsable_sg',
             'exige_curso_alturas',
             'exige_curso_confinados',
@@ -463,9 +518,9 @@ class ProgramacionForm(forms.ModelForm):
             'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
+            'bascula': forms.Select(attrs={'class': 'form-select'}),
+            'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
-            'exige_curso_alturas': forms.Select(attrs={'class': 'form-select'}),
-            'exige_curso_confinados': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
@@ -474,8 +529,21 @@ class ProgramacionForm(forms.ModelForm):
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
         # Los desplegables con opciones vacías muestran "---------".
-        for campo in ('paleada', 'responsable_sg'):
+        for campo in ('paleada', 'bascula', 'registro_fotografico', 'responsable_sg'):
             self.fields[campo].empty_label = '---------'
+        # El interruptor se marca solo si el valor guardado es 'SI'
+        # (sin esto, 'NO' se leería como texto no vacío = encendido).
+        for campo in self.CAMPOS_SWITCH:
+            self.initial[campo] = getattr(self.instance, campo, '') == 'SI'
+
+    def _switch_a_si_no(self, campo):
+        return 'SI' if self.cleaned_data.get(campo) else 'NO'
+
+    def clean_exige_curso_alturas(self):
+        return self._switch_a_si_no('exige_curso_alturas')
+
+    def clean_exige_curso_confinados(self):
+        return self._switch_a_si_no('exige_curso_confinados')
 
 
 class ProgramacionCuadrillaForm(forms.ModelForm):

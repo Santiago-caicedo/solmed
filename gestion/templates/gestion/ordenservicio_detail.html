@@ -161,10 +161,23 @@
                 <p><strong>Asesor:</strong> {{ orden.asesor.get_full_name|default:orden.asesor.username }}</p>
                 <p><strong>Creada:</strong> {{ orden.fecha_creacion|date:"d/m/Y" }}</p>
                 <hr>
+                {# Báscula y registro fotográfico: el soporte solo se muestra si el servicio lo requiere #}
                 <p class="mb-1"><strong>Báscula:</strong> {{ orden.get_bascula_display|default:"—" }}
-                    {% if orden.bascula_adjunto %}· <a href="{{ orden.bascula_adjunto.url }}" target="_blank">adjunto</a>{% endif %}</p>
+                    {% if orden.requiere_bascula %}
+                        {% if orden.bascula_adjunto %}
+                            · <a href="{{ orden.bascula_adjunto.url }}" target="_blank">ver soporte</a>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
+                        {% endif %}
+                    {% endif %}</p>
                 <p class="mb-0"><strong>Registro fotográfico:</strong> {{ orden.get_registro_fotografico_display|default:"—" }}
-                    {% if orden.registro_fotografico_adjunto %}· <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank">adjunto</a>{% endif %}</p>
+                    {% if orden.requiere_registro_fotografico %}
+                        {% if orden.registro_fotografico_adjunto %}
+                            · <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank">ver soporte</a>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
+                        {% endif %}
+                    {% endif %}</p>
                 <hr>
                 <p class="mb-0"><strong>Descripción:</strong><br>{{ orden.descripcion|linebreaks }}</p>
             </div>
