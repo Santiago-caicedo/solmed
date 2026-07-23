@@ -449,6 +449,8 @@ class ProgramacionForm(forms.ModelForm):
             'observaciones_servicio',
             'paleada',
             'responsable_sg',
+            'exige_curso_alturas',
+            'exige_curso_confinados',
             'nombre_contacto_recibe',
         ]
         widgets = {
@@ -462,6 +464,8 @@ class ProgramacionForm(forms.ModelForm):
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
+            'exige_curso_alturas': forms.Select(attrs={'class': 'form-select'}),
+            'exige_curso_confinados': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 

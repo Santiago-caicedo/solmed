@@ -26,7 +26,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido
+from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, cursos_faltantes_ayudante
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
@@ -827,9 +827,10 @@ def completar_recorrido(request, pk):
     return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
 
 
+@login_required
 def feed_calendario(request):
     user = request.user
-    
+
     # Si el usuario es un conductor, filtra solo sus recorridos
     if user.groups.filter(name='Conductores').exists():
         recorridos = Recorrido.objects.filter(conductor=user)
@@ -837,7 +838,9 @@ def feed_calendario(request):
     else:
         recorridos = Recorrido.objects.all()
 
-    recorridos = recorridos.exclude(orden__estado_orden='CANCELADA')
+    recorridos = recorridos.exclude(
+        orden__estado_orden='CANCELADA'
+    ).select_related('vehiculo', 'orden')
     
     eventos = []
     colores_vehiculos = {}
@@ -1145,15 +1148,15 @@ DOCUMENTOS_ESTANDAR = [
 
 def _documentos_requeridos_por_rol(nombres_grupos):
     """
-    Tipos de documento obligatorios según el/los rol(es) de la persona.
-    Los cursos (alturas y espacios confinados) son EXCLUSIVOS de los ayudantes;
-    la licencia de conducción, exclusiva de los conductores.
+    Tipos de documento OBLIGATORIOS en el expediente según el/los rol(es).
+    Los cursos de alturas y espacios confinados no son obligatorios: cada
+    programación decide si los exige (ver Programacion.exige_curso_*).
     """
     requeridos = set()
     if 'Conductores' in nombres_grupos:
         requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'LICENCIA'}
     if 'Ayudantes' in nombres_grupos:
-        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL'}
     return requeridos
 
 
@@ -1190,12 +1193,14 @@ def _ids_grupos_sin_acceso():
 def _documentos_aplicables_por_rol(nombres_grupos):
     """
     Casillas del expediente que se muestran para ese rol (en el orden estándar).
-    Quien no es conductor ni ayudante solo maneja la cédula.
+    Los cursos solo aparecen en ayudantes y la licencia solo en conductores;
+    quien no es ninguno de los dos solo maneja la cédula.
     """
-    requeridos = _documentos_requeridos_por_rol(nombres_grupos)
-    if not requeridos:
-        requeridos = {'CEDULA'}
-    return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in requeridos]
+    aplicables = _documentos_requeridos_por_rol(nombres_grupos) or {'CEDULA'}
+    if 'Ayudantes' in nombres_grupos:
+        # Opcionales en el expediente, pero exigibles desde una programación.
+        aplicables |= {'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+    return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in aplicables]
 
 
 def _estado_documentos_personal():
@@ -1230,11 +1235,48 @@ def _estado_documentos_personal():
                     faltan.append(f'Seguridad social del mes ({mes_actual})')
             elif tipo not in subidos:
                 faltan.append(tipo_label[tipo])
+        # Cursos vigentes (no obligatorios en el expediente, pero exigibles
+        # desde la programación): sirven para avisar en vivo al asignar.
+        cursos = {
+            tipo: any(d.tipo == tipo and not d.vencido for d in docs)
+            for tipo, _etiqueta in CURSOS_EXIGIBLES
+        }
         data[u.id] = {
             'faltan': faltan,
+            'cursos': cursos,
+            'es_ayudante': 'Ayudantes' in nombres,
             'url': reverse('gestion:ficha_persona', args=[u.id]),
         }
     return data
+
+
+def _validar_cursos_cuadrillas(form, formset):
+    """
+    Si la programación exige cursos, comprueba que cada ayudante asignado los
+    tenga vigentes. Marca el error en la propia fila del formset (campo
+    'ayudante') para que el asesor vea exactamente cuál falla.
+    Devuelve True si todo cumple.
+    """
+    exige_alturas = form.cleaned_data.get('exige_curso_alturas') == 'SI'
+    exige_confinados = form.cleaned_data.get('exige_curso_confinados') == 'SI'
+    if not (exige_alturas or exige_confinados):
+        return True
+
+    todo_ok = True
+    for fila in formset.forms:
+        if not fila.cleaned_data or fila.cleaned_data.get('DELETE'):
+            continue
+        ayudante = fila.cleaned_data.get('ayudante')
+        motivos = cursos_faltantes_ayudante(ayudante, exige_alturas, exige_confinados)
+        if motivos:
+            todo_ok = False
+            nombre = ayudante.get_full_name() or ayudante.username
+            fila.add_error(
+                'ayudante',
+                f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
+                f"carga el soporte en su expediente o asigna otro ayudante."
+            )
+    return todo_ok
 
 
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
@@ -1280,6 +1322,15 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         formset = context['formset']
         if not formset.is_valid():
             return self.form_invalid(form)
+        if not _validar_cursos_cuadrillas(form, formset):
+            messages.error(
+                self.request,
+                "No se guardó: hay ayudantes sin los cursos que exige esta programación."
+            )
+            # Se re-renderiza ESTE formset (no uno nuevo) para conservar el
+            # error marcado en la fila del ayudante que incumple.
+            context['form'] = form
+            return self.render_to_response(context)
         form.instance.creado_por = self.request.user
         self.object = form.save()
         formset.instance = self.object
@@ -1320,6 +1371,15 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         formset = context['formset']
         if not formset.is_valid():
             return self.form_invalid(form)
+        if not _validar_cursos_cuadrillas(form, formset):
+            messages.error(
+                self.request,
+                "No se guardó: hay ayudantes sin los cursos que exige esta programación."
+            )
+            # Se re-renderiza ESTE formset (no uno nuevo) para conservar el
+            # error marcado en la fila del ayudante que incumple.
+            context['form'] = form
+            return self.render_to_response(context)
         self.object = form.save()
         formset.instance = self.object
         formset.save()
@@ -1482,7 +1542,12 @@ class FichaPersonaView(AsesorRequiredMixin, View):
                 'con_vigencia': tipo in TIPOS_CON_VIGENCIA,
             })
 
-        ss_historico = [d for d in por_tipo.get('SEGURIDAD_SOCIAL', []) if d.periodo != mes_actual]
+        # La seguridad social es mensual: al cambiar el mes, la del mes anterior
+        # deja de estar vigente automáticamente (solo cuenta la del mes actual).
+        # El resto queda en la pantalla de historial.
+        ss_todos = por_tipo.get('SEGURIDAD_SOCIAL', [])
+        ss_previos = [d for d in ss_todos if d.periodo != mes_actual]
+        ss_ultima = max(ss_previos, key=lambda d: d.periodo or '', default=None)
         otros = por_tipo.get('OTRO', [])
         faltan_requeridos = [s['label'] for s in slots if s['requerido'] and not s['cargado']]
 
@@ -1495,7 +1560,12 @@ class FichaPersonaView(AsesorRequiredMixin, View):
             'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
             'ss_al_dia': any(s['es_ss'] and s['cargado'] for s in slots),
             'slots': slots,
-            'ss_historico': ss_historico,
+            # Hay seguridad social de meses anteriores pero no la del mes en curso.
+            'ss_vencida': ss_ultima is not None and not any(
+                s['es_ss'] and s['cargado'] for s in slots
+            ),
+            'ss_ultima': ss_ultima,
+            'ss_total': len(ss_todos),
             'otros': otros,
             'faltan_requeridos': faltan_requeridos,
         }
@@ -1608,6 +1678,54 @@ class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
         return form
 
 
+class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
+    """
+    Historial completo de la seguridad social de una persona, mes a mes.
+    Solo la del mes en curso está vigente: las anteriores quedan aquí como
+    soporte histórico (se deshabilitan solas al cambiar el mes).
+    """
+    template_name = 'gestion/historial_seguridad_social.html'
+
+    def _context(self, persona):
+        mes_actual = timezone.localdate().strftime('%Y-%m')
+        documentos = persona.documentos_personales.filter(
+            tipo='SEGURIDAD_SOCIAL'
+        ).order_by('-periodo', '-fecha_subida')
+
+        registros = [{
+            'doc': documento,
+            'vigente': documento.periodo == mes_actual,
+        } for documento in documentos]
+
+        return {
+            'persona': persona,
+            'perfil': _perfil_de(persona),
+            'mes_actual': mes_actual,
+            'registros': registros,
+            'al_dia': any(r['vigente'] for r in registros),
+            'total': len(registros),
+        }
+
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        return render(request, self.template_name, self._context(persona))
+
+    def post(self, request, pk):
+        """Carga la seguridad social de un mes concreto desde el historial."""
+        persona = get_object_or_404(User, pk=pk)
+        datos = request.POST.copy()
+        datos['tipo'] = 'SEGURIDAD_SOCIAL'
+        form = DocumentoPersonalForm(datos, request.FILES)
+        if form.is_valid():
+            documento = form.save(commit=False)
+            documento.usuario = persona
+            documento.save()
+            messages.success(request, f"Seguridad social del mes {documento.periodo} cargada.")
+        else:
+            messages.error(request, "No se pudo cargar el documento (revisa el archivo y el mes).")
+        return redirect('gestion:historial_seguridad_social', pk=pk)
+
+
 class ActualizarVigenciaDocumentoView(AsesorRequiredMixin, View):
     """
     Fija o edita la vigencia (fecha de vencimiento) de un documento del
@@ -1643,6 +1761,10 @@ class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
         usuario_pk = documento.usuario_id
+        # Al borrar desde el historial de seguridad social se vuelve allí.
+        volver_a_historial = request.POST.get('origen') == 'seguridad_social'
         documento.delete()
         messages.success(request, "Documento eliminado del expediente.")
+        if volver_a_historial:
+            return redirect('gestion:historial_seguridad_social', pk=usuario_pk)
         return redirect('gestion:ficha_persona', pk=usuario_pk)

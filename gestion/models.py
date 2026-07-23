@@ -556,6 +556,53 @@ class EncuestaConductor(models.Model):
             recorrido.save()
 
 
+# Cursos que se le pueden EXIGIR al ayudante desde la programación. No son
+# obligatorios en su expediente: cada programación decide si este servicio los
+# requiere (ver Programacion.exige_curso_alturas / exige_curso_confinados).
+CURSOS_EXIGIBLES = [
+    ('CURSO_ALTURAS', 'curso de alturas'),
+    ('CURSO_CONFINADOS', 'curso de espacios confinados'),
+]
+
+
+def cursos_faltantes_ayudante(ayudante, exige_alturas=False, exige_confinados=False):
+    """
+    Devuelve los motivos por los que un ayudante NO cumple con los cursos que
+    exige la programación. Un curso vencido cuenta igual que uno que falta.
+    Si el documento no tiene vigencia registrada se considera vigente.
+    Lista vacía = el ayudante cumple.
+    """
+    exigidos = []
+    if exige_alturas:
+        exigidos.append('CURSO_ALTURAS')
+    if exige_confinados:
+        exigidos.append('CURSO_CONFINADOS')
+    if not exigidos or ayudante is None:
+        return []
+
+    etiquetas = dict(CURSOS_EXIGIBLES)
+    documentos = ayudante.documentos_personales.filter(tipo__in=exigidos)
+    por_tipo = {}
+    for documento in documentos:
+        por_tipo.setdefault(documento.tipo, []).append(documento)
+
+    motivos = []
+    for tipo in exigidos:
+        copias = por_tipo.get(tipo, [])
+        if not copias:
+            motivos.append(f"no tiene cargado el {etiquetas[tipo]}")
+            continue
+        # Basta con que una copia esté vigente (sin fecha = sin control de vigencia).
+        vigentes = [d for d in copias if not d.vencido]
+        if not vigentes:
+            ultimo = max(copias, key=lambda d: d.fecha_vencimiento)
+            motivos.append(
+                f"tiene el {etiquetas[tipo]} vencido "
+                f"({ultimo.fecha_vencimiento.strftime('%d/%m/%Y')})"
+            )
+    return motivos
+
+
 class Programacion(models.Model):
     """
     Programación anticipada: paso PREVIO a la Orden de Servicio.
@@ -604,6 +651,19 @@ class Programacion(models.Model):
 
     responsable_sg = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Responsable SG")
 
+    # --- Cursos exigidos al ayudante para ESTE servicio ---
+    # No son obligatorios en el expediente del ayudante: solo se validan cuando
+    # la programación los marca en 'SI'. Si el ayudante asignado no los tiene
+    # (o los tiene vencidos), no se deja guardar ni convertir en orden.
+    exige_curso_alturas = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True,
+        verbose_name="El ayudante debe tener curso de alturas"
+    )
+    exige_curso_confinados = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True,
+        verbose_name="El ayudante debe tener curso de espacios confinados"
+    )
+
     nombre_contacto_recibe = models.CharField(
         max_length=200, blank=True, verbose_name="Nombre / contacto de quien recibe el servicio"
     )
@@ -632,6 +692,34 @@ class Programacion(models.Model):
         return f"Programación #{self.pk} - {self.cliente.nombre} ({self.fecha})"
 
     @property
+    def exige_alturas(self):
+        return self.exige_curso_alturas == 'SI'
+
+    @property
+    def exige_confinados(self):
+        return self.exige_curso_confinados == 'SI'
+
+    def incumplimientos_cursos(self, solo_con_vehiculo=False):
+        """
+        Ayudantes asignados que no cumplen con los cursos exigidos por esta
+        programación. Devuelve [(cuadrilla, [motivos]), ...]; vacío = todo en orden.
+        Con `solo_con_vehiculo` se revisan únicamente las filas que generan recorrido.
+        """
+        if not (self.exige_alturas or self.exige_confinados):
+            return []
+        cuadrillas = self.cuadrillas.select_related('ayudante')
+        if solo_con_vehiculo:
+            cuadrillas = cuadrillas.filter(vehiculo__isnull=False)
+        problemas = []
+        for cuadrilla in cuadrillas:
+            motivos = cursos_faltantes_ayudante(
+                cuadrilla.ayudante, self.exige_alturas, self.exige_confinados
+            )
+            if motivos:
+                problemas.append((cuadrilla, motivos))
+        return problemas
+
+    @property
     def puede_convertirse(self):
         """Se puede generar la orden si no tiene una, no está cancelada y hay al menos una cuadrilla con vehículo."""
         return (
@@ -652,6 +740,18 @@ class Programacion(models.Model):
         cuadrillas = list(self.cuadrillas.filter(vehiculo__isnull=False))
         if not cuadrillas:
             raise ValueError("La programación no tiene ninguna cuadrilla con vehículo asignado.")
+
+        # Los cursos exigidos se vuelven a comprobar aquí: la vigencia pudo
+        # vencerse entre la creación de la programación y la generación de la orden.
+        problemas = self.incumplimientos_cursos(solo_con_vehiculo=True)
+        if problemas:
+            detalle = "; ".join(
+                f"{c.ayudante.get_full_name() or c.ayudante.username} {' y '.join(motivos)}"
+                for c, motivos in problemas
+            )
+            raise ValueError(
+                f"No se puede generar la orden: esta programación exige cursos y {detalle}."
+            )
 
         with transaction.atomic():
             orden = OrdenServicio.objects.create(

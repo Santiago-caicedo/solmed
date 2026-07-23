@@ -15,20 +15,22 @@ class VehiculoAdmin(admin.ModelAdmin):
 
 @admin.register(OrdenServicio)
 class OrdenServicioAdmin(admin.ModelAdmin):
-    # --- CORRECCIÓN AQUÍ ---
-    # Eliminamos 'fecha_servicio' de ambas listas
     list_display = ('numero_orden', 'cliente', 'display_vehiculos', 'estado_orden', 'estado_pago')
-    list_filter = ('estado_orden', 'estado_pago', 'cliente') # Reemplazamos fecha_servicio por cliente
-    
+    list_filter = ('estado_orden', 'estado_pago', 'cliente')
     search_fields = ('numero_orden', 'cliente__nombre')
 
+    def get_queryset(self, request):
+        # Precargamos los vehículos de los recorridos para no consultar por fila.
+        return super().get_queryset(request).prefetch_related('recorridos__vehiculo')
+
+    @admin.display(description='Vehículos Asignados')
     def display_vehiculos(self, obj):
-        # Usamos el nombre correcto 'vehiculo_asignado'
-        return ", ".join([vehiculo.placa for vehiculo in obj.vehiculo_asignado.all()])
-    
-    display_vehiculos.short_description = 'Vehículos Asignados'
-    
-    display_vehiculos.short_description = 'Vehículos Asignados'
+        # Los vehículos ya no cuelgan de la orden, sino de cada recorrido.
+        placas = sorted({
+            recorrido.vehiculo.placa
+            for recorrido in obj.recorridos.all() if recorrido.vehiculo_id
+        })
+        return ", ".join(placas) or "—"
 class DocumentoOrdenAdmin(admin.ModelAdmin):
     list_display = ('orden', 'archivo', 'descripcion', 'fecha_subida')
 

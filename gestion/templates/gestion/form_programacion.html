@@ -83,6 +83,29 @@
                     <small class="text-muted d-block mt-1">Báscula y registro fotográfico ahora se registran en la orden de servicio.</small>
                 </div>
             </div>
+
+            <hr class="my-4">
+
+            {# ---- Cursos que este servicio le exige al ayudante ---- #}
+            <h6 class="mb-1"><i class="bi bi-mortarboard me-1"></i>Requisitos del ayudante para este servicio</h6>
+            <p class="text-muted small">
+                Si marcas <strong>Sí</strong>, no se podrá guardar la programación con un ayudante
+                que no tenga ese curso cargado y vigente en su expediente.
+            </p>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.exige_curso_alturas.id_for_label }}" class="form-label">
+                        ¿El ayudante debe tener curso de alturas?
+                    </label>
+                    {{ form.exige_curso_alturas }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.exige_curso_confinados.id_for_label }}" class="form-label">
+                        ¿El ayudante debe tener curso de espacios confinados?
+                    </label>
+                    {{ form.exige_curso_confinados }}
+                </div>
+            </div>
         </div>
     </div>
 
@@ -112,7 +135,12 @@
                             {% for hidden in cf.hidden_fields %}{{ hidden }}{% endfor %}
                             <td>{{ cf.conductor }}</td>
                             <td>{{ cf.vehiculo }}</td>
-                            <td>{{ cf.ayudante }}</td>
+                            <td>
+                                {{ cf.ayudante }}
+                                {% for e in cf.ayudante.errors %}
+                                <div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
+                                {% endfor %}
+                            </td>
                             <td>{{ cf.ayudante_novedad }}</td>
                             {% if formset.can_delete %}
                             <td class="text-center align-middle">
@@ -174,9 +202,31 @@
 {% block scripts %}
 {{ personal_docs|json_script:"personal-docs-data" }}
 <script>
-// Estado documental del personal: { "<id>": { faltan: [...], url: "..." } }
+// Estado documental del personal:
+// { "<id>": { faltan: [...], cursos: {CURSO_ALTURAS: true, ...}, es_ayudante: bool, url: "..." } }
 var personalDocs = JSON.parse(document.getElementById('personal-docs-data').textContent);
 var contenedorAlertas = document.getElementById('alertas-documentos');
+
+// --- Cursos exigidos por ESTA programación al ayudante ---
+var CURSOS = [
+    { campo: 'exige_curso_alturas',    tipo: 'CURSO_ALTURAS',    nombre: 'curso de alturas' },
+    { campo: 'exige_curso_confinados', tipo: 'CURSO_CONFINADOS', nombre: 'curso de espacios confinados' }
+];
+
+function cursosExigidos() {
+    return CURSOS.filter(function (curso) {
+        var sel = document.getElementById('id_' + curso.campo);
+        return sel && sel.value === 'SI';
+    });
+}
+
+// Cursos exigidos que le faltan (o tiene vencidos) a un ayudante.
+function cursosQueLeFaltan(id) {
+    var info = personalDocs[id];
+    return cursosExigidos().filter(function (curso) {
+        return !info || !info.cursos || !info.cursos[curso.tipo];
+    }).map(function (curso) { return curso.nombre; });
+}
 
 // Revisa todos los conductores/ayudantes seleccionados y muestra un aviso con
 // enlace al expediente por cada persona a la que le falten documentos.
@@ -186,6 +236,7 @@ function revisarDocumentos() {
         '#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]'
     );
     var avisos = [];
+    var bloqueos = [];
     var vistos = {};
     selects.forEach(function (sel) {
         var fila = sel.closest('.cuadrilla-row');
@@ -193,36 +244,84 @@ function revisarDocumentos() {
         var id = sel.value;
         if (!id) return;
         var info = personalDocs[id];
-        if (!info || !info.faltan || info.faltan.length === 0) return;
         var esConductor = sel.name.indexOf('-conductor') > -1;
         var clave = id + (esConductor ? '-c' : '-a');
         if (vistos[clave]) return;
         vistos[clave] = true;
         var opt = sel.options[sel.selectedIndex];
+        var nombre = opt ? opt.text : 'Persona';
+
+        // Cursos exigidos por esta programación: bloquean el guardado.
+        if (!esConductor) {
+            var faltanCursos = cursosQueLeFaltan(id);
+            marcarFila(sel, faltanCursos.length > 0);
+            if (faltanCursos.length > 0) {
+                bloqueos.push({
+                    nombre: nombre,
+                    cursos: faltanCursos,
+                    url: info ? info.url : '#',
+                });
+            }
+        }
+
+        if (!info || !info.faltan || info.faltan.length === 0) return;
         avisos.push({
-            nombre: opt ? opt.text : 'Persona',
+            nombre: nombre,
             rol: esConductor ? 'Conductor' : 'Ayudante',
             faltan: info.faltan,
             url: info.url,
         });
     });
 
-    if (avisos.length === 0) { contenedorAlertas.innerHTML = ''; return; }
+    var html = '';
 
-    var html = '<div class="alert alert-warning">'
-        + '<strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Falta documentación del personal asignado:</strong>'
-        + '<ul class="mb-0 mt-1">';
-    avisos.forEach(function (a) {
-        html += '<li>' + a.rol + ' <strong>' + a.nombre + '</strong>: falta ' + a.faltan.join(', ')
-            + ' &mdash; <a href="' + a.url + '" target="_blank" class="alert-link">'
-            + '<i class="bi bi-folder2-open"></i> Ir al expediente</a></li>';
-    });
-    html += '</ul></div>';
+    if (bloqueos.length > 0) {
+        html += '<div class="alert alert-danger">'
+            + '<strong><i class="bi bi-x-octagon-fill me-1"></i> No se puede guardar: '
+            + 'este servicio exige cursos que el ayudante no tiene vigentes.</strong>'
+            + '<ul class="mb-0 mt-1">';
+        bloqueos.forEach(function (b) {
+            html += '<li><strong>' + b.nombre + '</strong>: le falta ' + b.cursos.join(' y ')
+                + ' &mdash; <a href="' + b.url + '" target="_blank" class="alert-link">'
+                + '<i class="bi bi-folder2-open"></i> Cargar en su expediente</a></li>';
+        });
+        html += '</ul></div>';
+    }
+
+    if (avisos.length > 0) {
+        html += '<div class="alert alert-warning">'
+            + '<strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Falta documentación del personal asignado:</strong>'
+            + '<ul class="mb-0 mt-1">';
+        avisos.forEach(function (a) {
+            html += '<li>' + a.rol + ' <strong>' + a.nombre + '</strong>: falta ' + a.faltan.join(', ')
+                + ' &mdash; <a href="' + a.url + '" target="_blank" class="alert-link">'
+                + '<i class="bi bi-folder2-open"></i> Ir al expediente</a></li>';
+        });
+        html += '</ul></div>';
+    }
+
     contenedorAlertas.innerHTML = html;
+    bloquearGuardado(bloqueos.length > 0);
+}
+
+// Resalta en rojo el desplegable del ayudante que incumple.
+function marcarFila(sel, incumple) {
+    sel.classList.toggle('is-invalid', incumple);
+}
+
+// Deshabilita el botón de guardar mientras haya un ayudante sin los cursos exigidos.
+function bloquearGuardado(bloquear) {
+    var boton = document.querySelector('form button[type="submit"]');
+    if (!boton) return;
+    boton.disabled = bloquear;
+    boton.title = bloquear
+        ? 'Hay ayudantes sin los cursos que exige este servicio'
+        : '';
 }
 
 document.addEventListener('change', function (e) {
-    if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')) {
+    if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')
+        || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')) {
         revisarDocumentos();
     }
 });

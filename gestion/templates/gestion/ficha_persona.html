@@ -24,6 +24,9 @@
     <i class="bi {% if ss_al_dia %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2"></i>
     <div>Seguridad social del mes <strong>{{ mes_actual }}</strong>:
         <strong>{% if ss_al_dia %}cargada{% else %}pendiente{% endif %}</strong>
+        <a href="{% url 'gestion:historial_seguridad_social' persona.pk %}" class="alert-link ms-2">
+            <i class="bi bi-clock-history"></i> Ver historial
+        </a>
     </div>
 </div>
 {% endif %}
@@ -80,10 +83,20 @@
                                         {% elif slot.doc.por_vencer %}<span class="badge bg-warning text-dark">Por vencer ({{ slot.doc.dias_restantes }} d)</span>
                                         {% else %}<small class="text-muted">Vence {{ slot.doc.fecha_vencimiento|date:"d/m/Y" }}</small>{% endif %}
                                     {% endif %}
+                                {% elif slot.es_ss and ss_vencida %}
+                                    {# Al cambiar el mes, la del mes anterior se deshabilita sola. #}
+                                    <span class="badge bg-secondary ms-1"><i class="bi bi-slash-circle"></i> Vencida</span>
+                                    <small class="text-muted">la de {{ ss_ultima.periodo }} ya no está vigente</small>
                                 {% elif slot.requerido %}
                                     <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle"></i> Falta</span>
                                 {% else %}
                                     <span class="badge bg-secondary ms-1">No cargado</span>
+                                {% endif %}
+                                {% if slot.es_ss %}
+                                <a href="{% url 'gestion:historial_seguridad_social' persona.pk %}"
+                                   class="ms-2 small text-decoration-none">
+                                    <i class="bi bi-clock-history"></i> Ver historial{% if ss_total %} ({{ ss_total }}){% endif %}
+                                </a>
                                 {% endif %}
                             </div>
                             {% if slot.cargado %}
@@ -125,21 +138,6 @@
                     </div>
                     {% endfor %}
                 </div>
-
-                {% if ss_historico %}
-                <h6>Seguridad social (meses anteriores)</h6>
-                <ul class="list-unstyled small mb-4">
-                    {% for d in ss_historico %}
-                    <li class="d-flex justify-content-between border-bottom py-1">
-                        <span>Mes {{ d.periodo|default:"—" }}</span>
-                        <span>
-                            <a href="{{ d.archivo.url }}" target="_blank">Ver</a>
-                            <form method="post" action="{% url 'gestion:eliminar_documento_personal' d.pk %}" class="d-inline" onsubmit="return confirm('¿Eliminar?');">{% csrf_token %}<button class="btn btn-link btn-sm text-danger p-0 ms-2">Eliminar</button></form>
-                        </span>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
 
                 <h6>Otros documentos</h6>
                 {% if otros %}
