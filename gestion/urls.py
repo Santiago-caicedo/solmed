@@ -13,6 +13,8 @@ urlpatterns = [
     path('ordenes/nueva/', views.CrearOrdenView.as_view(), name='crear_orden'),
     path('ordenes/<int:pk>/', views.OrdenServicioDetailView.as_view(), name='detalle_orden'),
     path('ordenes/<int:pk>/editar/', views.ActualizarOrdenView.as_view(), name='actualizar_orden'),
+    path('recorrido/<int:pk>/editar/', views.EditarRecorridoView.as_view(), name='editar_recorrido'),
+    path('recorrido/<int:pk>/eliminar/', views.EliminarRecorridoView.as_view(), name='eliminar_recorrido'),
     path('recorrido/<int:pk>/firmar/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto'),
     path('recorrido/<int:pk>/firmar/<str:step>/', views.GenerarManifiestoView.as_view(), name='firmar_manifiesto_step'),
 

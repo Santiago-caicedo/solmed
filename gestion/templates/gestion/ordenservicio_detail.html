@@ -34,7 +34,7 @@
                 {% if orden.recorridos.all %}
                 <div class="table-responsive">
                     <table class="table table-hover">
-                        <thead><tr><th>Fecha</th><th>Vehículo</th><th>Personal</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th></tr></thead>
+                        <thead><tr><th>Fecha</th><th>Vehículo</th><th>Personal</th><th>Estado</th><th>Manifiesto</th><th>Encuesta de cierre</th><th class="text-end">Corregir</th></tr></thead>
                         <tbody>
                             {% for recorrido in orden.recorridos.all|dictsort:"fecha_recorrido" %}
                             <tr>
@@ -98,6 +98,17 @@
                                     {% else %}
                                         <span class="text-muted small">—</span>
                                     {% endif %}
+                                </td>
+                                <td class="text-end text-nowrap">
+                                    {# Corregir el recorrido que quedó mal, o quitarlo de la orden. #}
+                                    <a href="{% url 'gestion:editar_recorrido' recorrido.pk %}" class="btn btn-outline-secondary btn-sm" title="Editar recorrido">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <form method="post" action="{% url 'gestion:eliminar_recorrido' recorrido.pk %}" class="d-inline"
+                                          onsubmit="return confirm('¿Quitar este recorrido de la orden? Si tiene manifiesto o encuesta, también se eliminan.');">
+                                        {% csrf_token %}
+                                        <button class="btn btn-outline-danger btn-sm" title="Quitar recorrido"><i class="bi bi-trash"></i></button>
+                                    </form>
                                 </td>
                             </tr>
                             {% endfor %}

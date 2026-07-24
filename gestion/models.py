@@ -233,6 +233,26 @@ class DocumentoOrden(models.Model):
 
 
 
+def _recalcular_estado_orden(orden):
+    """
+    Ajusta el estado de la orden según sus recorridos: FINALIZADA si todos están
+    completados, EN_EJECUCION si hay alguno, PROGRAMADA si no queda ninguno.
+    Se usa al guardar y al eliminar un recorrido. No toca órdenes CANCELADAS.
+    """
+    if orden is None or orden.estado_orden == 'CANCELADA':
+        return
+    recorridos = orden.recorridos.all()
+    total = recorridos.count()
+    completados = recorridos.filter(estado='COMPLETADO').count()
+    if total == 0:
+        orden.estado_orden = 'PROGRAMADA'
+    elif completados == total:
+        orden.estado_orden = 'FINALIZADA'
+    else:
+        orden.estado_orden = 'EN_EJECUCION'
+    orden.save(update_fields=['estado_orden'])
+
+
 class Recorrido(models.Model):
     ESTADO_CHOICES = [
         ('PROGRAMADO', 'Programado'),
@@ -268,21 +288,8 @@ class Recorrido(models.Model):
     def save(self, *args, **kwargs):
         # Guardamos el recorrido primero
         super().save(*args, **kwargs)
-        
-        # Ahora, actualizamos el estado de la orden padre
-        orden = self.orden
-        recorridos_de_la_orden = orden.recorridos.all()
-        total_recorridos = recorridos_de_la_orden.count()
-        completados = recorridos_de_la_orden.filter(estado='COMPLETADO').count()
-
-        if total_recorridos == 0:
-            orden.estado_orden = 'PROGRAMADA'
-        elif completados == total_recorridos:
-            orden.estado_orden = 'FINALIZADA'
-        else:
-            orden.estado_orden = 'EN_EJECUCION'
-        
-        orden.save()
+        # Recalculamos el estado de la orden padre según sus recorridos.
+        _recalcular_estado_orden(self.orden)
 
 
 
@@ -397,8 +404,9 @@ class Pago(models.Model):
         ('OTRO', 'Otro'),
     ]
 
-    # Cada pago está ligado a una Orden de Servicio
-    orden = models.ForeignKey(OrdenServicio, on_delete=models.PROTECT, related_name='pagos')
+    # Cada pago está ligado a una Orden de Servicio. En CASCADE: eliminar la orden
+    # desde el admin también borra sus pagos (limpieza total de una orden mal creada).
+    orden = models.ForeignKey(OrdenServicio, on_delete=models.CASCADE, related_name='pagos')
     
     fecha_pago = models.DateTimeField(default=timezone.now, verbose_name="Fecha y Hora del Pago")
     monto = models.DecimalField(max_digits=10, decimal_places=2)
@@ -700,10 +708,11 @@ class Programacion(models.Model):
 
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='BORRADOR')
 
-    # Orden generada al convertir la programación (queda enlazada). Se conserva la
-    # programación como registro histórico de planeación aunque se borre la orden.
+    # Orden generada al convertir la programación (queda enlazada). En CASCADE:
+    # eliminar la orden desde el admin también borra la programación que la originó,
+    # para poder limpiar por completo una que quedó mal.
     orden = models.OneToOneField(
-        OrdenServicio, on_delete=models.SET_NULL, null=True, blank=True,
+        OrdenServicio, on_delete=models.CASCADE, null=True, blank=True,
         related_name='programacion_origen'
     )
 

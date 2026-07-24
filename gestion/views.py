@@ -28,7 +28,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, cursos_faltantes_ayudante
+from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
@@ -820,13 +820,48 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
 
 def completar_recorrido(request, pk):
     recorrido = get_object_or_404(Recorrido, pk=pk)
-    
+
     if request.method == 'POST':
         recorrido.estado = 'COMPLETADO'
         recorrido.save() # La lógica automática en el modelo se disparará aquí
         messages.success(request, f'Recorrido del {recorrido.fecha_recorrido} marcado como completado.')
-        
+
     return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
+
+
+class EditarRecorridoView(NoConductorRequiredMixin, UpdateView):
+    """
+    Corrige un recorrido que quedó mal (fecha, vehículo, conductor, ayudante).
+    Es la forma de arreglar una orden sin borrarla.
+    """
+    model = Recorrido
+    form_class = RecorridoForm
+    template_name = 'gestion/form_recorrido.html'
+
+    def form_valid(self, form):
+        form.save()   # Recorrido.save recalcula el estado de la orden
+        messages.success(self.request, "Recorrido actualizado.")
+        return redirect('gestion:detalle_orden', pk=self.object.orden_id)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['orden'] = self.object.orden
+        return context
+
+
+class EliminarRecorridoView(NoConductorRequiredMixin, View):
+    """
+    Quita un recorrido de la orden (solo POST). Al borrarlo caen su manifiesto y
+    su encuesta (CASCADE) y se recalcula el estado de la orden. La orden completa
+    solo se elimina desde el admin de Django.
+    """
+    def post(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        orden = recorrido.orden
+        recorrido.delete()
+        _recalcular_estado_orden(orden)
+        messages.success(request, "Recorrido eliminado de la orden.")
+        return redirect('gestion:detalle_orden', pk=orden.pk)
 
 
 @login_required
@@ -1151,17 +1186,19 @@ DOCUMENTOS_ESTANDAR = [
 def _documentos_requeridos_por_rol(nombres_grupos):
     """
     Tipos de documento OBLIGATORIOS en el expediente según el/los rol(es).
-    Los cursos de alturas y espacios confinados no son obligatorios: cada
-    programación decide si los exige (ver Programacion.exige_curso_*).
+    La seguridad social se exige a CUALQUIER persona con rol asignado (todos los
+    cargos la cargan). Los conductores llevan además cédula y licencia; los
+    ayudantes, cédula. Los cursos de alturas y espacios confinados no son
+    obligatorios: cada programación decide si los exige (ver Programacion.exige_curso_*).
     """
     requeridos = set()
+    if nombres_grupos:
+        # Toda persona con un rol debe mantener su seguridad social vigente.
+        requeridos.add('SEGURIDAD_SOCIAL')
     if 'Conductores' in nombres_grupos:
-        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL', 'LICENCIA'}
+        requeridos |= {'CEDULA', 'LICENCIA'}
     if 'Ayudantes' in nombres_grupos:
-        requeridos |= {'CEDULA', 'SEGURIDAD_SOCIAL'}
-    if 'Asesores' in nombres_grupos:
-        # Los asesores también cargan su seguridad social cada mes.
-        requeridos |= {'SEGURIDAD_SOCIAL'}
+        requeridos |= {'CEDULA'}
     return requeridos
 
 
@@ -1231,15 +1268,15 @@ def _estado_documentos_personal():
     le faltan y el enlace a su ficha. Se pasa a la plantilla de programación
     (JSON) para avisar en vivo cuando se asigna a alguien sin la documentación
     al día.
-      - Conductores: cédula, seguridad social vigente y licencia.
-      - Ayudantes:   cédula y seguridad social vigente (los cursos se exigen
-                     desde cada programación, no en el expediente).
-      - Asesores:    seguridad social vigente.
+      - Toda persona con rol: seguridad social vigente.
+      - Conductores: además cédula y licencia.
+      - Ayudantes:   además cédula (los cursos se exigen desde cada programación).
     """
     tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
     mes_actual = timezone.localdate().strftime('%Y-%m')
+    # Cualquier persona con un rol asignado (todos cargan seguridad social).
     usuarios = (
-        User.objects.filter(groups__name__in=['Conductores', 'Ayudantes', 'Asesores'])
+        User.objects.filter(groups__isnull=False)
         .distinct()
         .prefetch_related('groups', 'documentos_personales')
     )
@@ -1465,7 +1502,11 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         # Una programación ya convertida en orden es de solo lectura.
         self.object = self.get_object()
         if self.object.orden_id:
-            messages.info(request, "Esta programación ya generó una orden y no puede editarse.")
+            messages.info(
+                request,
+                f"Esta programación ya generó la Orden #{self.object.orden.numero_orden}. "
+                "Corrige lo que quedó mal desde la orden (datos y recorridos)."
+            )
             return redirect('gestion:detalle_orden', pk=self.object.orden_id)
         return super().dispatch(request, *args, **kwargs)
 
