@@ -247,7 +247,7 @@
                     <div><span class="text-muted" style="display:inline-block;min-width:64px">Para:</span>
                         <strong id="ss-para" class="text-danger">— escribe el correo del cliente arriba —</strong></div>
                     <div><span class="text-muted" style="display:inline-block;min-width:64px">Asunto:</span>
-                        <strong id="ss-asunto">Seguridad social del personal</strong></div>
+                        <strong id="ss-asunto">SOLMED - Seguridad social - Orden de servicio</strong></div>
                 </div>
                 <div class="px-3 py-3">
                     <div id="ss-cuerpo" class="small mb-3"></div>
@@ -261,15 +261,21 @@
 
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-1"></i>
+        {% if object %}
         Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una nueva
         Orden de Servicio y se crea un recorrido por cada cuadrilla con vehículo. Se requiere al menos una.
+        {% else %}
+        Al pulsar <strong>Crear y generar orden</strong> se genera de una vez la Orden de Servicio
+        (un recorrido por cada cuadrilla con vehículo) y se envía la seguridad social al cliente.
+        Se requiere al menos una cuadrilla con vehículo.
+        {% endif %}
     </div>
 
     <div class="d-flex justify-content-end mb-5">
         <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-secondary me-2">Cancelar</a>
         <button type="submit" class="btn btn-success">
             <i class="bi bi-check-circle me-1"></i>
-            {% if object %}Guardar cambios{% else %}Crear programación{% endif %}
+            {% if object %}Guardar cambios{% else %}Crear y generar orden{% endif %}
         </button>
     </div>
 </form>
@@ -277,6 +283,30 @@
 
 {% block scripts %}
 {{ personal_docs|json_script:"personal-docs-data" }}
+{{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
+<script>
+// --- Autocompletar la dirección al elegir el cliente ---
+// Mapa { "<id_cliente>": "dirección registrada" }.
+var direccionesClientes = JSON.parse(document.getElementById('direcciones-clientes-data').textContent);
+(function () {
+    var selCliente = document.getElementById('id_cliente');
+    var inpDireccion = document.getElementById('id_direccion');
+    if (!selCliente || !inpDireccion) return;
+
+    // Recuerda la última dirección puesta automáticamente para no pisar lo que
+    // el usuario escriba a mano.
+    var ultimaAuto = null;
+
+    selCliente.addEventListener('change', function () {
+        var dir = direccionesClientes[selCliente.value] || '';
+        var actual = inpDireccion.value.trim();
+        if (actual === '' || actual === ultimaAuto) {
+            inpDireccion.value = dir;
+            ultimaAuto = dir;
+        }
+    });
+})();
+</script>
 <script>
 // Estado documental del personal: { "<id>": { nombre, faltan: [...],
 //   cursos: {CURSO_ALTURAS: true, ...}, es_ayudante, url,
@@ -450,6 +480,22 @@ function actualizarEnvioSS(personal) {
     var cuerpo = document.getElementById('ss-cuerpo');
     var adjuntos = document.getElementById('ss-adjuntos');
     var contador = document.getElementById('ss-contador');
+    var asunto = document.getElementById('ss-asunto');
+
+    // El número de orden se asigna al generar la orden desde esta programación,
+    // así que en la vista previa va como marcador.
+    var ORDEN = '#(se asigna al generar la orden)';
+
+    // El asunto refleja el real: "SOLMED - Seguridad social - Orden de servicio #N".
+    asunto.textContent = 'SOLMED - Seguridad social - Orden de servicio ' + ORDEN;
+
+    // Nombre del cliente seleccionado arriba (para el cuerpo, igual que el real).
+    var selCliente = document.getElementById('id_cliente');
+    var cliente = '';
+    if (selCliente && selCliente.value) {
+        var optC = selCliente.options[selCliente.selectedIndex];
+        cliente = optC ? optC.text.trim() : '';
+    }
 
     if (personal.length === 0) {
         cuerpo.innerHTML = '<span class="text-muted">Asigna personal en las cuadrillas para ver el envío.</span>';
@@ -458,13 +504,21 @@ function actualizarEnvioSS(personal) {
         return;
     }
 
+    // Cuerpo igual al correo real: por cada persona su vigencia (o el aviso si falta).
+    var lineas = personal.map(function (p) {
+        var alDia = p.info && p.info.ss_al_dia;
+        var detalle = alDia
+            ? ' &mdash; vigente hasta ' + esc(p.info.ss_vence)
+            : ' &mdash; <span class="text-danger">SIN seguridad social vigente</span>';
+        return '<li>' + esc(p.nombre) + ' <span class="text-muted">(' + esc(p.rol) + ')</span>' + detalle + '</li>';
+    }).join('');
+
     cuerpo.innerHTML =
-        'Buen día,<br><br>Adjuntamos la seguridad social vigente del personal '
-        + 'que participará en el servicio:<ul class="mt-2 mb-0">'
-        + personal.map(function (p) {
-            return '<li>' + esc(p.nombre) + ' <span class="text-muted">(' + esc(p.rol) + ')</span></li>';
-        }).join('')
-        + '</ul>';
+        'Buen día,<br><br>Adjuntamos la seguridad social vigente del personal que participa '
+        + 'en la orden de servicio SOLMED ' + esc(ORDEN)
+        + (cliente ? ' para ' + esc(cliente) : '') + ':'
+        + '<ul class="mt-2 mb-2">' + lineas + '</ul>'
+        + 'Cordialmente,<br>SOLMED SAS';
 
     var listos = 0;
     adjuntos.innerHTML = personal.map(function (p) {
@@ -502,7 +556,8 @@ function bloquearGuardado(bloquear) {
 
 document.addEventListener('change', function (e) {
     if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')
-        || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')) {
+        || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')
+        || e.target.matches('#id_cliente')) {   // el cliente aparece en el cuerpo del correo
         pintarSwitches();
         revisarDocumentos();
     }

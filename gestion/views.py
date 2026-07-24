@@ -1344,6 +1344,17 @@ def _validar_ss_cuadrillas(form, formset):
     return todo_ok
 
 
+def _direcciones_clientes():
+    """
+    Mapa {id_cliente: dirección registrada} para autocompletar la dirección de
+    la programación al elegir el cliente en el formulario.
+    """
+    return {
+        str(pk): direccion or ''
+        for pk, direccion in Cliente.objects.values_list('pk', 'direccion')
+    }
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
@@ -1380,6 +1391,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         else:
             context['formset'] = ProgramacionCuadrillaFormSet(prefix='cuadrilla')
         context['personal_docs'] = _estado_documentos_personal()
+        context['direcciones_clientes'] = _direcciones_clientes()
         return context
 
     def form_valid(self, form):
@@ -1391,22 +1403,56 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         # de una vez todos los problemas: cursos exigidos y seguridad social.
         cursos_ok = _validar_cursos_cuadrillas(form, formset)
         ss_ok = _validar_ss_cuadrillas(form, formset)
-        if not (cursos_ok and ss_ok):
-            messages.error(
-                self.request,
-                "No se guardó: revisa la documentación del personal asignado "
-                "(seguridad social vigente y cursos exigidos)."
-            )
+        # Al crear se genera la orden de una vez, así que debe haber al menos una
+        # cuadrilla con vehículo (cada una genera un recorrido).
+        tiene_vehiculo = any(
+            f.cleaned_data and not f.cleaned_data.get('DELETE') and f.cleaned_data.get('vehiculo')
+            for f in formset.forms
+        )
+        if not (cursos_ok and ss_ok) or not tiene_vehiculo:
+            if not tiene_vehiculo:
+                messages.error(
+                    self.request,
+                    "Asigna al menos una cuadrilla con vehículo: la orden se genera "
+                    "al crear la programación."
+                )
+            else:
+                messages.error(
+                    self.request,
+                    "No se guardó: revisa la documentación del personal asignado "
+                    "(seguridad social vigente y cursos exigidos)."
+                )
             # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
             # errores marcados en las filas del personal que incumple.
             context['form'] = form
             return self.render_to_response(context)
+
         form.instance.creado_por = self.request.user
         self.object = form.save()
         formset.instance = self.object
         formset.save()
-        messages.success(self.request, "Programación creada.")
-        return HttpResponseRedirect(self.get_success_url())
+
+        # Se genera la orden inmediatamente (no queda en borrador) y se envía la
+        # seguridad social al cliente, igual que al pulsar "Generar orden".
+        try:
+            orden = self.object.convertir_en_orden(self.request.user)
+        except ValueError as e:
+            # No debería ocurrir (ya validamos), pero si pasa queda en borrador.
+            messages.warning(self.request, f"Programación creada en borrador: {e}")
+            return HttpResponseRedirect(self.get_success_url())
+
+        messages.success(
+            self.request,
+            f"Programación creada y Orden #{orden.numero_orden} generada "
+            f"({orden.recorridos.count()} recorrido(s))."
+        )
+        try:
+            enviado, detalle = _enviar_seguridad_social_cliente(orden, self.object)
+        except Exception as e:
+            enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
+        (messages.success if enviado else messages.warning)(self.request, detalle.capitalize())
+
+        return HttpResponseRedirect(reverse('gestion:detalle_orden', kwargs={'pk': orden.pk}))
 
 
 class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
@@ -1434,6 +1480,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
                 instance=self.object, prefix='cuadrilla'
             )
         context['personal_docs'] = _estado_documentos_personal()
+        context['direcciones_clientes'] = _direcciones_clientes()
         return context
 
     def form_valid(self, form):
@@ -1510,7 +1557,7 @@ def _enviar_seguridad_social_cliente(orden, programacion):
     cuerpo = (
         f"Buen día,\n\n"
         f"Adjuntamos la seguridad social vigente del personal que participa "
-        f"en la orden de servicio #{orden.numero_orden}"
+        f"en la orden de servicio SOLMED #{orden.numero_orden}"
         f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
         + "\n".join(lineas)
         + "\n\nCordialmente,\nSOLMED SAS"
