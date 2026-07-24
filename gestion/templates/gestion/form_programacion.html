@@ -235,9 +235,9 @@
         </div>
         <div class="card-body p-4">
             <p class="text-muted small">
-                Se enviará al cliente la seguridad social del mes de todo el personal asignado en las
+                Se enviará al cliente la seguridad social vigente de todo el personal asignado en las
                 cuadrillas. Escribe arriba el <strong>correo del cliente (seguridad social)</strong> y aquí
-                verás cómo quedará el correo. Si a alguien le falta la seguridad social del mes, se avisa
+                verás cómo quedará el correo. Si a alguien le falta la seguridad social vigente, se avisa
                 y no se puede guardar.
             </p>
 
@@ -280,7 +280,7 @@
 <script>
 // Estado documental del personal: { "<id>": { nombre, faltan: [...],
 //   cursos: {CURSO_ALTURAS: true, ...}, es_ayudante, url,
-//   ss_al_dia, ss_periodo, ss_url } }
+//   ss_al_dia, ss_vence, ss_url } }
 var personalDocs = JSON.parse(document.getElementById('personal-docs-data').textContent);
 var contenedorAlertas = document.getElementById('alertas-documentos');
 
@@ -366,7 +366,7 @@ function revisarDocumentos() {
     personal.forEach(function (p) {
         var sinSS = !p.info || !p.info.ss_al_dia;
         var sinCurso = p.faltanCursos.length > 0;
-        // La fila se pinta en rojo si le falta la SS del mes o un curso exigido.
+        // La fila se pinta en rojo si le falta la SS vigente o un curso exigido.
         p.sel.classList.toggle('is-invalid', sinSS || sinCurso);
 
         if (sinCurso) {
@@ -388,7 +388,7 @@ function revisarDocumentos() {
     if (bloqueosSS.length > 0) {
         html += '<div class="alert alert-danger">'
             + '<strong><i class="bi bi-x-octagon-fill me-1"></i> No se puede guardar: '
-            + 'falta la seguridad social del mes de personal asignado (se enviará al cliente).</strong>'
+            + 'falta la seguridad social vigente de personal asignado (se enviará al cliente).</strong>'
             + '<ul class="mb-0 mt-1">';
         bloqueosSS.forEach(function (b) {
             html += '<li>' + esc(b.rol) + ' <strong>' + esc(b.nombre) + '</strong>'
@@ -459,7 +459,7 @@ function actualizarEnvioSS(personal) {
     }
 
     cuerpo.innerHTML =
-        'Buen día,<br><br>Adjuntamos la seguridad social del mes en curso del personal '
+        'Buen día,<br><br>Adjuntamos la seguridad social vigente del personal '
         + 'que participará en el servicio:<ul class="mt-2 mb-0">'
         + personal.map(function (p) {
             return '<li>' + esc(p.nombre) + ' <span class="text-muted">(' + esc(p.rol) + ')</span></li>';
@@ -473,7 +473,7 @@ function actualizarEnvioSS(personal) {
             listos++;
             return '<div class="list-group-item d-flex justify-content-between align-items-center">'
                 + '<span><i class="bi bi-file-earmark-pdf text-danger me-2"></i>'
-                + 'Seguridad social ' + esc(p.info.ss_periodo) + ' &mdash; <strong>' + esc(p.nombre) + '</strong>'
+                + 'Seguridad social (vigente hasta ' + esc(p.info.ss_vence) + ') &mdash; <strong>' + esc(p.nombre) + '</strong>'
                 + ' <span class="text-muted small">(' + esc(p.rol) + ')</span></span>'
                 + '<a href="' + p.info.ss_url + '" target="_blank" class="btn btn-sm btn-outline-primary">'
                 + '<i class="bi bi-eye"></i> Ver</a></div>';
@@ -481,7 +481,7 @@ function actualizarEnvioSS(personal) {
         return '<div class="list-group-item d-flex justify-content-between align-items-center list-group-item-danger">'
             + '<span><i class="bi bi-exclamation-triangle-fill me-2"></i>'
             + '<strong>' + esc(p.nombre) + '</strong> <span class="small">(' + esc(p.rol) + ')</span> '
-            + '&mdash; falta la seguridad social del mes</span>'
+            + '&mdash; sin seguridad social vigente</span>'
             + (p.info ? '<a href="' + p.info.url + '" target="_blank" class="btn btn-sm btn-outline-danger">'
                 + '<i class="bi bi-folder2-open"></i> Cargar</a>' : '')
             + '</div>';

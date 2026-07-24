@@ -919,6 +919,15 @@ class DocumentoPersonal(models.Model):
         return dias is not None and 0 <= dias <= self.DIAS_ALERTA_VENCIMIENTO
 
     @property
+    def vigente(self):
+        """
+        Tiene vigencia registrada (fecha de vencimiento) y aún no está vencido.
+        Es la base para saber si la seguridad social está al día: ya NO depende
+        del mes calendario, sino de la vigencia que se pone a mano al cargarla.
+        """
+        return self.fecha_vencimiento is not None and not self.vencido
+
+    @property
     def tiene_alerta(self):
         return self.vencido or self.por_vencer
 

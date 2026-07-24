@@ -22,8 +22,8 @@
 {% if exige_ss %}
 <div class="alert {% if ss_al_dia %}alert-success{% else %}alert-warning{% endif %} d-flex align-items-center">
     <i class="bi {% if ss_al_dia %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2"></i>
-    <div>Seguridad social del mes <strong>{{ mes_actual }}</strong>:
-        <strong>{% if ss_al_dia %}cargada{% else %}pendiente{% endif %}</strong>
+    <div>Seguridad social:
+        <strong>{% if ss_al_dia %}vigente hasta {{ ss_ultima.fecha_vencimiento|date:"d/m/Y" }}{% else %}pendiente / vencida{% endif %}</strong>
         <a href="{% url 'gestion:historial_seguridad_social' persona.pk %}" class="alert-link ms-2">
             <i class="bi bi-clock-history"></i> Ver historial
         </a>
@@ -77,16 +77,15 @@
                                 {% if slot.requerido %}<span class="badge bg-light text-dark border ms-1">Requerido</span>{% endif %}
                                 {% if slot.cargado %}
                                     <span class="badge bg-success ms-1"><i class="bi bi-check-circle"></i> Cargado</span>
-                                    {% if slot.es_ss %}<span class="badge bg-light text-dark border">Mes {{ slot.doc.periodo }}</span>{% endif %}
                                     {% if slot.doc.fecha_vencimiento %}
                                         {% if slot.doc.vencido %}<span class="badge bg-danger">Vencido</span>
                                         {% elif slot.doc.por_vencer %}<span class="badge bg-warning text-dark">Por vencer ({{ slot.doc.dias_restantes }} d)</span>
-                                        {% else %}<small class="text-muted">Vence {{ slot.doc.fecha_vencimiento|date:"d/m/Y" }}</small>{% endif %}
+                                        {% else %}<small class="text-muted">Vigente hasta {{ slot.doc.fecha_vencimiento|date:"d/m/Y" }}</small>{% endif %}
                                     {% endif %}
                                 {% elif slot.es_ss and ss_vencida %}
-                                    {# Al cambiar el mes, la del mes anterior se deshabilita sola. #}
-                                    <span class="badge bg-secondary ms-1"><i class="bi bi-slash-circle"></i> Vencida</span>
-                                    <small class="text-muted">la de {{ ss_ultima.periodo }} ya no está vigente</small>
+                                    {# Hay seguridad social cargada, pero toda vencida. #}
+                                    <span class="badge bg-danger ms-1"><i class="bi bi-slash-circle"></i> Vencida</span>
+                                    {% if ss_ultima.fecha_vencimiento %}<small class="text-muted">la última venció el {{ ss_ultima.fecha_vencimiento|date:"d/m/Y" }}</small>{% endif %}
                                 {% elif slot.requerido %}
                                     <span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle"></i> Falta</span>
                                 {% else %}
@@ -125,15 +124,17 @@
                         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center mt-2">
                             {% csrf_token %}
                             <input type="hidden" name="tipo" value="{{ slot.tipo }}">
-                            {% if slot.es_ss %}
-                            <div class="col-auto"><input type="month" name="periodo" value="{{ mes_actual }}" class="form-control form-control-sm" title="Mes que cubre"></div>
-                            {% endif %}
                             <div class="col flex-grow-1"><input type="file" name="archivo" class="form-control form-control-sm" required></div>
                             {% if slot.con_vigencia %}
-                            <div class="col-auto"><input type="date" name="fecha_vencimiento" class="form-control form-control-sm" title="Vigencia (opcional, se puede añadir después)"></div>
+                            <div class="col-auto">
+                                <input type="date" name="fecha_vencimiento" class="form-control form-control-sm"
+                                       title="Vigente hasta"
+                                       {% if slot.es_ss %}required placeholder="Vigente hasta"{% endif %}>
+                            </div>
                             {% endif %}
                             <div class="col-auto"><button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button></div>
                         </form>
+                        {% if slot.es_ss %}<small class="text-muted d-block mt-1">La seguridad social requiere la fecha «vigente hasta».</small>{% endif %}
                         {% endif %}
                     </div>
                     {% endfor %}

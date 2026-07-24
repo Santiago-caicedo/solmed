@@ -317,6 +317,20 @@ class CrearUsuarioForm(UserCreationForm):
         self.fields['password2'].label = "Confirmar contraseña"
         self.fields['password2'].help_text = "Escribe la misma contraseña para verificarla."
 
+def _nombre_persona(usuario):
+    """
+    Etiqueta para los desplegables de personal: el nombre completo, y solo si no
+    lo tiene, el identificador de la cuenta. Evita mostrar la cédula (que es el
+    username autogenerado de los ayudantes sin acceso).
+    """
+    return usuario.get_full_name() or usuario.username
+
+
+def _mostrar_nombres(campo):
+    """Hace que un ModelChoiceField de usuarios muestre el nombre, no el username."""
+    campo.label_from_instance = _nombre_persona
+
+
 def generar_username(first_name, last_name, numero_documento=''):
     """
     Construye un identificador interno único para una persona SIN acceso al
@@ -474,6 +488,10 @@ class RecorridoForm(forms.ModelForm):
         except Group.DoesNotExist:
             self.fields['ayudante'].queryset = User.objects.none()
 
+        # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
+        _mostrar_nombres(self.fields['conductor'])
+        _mostrar_nombres(self.fields['ayudante'])
+
 
 
 class ProgramacionForm(forms.ModelForm):
@@ -570,6 +588,9 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
             self.fields['ayudante'].queryset = Group.objects.get(name='Ayudantes').user_set.all()
         except Group.DoesNotExist:
             self.fields['ayudante'].queryset = User.objects.none()
+        # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
+        _mostrar_nombres(self.fields['conductor'])
+        _mostrar_nombres(self.fields['ayudante'])
 
 
 # Formset en línea: hasta 3 cuadrillas nuevas por defecto (CONDUCTOR 1/2/3 del formato).
@@ -593,9 +614,13 @@ class DocumentoPersonalForm(forms.ModelForm):
             'fecha_vencimiento': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
         }
         labels = {
-            'periodo': 'Mes que cubre (solo seguridad social)',
-            'fecha_vencimiento': 'Vencimiento (solo licencia)',
+            'periodo': 'Mes que cubre (opcional)',
+            'fecha_vencimiento': 'Vigente hasta',
         }
+
+    # Documentos cuya validez se controla por la vigencia (fecha de vencimiento)
+    # que se pone a mano al cargarlos. La seguridad social ya NO depende del mes.
+    TIPOS_REQUIEREN_VIGENCIA = ('SEGURIDAD_SOCIAL',)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -603,18 +628,19 @@ class DocumentoPersonalForm(forms.ModelForm):
         self.fields['descripcion'].required = False
         self.fields['fecha_vencimiento'].required = False
         self.fields['periodo'].required = False
-        # Sugerir el mes actual (útil para la seguridad social).
-        if not self.is_bound and not self.initial.get('periodo'):
-            self.fields['periodo'].initial = datetime.date.today().strftime('%Y-%m')
 
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get('tipo') == 'SEGURIDAD_SOCIAL':
-            # La seguridad social es mensual: si no indican el mes, se asume el actual.
-            if not cleaned.get('periodo'):
-                cleaned['periodo'] = datetime.date.today().strftime('%Y-%m')
-        else:
-            # El periodo solo aplica a seguridad social.
+        tipo = cleaned.get('tipo')
+        # La seguridad social ahora se controla por su vigencia (manual), no por
+        # el mes: exigimos la fecha "vigente hasta" al cargarla.
+        if tipo in self.TIPOS_REQUIEREN_VIGENCIA and not cleaned.get('fecha_vencimiento'):
+            self.add_error(
+                'fecha_vencimiento',
+                'Indica hasta qué fecha está vigente este documento.'
+            )
+        # El periodo (mes) es informativo y solo aplica a la seguridad social.
+        if tipo != 'SEGURIDAD_SOCIAL':
             cleaned['periodo'] = ''
         return cleaned
 

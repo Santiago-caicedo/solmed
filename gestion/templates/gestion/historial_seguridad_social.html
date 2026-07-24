@@ -17,26 +17,25 @@
 <div class="alert {% if al_dia %}alert-success{% else %}alert-warning{% endif %} d-flex align-items-center">
     <i class="bi {% if al_dia %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2"></i>
     <div>
-        Mes en curso <strong>{{ mes_actual }}</strong>:
-        <strong>{% if al_dia %}cargada{% else %}pendiente{% endif %}</strong>.
-        La seguridad social es mensual: al cambiar el mes, la del mes anterior deja de estar
-        vigente automáticamente y pasa a ser soporte histórico.
+        Seguridad social: <strong>{% if al_dia %}vigente{% else %}pendiente / vencida{% endif %}</strong>.
+        Cada carga lleva su vigencia (fecha «vigente hasta») puesta a mano; está vigente mientras no
+        venza, y el sistema avisa {{ dias_alerta }} días antes del vencimiento.
     </div>
 </div>
 
-{# ===== Cargar la del mes ===== #}
+{# ===== Cargar seguridad social ===== #}
 <div class="card shadow mb-4">
     <div class="card-header"><h5 class="mb-0">Cargar seguridad social</h5></div>
     <div class="card-body">
         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
             {% csrf_token %}
-            <div class="col-md-3">
-                <label for="periodo" class="form-label">Mes que cubre</label>
-                <input type="month" id="periodo" name="periodo" value="{{ mes_actual }}" class="form-control" required>
-            </div>
             <div class="col-md-6">
                 <label for="archivo" class="form-label">Archivo (planilla / soporte)</label>
                 <input type="file" id="archivo" name="archivo" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <label for="fecha_vencimiento" class="form-label">Vigente hasta</label>
+                <input type="date" id="fecha_vencimiento" name="fecha_vencimiento" class="form-control" required>
             </div>
             <div class="col-md-3">
                 <button class="btn btn-success w-100"><i class="bi bi-upload me-1"></i>Cargar</button>
@@ -45,7 +44,7 @@
     </div>
 </div>
 
-{# ===== Historial mes a mes ===== #}
+{# ===== Historial ===== #}
 <div class="card shadow mb-5">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Historial</h5>
@@ -56,7 +55,7 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>Mes que cubre</th>
+                        <th>Vigente hasta</th>
                         <th>Estado</th>
                         <th>Cargado el</th>
                         <th class="text-end">Acciones</th>
@@ -65,12 +64,13 @@
                 <tbody>
                     {% for r in registros %}
                     <tr {% if not r.vigente %}class="text-muted"{% endif %}>
-                        <td><strong>{{ r.doc.periodo|default:"—" }}</strong></td>
+                        <td><strong>{{ r.doc.fecha_vencimiento|date:"d/m/Y"|default:"—" }}</strong></td>
                         <td>
                             {% if r.vigente %}
                                 <span class="badge bg-success"><i class="bi bi-check-circle"></i> Vigente</span>
+                                {% if r.doc.por_vencer %}<span class="badge bg-warning text-dark">Por vencer ({{ r.doc.dias_restantes }} d)</span>{% endif %}
                             {% else %}
-                                <span class="badge bg-secondary"><i class="bi bi-slash-circle"></i> Vencida</span>
+                                <span class="badge bg-danger"><i class="bi bi-slash-circle"></i> Vencida</span>
                             {% endif %}
                         </td>
                         <td>{{ r.doc.fecha_subida|date:"d/m/Y H:i" }}</td>
@@ -79,7 +79,7 @@
                                 <i class="bi bi-file-earmark-arrow-down"></i> Ver
                             </a>
                             <form method="post" action="{% url 'gestion:eliminar_documento_personal' r.doc.pk %}"
-                                  class="d-inline" onsubmit="return confirm('¿Eliminar la seguridad social de {{ r.doc.periodo }}?');">
+                                  class="d-inline" onsubmit="return confirm('¿Eliminar esta seguridad social?');">
                                 {% csrf_token %}
                                 <input type="hidden" name="origen" value="seguridad_social">
                                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>

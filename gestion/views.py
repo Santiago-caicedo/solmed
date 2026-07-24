@@ -1141,7 +1141,7 @@ class RegistrarPagoView(AsesorRequiredMixin, CreateView):
 # Documentos estándar del expediente (también define el orden de presentación).
 DOCUMENTOS_ESTANDAR = [
     ('CEDULA', 'Cédula de ciudadanía'),
-    ('SEGURIDAD_SOCIAL', 'Seguridad social (mes actual)'),
+    ('SEGURIDAD_SOCIAL', 'Seguridad social vigente'),
     ('LICENCIA', 'Licencia de conducción'),
     ('CURSO_ALTURAS', 'Certificado curso de alturas'),
     ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
@@ -1171,8 +1171,9 @@ def _documentos_requeridos_por_rol(nombres_grupos):
 GRUPOS_SIN_ACCESO = {'Ayudantes'}
 
 # Documentos que llevan fecha de vigencia (se puede fijar/editar con el botón
-# "Vigencia" del expediente).
-TIPOS_CON_VIGENCIA = {'LICENCIA', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+# "Vigencia" del expediente). La seguridad social ahora se controla por vigencia
+# manual (ya no por el mes calendario).
+TIPOS_CON_VIGENCIA = {'SEGURIDAD_SOCIAL', 'LICENCIA', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
 
 
 def _grupo_es_sin_acceso(grupo):
@@ -1208,16 +1209,32 @@ def _documentos_aplicables_por_rol(nombres_grupos):
     return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in aplicables]
 
 
+def _ss_vigente(docs):
+    """
+    Seguridad social vigente de una persona: la de mayor fecha de vencimiento
+    entre las que aún no han vencido. La vigencia se fija a mano al cargarla, así
+    que ya NO se usa el mes calendario. Devuelve el DocumentoPersonal o None.
+    `docs` es la lista de sus documentos (ya cargada).
+    """
+    candidatas = [
+        d for d in docs
+        if d.tipo == 'SEGURIDAD_SOCIAL' and d.vigente
+    ]
+    if not candidatas:
+        return None
+    return max(candidatas, key=lambda d: d.fecha_vencimiento)
+
+
 def _estado_documentos_personal():
     """
     Por cada persona con requisitos documentales, los documentos REQUERIDOS que
     le faltan y el enlace a su ficha. Se pasa a la plantilla de programación
     (JSON) para avisar en vivo cuando se asigna a alguien sin la documentación
     al día.
-      - Conductores: cédula, seguridad social del mes y licencia.
-      - Ayudantes:   cédula y seguridad social del mes (los cursos se exigen
+      - Conductores: cédula, seguridad social vigente y licencia.
+      - Ayudantes:   cédula y seguridad social vigente (los cursos se exigen
                      desde cada programación, no en el expediente).
-      - Asesores:    seguridad social del mes.
+      - Asesores:    seguridad social vigente.
     """
     tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
     mes_actual = timezone.localdate().strftime('%Y-%m')
@@ -1233,14 +1250,15 @@ def _estado_documentos_personal():
         docs = list(u.documentos_personales.all())
         subidos = {d.tipo for d in docs}
         faltan = []
+        # Seguridad social: al día = existe una con vigencia y sin vencer (la
+        # vigencia se pone a mano al cargarla; ya no depende del mes calendario).
+        ss_doc = _ss_vigente(docs)
         for tipo, _label in DOCUMENTOS_ESTANDAR:   # orden estable de presentación
             if tipo not in requeridos:
                 continue
             if tipo == 'SEGURIDAD_SOCIAL':
-                # Mensual: debe existir la del mes actual.
-                al_dia = any(d.tipo == 'SEGURIDAD_SOCIAL' and d.periodo == mes_actual for d in docs)
-                if not al_dia:
-                    faltan.append(f'Seguridad social del mes ({mes_actual})')
+                if ss_doc is None:
+                    faltan.append('Seguridad social vigente')
             elif tipo not in subidos:
                 faltan.append(tipo_label[tipo])
         # Cursos vigentes (no obligatorios en el expediente, pero exigibles
@@ -1249,12 +1267,6 @@ def _estado_documentos_personal():
             tipo: any(d.tipo == tipo and not d.vencido for d in docs)
             for tipo, _etiqueta in CURSOS_EXIGIBLES
         }
-        # Seguridad social del mes en curso: es el documento que se enviará al
-        # cliente. Se guarda su estado y el enlace al archivo para la vista previa.
-        ss_doc = next(
-            (d for d in docs if d.tipo == 'SEGURIDAD_SOCIAL' and d.periodo == mes_actual),
-            None,
-        )
         data[u.id] = {
             'nombre': u.get_full_name() or u.username,
             'faltan': faltan,
@@ -1262,7 +1274,7 @@ def _estado_documentos_personal():
             'es_ayudante': 'Ayudantes' in nombres,
             'url': reverse('gestion:ficha_persona', args=[u.id]),
             'ss_al_dia': ss_doc is not None,
-            'ss_periodo': mes_actual if ss_doc else '',
+            'ss_vence': ss_doc.fecha_vencimiento.strftime('%d/%m/%Y') if ss_doc else '',
             'ss_url': ss_doc.archivo.url if ss_doc else '',
         }
     return data
@@ -1297,22 +1309,22 @@ def _validar_cursos_cuadrillas(form, formset):
     return todo_ok
 
 
-def _tiene_ss_del_mes(persona):
-    """True si la persona tiene cargada la seguridad social del mes en curso."""
+def _tiene_ss_vigente(persona):
+    """True si la persona tiene una seguridad social con vigencia sin vencer."""
     if persona is None:
         return True
-    mes_actual = timezone.localdate().strftime('%Y-%m')
     return persona.documentos_personales.filter(
-        tipo='SEGURIDAD_SOCIAL', periodo=mes_actual
+        tipo='SEGURIDAD_SOCIAL',
+        fecha_vencimiento__gte=timezone.localdate(),
     ).exists()
 
 
 def _validar_ss_cuadrillas(form, formset):
     """
-    La seguridad social del mes de TODO el personal asignado (conductores y
+    La seguridad social vigente de TODO el personal asignado (conductores y
     ayudantes) debe estar cargada: es lo que se enviará al cliente. Si a alguien
-    le falta, se marca el error en su fila y no se deja guardar.
-    Devuelve True si todos la tienen al día.
+    le falta o la tiene vencida, se marca el error en su fila y no se deja guardar.
+    Devuelve True si todos la tienen vigente.
     """
     todo_ok = True
     for fila in formset.forms:
@@ -1320,14 +1332,14 @@ def _validar_ss_cuadrillas(form, formset):
             continue
         for rol, campo in (('conductor', 'conductor'), ('ayudante', 'ayudante')):
             persona = fila.cleaned_data.get(campo)
-            if persona is None or _tiene_ss_del_mes(persona):
+            if persona is None or _tiene_ss_vigente(persona):
                 continue
             todo_ok = False
             nombre = persona.get_full_name() or persona.username
             fila.add_error(
                 campo,
-                f"{nombre} no tiene cargada la seguridad social del mes. Se enviará "
-                f"al cliente, así que debe estar al día: cárgala en su expediente."
+                f"{nombre} no tiene seguridad social vigente. Se enviará al cliente, "
+                f"así que debe estar al día: cárgala con su vigencia en el expediente."
             )
     return todo_ok
 
@@ -1383,7 +1395,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
-                "(seguridad social del mes y cursos exigidos)."
+                "(seguridad social vigente y cursos exigidos)."
             )
             # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
             # errores marcados en las filas del personal que incumple.
@@ -1435,7 +1447,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
-                "(seguridad social del mes y cursos exigidos)."
+                "(seguridad social vigente y cursos exigidos)."
             )
             # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
             # errores marcados en las filas del personal que incumple.
@@ -1460,7 +1472,7 @@ def _personal_de_la_orden(orden):
 
 def _enviar_seguridad_social_cliente(orden, programacion):
     """
-    Envía al cliente, por correo, la seguridad social del mes del personal de la
+    Envía al cliente, por correo, la seguridad social vigente del personal de la
     orden. Los archivos se leen del storage con .open() (funciona igual en S3 que
     en local, a diferencia de .path). El asunto lleva el número de orden y SOLMED.
 
@@ -1470,22 +1482,19 @@ def _enviar_seguridad_social_cliente(orden, programacion):
     if not destinatario:
         return False, "no se envió el correo de seguridad social: la programación no tiene correo del cliente."
 
-    mes = programacion.fecha.strftime('%Y-%m')
     personal = _personal_de_la_orden(orden)
     if not personal:
         return False, "no se envió el correo: la orden no tiene personal asignado."
 
     adjuntos = []          # (nombre_archivo, contenido, tipo)
     lineas = []            # cuerpo del correo
-    sin_ss = []            # personas sin la SS del mes
+    sin_ss = []            # personas sin SS vigente
     for persona, rol in personal:
         nombre = persona.get_full_name() or persona.username
-        doc = persona.documentos_personales.filter(
-            tipo='SEGURIDAD_SOCIAL', periodo=mes
-        ).order_by('-fecha_subida').first()
+        doc = _ss_vigente(list(persona.documentos_personales.all()))
         if not doc:
             sin_ss.append(f"{nombre} ({rol})")
-            lineas.append(f"- {nombre} ({rol}): SIN seguridad social del mes {mes}")
+            lineas.append(f"- {nombre} ({rol}): SIN seguridad social vigente")
             continue
         # Lectura segura tanto en S3 como en disco local.
         with doc.archivo.open('rb') as fh:
@@ -1494,13 +1503,13 @@ def _enviar_seguridad_social_cliente(orden, programacion):
         ext = os.path.splitext(base)[1] or '.pdf'
         nombre_limpio = nombre.replace(' ', '_')
         tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
-        adjuntos.append((f"SS_{mes}_{nombre_limpio}{ext}", contenido, tipo))
-        lineas.append(f"- {nombre} ({rol})")
+        adjuntos.append((f"SS_{nombre_limpio}{ext}", contenido, tipo))
+        lineas.append(f"- {nombre} ({rol}) — vigente hasta {doc.fecha_vencimiento.strftime('%d/%m/%Y')}")
 
     asunto = f"SOLMED - Seguridad social - Orden de servicio #{orden.numero_orden}"
     cuerpo = (
         f"Buen día,\n\n"
-        f"Adjuntamos la seguridad social del mes ({mes}) del personal que participa "
+        f"Adjuntamos la seguridad social vigente del personal que participa "
         f"en la orden de servicio #{orden.numero_orden}"
         f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
         + "\n".join(lineas)
@@ -1519,7 +1528,7 @@ def _enviar_seguridad_social_cliente(orden, programacion):
 
     detalle = f"correo de seguridad social enviado a {destinatario} ({len(adjuntos)} documento(s) adjunto(s))"
     if sin_ss:
-        detalle += f". OJO: sin seguridad social del mes: {', '.join(sin_ss)}"
+        detalle += f". OJO: sin seguridad social vigente: {', '.join(sin_ss)}"
     return True, detalle
 
 
@@ -1665,13 +1674,23 @@ class FichaPersonaView(AsesorRequiredMixin, View):
         grupos = set(persona.groups.values_list('name', flat=True))
         requeridos = _documentos_requeridos_por_rol(grupos)
 
+        # Seguridad social vigente (por fecha de vencimiento, no por mes).
+        ss_vigente = _ss_vigente(docs)
+        ss_todos = por_tipo.get('SEGURIDAD_SOCIAL', [])
+        # La más reciente cargada (para avisar cuál está vencida si no hay vigente).
+        ss_ultima = max(
+            ss_todos,
+            key=lambda d: d.fecha_vencimiento or datetime.date.min,
+            default=None,
+        )
+
         # Una casilla por cada documento que aplica al rol, con su estado.
         # Los cursos solo aparecen en ayudantes; la licencia, solo en conductores.
         slots = []
         for tipo, label in _documentos_aplicables_por_rol(grupos):
             if tipo == 'SEGURIDAD_SOCIAL':
-                # Cargada = existe la del mes actual.
-                doc = next((d for d in por_tipo.get(tipo, []) if d.periodo == mes_actual), None)
+                # Cargada = existe una con vigencia sin vencer (manual, no por mes).
+                doc = ss_vigente
             else:
                 lista = por_tipo.get(tipo, [])
                 doc = lista[0] if lista else None   # el más reciente (orden -fecha_subida)
@@ -1685,12 +1704,6 @@ class FichaPersonaView(AsesorRequiredMixin, View):
                 'con_vigencia': tipo in TIPOS_CON_VIGENCIA,
             })
 
-        # La seguridad social es mensual: al cambiar el mes, la del mes anterior
-        # deja de estar vigente automáticamente (solo cuenta la del mes actual).
-        # El resto queda en la pantalla de historial.
-        ss_todos = por_tipo.get('SEGURIDAD_SOCIAL', [])
-        ss_previos = [d for d in ss_todos if d.periodo != mes_actual]
-        ss_ultima = max(ss_previos, key=lambda d: d.periodo or '', default=None)
         otros = por_tipo.get('OTRO', [])
         faltan_requeridos = [s['label'] for s in slots if s['requerido'] and not s['cargado']]
 
@@ -1700,16 +1713,14 @@ class FichaPersonaView(AsesorRequiredMixin, View):
             'mes_actual': mes_actual,
             # Tiene requisitos documentales (conductores, ayudantes y asesores).
             'es_personal': bool(requeridos),
-            # La seguridad social es mensual para todos los que la llevan.
+            # Todos los que la llevan deben mantener su seguridad social vigente.
             'exige_ss': 'SEGURIDAD_SOCIAL' in requeridos,
             'sin_acceso': _persona_sin_acceso(persona),
             'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
-            'ss_al_dia': any(s['es_ss'] and s['cargado'] for s in slots),
+            'ss_al_dia': ss_vigente is not None,
             'slots': slots,
-            # Hay seguridad social de meses anteriores pero no la del mes en curso.
-            'ss_vencida': ss_ultima is not None and not any(
-                s['es_ss'] and s['cargado'] for s in slots
-            ),
+            # Hay seguridad social cargada pero ninguna vigente (todas vencidas).
+            'ss_vencida': ss_vigente is None and ss_ultima is not None,
             'ss_ultima': ss_ultima,
             'ss_total': len(ss_todos),
             'otros': otros,
@@ -1826,30 +1837,29 @@ class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
 
 class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
     """
-    Historial completo de la seguridad social de una persona, mes a mes.
-    Solo la del mes en curso está vigente: las anteriores quedan aquí como
-    soporte histórico (se deshabilitan solas al cambiar el mes).
+    Historial completo de la seguridad social de una persona. Cada carga lleva su
+    vigencia (fecha de vencimiento) puesta a mano: está vigente mientras no venza,
+    y las vencidas quedan aquí como soporte histórico.
     """
     template_name = 'gestion/historial_seguridad_social.html'
 
     def _context(self, persona):
-        mes_actual = timezone.localdate().strftime('%Y-%m')
         documentos = persona.documentos_personales.filter(
             tipo='SEGURIDAD_SOCIAL'
-        ).order_by('-periodo', '-fecha_subida')
+        ).order_by('-fecha_vencimiento', '-fecha_subida')
 
         registros = [{
             'doc': documento,
-            'vigente': documento.periodo == mes_actual,
+            'vigente': documento.vigente,
         } for documento in documentos]
 
         return {
             'persona': persona,
             'perfil': _perfil_de(persona),
-            'mes_actual': mes_actual,
             'registros': registros,
             'al_dia': any(r['vigente'] for r in registros),
             'total': len(registros),
+            'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
         }
 
     def get(self, request, pk):
@@ -1857,7 +1867,7 @@ class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
         return render(request, self.template_name, self._context(persona))
 
     def post(self, request, pk):
-        """Carga la seguridad social de un mes concreto desde el historial."""
+        """Carga una seguridad social (con su vigencia) desde el historial."""
         persona = get_object_or_404(User, pk=pk)
         datos = request.POST.copy()
         datos['tipo'] = 'SEGURIDAD_SOCIAL'
@@ -1866,9 +1876,13 @@ class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
             documento = form.save(commit=False)
             documento.usuario = persona
             documento.save()
-            messages.success(request, f"Seguridad social del mes {documento.periodo} cargada.")
+            messages.success(
+                request,
+                f"Seguridad social cargada (vigente hasta "
+                f"{documento.fecha_vencimiento.strftime('%d/%m/%Y')})."
+            )
         else:
-            messages.error(request, "No se pudo cargar el documento (revisa el archivo y el mes).")
+            messages.error(request, "No se pudo cargar: revisa el archivo y la vigencia.")
         return redirect('gestion:historial_seguridad_social', pk=pk)
 
 
