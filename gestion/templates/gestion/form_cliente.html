@@ -336,7 +336,7 @@
                         <input type="file" name="documentos_ambientales" id="id_documentos_ambientales" class="form-control" multiple>
                     </div>
 
-                    {% if object.documentos_ambientales.all %}
+                    {% if object.pk and object.documentos_ambientales.all %}
                     <label class="form-label mt-3">Documentos cargados</label>
                     <ul class="list-group doc-list">
                         {% for doc in object.documentos_ambientales.all %}
@@ -358,38 +358,69 @@
 
             <div class="card shadow mb-4 border-primary">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-envelope-paper me-1"></i>Documentos para el correo de la orden <span class="text-muted text-lowercase" style="letter-spacing:0">(carga múltiple)</span></h5>
+                    <h5 class="mb-0"><i class="bi bi-envelope-paper me-1"></i>Documentos para el correo de la orden</h5>
                 </div>
                 <div class="card-body p-4">
                     <p class="text-muted small mb-3">
                         <i class="bi bi-info-circle me-1"></i>
-                        Estos documentos se <strong>adjuntan automáticamente al correo</strong> que se envía al
-                        cliente cada vez que se genera una orden suya (junto con la seguridad social del personal).
+                        Escribe el nombre y carga el documento. Estos se <strong>adjuntan automáticamente al correo</strong>
+                        que se envía al cliente cada vez que se genera una orden suya (junto con la seguridad social).
                     </p>
-                    <div class="dropzone">
-                        <i class="bi bi-cloud-arrow-up dz-icon"></i>
-                        <div class="dz-title">Subir documentos para el correo</div>
-                        <div class="dz-hint">Ej: certificados, licencias, formatos del cliente… Puedes seleccionar varios a la vez.</div>
-                        <input type="file" name="documentos_correo" id="id_documentos_correo" class="form-control" multiple>
+                    {{ doc_correo_formset.management_form }}
+                    {% if doc_correo_formset.non_form_errors %}
+                    <div class="alert alert-danger">{% for e in doc_correo_formset.non_form_errors %}<div>{{ e }}</div>{% endfor %}</div>
+                    {% endif %}
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="min-width:200px">Nombre del documento</th>
+                                    <th style="min-width:260px">Archivo</th>
+                                    <th class="text-center" style="width:48px"><i class="bi bi-trash"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="doccorreo-tbody">
+                                {% for df in doc_correo_formset %}
+                                <tr class="doccorreo-row">
+                                    {% for hidden in df.hidden_fields %}{{ hidden }}{% endfor %}
+                                    <td>
+                                        {{ df.descripcion }}
+                                        {% for e in df.descripcion.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                    </td>
+                                    <td>
+                                        {% if df.instance.pk and df.instance.archivo %}
+                                        <div class="file-chip mb-1"><i class="bi bi-paperclip"></i>
+                                            <a href="{{ df.instance.archivo.url }}" target="_blank">Ver actual</a></div>
+                                        {% endif %}
+                                        {{ df.archivo }}
+                                        {% for e in df.archivo.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="d-none">{{ df.DELETE }}</span>
+                                        <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-doccorreo" title="Eliminar"><i class="bi bi-trash"></i></button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
 
-                    {% if object.documentos_correo.all %}
-                    <label class="form-label mt-3">Se adjuntan al correo de cada orden</label>
-                    <ul class="list-group doc-list">
-                        {% for doc in object.documentos_correo.all %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span class="text-truncate">
-                                <i class="bi bi-paperclip me-1 text-muted"></i>
-                                <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
-                                <small class="text-muted ms-1">{{ doc.fecha_subida|date:"d/m/Y" }}</small>
-                            </span>
-                            <label class="text-danger small mb-0 ms-2 text-nowrap">
-                                <input type="checkbox" name="eliminar_doc_correo" value="{{ doc.pk }}"> Eliminar
-                            </label>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% endif %}
+                    <button type="button" id="btn-agregar-doccorreo" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-plus-circle me-1"></i> Añadir documento
+                    </button>
+
+                    <template id="doccorreo-empty-form">
+                        <tr class="doccorreo-row">
+                            {% for hidden in doc_correo_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+                            <td>{{ doc_correo_formset.empty_form.descripcion }}</td>
+                            <td>{{ doc_correo_formset.empty_form.archivo }}</td>
+                            <td class="text-center">
+                                <span class="d-none">{{ doc_correo_formset.empty_form.DELETE }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-doccorreo" title="Eliminar"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    </template>
                 </div>
             </div>
         </div>
@@ -469,6 +500,36 @@
         var boton = e.target.closest('.btn-eliminar-sede');
         if (!boton) return;
         var fila = boton.closest('.sede-row');
+        if (!fila) return;
+        var del = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        if (del) { del.checked = true; fila.style.display = 'none'; }
+        else { fila.remove(); }
+    });
+})();
+
+// ===== Documentos para el correo: añadir / quitar filas del formset =====
+(function () {
+    var tbody = document.getElementById('doccorreo-tbody');
+    var plantilla = document.getElementById('doccorreo-empty-form');
+    var totalInput = document.querySelector('input[name="doccorreo-TOTAL_FORMS"]');
+    var btnAgregar = document.getElementById('btn-agregar-doccorreo');
+    if (!tbody || !plantilla || !totalInput || !btnAgregar) return;
+
+    btnAgregar.addEventListener('click', function () {
+        var index = parseInt(totalInput.value, 10);
+        var html = plantilla.innerHTML.replace(/__prefix__/g, index).trim();
+        var temp = document.createElement('tbody');
+        temp.innerHTML = html;
+        var fila = temp.querySelector('tr');
+        if (!fila) return;
+        tbody.appendChild(fila);
+        totalInput.value = index + 1;
+    });
+
+    document.addEventListener('click', function (e) {
+        var boton = e.target.closest('.btn-eliminar-doccorreo');
+        if (!boton) return;
+        var fila = boton.closest('.doccorreo-row');
         if (!fila) return;
         var del = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
         if (del) { del.checked = true; fila.style.display = 'none'; }

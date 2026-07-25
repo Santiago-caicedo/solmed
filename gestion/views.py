@@ -31,7 +31,7 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente
 
 
@@ -286,20 +286,31 @@ class ClienteFormMixin:
                 )
             else:
                 context['sede_formset'] = SedeFormSet(instance=self.object, prefix='sede')
+        if 'doc_correo_formset' not in context:
+            if self.request.method == 'POST':
+                context['doc_correo_formset'] = DocumentoCorreoFormSet(
+                    self.request.POST, self.request.FILES, instance=self.object, prefix='doccorreo'
+                )
+            else:
+                context['doc_correo_formset'] = DocumentoCorreoFormSet(instance=self.object, prefix='doccorreo')
         return context
 
     def form_valid(self, form):
-        # El cliente aún sin guardar, para enlazar el formset de sedes.
+        # El cliente aún sin guardar, para enlazar los formsets.
         self.object = form.save(commit=False)
         sede_formset = SedeFormSet(self.request.POST, instance=self.object, prefix='sede')
-        if not sede_formset.is_valid():
-            # Cliente + sedes se validan juntos: si una sede falla, no se guarda nada.
-            return self.render_to_response(
-                self.get_context_data(form=form, sede_formset=sede_formset)
-            )
+        doc_correo_formset = DocumentoCorreoFormSet(
+            self.request.POST, self.request.FILES, instance=self.object, prefix='doccorreo'
+        )
+        # Cliente + sedes + documentos se validan juntos: si algo falla, no se guarda nada.
+        if not (sede_formset.is_valid() and doc_correo_formset.is_valid()):
+            return self.render_to_response(self.get_context_data(
+                form=form, sede_formset=sede_formset, doc_correo_formset=doc_correo_formset
+            ))
         self.object.save()
-        sede_formset.instance = self.object
-        sede_formset.save()
+        for fs in (sede_formset, doc_correo_formset):
+            fs.instance = self.object
+            fs.save()
 
         # Documentos ambientales (carga múltiple + eliminación de los marcados).
         ids_eliminar = self.request.POST.getlist('eliminar_doc_ambiental')
@@ -307,13 +318,6 @@ class ClienteFormMixin:
             self.object.documentos_ambientales.filter(pk__in=ids_eliminar).delete()
         for archivo in self.request.FILES.getlist('documentos_ambientales'):
             DocumentoAmbientalCliente.objects.create(cliente=self.object, archivo=archivo)
-
-        # Documentos que se adjuntan al correo de la orden (carga múltiple).
-        ids_eliminar_correo = self.request.POST.getlist('eliminar_doc_correo')
-        if ids_eliminar_correo:
-            self.object.documentos_correo.filter(pk__in=ids_eliminar_correo).delete()
-        for archivo in self.request.FILES.getlist('documentos_correo'):
-            DocumentoCorreoCliente.objects.create(cliente=self.object, archivo=archivo)
 
         messages.success(self.request, "Cliente guardado.")
         return HttpResponseRedirect(self.get_success_url())

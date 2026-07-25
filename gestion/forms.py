@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -116,6 +116,32 @@ class SedeForm(forms.ModelForm):
 # Sedes del cliente (bloque dinámico en el formulario de cliente).
 SedeFormSet = forms.inlineformset_factory(
     Cliente, Sede, form=SedeForm,
+    extra=1, can_delete=True,
+)
+
+
+class DocumentoCorreoForm(forms.ModelForm):
+    """
+    Un documento del cliente que se adjunta al correo de sus órdenes: se escribe
+    el nombre y luego se carga el archivo (como en el expediente del personal).
+    """
+    class Meta:
+        model = DocumentoCorreoCliente
+        fields = ['descripcion', 'archivo']
+        widgets = {
+            'descripcion': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre del documento'}),
+            'archivo': forms.FileInput(attrs={'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # El nombre es obligatorio (en las filas que se diligencien).
+        self.fields['descripcion'].required = True
+
+
+# Documentos del cliente para el correo (bloque dinámico: nombre + archivo por fila).
+DocumentoCorreoFormSet = forms.inlineformset_factory(
+    Cliente, DocumentoCorreoCliente, form=DocumentoCorreoForm,
     extra=1, can_delete=True,
 )
 
