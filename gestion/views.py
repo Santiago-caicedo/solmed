@@ -32,7 +32,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Mani
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
+from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
@@ -307,6 +307,13 @@ class ClienteFormMixin:
             self.object.documentos_ambientales.filter(pk__in=ids_eliminar).delete()
         for archivo in self.request.FILES.getlist('documentos_ambientales'):
             DocumentoAmbientalCliente.objects.create(cliente=self.object, archivo=archivo)
+
+        # Documentos que se adjuntan al correo de la orden (carga múltiple).
+        ids_eliminar_correo = self.request.POST.getlist('eliminar_doc_correo')
+        if ids_eliminar_correo:
+            self.object.documentos_correo.filter(pk__in=ids_eliminar_correo).delete()
+        for archivo in self.request.FILES.getlist('documentos_correo'):
+            DocumentoCorreoCliente.objects.create(cliente=self.object, archivo=archivo)
 
         messages.success(self.request, "Cliente guardado.")
         return HttpResponseRedirect(self.get_success_url())
@@ -1434,6 +1441,18 @@ def _sedes_por_cliente():
     return data
 
 
+def _docs_correo_por_cliente():
+    """
+    Mapa {id_cliente: [nombre_documento, ...]} de los documentos del cliente que
+    se adjuntan al correo de la orden, para mostrarlos en la vista previa.
+    """
+    data = {}
+    for doc in DocumentoCorreoCliente.objects.select_related('cliente'):
+        nombre = doc.descripcion or os.path.basename(doc.archivo.name)
+        data.setdefault(str(doc.cliente_id), []).append(nombre)
+    return data
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
@@ -1472,6 +1491,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         context['personal_docs'] = _estado_documentos_personal()
         context['direcciones_clientes'] = _direcciones_clientes()
         context['sedes_por_cliente'] = _sedes_por_cliente()
+        context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
         return context
 
     def form_valid(self, form):
@@ -1566,6 +1586,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         context['personal_docs'] = _estado_documentos_personal()
         context['direcciones_clientes'] = _direcciones_clientes()
         context['sedes_por_cliente'] = _sedes_por_cliente()
+        context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
         return context
 
     def form_valid(self, form):
@@ -1638,6 +1659,17 @@ def _enviar_seguridad_social_cliente(orden, programacion):
         adjuntos.append((f"SS_{nombre_limpio}{ext}", contenido, tipo))
         lineas.append(f"- {nombre} ({rol}) — vigente hasta {doc.fecha_vencimiento.strftime('%d/%m/%Y')}")
 
+    # Documentos del cliente que se adjuntan a TODA orden suya (además de la SS).
+    lineas_cliente = []
+    if orden.cliente_id:
+        for doc in orden.cliente.documentos_correo.all():
+            with doc.archivo.open('rb') as fh:
+                contenido = fh.read()
+            base = os.path.basename(doc.archivo.name)
+            tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
+            adjuntos.append((base, contenido, tipo))
+            lineas_cliente.append(f"- {doc.descripcion or base}")
+
     asunto = f"SOLMED - Seguridad social - Orden de servicio #{orden.numero_orden}"
     cuerpo = (
         f"Buen día,\n\n"
@@ -1645,8 +1677,10 @@ def _enviar_seguridad_social_cliente(orden, programacion):
         f"en la orden de servicio SOLMED #{orden.numero_orden}"
         f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
         + "\n".join(lineas)
-        + "\n\nCordialmente,\nSOLMED SAS"
     )
+    if lineas_cliente:
+        cuerpo += "\n\nDocumentos del cliente:\n" + "\n".join(lineas_cliente)
+    cuerpo += "\n\nCordialmente,\nSOLMED SAS"
 
     correo = EmailMessage(
         subject=asunto,

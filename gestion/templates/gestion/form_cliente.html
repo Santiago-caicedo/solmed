@@ -355,6 +355,43 @@
                     {% endif %}
                 </div>
             </div>
+
+            <div class="card shadow mb-4 border-primary">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-envelope-paper me-1"></i>Documentos para el correo de la orden <span class="text-muted text-lowercase" style="letter-spacing:0">(carga múltiple)</span></h5>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Estos documentos se <strong>adjuntan automáticamente al correo</strong> que se envía al
+                        cliente cada vez que se genera una orden suya (junto con la seguridad social del personal).
+                    </p>
+                    <div class="dropzone">
+                        <i class="bi bi-cloud-arrow-up dz-icon"></i>
+                        <div class="dz-title">Subir documentos para el correo</div>
+                        <div class="dz-hint">Ej: certificados, licencias, formatos del cliente… Puedes seleccionar varios a la vez.</div>
+                        <input type="file" name="documentos_correo" id="id_documentos_correo" class="form-control" multiple>
+                    </div>
+
+                    {% if object.documentos_correo.all %}
+                    <label class="form-label mt-3">Se adjuntan al correo de cada orden</label>
+                    <ul class="list-group doc-list">
+                        {% for doc in object.documentos_correo.all %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">
+                                <i class="bi bi-paperclip me-1 text-muted"></i>
+                                <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
+                                <small class="text-muted ms-1">{{ doc.fecha_subida|date:"d/m/Y" }}</small>
+                            </span>
+                            <label class="text-danger small mb-0 ms-2 text-nowrap">
+                                <input type="checkbox" name="eliminar_doc_correo" value="{{ doc.pk }}"> Eliminar
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
     </div>

@@ -287,6 +287,7 @@
 {{ personal_docs|json_script:"personal-docs-data" }}
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
+{{ docs_correo_por_cliente|json_script:"docs-correo-data" }}
 <script>
 // --- Sede dependiente + autocompletar dirección al elegir cliente / sede ---
 // direccionesClientes: { "<id_cliente>": "dirección" }
@@ -362,6 +363,8 @@ var sedesPorCliente = JSON.parse(document.getElementById('sedes-cliente-data').t
 //   ss_al_dia, ss_vence, ss_url } }
 var personalDocs = JSON.parse(document.getElementById('personal-docs-data').textContent);
 var contenedorAlertas = document.getElementById('alertas-documentos');
+// Documentos del cliente que se adjuntan al correo: { "<id_cliente>": [nombre, ...] }
+var docsCorreoPorCliente = JSON.parse(document.getElementById('docs-correo-data').textContent);
 
 // --- Cursos exigidos por ESTA programación al ayudante ---
 var CURSOS = [
@@ -553,6 +556,9 @@ function actualizarEnvioSS(personal) {
         return;
     }
 
+    // Documentos del cliente que se adjuntan a toda orden suya.
+    var docsCliente = (selCliente && docsCorreoPorCliente[selCliente.value]) || [];
+
     // Cuerpo igual al correo real: por cada persona su vigencia (o el aviso si falta).
     var lineas = personal.map(function (p) {
         var alDia = p.info && p.info.ss_al_dia;
@@ -567,10 +573,15 @@ function actualizarEnvioSS(personal) {
         + 'en la orden de servicio SOLMED ' + esc(ORDEN)
         + (cliente ? ' para ' + esc(cliente) : '') + ':'
         + '<ul class="mt-2 mb-2">' + lineas + '</ul>'
+        + (docsCliente.length
+            ? 'Documentos del cliente:<ul class="mt-2 mb-2">'
+              + docsCliente.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('')
+              + '</ul>'
+            : '')
         + 'Cordialmente,<br>SOLMED SAS';
 
     var listos = 0;
-    adjuntos.innerHTML = personal.map(function (p) {
+    var filas = personal.map(function (p) {
         var alDia = p.info && p.info.ss_al_dia;
         if (alDia) {
             listos++;
@@ -588,9 +599,18 @@ function actualizarEnvioSS(personal) {
             + (p.info ? '<a href="' + p.info.url + '" target="_blank" class="btn btn-sm btn-outline-danger">'
                 + '<i class="bi bi-folder2-open"></i> Cargar</a>' : '')
             + '</div>';
-    }).join('');
+    });
+    // Documentos fijos del cliente, al final de la lista de adjuntos.
+    docsCliente.forEach(function (n) {
+        filas.push('<div class="list-group-item d-flex align-items-center">'
+            + '<i class="bi bi-paperclip text-muted me-2"></i>'
+            + esc(n) + ' <span class="text-muted small ms-1">(documento del cliente)</span></div>');
+    });
+    adjuntos.innerHTML = filas.join('');
 
-    contador.textContent = listos + ' de ' + personal.length + ' documento' + (personal.length === 1 ? '' : 's');
+    var total = personal.length + docsCliente.length;
+    var conDoc = listos + docsCliente.length;
+    contador.textContent = conDoc + ' de ' + total + ' documento' + (total === 1 ? '' : 's');
 }
 
 // Deshabilita el botón de guardar mientras haya un bloqueo (SS o cursos).

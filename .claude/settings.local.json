@@ -33,7 +33,10 @@
       "Bash(python3 -m py_compile gestion/models.py gestion/forms.py gestion/migrations/0022_remove_cuadrilla_conductor_novedad.py)",
       "Bash(PYTHONPATH=/tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad DJANGO_SETTINGS_MODULE=tsettings_file python3 manage.py seed_personal)",
       "Bash(PYTHONPATH=/tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad DJANGO_SETTINGS_MODULE=tsettings_file python3 -)",
-      "Bash(PYTHONPATH=__TRACKED_VAR__ DJANGO_SETTINGS_MODULE=tsettings_file python3 manage.py seed_personal --wipe)"
+      "Bash(PYTHONPATH=__TRACKED_VAR__ DJANGO_SETTINGS_MODULE=tsettings_file python3 manage.py seed_personal --wipe)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(awk '/^function actualizarEnvioSS/,/^}/' gestion/templates/gestion/form_programacion.html)"
     ]
   }
 }

@@ -77,6 +77,26 @@ class DocumentoAmbientalCliente(models.Model):
         return self.archivo.name.split('/')[-1]
 
 
+class DocumentoCorreoCliente(models.Model):
+    """
+    Documentos del cliente que se adjuntan AUTOMÁTICAMENTE al correo que se envía
+    al generar cada orden de ese cliente (junto con la seguridad social del
+    personal). Carga múltiple, igual que los documentos ambientales.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='documentos_correo')
+    archivo = models.FileField(upload_to='clientes_documentos/correo/')
+    descripcion = models.CharField(max_length=255, blank=True)
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_subida']
+        verbose_name = "Documento del cliente para el correo"
+        verbose_name_plural = "Documentos del cliente para el correo"
+
+    def __str__(self):
+        return self.descripcion or self.archivo.name.split('/')[-1]
+
+
 class Sede(models.Model):
     """
     Sede (sucursal / punto) de un cliente. Un cliente puede tener varias
