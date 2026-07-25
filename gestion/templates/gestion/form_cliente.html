@@ -1,247 +1,335 @@
 {% extends "gestion/base.html" %}
 
 {% block content %}
-<div class="card shadow">
-    <div class="card-header">
-        <h4 class="mb-0">{% if object %}Editar Cliente{% else %}Añadir Nuevo Cliente{% endif %}</h4>
-    </div>
-    <div class="card-body p-4">
-        <form method="post" enctype="multipart/form-data" novalidate>
-            {% csrf_token %}
-
-            {% if form.errors %}
-            <div class="alert alert-danger">
-                <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Revisa el formulario:</strong>
-                <ul class="mb-0">
-                    {% for field in form %}
-                        {% for error in field.errors %}
-                            <li>{{ field.label }}: {{ error }}</li>
-                        {% endfor %}
-                    {% endfor %}
-                    {% for error in form.non_field_errors %}
-                        <li>{{ error }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-
-            <h5>Información de la Empresa</h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-8">
-                    <label for="{{ form.nombre.id_for_label }}" class="form-label">Razón Social</label>
-                    {{ form.nombre }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.sigla.id_for_label }}" class="form-label">Sigla</label>
-                    {{ form.sigla }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.identificacion.id_for_label }}" class="form-label">NIT / Identificación</label>
-                    {{ form.identificacion }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
-                    {{ form.direccion }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.ciudad.id_for_label }}" class="form-label">Ciudad</label>
-                    {{ form.ciudad }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.telefono_fijo.id_for_label }}" class="form-label">Teléfono Fijo</label>
-                    {{ form.telefono_fijo }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.telefono_celular.id_for_label }}" class="form-label">Teléfono Celular</label>
-                    {{ form.telefono_celular }}
-                </div>
-            </div>
-
-            <h5>Información de Contacto</h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label for="{{ form.persona_contacto.id_for_label }}" class="form-label">Nombre del Contacto</label>
-                    {{ form.persona_contacto }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.cargo_contacto.id_for_label }}" class="form-label">Cargo del Contacto</label>
-                    {{ form.cargo_contacto }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.email.id_for_label }}" class="form-label">Correo del Contacto</label>
-                    {{ form.email }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.telefono.id_for_label }}" class="form-label">Teléfono del Contacto</label>
-                    {{ form.telefono }}
-                </div>
-            </div>
-
-            <h5>Contacto Comercial <small class="text-muted">(opcional)</small></h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label for="{{ form.comercial_nombre.id_for_label }}" class="form-label">Nombre</label>
-                    {{ form.comercial_nombre }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.comercial_cargo.id_for_label }}" class="form-label">Cargo</label>
-                    {{ form.comercial_cargo }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.comercial_telefono.id_for_label }}" class="form-label">Teléfono</label>
-                    {{ form.comercial_telefono }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.comercial_correo.id_for_label }}" class="form-label">Correo</label>
-                    {{ form.comercial_correo }}
-                </div>
-            </div>
-
-            <h5>Contacto Contabilidad - Facturación Electrónica <small class="text-muted">(opcional)</small></h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label for="{{ form.contab_nombre.id_for_label }}" class="form-label">Nombre</label>
-                    {{ form.contab_nombre }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.contab_cargo.id_for_label }}" class="form-label">Cargo</label>
-                    {{ form.contab_cargo }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.contab_telefono.id_for_label }}" class="form-label">Teléfono</label>
-                    {{ form.contab_telefono }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.contab_correo.id_for_label }}" class="form-label">Correo</label>
-                    {{ form.contab_correo }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.contab_correo_facturacion.id_for_label }}" class="form-label">Correo de Facturación Electrónica</label>
-                    {{ form.contab_correo_facturacion }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.contab_domicilio_fiscal.id_for_label }}" class="form-label">Domicilio Fiscal</label>
-                    {{ form.contab_domicilio_fiscal }}
-                </div>
-            </div>
-
-            <h5>Contacto Ambiental <small class="text-muted">(opcional)</small></h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label for="{{ form.ambiental_nombre.id_for_label }}" class="form-label">Nombre</label>
-                    {{ form.ambiental_nombre }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.ambiental_cargo.id_for_label }}" class="form-label">Cargo</label>
-                    {{ form.ambiental_cargo }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.ambiental_telefono.id_for_label }}" class="form-label">Teléfono</label>
-                    {{ form.ambiental_telefono }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.ambiental_correo.id_for_label }}" class="form-label">Correo</label>
-                    {{ form.ambiental_correo }}
-                </div>
-            </div>
-
-            <h5>Contacto SST <small class="text-muted">(opcional)</small></h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-6">
-                    <label for="{{ form.sst_nombre.id_for_label }}" class="form-label">Nombre</label>
-                    {{ form.sst_nombre }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.sst_cargo.id_for_label }}" class="form-label">Cargo</label>
-                    {{ form.sst_cargo }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.sst_telefono.id_for_label }}" class="form-label">Teléfono</label>
-                    {{ form.sst_telefono }}
-                </div>
-                <div class="col-md-6">
-                    <label for="{{ form.sst_correo.id_for_label }}" class="form-label">Correo</label>
-                    {{ form.sst_correo }}
-                </div>
-            </div>
-
-            <h5>Documentos a Adjuntar <small class="text-muted">(opcional)</small></h5>
-            <hr>
-            <div class="row g-3 mb-4">
-                <div class="col-md-4">
-                    <label for="{{ form.doc_rut.id_for_label }}" class="form-label">RUT actualizado</label>
-                    {% if form.instance.doc_rut %}
-                    <div class="file-chip">
-                        <i class="bi bi-file-earmark-text-fill"></i>
-                        <a href="{{ form.instance.doc_rut.url }}" target="_blank">Ver documento actual</a>
-                    </div>
-                    {% endif %}
-                    {{ form.doc_rut }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.doc_camara_comercio.id_for_label }}" class="form-label">Cámara de Comercio</label>
-                    {% if form.instance.doc_camara_comercio %}
-                    <div class="file-chip">
-                        <i class="bi bi-file-earmark-text-fill"></i>
-                        <a href="{{ form.instance.doc_camara_comercio.url }}" target="_blank">Ver documento actual</a>
-                    </div>
-                    {% endif %}
-                    {{ form.doc_camara_comercio }}
-                </div>
-                <div class="col-md-4">
-                    <label for="{{ form.doc_cedula_rep_legal.id_for_label }}" class="form-label">Cédula del Representante Legal</label>
-                    {% if form.instance.doc_cedula_rep_legal %}
-                    <div class="file-chip">
-                        <i class="bi bi-file-earmark-text-fill"></i>
-                        <a href="{{ form.instance.doc_cedula_rep_legal.url }}" target="_blank">Ver documento actual</a>
-                    </div>
-                    {% endif %}
-                    {{ form.doc_cedula_rep_legal }}
-                </div>
-            </div>
-
-            <h5>Documentos Ambientales <small class="text-muted">(carga múltiple, opcional)</small></h5>
-            <hr>
-            <div class="mb-4">
-                <div class="dropzone">
-                    <i class="bi bi-cloud-arrow-up dz-icon"></i>
-                    <div class="dz-title">Subir documentos ambientales</div>
-                    <div class="dz-hint">Documento Ambiental, Caracterización, Análisis Químico, Declaración de Residuo, Soporte de Conocimiento del Residuo… Puedes seleccionar varios a la vez.</div>
-                    <input type="file" name="documentos_ambientales" id="id_documentos_ambientales" class="form-control" multiple>
-                </div>
-
-                {% if object.documentos_ambientales.all %}
-                <label class="form-label mt-3">Documentos cargados</label>
-                <ul class="list-group doc-list">
-                    {% for doc in object.documentos_ambientales.all %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <span class="text-truncate">
-                            <i class="bi bi-file-earmark-text me-1 text-muted"></i>
-                            <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
-                            <small class="text-muted ms-1">{{ doc.fecha_subida|date:"d/m/Y" }}</small>
-                        </span>
-                        <label class="text-danger small mb-0 ms-2 text-nowrap">
-                            <input type="checkbox" name="eliminar_doc_ambiental" value="{{ doc.pk }}"> Eliminar
-                        </label>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-            </div>
-
-            <div class="d-flex justify-content-end">
-                <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-secondary me-2">Cancelar</a>
-                <button type="submit" class="btn btn-success">
-                    <i class="bi bi-check-circle me-1"></i> Guardar Cliente
-                </button>
-            </div>
-        </form>
-    </div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">
+        <i class="bi bi-building me-2"></i>{% if object %}Editar cliente{% else %}Nuevo cliente{% endif %}
+    </h1>
+    <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver
+    </a>
 </div>
+
+<form method="post" enctype="multipart/form-data" novalidate id="form-cliente">
+    {% csrf_token %}
+
+    {% if form.errors %}
+    <div class="alert alert-danger">
+        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Revisa los campos marcados:</strong>
+        <ul class="mb-0 mt-1">
+            {% for field in form %}{% for error in field.errors %}<li>{{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {# ===== Pestañas ===== #}
+    <ul class="nav nav-pills mb-4 gap-2" id="tabs-cliente" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-datos" type="button" role="tab">
+                <i class="bi bi-building me-1"></i> Datos de la empresa
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-contactos" type="button" role="tab">
+                <i class="bi bi-people me-1"></i> Contactos
+                <span class="badge bg-light text-muted border ms-1">opcional</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-docs" type="button" role="tab">
+                <i class="bi bi-paperclip me-1"></i> Documentos
+                <span class="badge bg-light text-muted border ms-1">opcional</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        {# ========================= TAB 1: DATOS ========================= #}
+        <div class="tab-pane fade show active" id="tab-datos" role="tabpanel">
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-building me-1"></i>Información de la empresa</h5></div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label for="{{ form.nombre.id_for_label }}" class="form-label">Razón social <span class="text-danger">*</span></label>
+                            {{ form.nombre }}
+                            {% for e in form.nombre.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.sigla.id_for_label }}" class="form-label">Sigla</label>
+                            {{ form.sigla }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.identificacion.id_for_label }}" class="form-label">NIT / Identificación <span class="text-danger">*</span></label>
+                            {{ form.identificacion }}
+                            {% for e in form.identificacion.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
+                            {{ form.direccion }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.ciudad.id_for_label }}" class="form-label">Ciudad</label>
+                            {{ form.ciudad }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.telefono_fijo.id_for_label }}" class="form-label">Teléfono fijo</label>
+                            {{ form.telefono_fijo }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.telefono_celular.id_for_label }}" class="form-label">Teléfono celular</label>
+                            {{ form.telefono_celular }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-lines-fill me-1"></i>Contacto principal</h5></div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="{{ form.persona_contacto.id_for_label }}" class="form-label">Nombre del contacto</label>
+                            {{ form.persona_contacto }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.cargo_contacto.id_for_label }}" class="form-label">Cargo</label>
+                            {{ form.cargo_contacto }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.email.id_for_label }}" class="form-label">Correo</label>
+                            {{ form.email }}
+                            {% for e in form.email.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.telefono.id_for_label }}" class="form-label">Teléfono</label>
+                            {{ form.telefono }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# ======================= TAB 2: CONTACTOS ======================= #}
+        <div class="tab-pane fade" id="tab-contactos" role="tabpanel">
+            <p class="text-muted small mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Áreas de contacto del cliente. Todas son opcionales: abre solo las que necesites.
+            </p>
+            <div class="accordion" id="acordeon-contactos">
+
+                {# --- Comercial --- #}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#ac-comercial">
+                            <i class="bi bi-briefcase me-2"></i> Contacto comercial
+                        </button>
+                    </h2>
+                    <div id="ac-comercial" class="accordion-collapse collapse" data-bs-parent="#acordeon-contactos">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label for="{{ form.comercial_nombre.id_for_label }}" class="form-label">Nombre</label>{{ form.comercial_nombre }}</div>
+                                <div class="col-md-6"><label for="{{ form.comercial_cargo.id_for_label }}" class="form-label">Cargo</label>{{ form.comercial_cargo }}</div>
+                                <div class="col-md-6"><label for="{{ form.comercial_telefono.id_for_label }}" class="form-label">Teléfono</label>{{ form.comercial_telefono }}</div>
+                                <div class="col-md-6">
+                                    <label for="{{ form.comercial_correo.id_for_label }}" class="form-label">Correo</label>{{ form.comercial_correo }}
+                                    {% for e in form.comercial_correo.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- Contabilidad / Facturación --- #}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#ac-contab">
+                            <i class="bi bi-receipt me-2"></i> Contabilidad y facturación electrónica
+                        </button>
+                    </h2>
+                    <div id="ac-contab" class="accordion-collapse collapse" data-bs-parent="#acordeon-contactos">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label for="{{ form.contab_nombre.id_for_label }}" class="form-label">Nombre</label>{{ form.contab_nombre }}</div>
+                                <div class="col-md-6"><label for="{{ form.contab_cargo.id_for_label }}" class="form-label">Cargo</label>{{ form.contab_cargo }}</div>
+                                <div class="col-md-6"><label for="{{ form.contab_telefono.id_for_label }}" class="form-label">Teléfono</label>{{ form.contab_telefono }}</div>
+                                <div class="col-md-6">
+                                    <label for="{{ form.contab_correo.id_for_label }}" class="form-label">Correo</label>{{ form.contab_correo }}
+                                    {% for e in form.contab_correo.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="{{ form.contab_correo_facturacion.id_for_label }}" class="form-label">Correo de facturación electrónica</label>{{ form.contab_correo_facturacion }}
+                                    {% for e in form.contab_correo_facturacion.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                </div>
+                                <div class="col-md-6"><label for="{{ form.contab_domicilio_fiscal.id_for_label }}" class="form-label">Domicilio fiscal</label>{{ form.contab_domicilio_fiscal }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- Ambiental --- #}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#ac-ambiental">
+                            <i class="bi bi-tree me-2"></i> Contacto ambiental
+                        </button>
+                    </h2>
+                    <div id="ac-ambiental" class="accordion-collapse collapse" data-bs-parent="#acordeon-contactos">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label for="{{ form.ambiental_nombre.id_for_label }}" class="form-label">Nombre</label>{{ form.ambiental_nombre }}</div>
+                                <div class="col-md-6"><label for="{{ form.ambiental_cargo.id_for_label }}" class="form-label">Cargo</label>{{ form.ambiental_cargo }}</div>
+                                <div class="col-md-6"><label for="{{ form.ambiental_telefono.id_for_label }}" class="form-label">Teléfono</label>{{ form.ambiental_telefono }}</div>
+                                <div class="col-md-6">
+                                    <label for="{{ form.ambiental_correo.id_for_label }}" class="form-label">Correo</label>{{ form.ambiental_correo }}
+                                    {% for e in form.ambiental_correo.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# --- SST --- #}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#ac-sst">
+                            <i class="bi bi-shield-plus me-2"></i> Contacto SST
+                        </button>
+                    </h2>
+                    <div id="ac-sst" class="accordion-collapse collapse" data-bs-parent="#acordeon-contactos">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label for="{{ form.sst_nombre.id_for_label }}" class="form-label">Nombre</label>{{ form.sst_nombre }}</div>
+                                <div class="col-md-6"><label for="{{ form.sst_cargo.id_for_label }}" class="form-label">Cargo</label>{{ form.sst_cargo }}</div>
+                                <div class="col-md-6"><label for="{{ form.sst_telefono.id_for_label }}" class="form-label">Teléfono</label>{{ form.sst_telefono }}</div>
+                                <div class="col-md-6">
+                                    <label for="{{ form.sst_correo.id_for_label }}" class="form-label">Correo</label>{{ form.sst_correo }}
+                                    {% for e in form.sst_correo.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        {# ======================= TAB 3: DOCUMENTOS ====================== #}
+        <div class="tab-pane fade" id="tab-docs" role="tabpanel">
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-file-earmark-text me-1"></i>Documentos a adjuntar</h5></div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="{{ form.doc_rut.id_for_label }}" class="form-label">RUT actualizado</label>
+                            {% if form.instance.doc_rut %}
+                            <div class="file-chip mb-1"><i class="bi bi-file-earmark-text-fill"></i>
+                                <a href="{{ form.instance.doc_rut.url }}" target="_blank">Ver actual</a></div>
+                            {% endif %}
+                            {{ form.doc_rut }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.doc_camara_comercio.id_for_label }}" class="form-label">Cámara de Comercio</label>
+                            {% if form.instance.doc_camara_comercio %}
+                            <div class="file-chip mb-1"><i class="bi bi-file-earmark-text-fill"></i>
+                                <a href="{{ form.instance.doc_camara_comercio.url }}" target="_blank">Ver actual</a></div>
+                            {% endif %}
+                            {{ form.doc_camara_comercio }}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.doc_cedula_rep_legal.id_for_label }}" class="form-label">Cédula del rep. legal</label>
+                            {% if form.instance.doc_cedula_rep_legal %}
+                            <div class="file-chip mb-1"><i class="bi bi-file-earmark-text-fill"></i>
+                                <a href="{{ form.instance.doc_cedula_rep_legal.url }}" target="_blank">Ver actual</a></div>
+                            {% endif %}
+                            {{ form.doc_cedula_rep_legal }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-cloud-arrow-up me-1"></i>Documentos ambientales <span class="text-muted text-lowercase" style="letter-spacing:0">(carga múltiple)</span></h5></div>
+                <div class="card-body p-4">
+                    <div class="dropzone">
+                        <i class="bi bi-cloud-arrow-up dz-icon"></i>
+                        <div class="dz-title">Subir documentos ambientales</div>
+                        <div class="dz-hint">Documento Ambiental, Caracterización, Análisis Químico, Declaración de Residuo, Soporte de Conocimiento del Residuo… Puedes seleccionar varios a la vez.</div>
+                        <input type="file" name="documentos_ambientales" id="id_documentos_ambientales" class="form-control" multiple>
+                    </div>
+
+                    {% if object.documentos_ambientales.all %}
+                    <label class="form-label mt-3">Documentos cargados</label>
+                    <ul class="list-group doc-list">
+                        {% for doc in object.documentos_ambientales.all %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="text-truncate">
+                                <i class="bi bi-file-earmark-text me-1 text-muted"></i>
+                                <a href="{{ doc.archivo.url }}" target="_blank">{{ doc }}</a>
+                                <small class="text-muted ms-1">{{ doc.fecha_subida|date:"d/m/Y" }}</small>
+                            </span>
+                            <label class="text-danger small mb-0 ms-2 text-nowrap">
+                                <input type="checkbox" name="eliminar_doc_ambiental" value="{{ doc.pk }}"> Eliminar
+                            </label>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    {# ===== Barra de acciones fija abajo ===== #}
+    <div class="d-flex justify-content-end gap-2 py-3 mb-4 sticky-actions">
+        <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check-circle me-1"></i> Guardar cliente
+        </button>
+    </div>
+</form>
+
+<style>
+    /* Barra de acciones pegada abajo para no tener que bajar hasta el final. */
+    .sticky-actions{
+        position: sticky; bottom: 0; z-index: 5;
+        background: var(--panel, #fff);
+        border-top: 1px solid var(--line, #e5e7eb);
+    }
+    /* Punto rojo en la pestaña que tenga errores. */
+    #tabs-cliente .nav-link.has-error{ position: relative; }
+    #tabs-cliente .nav-link.has-error::after{
+        content: ""; width: 8px; height: 8px; border-radius: 50%;
+        background: #dc3545; position: absolute; top: 6px; right: 6px;
+    }
+    .accordion-button:not(.collapsed){ color: var(--brand-700, #0d6efd); }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Si hay errores de validación, marca la pestaña que los contiene y la abre,
+// para que no queden ocultos en una pestaña inactiva.
+(function () {
+    var primeraConError = null;
+    document.querySelectorAll('#form-cliente .tab-pane').forEach(function (pane) {
+        if (pane.querySelector('.field-error')) {
+            var btn = document.querySelector('[data-bs-target="#' + pane.id + '"]');
+            if (btn) btn.classList.add('has-error');
+            if (!primeraConError) primeraConError = pane;
+        }
+    });
+    // Abrir la primera pestaña con error (y su acordeón si aplica).
+    if (primeraConError) {
+        var btn = document.querySelector('[data-bs-target="#' + primeraConError.id + '"]');
+        if (btn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(btn).show();
+        var acItem = primeraConError.querySelector('.field-error');
+        var collapse = acItem ? acItem.closest('.accordion-collapse') : null;
+        if (collapse && window.bootstrap) bootstrap.Collapse.getOrCreateInstance(collapse).show();
+    }
+})();
+</script>
 {% endblock %}
