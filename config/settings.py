@@ -182,8 +182,20 @@ else:
 
     AWS_STORAGE_BUCKET_NAME = 'vadomdata'
     AWS_S3_REGION_NAME = 'us-east-1'
-    AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
+
+    # Los objetos son PRIVADOS (sin ACL pública). Se sirven con URLs FIRMADAS
+    # temporales (presigned), que usan las credenciales del IAM Role y funcionan
+    # aunque el bucket tenga bloqueado el acceso público. Esto mantiene privados
+    # los documentos de seguridad social (datos personales).
+    #
+    # IMPORTANTE: NO se define AWS_S3_CUSTOM_DOMAIN. Al fijarlo, django-storages
+    # devuelve URLs públicas directas SIN firmar -> AccessDenied en objetos
+    # privados (que era el problema).
     AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = True          # firma las URLs (.url() presigned)
+    AWS_QUERYSTRING_EXPIRE = 3600        # validez del enlace firmado: 1 hora
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_S3_FILE_OVERWRITE = False
 
     # Prefijo (carpeta) de este cliente dentro del bucket compartido.
     S3_PREFIX = os.getenv('S3_CLIENT_PREFIX', 'default_prefix')
@@ -191,13 +203,17 @@ else:
     class StaticStorage(S3Boto3Storage):
         location = f'{S3_PREFIX}/static'
         default_acl = None
+        custom_domain = None             # firmar también los estáticos (logo)
 
     class MediaStorage(S3Boto3Storage):
         location = f'{S3_PREFIX}/media'
         default_acl = None
+        custom_domain = None
 
-    STATIC_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{S3_PREFIX}/static/'
-    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{S3_PREFIX}/media/'
+    # Django exige STATIC_URL/MEDIA_URL; para cada archivo se usa storage.url()
+    # (firmado), así que estos valores son solo la base informativa.
+    STATIC_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{S3_PREFIX}/static/'
+    MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{S3_PREFIX}/media/'
 
     STORAGES = {
         "default": {"BACKEND": "config.settings.MediaStorage"},
