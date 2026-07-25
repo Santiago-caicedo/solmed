@@ -1015,6 +1015,11 @@ class PerfilPersona(models.Model):
     cargo = models.CharField(max_length=100, blank=True, verbose_name="Cargo")
     direccion = models.CharField(max_length=255, blank=True, verbose_name="Dirección")
 
+    # Persona retirada (antiguo empleado). Se conserva para trazabilidad, pero ya
+    # no se puede asignar en programaciones, recorridos ni planificación.
+    retirado = models.BooleanField(default=False, verbose_name="Retirado")
+    fecha_retiro = models.DateField(null=True, blank=True, verbose_name="Fecha de retiro")
+
     class Meta:
         verbose_name = "Perfil de persona"
         verbose_name_plural = "Perfiles de personas"

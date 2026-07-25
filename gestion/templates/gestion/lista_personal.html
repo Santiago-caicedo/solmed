@@ -8,6 +8,41 @@
     </a>
 </div>
 
+<div class="card shadow mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label for="q" class="form-label small mb-1">Buscar</label>
+                <input type="text" id="q" name="q" value="{{ q }}" class="form-control"
+                       placeholder="Nombre, usuario o cédula">
+            </div>
+            <div class="col-md-3">
+                <label for="rol" class="form-label small mb-1">Rol</label>
+                <select id="rol" name="rol" class="form-select">
+                    <option value="">Todos</option>
+                    {% for g in roles %}
+                    <option value="{{ g.name }}" {% if rol_sel == g.name %}selected{% endif %}>{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="estado" class="form-label small mb-1">Estado</label>
+                <select id="estado" name="estado" class="form-select">
+                    <option value="">Todos</option>
+                    <option value="activo" {% if estado_sel == 'activo' %}selected{% endif %}>Activos</option>
+                    <option value="retirado" {% if estado_sel == 'retirado' %}selected{% endif %}>Retirados</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary flex-grow-1"><i class="bi bi-search"></i> Filtrar</button>
+                {% if q or rol_sel or estado_sel %}
+                <a href="{% url 'gestion:lista_personal' %}" class="btn btn-outline-secondary" title="Limpiar"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card shadow">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -23,8 +58,11 @@
                 </thead>
                 <tbody>
                     {% for usuario in usuarios %}
-                    <tr>
-                        <td>{{ usuario.get_full_name|default:"—" }}</td>
+                    <tr {% if usuario.esta_retirado %}class="table-light text-muted"{% endif %}>
+                        <td>
+                            {{ usuario.get_full_name|default:"—" }}
+                            {% if usuario.esta_retirado %}<span class="badge bg-dark ms-1"><i class="bi bi-person-dash"></i> Retirado</span>{% endif %}
+                        </td>
                         <td>
                             {% for group in usuario.groups.all %}
                                 <span class="badge bg-info text-dark">{{ group.name }}</span>
@@ -66,7 +104,7 @@
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" class="text-center text-muted py-4">No hay personas registradas.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-4">No hay personas que coincidan con el filtro.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

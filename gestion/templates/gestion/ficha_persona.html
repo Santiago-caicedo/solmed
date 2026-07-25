@@ -11,13 +11,37 @@
                 {% if persona.is_superuser %}<span class="badge bg-dark">Administrador</span>
                 {% else %}<span class="badge bg-secondary">Sin rol</span>{% endif %}
             {% endfor %}
-            {% if persona.is_active %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+            {% if retirado %}
+                <span class="badge bg-dark"><i class="bi bi-person-dash"></i> Retirado</span>
+            {% elif persona.is_active %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
         </div>
     </div>
-    <a href="{% url 'gestion:lista_personal' %}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i> Personal
-    </a>
+    <div class="d-flex gap-2">
+        {# Retirar / reactivar a la persona #}
+        <form method="post" action="{% url 'gestion:cambiar_estado_persona' persona.pk %}"
+              onsubmit="return confirm('{% if retirado %}¿Reactivar a esta persona? Volverá a estar disponible para asignaciones.{% else %}¿Marcar como retirada? Ya no se podrá asignar, pero su expediente se conserva.{% endif %}');">
+            {% csrf_token %}
+            {% if retirado %}
+            <button class="btn btn-outline-success"><i class="bi bi-arrow-counterclockwise me-1"></i> Reactivar</button>
+            {% else %}
+            <button class="btn btn-outline-dark"><i class="bi bi-person-dash me-1"></i> Marcar retirado</button>
+            {% endif %}
+        </form>
+        <a href="{% url 'gestion:lista_personal' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Personal
+        </a>
+    </div>
 </div>
+
+{% if retirado %}
+<div class="alert alert-dark d-flex align-items-center">
+    <i class="bi bi-person-dash-fill me-2"></i>
+    <div>
+        <strong>Persona retirada{% if fecha_retiro %} desde el {{ fecha_retiro|date:"d/m/Y" }}{% endif %}.</strong>
+        No aparece en programaciones, recorridos ni planificación. Su expediente e historial se conservan para trazabilidad.
+    </div>
+</div>
+{% endif %}
 
 {% if exige_ss %}
 <div class="alert {% if ss_al_dia %}alert-success{% else %}alert-warning{% endif %} d-flex align-items-center">

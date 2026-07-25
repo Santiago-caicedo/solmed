@@ -379,6 +379,18 @@ def _mostrar_nombres(campo):
     campo.label_from_instance = _nombre_persona
 
 
+def personal_activo_del_grupo(nombre_grupo):
+    """
+    Usuarios ACTIVOS (no retirados) de un grupo, para los desplegables de
+    asignación. Los retirados quedan fuera de todas las actividades del core.
+    """
+    try:
+        grupo = Group.objects.get(name=nombre_grupo)
+    except Group.DoesNotExist:
+        return User.objects.none()
+    return grupo.user_set.exclude(perfil__retirado=True)
+
+
 def generar_username(first_name, last_name, numero_documento=''):
     """
     Construye un identificador interno único para una persona SIN acceso al
@@ -522,19 +534,9 @@ class RecorridoForm(forms.ModelForm):
         # Filtramos para que solo se puedan seleccionar vehículos operativos
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
         
-        # Filtramos para que solo se puedan seleccionar usuarios del grupo "Conductores"
-        try:
-            conductores_group = Group.objects.get(name='Conductores')
-            self.fields['conductor'].queryset = conductores_group.user_set.all()
-        except Group.DoesNotExist:
-            self.fields['conductor'].queryset = User.objects.none()
-
-        # Filtramos para que solo se puedan seleccionar usuarios del grupo "Ayudantes"
-        try:
-            ayudantes_group = Group.objects.get(name='Ayudantes')
-            self.fields['ayudante'].queryset = ayudantes_group.user_set.all()
-        except Group.DoesNotExist:
-            self.fields['ayudante'].queryset = User.objects.none()
+        # Solo conductores/ayudantes ACTIVOS (los retirados no se pueden asignar).
+        self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+        self.fields['ayudante'].queryset = personal_activo_del_grupo('Ayudantes')
 
         # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
         _mostrar_nombres(self.fields['conductor'])
@@ -652,16 +654,10 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Solo vehículos operativos y usuarios por rol (igual que RecorridoForm).
+        # Solo vehículos operativos y personal ACTIVO (retirados excluidos).
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-        try:
-            self.fields['conductor'].queryset = Group.objects.get(name='Conductores').user_set.all()
-        except Group.DoesNotExist:
-            self.fields['conductor'].queryset = User.objects.none()
-        try:
-            self.fields['ayudante'].queryset = Group.objects.get(name='Ayudantes').user_set.all()
-        except Group.DoesNotExist:
-            self.fields['ayudante'].queryset = User.objects.none()
+        self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+        self.fields['ayudante'].queryset = personal_activo_del_grupo('Ayudantes')
         # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
         _mostrar_nombres(self.fields['conductor'])
         _mostrar_nombres(self.fields['ayudante'])

@@ -1150,9 +1150,9 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
         vehiculos_ocupados_ids = [r.vehiculo.id for r in recorridos_del_dia if r.vehiculo]
         conductores_ocupados_ids = [r.conductor.id for r in recorridos_del_dia if r.conductor]
 
-        # 4. Obtener recursos DISPONIBLES
-        conductores = Group.objects.get(name='Conductores').user_set.all()
-        
+        # 4. Obtener recursos DISPONIBLES (conductores activos, sin retirados)
+        conductores = Group.objects.get(name='Conductores').user_set.exclude(perfil__retirado=True)
+
         context['vehiculos_disponibles'] = Vehiculo.objects.filter(estado='OPERATIVO').exclude(id__in=vehiculos_ocupados_ids)
         context['conductores_disponibles'] = conductores.exclude(id__in=conductores_ocupados_ids)
 
@@ -1311,9 +1311,10 @@ def _estado_documentos_personal():
     """
     tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
     mes_actual = timezone.localdate().strftime('%Y-%m')
-    # Cualquier persona con un rol asignado (todos cargan seguridad social).
+    # Cualquier persona ACTIVA con rol asignado (los retirados no se asignan).
     usuarios = (
         User.objects.filter(groups__isnull=False)
+        .exclude(perfil__retirado=True)
         .distinct()
         .prefetch_related('groups', 'documentos_personales')
     )
@@ -1769,7 +1770,29 @@ class ListaPersonalView(AsesorRequiredMixin, ListView):
     context_object_name = 'usuarios'
 
     def get_queryset(self):
-        return User.objects.all().prefetch_related('groups', 'documentos_personales').order_by('first_name', 'username')
+        qs = (
+            User.objects.all()
+            .select_related('perfil')
+            .prefetch_related('groups', 'documentos_personales')
+        )
+        q = self.request.GET.get('q', '').strip()
+        rol = self.request.GET.get('rol', '')
+        estado = self.request.GET.get('estado', '')
+
+        if q:
+            qs = qs.filter(
+                Q(first_name__icontains=q) | Q(last_name__icontains=q)
+                | Q(username__icontains=q) | Q(perfil__numero_documento__icontains=q)
+            )
+        if rol:
+            qs = qs.filter(groups__name=rol)
+        if estado == 'retirado':
+            qs = qs.filter(perfil__retirado=True)
+        elif estado == 'activo':
+            qs = qs.exclude(perfil__retirado=True)
+
+        # Los retirados van al final (trazabilidad); dentro, por nombre.
+        return qs.order_by('perfil__retirado', 'first_name', 'username').distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1780,6 +1803,14 @@ class ListaPersonalView(AsesorRequiredMixin, ListView):
             usuario.doc_faltan = info['faltan'] if info else None
             usuario.tiene_requisitos = info is not None
             usuario.sin_acceso = _persona_sin_acceso(usuario)
+            perfil = getattr(usuario, 'perfil', None)
+            usuario.esta_retirado = bool(perfil and perfil.retirado)
+
+        # Datos para la barra de filtros.
+        context['roles'] = Group.objects.order_by('name')
+        context['q'] = self.request.GET.get('q', '')
+        context['rol_sel'] = self.request.GET.get('rol', '')
+        context['estado_sel'] = self.request.GET.get('estado', '')
         return context
 
 
@@ -1877,9 +1908,12 @@ class FichaPersonaView(AsesorRequiredMixin, View):
         otros = por_tipo.get('OTRO', [])
         faltan_requeridos = [s['label'] for s in slots if s['requerido'] and not s['cargado']]
 
+        perfil = _perfil_de(persona)
         return {
             'persona': persona,
-            'perfil': _perfil_de(persona),
+            'perfil': perfil,
+            'retirado': perfil.retirado,
+            'fecha_retiro': perfil.fecha_retiro,
             'mes_actual': mes_actual,
             # Tiene requisitos documentales (conductores, ayudantes y asesores).
             'es_personal': bool(requeridos),
@@ -2084,6 +2118,38 @@ class ActualizarVigenciaDocumentoView(AsesorRequiredMixin, View):
             f"Vigencia registrada: vence el {documento.fecha_vencimiento.strftime('%d/%m/%Y')}."
         )
         return redirect('gestion:ficha_persona', pk=documento.usuario_id)
+
+
+class CambiarEstadoPersonaView(AsesorRequiredMixin, View):
+    """
+    Retira o reactiva a una persona (solo POST). Al retirar, deja de aparecer en
+    las asignaciones (programación, recorridos, planificación) y se le bloquea el
+    acceso; su ficha y expediente se conservan para trazabilidad. Al reactivar, se
+    restaura el acceso salvo que sea un rol sin acceso (ayudante).
+    """
+    def post(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        perfil = _perfil_de(persona)
+        if perfil.retirado:
+            perfil.retirado = False
+            perfil.fecha_retiro = None
+            perfil.save(update_fields=['retirado', 'fecha_retiro'])
+            if not _persona_sin_acceso(persona):
+                persona.is_active = True
+                persona.save(update_fields=['is_active'])
+            messages.success(request, "Persona reactivada. Vuelve a estar disponible para asignaciones.")
+        else:
+            perfil.retirado = True
+            perfil.fecha_retiro = timezone.localdate()
+            perfil.save(update_fields=['retirado', 'fecha_retiro'])
+            persona.is_active = False
+            persona.save(update_fields=['is_active'])
+            messages.success(
+                request,
+                "Persona marcada como retirada. Ya no aparece en las asignaciones; "
+                "su expediente se conserva para trazabilidad."
+            )
+        return redirect('gestion:ficha_persona', pk=pk)
 
 
 class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):
