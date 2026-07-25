@@ -76,6 +76,33 @@ class DocumentoAmbientalCliente(models.Model):
     def __str__(self):
         return self.archivo.name.split('/')[-1]
 
+
+class Sede(models.Model):
+    """
+    Sede (sucursal / punto) de un cliente. Un cliente puede tener varias
+    (ej. D1 Centro, D1 Norte). Al programar un servicio, si el cliente tiene
+    sedes se elige a cuál corresponde, y su dirección se arrastra a la orden.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='sedes')
+    nombre = models.CharField(max_length=150, help_text="Ej: Sede Centro, Bodega Norte…")
+    direccion = models.CharField(max_length=255, blank=True)
+    ciudad = models.CharField(max_length=100, blank=True)
+    telefono = models.CharField(max_length=30, blank=True)
+    persona_contacto = models.CharField(max_length=200, blank=True, verbose_name="Persona de contacto")
+    activa = models.BooleanField(
+        default=True,
+        help_text="Desmárcala para ocultarla de los desplegables sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Sede"
+        verbose_name_plural = "Sedes"
+
+    def __str__(self):
+        return f"{self.nombre} ({self.cliente.nombre})"
+
+
 class Vehiculo(models.Model):
     ESTADO_CHOICES = [
         ('OPERATIVO', 'Operativo'),
@@ -654,6 +681,13 @@ class Programacion(models.Model):
     hora_servicio = models.TimeField(null=True, blank=True, verbose_name="Hora del servicio")
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='programaciones')
+    # Sede del cliente a la que corresponde el servicio (si el cliente tiene
+    # sedes). Su dirección se arrastra a la orden. `sede` (texto) queda como
+    # campo legado por compatibilidad; ya no se usa en el formulario.
+    sede_cliente = models.ForeignKey(
+        Sede, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='programaciones', verbose_name="Sede del cliente"
+    )
     sede = models.CharField(max_length=150, blank=True)
     direccion = models.CharField(
         max_length=255, blank=True,
@@ -792,11 +826,18 @@ class Programacion(models.Model):
                 f"No se puede generar la orden: esta programación exige cursos y {detalle}."
             )
 
+        # La dirección del servicio: la de la sede elegida, si no la de la
+        # programación, si no la del cliente.
+        direccion_servicio = (
+            (self.sede_cliente.direccion if self.sede_cliente_id else '')
+            or self.direccion or self.cliente.direccion or 'Por definir'
+        )
+
         with transaction.atomic():
             orden = OrdenServicio.objects.create(
                 cliente=self.cliente,
                 asesor=usuario,
-                direccion_servicio=self.direccion or self.cliente.direccion or 'Por definir',
+                direccion_servicio=direccion_servicio,
                 descripcion=self.observaciones_servicio or f'Orden generada desde la programación #{self.pk}',
                 bascula=self.bascula,
                 registro_fotografico=self.registro_fotografico,

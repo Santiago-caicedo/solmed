@@ -28,10 +28,10 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, cursos_faltantes_ayudante, _recalcular_estado_orden
+from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente
 
 
@@ -270,29 +270,55 @@ class ListaClientesView(LoginRequiredMixin, ListView):
     context_object_name = 'clientes'
 
 
-class DocumentosAmbientalesClienteMixin:
+class ClienteFormMixin:
     """
-    Procesa la carga MÚLTIPLE de documentos ambientales (input file 'documentos_ambientales')
-    y la eliminación de los marcados ('eliminar_doc_ambiental'), tras guardar el cliente.
+    Maneja, además del cliente:
+      - Las SEDES del cliente (formset inline).
+      - La carga MÚLTIPLE de documentos ambientales ('documentos_ambientales') y
+        la eliminación de los marcados ('eliminar_doc_ambiental').
     """
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'sede_formset' not in context:
+            if self.request.method == 'POST':
+                context['sede_formset'] = SedeFormSet(
+                    self.request.POST, instance=self.object, prefix='sede'
+                )
+            else:
+                context['sede_formset'] = SedeFormSet(instance=self.object, prefix='sede')
+        return context
+
     def form_valid(self, form):
-        response = super().form_valid(form)
+        # El cliente aún sin guardar, para enlazar el formset de sedes.
+        self.object = form.save(commit=False)
+        sede_formset = SedeFormSet(self.request.POST, instance=self.object, prefix='sede')
+        if not sede_formset.is_valid():
+            # Cliente + sedes se validan juntos: si una sede falla, no se guarda nada.
+            return self.render_to_response(
+                self.get_context_data(form=form, sede_formset=sede_formset)
+            )
+        self.object.save()
+        sede_formset.instance = self.object
+        sede_formset.save()
+
+        # Documentos ambientales (carga múltiple + eliminación de los marcados).
         ids_eliminar = self.request.POST.getlist('eliminar_doc_ambiental')
         if ids_eliminar:
             self.object.documentos_ambientales.filter(pk__in=ids_eliminar).delete()
         for archivo in self.request.FILES.getlist('documentos_ambientales'):
             DocumentoAmbientalCliente.objects.create(cliente=self.object, archivo=archivo)
-        return response
+
+        messages.success(self.request, "Cliente guardado.")
+        return HttpResponseRedirect(self.get_success_url())
 
 
-class CrearClienteView(DocumentosAmbientalesClienteMixin, LoginRequiredMixin, CreateView):
+class CrearClienteView(ClienteFormMixin, LoginRequiredMixin, CreateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
-    success_message = "¡Cliente creado exitosamente!"
 
-class ActualizarClienteView(DocumentosAmbientalesClienteMixin, LoginRequiredMixin, UpdateView):
+class ActualizarClienteView(ClienteFormMixin, LoginRequiredMixin, UpdateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
@@ -1392,6 +1418,22 @@ def _direcciones_clientes():
     }
 
 
+def _sedes_por_cliente():
+    """
+    Mapa {id_cliente: [{id, nombre, direccion}, ...]} de las sedes activas, para
+    poblar en vivo el desplegable de sede al elegir el cliente en la programación.
+    """
+    data = {}
+    sedes = Sede.objects.filter(activa=True).values(
+        'id', 'cliente_id', 'nombre', 'direccion'
+    ).order_by('nombre')
+    for s in sedes:
+        data.setdefault(str(s['cliente_id']), []).append({
+            'id': s['id'], 'nombre': s['nombre'], 'direccion': s['direccion'] or '',
+        })
+    return data
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
@@ -1429,6 +1471,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
             context['formset'] = ProgramacionCuadrillaFormSet(prefix='cuadrilla')
         context['personal_docs'] = _estado_documentos_personal()
         context['direcciones_clientes'] = _direcciones_clientes()
+        context['sedes_por_cliente'] = _sedes_por_cliente()
         return context
 
     def form_valid(self, form):
@@ -1522,6 +1565,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
             )
         context['personal_docs'] = _estado_documentos_personal()
         context['direcciones_clientes'] = _direcciones_clientes()
+        context['sedes_por_cliente'] = _sedes_por_cliente()
         return context
 
     def form_valid(self, form):

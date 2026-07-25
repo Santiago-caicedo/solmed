@@ -31,6 +31,11 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sedes" type="button" role="tab">
+                <i class="bi bi-geo-alt me-1"></i> Sedes
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-contactos" type="button" role="tab">
                 <i class="bi bi-people me-1"></i> Contactos
                 <span class="badge bg-light text-muted border ms-1">opcional</span>
@@ -108,6 +113,77 @@
                             {{ form.telefono }}
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        {# ========================= TAB: SEDES ========================= #}
+        <div class="tab-pane fade" id="tab-sedes" role="tabpanel">
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-geo-alt me-1"></i>Sedes del cliente</h5></div>
+                <div class="card-body p-4">
+                    <p class="text-muted small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Registra aquí las sedes (sucursales) del cliente. Al programar un servicio podrás
+                        elegir a cuál sede corresponde. Si el cliente no tiene sedes, deja esto vacío.
+                    </p>
+                    {{ sede_formset.management_form }}
+                    {% if sede_formset.non_form_errors %}
+                    <div class="alert alert-danger">{% for e in sede_formset.non_form_errors %}<div>{{ e }}</div>{% endfor %}</div>
+                    {% endif %}
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="min-width:160px">Nombre <span class="text-danger">*</span></th>
+                                    <th style="min-width:180px">Dirección</th>
+                                    <th style="min-width:120px">Ciudad</th>
+                                    <th style="min-width:120px">Teléfono</th>
+                                    <th style="min-width:150px">Contacto</th>
+                                    <th class="text-center" style="width:70px">Activa</th>
+                                    <th class="text-center" style="width:48px"><i class="bi bi-trash"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="sedes-tbody">
+                                {% for sf in sede_formset %}
+                                <tr class="sede-row">
+                                    {% for hidden in sf.hidden_fields %}{{ hidden }}{% endfor %}
+                                    <td>{{ sf.nombre }}{% for e in sf.nombre.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}</td>
+                                    <td>{{ sf.direccion }}</td>
+                                    <td>{{ sf.ciudad }}</td>
+                                    <td>{{ sf.telefono }}</td>
+                                    <td>{{ sf.persona_contacto }}</td>
+                                    <td class="text-center">{{ sf.activa }}</td>
+                                    <td class="text-center">
+                                        <span class="d-none">{{ sf.DELETE }}</span>
+                                        <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-sede" title="Eliminar sede"><i class="bi bi-trash"></i></button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button type="button" id="btn-agregar-sede" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-plus-circle me-1"></i> Añadir sede
+                    </button>
+
+                    <template id="sede-empty-form">
+                        <tr class="sede-row">
+                            {% for hidden in sede_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+                            <td>{{ sede_formset.empty_form.nombre }}</td>
+                            <td>{{ sede_formset.empty_form.direccion }}</td>
+                            <td>{{ sede_formset.empty_form.ciudad }}</td>
+                            <td>{{ sede_formset.empty_form.telefono }}</td>
+                            <td>{{ sede_formset.empty_form.persona_contacto }}</td>
+                            <td class="text-center">{{ sede_formset.empty_form.activa }}</td>
+                            <td class="text-center">
+                                <span class="d-none">{{ sede_formset.empty_form.DELETE }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-sede" title="Eliminar sede"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    </template>
                 </div>
             </div>
         </div>
@@ -330,6 +406,37 @@
         var collapse = acItem ? acItem.closest('.accordion-collapse') : null;
         if (collapse && window.bootstrap) bootstrap.Collapse.getOrCreateInstance(collapse).show();
     }
+})();
+
+// ===== Sedes: añadir / quitar filas del formset =====
+(function () {
+    var tbody = document.getElementById('sedes-tbody');
+    var plantilla = document.getElementById('sede-empty-form');
+    var totalInput = document.querySelector('input[name="sede-TOTAL_FORMS"]');
+    var btnAgregar = document.getElementById('btn-agregar-sede');
+    if (!tbody || !plantilla || !totalInput || !btnAgregar) return;
+
+    btnAgregar.addEventListener('click', function () {
+        var index = parseInt(totalInput.value, 10);
+        var html = plantilla.innerHTML.replace(/__prefix__/g, index).trim();
+        var temp = document.createElement('tbody');
+        temp.innerHTML = html;
+        var fila = temp.querySelector('tr');
+        if (!fila) return;
+        tbody.appendChild(fila);
+        totalInput.value = index + 1;
+    });
+
+    // Papelera: si la fila ya existe en BD, marca DELETE y la oculta; si es nueva, la quita.
+    document.addEventListener('click', function (e) {
+        var boton = e.target.closest('.btn-eliminar-sede');
+        if (!boton) return;
+        var fila = boton.closest('.sede-row');
+        if (!fila) return;
+        var del = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        if (del) { del.checked = true; fila.style.display = 'none'; }
+        else { fila.remove(); }
+    });
 })();
 </script>
 {% endblock %}

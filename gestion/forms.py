@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Vehiculo, Cliente
+from .models import Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -96,6 +96,28 @@ class ClienteForm(forms.ModelForm):
             css = field.widget.attrs.get('class', '')
             if 'form-control' not in css and 'form-select' not in css:
                 field.widget.attrs['class'] = (css + ' form-control').strip()
+
+
+class SedeForm(forms.ModelForm):
+    """Una sede (sucursal) del cliente."""
+    class Meta:
+        model = Sede
+        fields = ['nombre', 'direccion', 'ciudad', 'telefono', 'persona_contacto', 'activa']
+        widgets = {
+            'nombre': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: Sede Centro'}),
+            'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'ciudad': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefono': forms.TextInput(attrs={'class': 'form-control'}),
+            'persona_contacto': forms.TextInput(attrs={'class': 'form-control'}),
+            'activa': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+# Sedes del cliente (bloque dinámico en el formulario de cliente).
+SedeFormSet = forms.inlineformset_factory(
+    Cliente, Sede, form=SedeForm,
+    extra=1, can_delete=True,
+)
 
 
 class DocumentoOrdenForm(forms.ModelForm):
@@ -516,7 +538,7 @@ class ProgramacionForm(forms.ModelForm):
         model = Programacion
         fields = [
             'fecha', 'hora_ingreso_bodega', 'hora_servicio',
-            'cliente', 'sede', 'direccion', 'correo_seguridad_social',
+            'cliente', 'sede_cliente', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
             'paleada',
             'bascula',
@@ -531,7 +553,7 @@ class ProgramacionForm(forms.ModelForm):
             'hora_ingreso_bodega': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
             'hora_servicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
             'cliente': forms.Select(attrs={'class': 'form-select'}),
-            'sede': forms.TextInput(attrs={'class': 'form-control'}),
+            'sede_cliente': forms.Select(attrs={'class': 'form-select'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
             'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
@@ -554,6 +576,21 @@ class ProgramacionForm(forms.ModelForm):
         for campo in self.CAMPOS_SWITCH:
             self.initial[campo] = getattr(self.instance, campo, '') == 'SI'
 
+        # Sede: solo las sedes activas del cliente. El JS filtra en vivo por
+        # cliente; aquí el queryset abarca todas las activas para que valide bien
+        # la que se envíe (o solo las del cliente ya elegido, al editar).
+        sedes = Sede.objects.filter(activa=True).select_related('cliente')
+        if self.instance.pk and self.instance.cliente_id:
+            sedes = sedes.filter(cliente_id=self.instance.cliente_id)
+        elif 'cliente' in self.data:
+            try:
+                sedes = sedes.filter(cliente_id=int(self.data.get('cliente')))
+            except (TypeError, ValueError):
+                pass
+        self.fields['sede_cliente'].queryset = sedes
+        self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
+        self.fields['sede_cliente'].label = 'Sede'
+
     def _switch_a_si_no(self, campo):
         return 'SI' if self.cleaned_data.get(campo) else 'NO'
 
@@ -562,6 +599,17 @@ class ProgramacionForm(forms.ModelForm):
 
     def clean_exige_curso_confinados(self):
         return self._switch_a_si_no('exige_curso_confinados')
+
+    def clean(self):
+        cleaned = super().clean()
+        cliente = cleaned.get('cliente')
+        sede = cleaned.get('sede_cliente')
+        if cliente and sede and sede.cliente_id != cliente.id:
+            self.add_error('sede_cliente', 'Esa sede no pertenece al cliente seleccionado.')
+        # Si el cliente tiene sedes, exigir que se elija una.
+        if cliente and not sede and cliente.sedes.filter(activa=True).exists():
+            self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
+        return cleaned
 
 
 class ProgramacionCuadrillaForm(forms.ModelForm):

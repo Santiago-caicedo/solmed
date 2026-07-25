@@ -44,9 +44,11 @@
                     <label for="{{ form.cliente.id_for_label }}" class="form-label">Cliente</label>
                     {{ form.cliente }}
                 </div>
-                <div class="col-md-4">
-                    <label for="{{ form.sede.id_for_label }}" class="form-label">Sede</label>
-                    {{ form.sede }}
+                <div class="col-md-4" id="campo-sede">
+                    <label for="{{ form.sede_cliente.id_for_label }}" class="form-label">Sede</label>
+                    {{ form.sede_cliente }}
+                    {% for e in form.sede_cliente.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    <small id="sede-hint" class="text-muted d-none">Este cliente no tiene sedes registradas.</small>
                 </div>
                 <div class="col-md-4">
                     <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
@@ -284,27 +286,74 @@
 {% block scripts %}
 {{ personal_docs|json_script:"personal-docs-data" }}
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
+{{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
 <script>
-// --- Autocompletar la dirección al elegir el cliente ---
-// Mapa { "<id_cliente>": "dirección registrada" }.
+// --- Sede dependiente + autocompletar dirección al elegir cliente / sede ---
+// direccionesClientes: { "<id_cliente>": "dirección" }
+// sedesPorCliente: { "<id_cliente>": [{id, nombre, direccion}, ...] }
 var direccionesClientes = JSON.parse(document.getElementById('direcciones-clientes-data').textContent);
+var sedesPorCliente = JSON.parse(document.getElementById('sedes-cliente-data').textContent);
 (function () {
     var selCliente = document.getElementById('id_cliente');
+    var selSede = document.getElementById('id_sede_cliente');
     var inpDireccion = document.getElementById('id_direccion');
+    var campoSede = document.getElementById('campo-sede');
+    var hintSede = document.getElementById('sede-hint');
     if (!selCliente || !inpDireccion) return;
 
-    // Recuerda la última dirección puesta automáticamente para no pisar lo que
-    // el usuario escriba a mano.
-    var ultimaAuto = null;
+    var ultimaAuto = null;   // última dirección puesta automáticamente
 
-    selCliente.addEventListener('change', function () {
-        var dir = direccionesClientes[selCliente.value] || '';
+    function ponerDireccion(dir) {
         var actual = inpDireccion.value.trim();
         if (actual === '' || actual === ultimaAuto) {
-            inpDireccion.value = dir;
-            ultimaAuto = dir;
+            inpDireccion.value = dir || '';
+            ultimaAuto = dir || '';
         }
+    }
+
+    // Rellena el desplegable de sede con las del cliente elegido.
+    function poblarSedes(preservar) {
+        if (!selSede) return;
+        var sedes = sedesPorCliente[selCliente.value] || [];
+        var valorPrevio = preservar ? selSede.value : '';
+        selSede.innerHTML = '';
+        var opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = sedes.length ? '--- Elige la sede ---' : '--- Sin sede específica ---';
+        selSede.appendChild(opt0);
+        sedes.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.id; o.textContent = s.nombre;
+            o.setAttribute('data-direccion', s.direccion || '');
+            if (String(s.id) === String(valorPrevio)) o.selected = true;
+            selSede.appendChild(o);
+        });
+        // Si el cliente no tiene sedes, se atenúa el campo y se avisa.
+        var sinSedes = sedes.length === 0;
+        selSede.disabled = sinSedes;
+        if (hintSede) hintSede.classList.toggle('d-none', !sinSedes);
+        campoSede.classList.toggle('opacity-50', sinSedes);
+    }
+
+    selCliente.addEventListener('change', function () {
+        poblarSedes(false);
+        // Al cambiar cliente, si eligió sede se usa su dirección; si no, la del cliente.
+        var sedeSel = selSede && selSede.selectedOptions[0];
+        var dirSede = sedeSel ? sedeSel.getAttribute('data-direccion') : '';
+        ponerDireccion(dirSede || direccionesClientes[selCliente.value] || '');
     });
+
+    if (selSede) {
+        selSede.addEventListener('change', function () {
+            var opt = selSede.selectedOptions[0];
+            var dir = opt ? opt.getAttribute('data-direccion') : '';
+            // Sede con dirección -> esa; sin sede -> la del cliente.
+            ponerDireccion(dir || direccionesClientes[selCliente.value] || '');
+        });
+    }
+
+    // Al cargar (por si se edita con cliente ya elegido), poblar preservando la sede.
+    poblarSedes(true);
 })();
 </script>
 <script>

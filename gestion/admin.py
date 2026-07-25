@@ -1,11 +1,18 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Vehiculo, OrdenServicio
+
+
+class SedeInline(admin.TabularInline):
+    model = Sede
+    extra = 0
+
 
 @admin.register(Cliente)
 class ClienteAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'identificacion', 'telefono', 'email')
     search_fields = ('nombre', 'identificacion')
+    inlines = [SedeInline]
 
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
