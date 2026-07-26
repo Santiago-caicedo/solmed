@@ -49,7 +49,7 @@
 
                         {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                             <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
-                                <i class="bi bi-file-earmark-pdf-fill"></i> Manifiesto
+                                <i class="bi bi-file-earmark-pdf-fill"></i> Acta de servicio
                             </a>
                             {% if recorrido.encuesta_conductor %}
                                 {% if recorrido.encuesta_conductor.pdf_generado %}
@@ -68,7 +68,7 @@
                             </a>
                         {% else %}
                             <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
-                                <i class="bi bi-pen-fill"></i> Llenar Manifiesto
+                                <i class="bi bi-pen-fill"></i> Llenar Acta de servicio
                             </a>
                         {% endif %}
                     </div>

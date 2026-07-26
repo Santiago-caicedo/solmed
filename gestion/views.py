@@ -482,12 +482,17 @@ def _qr_data_uri(url):
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode('utf-8')
 
 
+# ============================================================
+#  NOTA DE NOMENCLATURA: en el back se llama "Manifiesto" (modelo, estas
+#  vistas y URLs manifiesto_*); en el front se muestra como "ACTA DE SERVICIO".
+#  Es la ejecución de la orden que firma el cliente. Ver Manifiesto en models.py.
+# ============================================================
 class GenerarManifiestoView(LoginRequiredMixin, View):
     """
     Wizard que llena EL CONDUCTOR: solo los datos operativos (paso1-4).
-    Al terminar el paso 4 se persiste el manifiesto y se redirige a la pantalla
-    del QR; la encuesta de satisfacción y la firma las completa el cliente en su
-    propio dispositivo a través de la URL pública (EncuestaPublicaView).
+    Al terminar el paso 4 se persiste el manifiesto (acta de servicio) y se
+    redirige a la pantalla del QR; la encuesta de satisfacción y la firma las
+    completa el cliente en su propio dispositivo (EncuestaPublicaView).
     """
     FORMS = [
         ("paso1", ManifiestoPaso1Form), ("paso2", ManifiestoPaso2Form),
@@ -511,7 +516,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         if request.user.is_authenticated:
             recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
             if not _puede_gestionar_manifiesto(request.user, recorrido):
-                messages.error(request, "No tienes permiso para llenar este manifiesto.")
+                messages.error(request, "No tienes permiso para llenar esta acta de servicio.")
                 return redirect('gestion:dashboard_redirect')
         return super().dispatch(request, *args, **kwargs)
 
@@ -586,13 +591,13 @@ class ManifiestoQRView(LoginRequiredMixin, View):
     def get(self, request, pk):
         recorrido = get_object_or_404(Recorrido, pk=pk)
         if not _puede_gestionar_manifiesto(request.user, recorrido):
-            messages.error(request, "No tienes permiso para ver este manifiesto.")
+            messages.error(request, "No tienes permiso para ver esta acta de servicio.")
             return redirect('gestion:dashboard_redirect')
 
         try:
             manifiesto = recorrido.manifiesto
         except Manifiesto.DoesNotExist:
-            messages.error(request, "Primero debes llenar los datos del manifiesto.")
+            messages.error(request, "Primero debes llenar los datos del acta de servicio.")
             return redirect('gestion:firmar_manifiesto_step', pk=pk, step='paso1')
 
         url_publica = request.build_absolute_uri(

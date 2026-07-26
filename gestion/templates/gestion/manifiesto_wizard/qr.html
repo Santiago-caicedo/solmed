@@ -9,7 +9,7 @@
 
 <div class="qr-container">
     <h1 class="mb-1">Firma del Cliente</h1>
-    <p class="text-muted">Manifiesto de la Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }}</p>
+    <p class="text-muted">Acta de servicio de la Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }}</p>
 
     <hr>
 
@@ -37,7 +37,7 @@
     <div id="estado-firmado" style="display: none;">
         <div class="text-success my-4">
             <i class="bi bi-check2-circle" style="font-size: 4rem;"></i>
-            <h3 class="mt-2">¡Manifiesto firmado!</h3>
+            <h3 class="mt-2">¡Acta firmada!</h3>
             <p class="text-muted">El cliente completó la encuesta y firmó correctamente.</p>
         </div>
         <a id="ver-pdf" href="#" target="_blank" class="btn btn-danger me-2" style="display:none;">

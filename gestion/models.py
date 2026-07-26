@@ -331,7 +331,17 @@ class Recorrido(models.Model):
 
     def __str__(self):
         return f"Recorrido del {self.fecha_recorrido} para Orden #{self.orden.numero_orden}"
-    
+
+    @property
+    def personas_asignadas(self):
+        """Lista [(persona, es_conductor)] del personal del recorrido, para plantillas."""
+        personas = []
+        if self.conductor:
+            personas.append((self.conductor, True))
+        if self.ayudante:
+            personas.append((self.ayudante, False))
+        return personas
+
     def save(self, *args, **kwargs):
         # Guardamos el recorrido primero
         super().save(*args, **kwargs)
@@ -341,6 +351,15 @@ class Recorrido(models.Model):
 
 
 class Manifiesto(models.Model):
+    # ============================================================
+    #  NOTA DE NOMENCLATURA (importante):
+    #  En el CÓDIGO/BACK se llama "Manifiesto" (modelo, vistas, URLs,
+    #  related_name recorrido.manifiesto, plantillas manifiesto_*).
+    #  En la INTERFAZ/FRONT se muestra como "ACTA DE SERVICIO".
+    #  Es la ejecución de la orden: el conductor registra lo realizado
+    #  (succión/sondeo/lavado/tiempos/km) y el cliente firma su conformidad.
+    #  NO renombrar el modelo/URLs; solo cambia el texto visible.
+    # ============================================================
     # --- Estado del ciclo de firma ---
     # PENDIENTE_FIRMA: el conductor ya cargó los datos operativos (paso1-4) y se generó el QR;
     #                  falta que el funcionario del cliente complete la encuesta y firme.
