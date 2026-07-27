@@ -572,6 +572,8 @@ class ProgramacionForm(forms.ModelForm):
             'bascula',
             'registro_fotografico',
             'responsable_sg',
+            'requiere_disposicion_final',
+            'dispositor_final',
             'exige_curso_alturas',
             'exige_curso_confinados',
             'nombre_contacto_recibe',
@@ -589,6 +591,8 @@ class ProgramacionForm(forms.ModelForm):
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
+            'requiere_disposicion_final': forms.Select(attrs={'class': 'form-select'}),
+            'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
@@ -597,8 +601,12 @@ class ProgramacionForm(forms.ModelForm):
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
         # Los desplegables con opciones vacías muestran "---------".
-        for campo in ('paleada', 'bascula', 'registro_fotografico', 'responsable_sg'):
+        for campo in ('paleada', 'bascula', 'registro_fotografico', 'responsable_sg',
+                      'requiere_disposicion_final'):
             self.fields[campo].empty_label = '---------'
+        # Solo proveedores de disposición activos.
+        self.fields['dispositor_final'].queryset = Dispositor.objects.filter(activo=True)
+        self.fields['dispositor_final'].empty_label = '--- Elige el proveedor ---'
         # El interruptor se marca solo si el valor guardado es 'SI'
         # (sin esto, 'NO' se leería como texto no vacío = encendido).
         for campo in self.CAMPOS_SWITCH:
@@ -637,6 +645,13 @@ class ProgramacionForm(forms.ModelForm):
         # Si el cliente tiene sedes, exigir que se elija una.
         if cliente and not sede and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
+
+        # Si se realizará disposición final, exigir el proveedor; si no, se limpia.
+        if cleaned.get('requiere_disposicion_final') == 'SI':
+            if not cleaned.get('dispositor_final'):
+                self.add_error('dispositor_final', 'Indica con cuál proveedor se hará la disposición final.')
+        else:
+            cleaned['dispositor_final'] = None
         return cleaned
 
 

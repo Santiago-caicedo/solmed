@@ -762,6 +762,18 @@ class Programacion(models.Model):
         verbose_name="¿Se requiere SGC?"
     )
 
+    # --- Disposición final ---
+    # Si se realizará disposición final, se indica con cuál proveedor/gestor
+    # (modelo Dispositor, parametrizable desde el admin).
+    requiere_disposicion_final = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True,
+        verbose_name="¿Se realizará disposición final?"
+    )
+    dispositor_final = models.ForeignKey(
+        Dispositor, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='programaciones', verbose_name="Proveedor de disposición final"
+    )
+
     # --- Cursos exigidos al ayudante para ESTE servicio ---
     # No son obligatorios en el expediente del ayudante: solo se validan cuando
     # la programación los marca en 'SI'. Si el ayudante asignado no los tiene

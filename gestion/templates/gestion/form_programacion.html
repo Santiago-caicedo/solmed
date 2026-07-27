@@ -94,6 +94,15 @@
                         Se arrastran a la orden al generarla; los adjuntos se cargan allí.
                     </small>
                 </div>
+                <div class="col-md-6">
+                    <label for="{{ form.requiere_disposicion_final.id_for_label }}" class="form-label">¿Se realizará disposición final?</label>
+                    {{ form.requiere_disposicion_final }}
+                </div>
+                <div class="col-md-6" id="campo-dispositor">
+                    <label for="{{ form.dispositor_final.id_for_label }}" class="form-label">Proveedor de disposición final</label>
+                    {{ form.dispositor_final }}
+                    {% for e in form.dispositor_final.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                </div>
             </div>
 
             <hr class="my-4">
@@ -288,6 +297,23 @@
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
 {{ docs_correo_por_cliente|json_script:"docs-correo-data" }}
+<script>
+// --- Disposición final: mostrar el proveedor solo si es "Sí" ---
+(function () {
+    var selDisp = document.getElementById('id_requiere_disposicion_final');
+    var campoProv = document.getElementById('campo-dispositor');
+    var selProv = document.getElementById('id_dispositor_final');
+    if (!selDisp || !campoProv) return;
+    function aplicar() {
+        var si = selDisp.value === 'SI';
+        campoProv.classList.toggle('d-none', !si);
+        if (selProv) selProv.disabled = !si;   // si no aplica, no se envía
+        if (!si && selProv) selProv.value = '';
+    }
+    selDisp.addEventListener('change', aplicar);
+    aplicar();
+})();
+</script>
 <script>
 // --- Sede dependiente + autocompletar dirección al elegir cliente / sede ---
 // direccionesClientes: { "<id_cliente>": "dirección" }
