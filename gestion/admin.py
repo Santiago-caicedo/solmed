@@ -1,6 +1,13 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Vehiculo, OrdenServicio
+
+
+@admin.register(DocumentoInterno)
+class DocumentoInternoAdmin(admin.ModelAdmin):
+    list_display = ('tipo', 'entidad', 'fecha', 'fecha_subida')
+    list_filter = ('tipo',)
+    search_fields = ('entidad', 'descripcion')
 
 
 class SedeInline(admin.TabularInline):

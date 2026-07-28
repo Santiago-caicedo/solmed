@@ -97,6 +97,53 @@ class DocumentoCorreoCliente(models.Model):
         return self.descripcion or self.archivo.name.split('/')[-1]
 
 
+class DocumentoInterno(models.Model):
+    """
+    Documentación INTERNA de SOLMED (la propia empresa), a la mano para las áreas:
+    RUT, cámara de comercio, cédulas de representantes, estados financieros,
+    certificaciones bancarias, RIT, certificados de Contraloría y Procuraduría.
+    Algunos llevan fecha (RUT, cámara). La certificación bancaria puede tener
+    varias (una por cuenta/banco), distinguidas por `entidad`.
+    """
+    TIPO_CHOICES = [
+        ('RUT', 'RUT'),
+        ('CAMARA_COMERCIO', 'Cámara de Comercio'),
+        ('CEDULA_REP_LEGAL', 'Cédula del representante legal'),
+        ('CEDULA_REP_SUPLENTE', 'Cédula del representante legal suplente'),
+        ('ESTADOS_FINANCIEROS', 'Estados financieros'),
+        ('CERTIFICACION_BANCARIA', 'Certificación bancaria'),
+        ('RIT', 'RIT'),
+        ('CERT_CONTRALORIA', 'Certificado de la Contraloría'),
+        ('CERT_PROCURADURIA', 'Certificado de la Procuraduría'),
+    ]
+    # Tipos que llevan fecha del documento (para que las áreas la conozcan).
+    TIPOS_CON_FECHA = ('RUT', 'CAMARA_COMERCIO')
+    # Tipo que admite varios (una certificación por cuenta/banco).
+    TIPO_MULTIPLE = 'CERTIFICACION_BANCARIA'
+    # Cuentas/bancos sugeridos para la certificación bancaria.
+    ENTIDADES_BANCARIAS = [
+        'Bancolombia', 'Occidente', 'Nequi Gustavo', 'Cuenta de ahorros Bancolombia',
+    ]
+
+    tipo = models.CharField(max_length=30, choices=TIPO_CHOICES)
+    archivo = models.FileField(upload_to='solmed_documentos/')
+    fecha = models.DateField(null=True, blank=True, verbose_name="Fecha del documento")
+    entidad = models.CharField(
+        max_length=150, blank=True,
+        help_text="Para certificación bancaria: banco / cuenta."
+    )
+    descripcion = models.CharField(max_length=255, blank=True)
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tipo', '-fecha_subida']
+        verbose_name = "Documento interno de SOLMED"
+        verbose_name_plural = "Documentos internos de SOLMED"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()}{' - ' + self.entidad if self.entidad else ''}"
+
+
 class Sede(models.Model):
     """
     Sede (sucursal / punto) de un cliente. Un cliente puede tener varias

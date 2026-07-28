@@ -1,0 +1,84 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-folder-fill me-2"></i>Documentación de SOLMED</h1>
+        <div class="text-muted">Documentos internos de la empresa, a la mano para las áreas.</div>
+    </div>
+</div>
+
+{# Datalist de bancos/cuentas sugeridos para la certificación bancaria #}
+<datalist id="entidades-bancarias">
+    {% for e in entidades_bancarias %}<option value="{{ e }}">{% endfor %}
+</datalist>
+
+<div class="row">
+    {% for s in secciones %}
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-1"></i>{{ s.label }}</h5>
+                {% if s.docs %}
+                    <span class="badge bg-success">{{ s.docs|length }} cargado{{ s.docs|length|pluralize }}</span>
+                {% else %}
+                    <span class="badge bg-secondary">Sin cargar</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {# Documentos ya cargados #}
+                {% if s.docs %}
+                <ul class="list-group mb-3">
+                    {% for d in s.docs %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span class="text-truncate">
+                            <i class="bi bi-file-earmark-arrow-down me-1 text-muted"></i>
+                            <a href="{{ d.archivo.url }}" target="_blank">{{ d.archivo.name|cut:"solmed_documentos/" }}</a>
+                            {% if d.entidad %}<span class="badge bg-light text-dark border ms-1">{{ d.entidad }}</span>{% endif %}
+                            {% if d.fecha %}<span class="badge bg-info text-dark ms-1"><i class="bi bi-calendar3"></i> {{ d.fecha|date:"d/m/Y" }}</span>{% endif %}
+                            {% if d.descripcion %}<small class="text-muted d-block">{{ d.descripcion }}</small>{% endif %}
+                        </span>
+                        <form method="post" action="{% url 'gestion:eliminar_documento_interno' d.pk %}"
+                              onsubmit="return confirm('¿Eliminar este documento?');">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% elif not s.multiple %}
+                <p class="text-muted small mb-3"><i class="bi bi-exclamation-circle me-1"></i>Aún no se ha cargado este documento.</p>
+                {% endif %}
+
+                {# Formulario de carga #}
+                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+                    {% csrf_token %}
+                    <input type="hidden" name="tipo" value="{{ s.tipo }}">
+                    <div class="col-12">
+                        <label class="form-label small mb-1">
+                            {% if s.docs and not s.multiple %}Reemplazar / añadir archivo{% else %}Archivo{% endif %}
+                        </label>
+                        <input type="file" name="archivo" class="form-control form-control-sm" required>
+                    </div>
+                    {% if s.es_bancaria %}
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Banco / cuenta</label>
+                        <input type="text" name="entidad" list="entidades-bancarias" class="form-control form-control-sm" placeholder="Banco / cuenta" required>
+                    </div>
+                    {% endif %}
+                    {% if s.con_fecha %}
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Fecha del documento</label>
+                        <input type="date" name="fecha" class="form-control form-control-sm" required>
+                    </div>
+                    {% endif %}
+                    <div class="{% if s.es_bancaria or s.con_fecha %}col-md-6{% else %}col-12{% endif %} text-end">
+                        <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

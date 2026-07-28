@@ -48,6 +48,10 @@ urlpatterns = [
 
     path('reportes/', views.ReportesView.as_view(), name='reportes'),
 
+    # --- Documentación interna de SOLMED ---
+    path('documentacion/', views.DocumentacionSolmedView.as_view(), name='documentacion'),
+    path('documentacion/<int:pk>/eliminar/', views.EliminarDocumentoInternoView.as_view(), name='eliminar_documento_interno'),
+
     path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
     path('dashboard/redirect/', views.dashboard_redirect_view, name='dashboard_redirect'),
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),

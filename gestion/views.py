@@ -2205,3 +2205,59 @@ class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):
         if volver_a_historial:
             return redirect('gestion:historial_seguridad_social', pk=usuario_pk)
         return redirect('gestion:ficha_persona', pk=usuario_pk)
+
+# ============================================================
+#  DOCUMENTACIÓN INTERNA DE SOLMED
+#  Panel con los documentos de la propia empresa (RUT, cámara, certificaciones,
+#  etc.), a la mano para las áreas. Gestionado por asesores y superusuarios.
+# ============================================================
+class DocumentacionSolmedView(AsesorRequiredMixin, View):
+    template_name = 'gestion/documentacion.html'
+
+    def _context(self):
+        from .models import DocumentoInterno
+        docs = list(DocumentoInterno.objects.all())
+        por_tipo = {}
+        for d in docs:
+            por_tipo.setdefault(d.tipo, []).append(d)
+        # Una tarjeta por tipo, en el orden de las opciones del modelo.
+        secciones = []
+        for tipo, label in DocumentoInterno.TIPO_CHOICES:
+            secciones.append({
+                'tipo': tipo,
+                'label': label,
+                'docs': por_tipo.get(tipo, []),
+                'con_fecha': tipo in DocumentoInterno.TIPOS_CON_FECHA,
+                'es_bancaria': tipo == DocumentoInterno.TIPO_MULTIPLE,
+                'multiple': tipo == DocumentoInterno.TIPO_MULTIPLE,
+            })
+        return {
+            'secciones': secciones,
+            'entidades_bancarias': DocumentoInterno.ENTIDADES_BANCARIAS,
+        }
+
+    def get(self, request):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        from .forms import DocumentoInternoForm
+        form = DocumentoInternoForm(request.POST, request.FILES)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Documento cargado.")
+        else:
+            errores = "; ".join(
+                f"{form.fields.get(c).label or c}: {e[0]}" for c, e in form.errors.items()
+            )
+            messages.error(request, f"No se pudo cargar el documento. {errores}")
+        return redirect('gestion:documentacion')
+
+
+class EliminarDocumentoInternoView(AsesorRequiredMixin, View):
+    """Elimina un documento interno de SOLMED (solo POST)."""
+    def post(self, request, pk):
+        from .models import DocumentoInterno
+        documento = get_object_or_404(DocumentoInterno, pk=pk)
+        documento.delete()
+        messages.success(request, "Documento eliminado.")
+        return redirect('gestion:documentacion')

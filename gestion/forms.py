@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -921,4 +921,37 @@ class EncuestaConductorForm(forms.ModelForm):
                 'tipo_incidente',
                 'Debes seleccionar el tipo de evento cuando reportas un incidente.'
             )
+        return cleaned
+
+class DocumentoInternoForm(forms.ModelForm):
+    """Carga de un documento interno de SOLMED (RUT, cámara, certificaciones, etc.)."""
+    class Meta:
+        model = DocumentoInterno
+        fields = ['tipo', 'archivo', 'fecha', 'entidad', 'descripcion']
+        widgets = {
+            'tipo': forms.HiddenInput(),
+            'archivo': forms.FileInput(attrs={'class': 'form-control form-control-sm'}),
+            'fecha': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}, format='%Y-%m-%d'),
+            'entidad': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm', 'list': 'entidades-bancarias',
+                'placeholder': 'Banco / cuenta',
+            }),
+            'descripcion': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Detalle (opcional)'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['fecha'].input_formats = ['%Y-%m-%d']
+        for campo in ('fecha', 'entidad', 'descripcion'):
+            self.fields[campo].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = cleaned.get('tipo')
+        # Fecha obligatoria en los tipos que la requieren (RUT, cámara).
+        if tipo in DocumentoInterno.TIPOS_CON_FECHA and not cleaned.get('fecha'):
+            self.add_error('fecha', 'Indica la fecha del documento.')
+        # Certificación bancaria: la entidad/cuenta es obligatoria.
+        if tipo == DocumentoInterno.TIPO_MULTIPLE and not cleaned.get('entidad'):
+            self.add_error('entidad', 'Indica el banco o la cuenta.')
         return cleaned
