@@ -70,6 +70,101 @@
         </div>
     </div>
 
+    {# ============ INSTRUCCIONES DEL SERVICIO (primera parte del acta) ============ #}
+    {# Lo que antes llenaba el conductor en el acta ahora lo define el asesor aquí;
+       al cerrar el acta estos valores se copian tal cual al Manifiesto. #}
+    <div class="card shadow mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Instrucciones del servicio</h5>
+            <small class="text-muted">Primera parte del acta. Marca qué se hará y su cantidad; se pre-rellena en la orden (el conductor ya no lo llena).</small>
+        </div>
+        <div class="card-body p-4">
+            {# --- Succión y Transporte --- #}
+            <h6 class="text-primary border-bottom pb-1 mb-3"><i class="bi bi-droplet-half me-1"></i>Succión y Transporte</h6>
+            <div class="row g-3 mb-2">
+                {% for check, cant in instrucciones_succion %}
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="form-check mb-0" style="min-width: 190px;">
+                            {{ check }}
+                            <label class="form-check-label" for="{{ check.id_for_label }}">{{ check.label }}</label>
+                        </div>
+                        {{ cant }}
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="mb-0" style="min-width: 190px;">Otros ¿Cuál?</label>
+                        {{ form.succ_otros }}
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="mb-0" style="min-width: 190px;">Cantidad (Otros)</label>
+                        {{ form.succ_otros_cant }}
+                    </div>
+                </div>
+            </div>
+
+            {# --- Sondeo --- #}
+            <h6 class="text-primary border-bottom pb-1 mb-3 mt-4"><i class="bi bi-arrow-down-up me-1"></i>Sondeo</h6>
+            <div class="row g-3 mb-2">
+                {% for check, cant in instrucciones_sondeo %}
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="form-check mb-0" style="min-width: 190px;">
+                            {{ check }}
+                            <label class="form-check-label" for="{{ check.id_for_label }}">{{ check.label }}</label>
+                        </div>
+                        {{ cant }}
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="col-md-6">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="mb-0" style="min-width: 190px;">Diámetro</label>
+                        {{ form.sond_diametro }}
+                    </div>
+                </div>
+            </div>
+
+            {# --- Lavado --- #}
+            <h6 class="text-primary border-bottom pb-1 mb-3 mt-4"><i class="bi bi-water me-1"></i>Lavado</h6>
+            <div class="row g-3 mb-2">
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Concepto</label>
+                    {{ form.lavado_concepto }}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Cantidad</label>
+                    {{ form.lavado_cantidad }}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Correctivo</label>
+                    {{ form.lavado_correctivo }}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Preventivo</label>
+                    {{ form.lavado_preventivo }}
+                </div>
+            </div>
+
+            {# --- Transporte --- #}
+            <h6 class="text-primary border-bottom pb-1 mb-3 mt-4"><i class="bi bi-truck me-1"></i>Transporte</h6>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Tipo</label>
+                    {{ form.transporte_tipo }}
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-1">Cantidad</label>
+                    {{ form.transporte_cantidad }}
+                </div>
+            </div>
+        </div>
+    </div>
+
     {# ============ CHECKLIST OPERATIVO ============ #}
     <div class="card shadow mb-4">
         <div class="card-header"><h5 class="mb-0">Checklist operativo</h5></div>

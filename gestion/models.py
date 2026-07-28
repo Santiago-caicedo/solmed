@@ -878,6 +878,47 @@ class Programacion(models.Model):
         max_length=200, blank=True, verbose_name="Nombre / contacto de quien recibe el servicio"
     )
 
+    # --- Instrucciones del servicio (primera parte del Acta de servicio) ---
+    # Lo que ANTES llenaba el conductor en el acta (Succión y Transporte / Sondeo /
+    # Lavado / Transporte) ahora lo define el asesor aquí. Al generar la orden y
+    # cuando el conductor cierra el acta, estos valores se copian tal cual al
+    # Manifiesto (ver `instrucciones_acta` y GenerarManifiestoView): el conductor
+    # ya no los diligencia, solo los recibe fijos. Mismos nombres que en Manifiesto
+    # para poder copiarlos campo a campo.
+    # Succión y Transporte
+    succ_canecas = models.BooleanField(default=False, verbose_name="Canecas")
+    succ_canecas_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Canecas")
+    succ_pozos_inspeccion = models.BooleanField(default=False, verbose_name="Pozos de inspección")
+    succ_pozos_inspeccion_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Pozos")
+    succ_pozos_septicos = models.BooleanField(default=False, verbose_name="Pozos Sépticos")
+    succ_pozos_septicos_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Sépticos")
+    succ_tanques = models.BooleanField(default=False, verbose_name="Tanques")
+    succ_tanques_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Tanques")
+    succ_trampas_grasa = models.BooleanField(default=False, verbose_name="Trampas de Grasa")
+    succ_trampas_grasa_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Trampas")
+    succ_otros = models.CharField(max_length=100, blank=True, verbose_name="Otros (Succión)")
+    succ_otros_cant = models.CharField(max_length=20, blank=True, verbose_name="Ton/M³ Otros")
+    # Sondeo
+    sond_red_aguas_lluvias = models.BooleanField(default=False, verbose_name="Red de agua lluvias")
+    sond_red_aguas_lluvias_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Lluvias)")
+    sond_red_aguas_negras = models.BooleanField(default=False, verbose_name="Red de aguas negras")
+    sond_red_aguas_negras_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Negras)")
+    sond_red_acueducto = models.BooleanField(default=False, verbose_name="Red Acueducto")
+    sond_red_acueducto_cant = models.CharField(max_length=50, blank=True, verbose_name="H/ML (Acueducto)")
+    sond_correctivo = models.BooleanField(default=False, verbose_name="Sondeo Correctivo")
+    sond_correctivo_cant = models.CharField(max_length=50, blank=True, verbose_name="Valor (Correctivo)")
+    sond_preventivo = models.BooleanField(default=False, verbose_name="Sondeo Preventivo")
+    sond_preventivo_cant = models.CharField(max_length=50, blank=True, verbose_name="Valor (Preventivo)")
+    sond_diametro = models.CharField(max_length=50, blank=True, verbose_name="Diámetro")
+    # Lavado
+    lavado_concepto = models.CharField(max_length=100, blank=True, verbose_name="Concepto de Lavado")
+    lavado_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Lavado)")
+    lavado_correctivo = models.CharField(max_length=100, blank=True, verbose_name="Lavado Correctivo")
+    lavado_preventivo = models.CharField(max_length=100, blank=True, verbose_name="Lavado Preventivo")
+    # Transporte
+    transporte_tipo = models.CharField(max_length=100, blank=True, verbose_name="Tipo de Transporte")
+    transporte_cantidad = models.CharField(max_length=50, blank=True, verbose_name="Cantidad (Transporte)")
+
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='BORRADOR')
 
     # Orden generada al convertir la programación (queda enlazada). En CASCADE:
@@ -899,8 +940,62 @@ class Programacion(models.Model):
         verbose_name = "Programación"
         verbose_name_plural = "Programaciones"
 
+    # Campos de la "primera parte del acta" que el asesor define aquí y que se
+    # copian al Manifiesto. Mismo orden agrupado que el formato físico.
+    CAMPOS_INSTRUCCIONES_ACTA = (
+        'succ_canecas', 'succ_canecas_cant',
+        'succ_pozos_inspeccion', 'succ_pozos_inspeccion_cant',
+        'succ_pozos_septicos', 'succ_pozos_septicos_cant',
+        'succ_tanques', 'succ_tanques_cant',
+        'succ_trampas_grasa', 'succ_trampas_grasa_cant',
+        'succ_otros', 'succ_otros_cant',
+        'sond_red_aguas_lluvias', 'sond_red_aguas_lluvias_cant',
+        'sond_red_aguas_negras', 'sond_red_aguas_negras_cant',
+        'sond_red_acueducto', 'sond_red_acueducto_cant',
+        'sond_correctivo', 'sond_correctivo_cant',
+        'sond_preventivo', 'sond_preventivo_cant',
+        'sond_diametro',
+        'lavado_concepto', 'lavado_cantidad', 'lavado_correctivo', 'lavado_preventivo',
+        'transporte_tipo', 'transporte_cantidad',
+    )
+
     def __str__(self):
         return f"Programación #{self.pk} - {self.cliente.nombre} ({self.fecha})"
+
+    def instrucciones_acta(self):
+        """Valores de la primera parte del acta, listos para copiar al Manifiesto."""
+        return {campo: getattr(self, campo) for campo in self.CAMPOS_INSTRUCCIONES_ACTA}
+
+    def resumen_instrucciones(self):
+        """
+        Lista legible de lo que el asesor instruyó (para mostrárselo fijo al
+        conductor). Solo incluye lo marcado o con texto; devuelve [] si no hay nada.
+        """
+        # (etiqueta, ¿está activo?, cantidad asociada)
+        items = [
+            ("Canecas", self.succ_canecas, self.succ_canecas_cant),
+            ("Pozos de inspección", self.succ_pozos_inspeccion, self.succ_pozos_inspeccion_cant),
+            ("Pozos sépticos", self.succ_pozos_septicos, self.succ_pozos_septicos_cant),
+            ("Tanques", self.succ_tanques, self.succ_tanques_cant),
+            ("Trampas de grasa", self.succ_trampas_grasa, self.succ_trampas_grasa_cant),
+            (f"Otros: {self.succ_otros}" if self.succ_otros else "Otros", bool(self.succ_otros), self.succ_otros_cant),
+            ("Sondeo red aguas lluvias", self.sond_red_aguas_lluvias, self.sond_red_aguas_lluvias_cant),
+            ("Sondeo red aguas negras", self.sond_red_aguas_negras, self.sond_red_aguas_negras_cant),
+            ("Sondeo red acueducto", self.sond_red_acueducto, self.sond_red_acueducto_cant),
+            ("Sondeo correctivo", self.sond_correctivo, self.sond_correctivo_cant),
+            ("Sondeo preventivo", self.sond_preventivo, self.sond_preventivo_cant),
+            (f"Diámetro: {self.sond_diametro}" if self.sond_diametro else "Diámetro", bool(self.sond_diametro), ""),
+            (f"Lavado: {self.lavado_concepto}" if self.lavado_concepto else "Lavado", bool(self.lavado_concepto), self.lavado_cantidad),
+            (f"Lavado correctivo: {self.lavado_correctivo}", bool(self.lavado_correctivo), ""),
+            (f"Lavado preventivo: {self.lavado_preventivo}", bool(self.lavado_preventivo), ""),
+            (f"Transporte: {self.transporte_tipo}" if self.transporte_tipo else "Transporte", bool(self.transporte_tipo), self.transporte_cantidad),
+        ]
+        resumen = []
+        for etiqueta, activo, cantidad in items:
+            if not activo:
+                continue
+            resumen.append(f"{etiqueta} ({cantidad})" if cantidad else etiqueta)
+        return resumen
 
     @property
     def exige_alturas(self):

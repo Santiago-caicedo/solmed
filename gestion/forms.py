@@ -595,7 +595,7 @@ class ProgramacionForm(forms.ModelForm):
             'exige_curso_alturas',
             'exige_curso_confinados',
             'nombre_contacto_recibe',
-        ]
+        ] + list(Programacion.CAMPOS_INSTRUCCIONES_ACTA)
         widgets = {
             'fecha': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
             'hora_ingreso_bodega': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
@@ -656,6 +656,24 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sede_cliente'].queryset = sedes
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
+
+        # --- Instrucciones del servicio (primera parte del acta) ---
+        # Casillas de qué se hace + su cantidad. Es lo que antes llenaba el
+        # conductor; ahora lo define el asesor y se copia al acta.
+        checks_instrucciones = (
+            'succ_canecas', 'succ_pozos_inspeccion', 'succ_pozos_septicos',
+            'succ_tanques', 'succ_trampas_grasa', 'sond_red_aguas_lluvias',
+            'sond_red_aguas_negras', 'sond_red_acueducto', 'sond_correctivo',
+            'sond_preventivo',
+        )
+        for campo in Programacion.CAMPOS_INSTRUCCIONES_ACTA:
+            widget = self.fields[campo].widget
+            if campo in checks_instrucciones:
+                widget.attrs['class'] = 'form-check-input'
+            else:
+                widget.attrs.setdefault('class', 'form-control form-control-sm')
+                if campo.endswith('_cant'):
+                    widget.attrs.setdefault('placeholder', 'Ton/M³ · H/ML · Cant.')
 
     def _switch_a_si_no(self, campo):
         return 'SI' if self.cleaned_data.get(campo) else 'NO'

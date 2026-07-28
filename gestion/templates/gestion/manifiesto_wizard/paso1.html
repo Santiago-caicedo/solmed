@@ -17,16 +17,25 @@
 <div class="wizard-container">
     <div class="wizard-header">
         <h1>Acta de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
-        <p>Completa la información paso a paso (Paso 1 de 5)</p>
+        <p>Completa la información paso a paso (Paso 1 de 3)</p>
     </div>
 
     <div class="wizard-progress">
         <div class="wizard-step active">Paso 1: Datos Generales</div>
-        <div class="wizard-step">Paso 2: Actividades</div>
-        <div class="wizard-step">Paso 3: Tiempos y Medidas</div>
-        <div class="wizard-step">Paso 4: Responsable y Observaciones</div>
-        <div class="wizard-step">Paso 5: Satisfacción y Firma</div>
+        <div class="wizard-step">Paso 2: Tiempos y Medidas</div>
+        <div class="wizard-step">Paso 3: Responsable y Observaciones</div>
     </div>
+
+    {# Instrucciones del servicio: las define el asesor en la programación. El
+       conductor solo las ve, no las edita (primera parte del acta). #}
+    {% if instrucciones_resumen %}
+    <div class="alert alert-info">
+        <h6 class="mb-2"><i class="bi bi-clipboard-check me-1"></i>Instrucciones del servicio (definidas por el asesor)</h6>
+        <ul class="mb-0">
+            {% for linea in instrucciones_resumen %}<li>{{ linea }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 
     <form method="post">
         {% csrf_token %}

@@ -485,6 +485,26 @@ def _qr_data_uri(url):
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode('utf-8')
 
 
+def _programacion_de(recorrido):
+    """Programación que originó la orden del recorrido, o None (órdenes manuales)."""
+    orden = recorrido.orden
+    if orden is None:
+        return None
+    return getattr(orden, 'programacion_origen', None)
+
+
+def _instrucciones_servicio_de(recorrido):
+    """Primera parte del acta definida por el asesor en la programación (o {})."""
+    programacion = _programacion_de(recorrido)
+    return programacion.instrucciones_acta() if programacion else {}
+
+
+def _resumen_instrucciones_de(recorrido):
+    """Resumen legible de las instrucciones del asesor para mostrárselo fijo al conductor."""
+    programacion = _programacion_de(recorrido)
+    return programacion.resumen_instrucciones() if programacion else []
+
+
 # ============================================================
 #  NOTA DE NOMENCLATURA: en el back se llama "Manifiesto" (modelo, estas
 #  vistas y URLs manifiesto_*); en el front se muestra como "ACTA DE SERVICIO".
@@ -492,18 +512,22 @@ def _qr_data_uri(url):
 # ============================================================
 class GenerarManifiestoView(LoginRequiredMixin, View):
     """
-    Wizard que llena EL CONDUCTOR: solo los datos operativos (paso1-4).
-    Al terminar el paso 4 se persiste el manifiesto (acta de servicio) y se
-    redirige a la pantalla del QR; la encuesta de satisfacción y la firma las
+    Wizard que llena EL CONDUCTOR: solo los datos operativos (paso1, paso3, paso4).
+    La primera parte del acta (Succión/Sondeo/Lavado/Transporte) NO la llena el
+    conductor: son las instrucciones que definió el asesor en la programación y se
+    copian al acta al cerrarla. Al terminar se persiste el manifiesto (acta de
+    servicio) y se redirige al QR; la encuesta de satisfacción y la firma las
     completa el cliente en su propio dispositivo (EncuestaPublicaView).
     """
+    # Paso 2 (Succión/Sondeo/Lavado/Transporte) YA NO lo llena el conductor: son
+    # las "Instrucciones del servicio" que define el asesor en la programación y
+    # se copian al acta al cerrarla (ver post()). Por eso no está en el asistente.
     FORMS = [
-        ("paso1", ManifiestoPaso1Form), ("paso2", ManifiestoPaso2Form),
+        ("paso1", ManifiestoPaso1Form),
         ("paso3", ManifiestoPaso3Form), ("paso4", ManifiestoPaso4Form),
     ]
     TEMPLATES = {
         "paso1": 'gestion/manifiesto_wizard/paso1.html',
-        "paso2": 'gestion/manifiesto_wizard/paso2.html',
         "paso3": 'gestion/manifiesto_wizard/paso3.html',
         "paso4": 'gestion/manifiesto_wizard/paso4.html',
     }
@@ -542,6 +566,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         return render(request, template_path, {
             'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
             'manifiesto_instance': manifiesto_instance,
+            'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
         })
 
     def post(self, request, pk, step='paso1'):
@@ -562,6 +587,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             messages.error(request, "Por favor, corrija los errores en el formulario.")
             return render(request, self.TEMPLATES[step], {
                 'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
+                'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
             })
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
@@ -578,9 +604,12 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             return redirect('gestion:firmar_manifiesto_step', pk=pk, step=next_step_name)
 
         # --- Último paso del conductor: persistir el manifiesto y pasar al QR ---
+        # La primera parte del acta (Succión/Sondeo/Lavado/Transporte) no la llena
+        # el conductor: la definió el asesor en la programación. Se copia aquí.
+        instrucciones = _instrucciones_servicio_de(recorrido)
         Manifiesto.objects.update_or_create(
             recorrido=recorrido,
-            defaults={**manifiesto_data, 'estado_firma': 'PENDIENTE_FIRMA'},
+            defaults={**instrucciones, **manifiesto_data, 'estado_firma': 'PENDIENTE_FIRMA'},
         )
         if f'manifiesto_data_{pk}' in request.session:
             del request.session[f'manifiesto_data_{pk}']
@@ -1543,6 +1572,24 @@ def _contexto_programacion(context):
     context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
+    # Instrucciones del servicio: pares (casilla, cantidad) para renderizar la
+    # primera parte del acta (Succión y Sondeo) en dos columnas alineadas.
+    form = context.get('form')
+    if form is not None:
+        context['instrucciones_succion'] = [
+            (form['succ_canecas'], form['succ_canecas_cant']),
+            (form['succ_pozos_inspeccion'], form['succ_pozos_inspeccion_cant']),
+            (form['succ_pozos_septicos'], form['succ_pozos_septicos_cant']),
+            (form['succ_tanques'], form['succ_tanques_cant']),
+            (form['succ_trampas_grasa'], form['succ_trampas_grasa_cant']),
+        ]
+        context['instrucciones_sondeo'] = [
+            (form['sond_red_aguas_lluvias'], form['sond_red_aguas_lluvias_cant']),
+            (form['sond_red_aguas_negras'], form['sond_red_aguas_negras_cant']),
+            (form['sond_red_acueducto'], form['sond_red_acueducto_cant']),
+            (form['sond_correctivo'], form['sond_correctivo_cant']),
+            (form['sond_preventivo'], form['sond_preventivo_cant']),
+        ]
     return context
 
 
