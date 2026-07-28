@@ -523,6 +523,15 @@ def _acta_para_vista(recorrido):
     return manifiesto, estado
 
 
+def _actas_formato(recorridos):
+    """[{recorrido, acta, estado}] para embeber el acta (formato documento) en la orden."""
+    resultado = []
+    for recorrido in recorridos:
+        acta, estado = _acta_para_vista(recorrido)
+        resultado.append({'recorrido': recorrido, 'acta': acta, 'estado': estado})
+    return resultado
+
+
 class ActaFormatoView(LoginRequiredMixin, View):
     """
     Vista del acta (Orden de Servicio) en el MISMO formato del PDF final, pero en
@@ -903,6 +912,9 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                     if docs_alerta:
                         personal_con_alerta.append({'persona': persona, 'documentos': docs_alerta})
         context['personal_con_alerta'] = personal_con_alerta
+        # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
+        context['actas_formato'] = _actas_formato(
+            self.object.recorridos.all().order_by('fecha_recorrido'))
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1195,9 +1207,12 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         # Solo los recorridos de esta orden asignados a este conductor.
-        context['mis_recorridos'] = self.object.recorridos.filter(
+        mis_recorridos = self.object.recorridos.filter(
             conductor=self.request.user
         ).select_related('vehiculo').order_by('-fecha_recorrido')
+        context['mis_recorridos'] = mis_recorridos
+        # Acta(s) en formato documento (igual al PDF) para la pestaña del conductor.
+        context['actas_formato'] = _actas_formato(mis_recorridos)
         return context
 
 
