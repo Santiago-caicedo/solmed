@@ -106,7 +106,8 @@ class DocumentoInterno(models.Model):
     varias (una por cuenta/banco), distinguidas por `entidad`.
     """
     TIPO_CHOICES = [
-        ('RUT', 'RUT'),
+        ('RUT', 'RUT completo'),
+        ('RUT_PRIMERA_PAGINA', 'RUT primera página'),
         ('CAMARA_COMERCIO', 'Cámara de Comercio'),
         ('CEDULA_REP_LEGAL', 'Cédula del representante legal'),
         ('CEDULA_REP_SUPLENTE', 'Cédula del representante legal suplente'),
@@ -117,7 +118,7 @@ class DocumentoInterno(models.Model):
         ('CERT_PROCURADURIA', 'Certificado de la Procuraduría'),
     ]
     # Tipos que llevan fecha del documento (para que las áreas la conozcan).
-    TIPOS_CON_FECHA = ('RUT', 'CAMARA_COMERCIO')
+    TIPOS_CON_FECHA = ('RUT', 'RUT_PRIMERA_PAGINA', 'CAMARA_COMERCIO')
     # Tipo que admite varios (una certificación por cuenta/banco).
     TIPO_MULTIPLE = 'CERTIFICACION_BANCARIA'
     # Cuentas/bancos sugeridos para la certificación bancaria.
