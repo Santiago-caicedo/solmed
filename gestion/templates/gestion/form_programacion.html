@@ -180,36 +180,64 @@
             <p class="text-muted small">
                 <i class="bi bi-info-circle me-1"></i>
                 Cada programación genera <strong>una orden con un vehículo</strong> (un recorrido y un acta de
-                servicio). Conductor y placa son obligatorios. La novedad registra cómo cubre el turno el
-                ayudante ese día.
+                servicio). Conductor y placa son obligatorios; puedes añadir hasta dos ayudantes. Las novedades
+                registran cómo cubre el turno cada ayudante (puedes marcar varias).
             </p>
             {# Contenedor con id cuadrillas-tbody y clase cuadrilla-row para que el
                JS de SS/cursos/carga siga funcionando con los nombres cuadrilla-*. #}
             <div id="cuadrillas-tbody">
-                <div class="row g-3 cuadrilla-row">
-                    <div class="col-md-6 col-lg-3">
-                        <label for="{{ cuadrilla_form.conductor.id_for_label }}" class="form-label">Conductor <span class="text-danger">*</span></label>
-                        {{ cuadrilla_form.conductor }}
-                        {% for e in cuadrilla_form.conductor.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                <div class="cuadrilla-row">
+                    <div class="row g-3 mb-2">
+                        <div class="col-md-6">
+                            <label for="{{ cuadrilla_form.conductor.id_for_label }}" class="form-label">Conductor <span class="text-danger">*</span></label>
+                            {{ cuadrilla_form.conductor }}
+                            {% for e in cuadrilla_form.conductor.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ cuadrilla_form.vehiculo.id_for_label }}" class="form-label">Placa / vehículo <span class="text-danger">*</span></label>
+                            {{ cuadrilla_form.vehiculo }}
+                            {% for e in cuadrilla_form.vehiculo.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                        </div>
                     </div>
-                    <div class="col-md-6 col-lg-3">
-                        <label for="{{ cuadrilla_form.vehiculo.id_for_label }}" class="form-label">Placa / vehículo <span class="text-danger">*</span></label>
-                        {{ cuadrilla_form.vehiculo }}
-                        {% for e in cuadrilla_form.vehiculo.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+
+                    {# Ayudante 1 + sus novedades #}
+                    <div class="row g-3 align-items-start border-top pt-3">
+                        <div class="col-md-5">
+                            <label for="{{ cuadrilla_form.ayudante.id_for_label }}" class="form-label"><i class="bi bi-person me-1"></i>Ayudante <span class="text-muted">(opcional)</span></label>
+                            {{ cuadrilla_form.ayudante }}
+                            {% for e in cuadrilla_form.ayudante.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
+                            <div class="novedades-check">{{ cuadrilla_form.ayudante_novedad }}</div>
+                        </div>
                     </div>
-                    <div class="col-md-6 col-lg-3">
-                        <label for="{{ cuadrilla_form.ayudante.id_for_label }}" class="form-label">Ayudante</label>
-                        {{ cuadrilla_form.ayudante }}
-                        {% for e in cuadrilla_form.ayudante.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
-                    </div>
-                    <div class="col-md-6 col-lg-3">
-                        <label for="{{ cuadrilla_form.ayudante_novedad.id_for_label }}" class="form-label">Novedad del ayudante</label>
-                        {{ cuadrilla_form.ayudante_novedad }}
+
+                    {# Ayudante 2 (opcional) + sus novedades #}
+                    <div class="row g-3 align-items-start border-top pt-3 mt-1">
+                        <div class="col-md-5">
+                            <label for="{{ cuadrilla_form.ayudante2.id_for_label }}" class="form-label"><i class="bi bi-person me-1"></i>Segundo ayudante <span class="text-muted">(opcional)</span></label>
+                            {{ cuadrilla_form.ayudante2 }}
+                            {% for e in cuadrilla_form.ayudante2.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
+                            <div class="novedades-check">{{ cuadrilla_form.ayudante2_novedad }}</div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <style>
+        /* Novedades: checkboxes compactos en columnas */
+        .novedades-check ul { list-style:none; padding:0; margin:0;
+            display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:.15rem .8rem; }
+        .novedades-check li { margin:0; }
+        .novedades-check label { font-size:.85rem; font-weight:400; cursor:pointer; }
+        .novedades-check input { margin-right:.4rem; }
+    </style>
 
     <div id="alertas-documentos"></div>
 
@@ -486,7 +514,7 @@ function esc(t) {
 // (conductores y ayudantes, sin repetir), con su estado documental.
 function personalSeleccionado() {
     var selects = document.querySelectorAll(
-        '#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]'
+        '#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"], #cuadrillas-tbody select[name$="-ayudante2"]'
     );
     var lista = [];
     var vistos = {};
@@ -700,7 +728,7 @@ function bloquearGuardado(bloquear) {
 }
 
 document.addEventListener('change', function (e) {
-    if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"]')
+    if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"], #cuadrillas-tbody select[name$="-ayudante2"]')
         || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')
         || e.target.matches('#id_cliente')) {   // el cliente aparece en el cuerpo del correo
         pintarSwitches();

@@ -334,6 +334,13 @@ class Recorrido(models.Model):
         related_name='recorridos_como_ayudante',
         null=True, blank=True
     )
+    # Segundo ayudante (opcional).
+    ayudante2 = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='recorridos_como_ayudante2',
+        null=True, blank=True
+    )
 
     fecha_recorrido = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
@@ -350,6 +357,8 @@ class Recorrido(models.Model):
             personas.append((self.conductor, True))
         if self.ayudante:
             personas.append((self.ayudante, False))
+        if self.ayudante2:
+            personas.append((self.ayudante2, False))
         return personas
 
     def save(self, *args, **kwargs):
@@ -930,6 +939,7 @@ class Programacion(models.Model):
                     vehiculo=c.vehiculo,
                     conductor=c.conductor,
                     ayudante=c.ayudante,
+                    ayudante2=c.ayudante2,
                     fecha_recorrido=self.fecha,
                 )
             self.orden = orden
@@ -1014,11 +1024,26 @@ class ProgramacionCuadrilla(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='cuadrillas_como_ayudante', null=True, blank=True
     )
+    ayudante2 = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='cuadrillas_como_ayudante2', null=True, blank=True,
+        verbose_name="Segundo ayudante (opcional)"
+    )
+    # Novedades del turno de cada ayudante. Son de selección MÚLTIPLE: se guardan
+    # como códigos separados por coma (ej. "INICIA_CLIENTE,RETORNA_BODEGA").
     ayudante_novedad = models.CharField(
-        max_length=20, choices=NOVEDAD_CHOICES, blank=True, default='',
-        verbose_name="Novedad del ayudante"
+        max_length=200, blank=True, default='', verbose_name="Novedades del ayudante"
+    )
+    ayudante2_novedad = models.CharField(
+        max_length=200, blank=True, default='', verbose_name="Novedades del segundo ayudante"
     )
     orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
+
+    @staticmethod
+    def novedades_display(csv):
+        """Etiquetas legibles de una lista de novedades guardada como CSV."""
+        etiquetas = dict(ProgramacionCuadrilla.NOVEDAD_CHOICES)
+        return [etiquetas.get(c, c) for c in csv.split(',') if c]
 
     class Meta:
         ordering = ['orden_fila', 'id']

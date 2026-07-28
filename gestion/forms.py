@@ -379,6 +379,11 @@ def _mostrar_nombres(campo):
     campo.label_from_instance = _nombre_persona
 
 
+def _csv_a_lista(csv):
+    """Convierte 'A,B' en ['A', 'B'] (para novedades multi-selección)."""
+    return [c for c in (csv or '').split(',') if c]
+
+
 def personal_activo_del_grupo(nombre_grupo):
     """
     Usuarios ACTIVOS (no retirados) de un grupo, para los desplegables de
@@ -513,12 +518,13 @@ class ActualizarUsuarioForm(forms.ModelForm):
 class RecorridoForm(forms.ModelForm):
     class Meta:
         model = Recorrido
-        fields = ['fecha_recorrido', 'vehiculo', 'conductor', 'ayudante', 'descripcion']
+        fields = ['fecha_recorrido', 'vehiculo', 'conductor', 'ayudante', 'ayudante2', 'descripcion']
         widgets = {
             'fecha_recorrido': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'conductor': forms.Select(attrs={'class': 'form-select'}),
             'ayudante': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante2': forms.Select(attrs={'class': 'form-select'}),
             'descripcion': forms.TextInput(attrs={'class': 'form-control'}),
         }
         labels = {
@@ -526,6 +532,7 @@ class RecorridoForm(forms.ModelForm):
             'vehiculo': 'Vehículo a Asignar',
             'conductor': 'Conductor a Asignar',
             'ayudante': 'Ayudante (Opcional)',
+            'ayudante2': 'Segundo ayudante (Opcional)',
             'descripcion': 'Descripción (Opcional)',
         }
 
@@ -533,14 +540,15 @@ class RecorridoForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # Filtramos para que solo se puedan seleccionar vehículos operativos
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-        
+
         # Solo conductores/ayudantes ACTIVOS (los retirados no se pueden asignar).
         self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
-        self.fields['ayudante'].queryset = personal_activo_del_grupo('Ayudantes')
+        for campo in ('ayudante', 'ayudante2'):
+            self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+            _mostrar_nombres(self.fields[campo])
 
         # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
         _mostrar_nombres(self.fields['conductor'])
-        _mostrar_nombres(self.fields['ayudante'])
 
 
 
@@ -698,17 +706,29 @@ class ProgramacionForm(forms.ModelForm):
 class ProgramacionCuadrillaForm(forms.ModelForm):
     """
     Personal y vehículo del servicio: UNA cuadrilla por programación (una orden =
-    un vehículo = un recorrido = un acta). Conductor y placa son obligatorios.
-    Se usa como formulario único con prefijo 'cuadrilla' (no como formset).
+    un vehículo = un recorrido = un acta). Conductor y placa son obligatorios;
+    puede llevar hasta dos ayudantes. Las novedades de cada ayudante son de
+    selección múltiple (se guardan como CSV en el modelo). Formulario único con
+    prefijo 'cuadrilla' (no como formset).
     """
+    ayudante_novedad = forms.MultipleChoiceField(
+        choices=ProgramacionCuadrilla.NOVEDAD_CHOICES, required=False,
+        widget=forms.CheckboxSelectMultiple, label="Novedades del ayudante"
+    )
+    ayudante2_novedad = forms.MultipleChoiceField(
+        choices=ProgramacionCuadrilla.NOVEDAD_CHOICES, required=False,
+        widget=forms.CheckboxSelectMultiple, label="Novedades del segundo ayudante"
+    )
+
     class Meta:
         model = ProgramacionCuadrilla
-        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante_novedad']
+        # Las novedades se manejan aparte (CSV); no van en Meta.fields.
+        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante2']
         widgets = {
             'conductor': forms.Select(attrs={'class': 'form-select'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'ayudante': forms.Select(attrs={'class': 'form-select'}),
-            'ayudante_novedad': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante2': forms.Select(attrs={'class': 'form-select'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -716,16 +736,42 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         # Solo vehículos operativos y personal ACTIVO (retirados excluidos).
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
         self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
-        self.fields['ayudante'].queryset = personal_activo_del_grupo('Ayudantes')
+        for campo in ('ayudante', 'ayudante2'):
+            self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+            _mostrar_nombres(self.fields[campo])
         # Conductor y vehículo son obligatorios (la orden necesita ambos).
         self.fields['conductor'].required = True
         self.fields['vehiculo'].required = True
         self.fields['vehiculo'].empty_label = '--- Elige la placa ---'
         self.fields['conductor'].empty_label = '--- Elige el conductor ---'
         self.fields['ayudante'].empty_label = '--- Sin ayudante ---'
-        # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
+        self.fields['ayudante2'].empty_label = '--- Sin segundo ayudante ---'
         _mostrar_nombres(self.fields['conductor'])
-        _mostrar_nombres(self.fields['ayudante'])
+        # Novedades: valores iniciales desde el CSV guardado.
+        if self.instance and self.instance.pk:
+            self.initial['ayudante_novedad'] = _csv_a_lista(self.instance.ayudante_novedad)
+            self.initial['ayudante2_novedad'] = _csv_a_lista(self.instance.ayudante2_novedad)
+
+    def clean(self):
+        cleaned = super().clean()
+        # Un mismo ayudante no puede ir dos veces.
+        a1, a2 = cleaned.get('ayudante'), cleaned.get('ayudante2')
+        if a1 and a2 and a1 == a2:
+            self.add_error('ayudante2', 'El segundo ayudante no puede ser el mismo que el primero.')
+        # Novedades solo si hay ese ayudante.
+        if not a1:
+            cleaned['ayudante_novedad'] = []
+        if not a2:
+            cleaned['ayudante2_novedad'] = []
+        return cleaned
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.ayudante_novedad = ','.join(self.cleaned_data.get('ayudante_novedad', []))
+        obj.ayudante2_novedad = ','.join(self.cleaned_data.get('ayudante2_novedad', []))
+        if commit:
+            obj.save()
+        return obj
 
 
 class DocumentoPersonalForm(forms.ModelForm):

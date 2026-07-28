@@ -809,6 +809,7 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
             'recorridos__vehiculo',
             'recorridos__conductor__documentos_personales',
             'recorridos__ayudante__documentos_personales',
+            'recorridos__ayudante2__documentos_personales',
         )
 
     def get_context_data(self, **kwargs):
@@ -827,7 +828,7 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         personal_con_alerta = []
         vistos = set()
         for recorrido in self.object.recorridos.all():
-            for persona in (recorrido.conductor, recorrido.ayudante):
+            for persona in (recorrido.conductor, recorrido.ayudante, recorrido.ayudante2):
                 if persona and persona.pk not in vistos:
                     vistos.add(persona.pk)
                     docs_alerta = [d for d in persona.documentos_personales.all() if d.tiene_alerta]
@@ -1373,17 +1374,20 @@ def _validar_cursos_cuadrilla(form, cuadrilla_form):
     exige_confinados = form.cleaned_data.get('exige_curso_confinados') == 'SI'
     if not (exige_alturas or exige_confinados):
         return True
-    ayudante = cuadrilla_form.cleaned_data.get('ayudante')
-    motivos = cursos_faltantes_ayudante(ayudante, exige_alturas, exige_confinados)
-    if not motivos:
-        return True
-    nombre = ayudante.get_full_name() or ayudante.username
-    cuadrilla_form.add_error(
-        'ayudante',
-        f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
-        f"carga el soporte en su expediente o asigna otro ayudante."
-    )
-    return False
+    todo_ok = True
+    for campo in ('ayudante', 'ayudante2'):
+        ayudante = cuadrilla_form.cleaned_data.get(campo)
+        motivos = cursos_faltantes_ayudante(ayudante, exige_alturas, exige_confinados)
+        if not motivos:
+            continue
+        todo_ok = False
+        nombre = ayudante.get_full_name() or ayudante.username
+        cuadrilla_form.add_error(
+            campo,
+            f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
+            f"carga el soporte en su expediente o asigna otro ayudante."
+        )
+    return todo_ok
 
 
 def _tiene_ss_vigente(persona):
@@ -1403,7 +1407,7 @@ def _validar_ss_cuadrilla(form, cuadrilla_form):
     Devuelve True si ambos la tienen vigente.
     """
     todo_ok = True
-    for campo in ('conductor', 'ayudante'):
+    for campo in ('conductor', 'ayudante', 'ayudante2'):
         persona = cuadrilla_form.cleaned_data.get(campo)
         if persona is None or _tiene_ss_vigente(persona):
             continue
@@ -1655,8 +1659,10 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
 def _personal_de_la_orden(orden):
     """Conductores y ayudantes (sin repetir) de todos los recorridos de la orden."""
     personas = {}
-    for recorrido in orden.recorridos.select_related('conductor', 'ayudante'):
-        for persona, rol in ((recorrido.conductor, 'Conductor'), (recorrido.ayudante, 'Ayudante')):
+    for recorrido in orden.recorridos.select_related('conductor', 'ayudante', 'ayudante2'):
+        for persona, rol in ((recorrido.conductor, 'Conductor'),
+                             (recorrido.ayudante, 'Ayudante'),
+                             (recorrido.ayudante2, 'Ayudante')):
             if persona and persona.pk not in personas:
                 personas[persona.pk] = (persona, rol)
     return list(personas.values())
