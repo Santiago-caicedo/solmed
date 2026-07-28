@@ -31,7 +31,7 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaFormSet, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente
 
 
@@ -1363,33 +1363,27 @@ def _estado_documentos_personal():
     return data
 
 
-def _validar_cursos_cuadrillas(form, formset):
+def _validar_cursos_cuadrilla(form, cuadrilla_form):
     """
-    Si la programación exige cursos, comprueba que cada ayudante asignado los
-    tenga vigentes. Marca el error en la propia fila del formset (campo
-    'ayudante') para que el asesor vea exactamente cuál falla.
-    Devuelve True si todo cumple.
+    Si la programación exige cursos, comprueba que el ayudante asignado los tenga
+    vigentes. Marca el error en el campo 'ayudante' de la cuadrilla.
+    Devuelve True si cumple.
     """
     exige_alturas = form.cleaned_data.get('exige_curso_alturas') == 'SI'
     exige_confinados = form.cleaned_data.get('exige_curso_confinados') == 'SI'
     if not (exige_alturas or exige_confinados):
         return True
-
-    todo_ok = True
-    for fila in formset.forms:
-        if not fila.cleaned_data or fila.cleaned_data.get('DELETE'):
-            continue
-        ayudante = fila.cleaned_data.get('ayudante')
-        motivos = cursos_faltantes_ayudante(ayudante, exige_alturas, exige_confinados)
-        if motivos:
-            todo_ok = False
-            nombre = ayudante.get_full_name() or ayudante.username
-            fila.add_error(
-                'ayudante',
-                f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
-                f"carga el soporte en su expediente o asigna otro ayudante."
-            )
-    return todo_ok
+    ayudante = cuadrilla_form.cleaned_data.get('ayudante')
+    motivos = cursos_faltantes_ayudante(ayudante, exige_alturas, exige_confinados)
+    if not motivos:
+        return True
+    nombre = ayudante.get_full_name() or ayudante.username
+    cuadrilla_form.add_error(
+        'ayudante',
+        f"{nombre} {' y '.join(motivos)}. Este servicio exige esos cursos: "
+        f"carga el soporte en su expediente o asigna otro ayudante."
+    )
+    return False
 
 
 def _tiene_ss_vigente(persona):
@@ -1402,28 +1396,24 @@ def _tiene_ss_vigente(persona):
     ).exists()
 
 
-def _validar_ss_cuadrillas(form, formset):
+def _validar_ss_cuadrilla(form, cuadrilla_form):
     """
-    La seguridad social vigente de TODO el personal asignado (conductores y
-    ayudantes) debe estar cargada: es lo que se enviará al cliente. Si a alguien
-    le falta o la tiene vencida, se marca el error en su fila y no se deja guardar.
-    Devuelve True si todos la tienen vigente.
+    La seguridad social vigente del personal asignado (conductor y ayudante) debe
+    estar cargada: es lo que se enviará al cliente. Marca el error en su campo.
+    Devuelve True si ambos la tienen vigente.
     """
     todo_ok = True
-    for fila in formset.forms:
-        if not fila.cleaned_data or fila.cleaned_data.get('DELETE'):
+    for campo in ('conductor', 'ayudante'):
+        persona = cuadrilla_form.cleaned_data.get(campo)
+        if persona is None or _tiene_ss_vigente(persona):
             continue
-        for rol, campo in (('conductor', 'conductor'), ('ayudante', 'ayudante')):
-            persona = fila.cleaned_data.get(campo)
-            if persona is None or _tiene_ss_vigente(persona):
-                continue
-            todo_ok = False
-            nombre = persona.get_full_name() or persona.username
-            fila.add_error(
-                campo,
-                f"{nombre} no tiene seguridad social vigente. Se enviará al cliente, "
-                f"así que debe estar al día: cárgala con su vigencia en el expediente."
-            )
+        todo_ok = False
+        nombre = persona.get_full_name() or persona.username
+        cuadrilla_form.add_error(
+            campo,
+            f"{nombre} no tiene seguridad social vigente. Se enviará al cliente, "
+            f"así que debe estar al día: cárgala con su vigencia en el expediente."
+        )
     return todo_ok
 
 
@@ -1541,6 +1531,17 @@ class ListaProgramacionesView(AsesorRequiredMixin, ListView):
         return context
 
 
+def _contexto_programacion(context):
+    """Datos compartidos por el formulario de programación (JSON para el JS)."""
+    context['personal_docs'] = _estado_documentos_personal()
+    context['direcciones_clientes'] = _direcciones_clientes()
+    context['sedes_por_cliente'] = _sedes_por_cliente()
+    context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
+    context['vehiculos_cargados'] = _vehiculos_cargados()
+    context['disposicion_meta'] = _disposicion_meta()
+    return context
+
+
 class CrearProgramacionView(AsesorRequiredMixin, CreateView):
     model = Programacion
     form_class = ProgramacionForm
@@ -1549,71 +1550,46 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        if self.request.method == 'POST':
-            context['formset'] = ProgramacionCuadrillaFormSet(
-                self.request.POST, prefix='cuadrilla'
-            )
-        else:
-            context['formset'] = ProgramacionCuadrillaFormSet(prefix='cuadrilla')
-        context['personal_docs'] = _estado_documentos_personal()
-        context['direcciones_clientes'] = _direcciones_clientes()
-        context['sedes_por_cliente'] = _sedes_por_cliente()
-        context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
-        context['vehiculos_cargados'] = _vehiculos_cargados()
-        context['disposicion_meta'] = _disposicion_meta()
+        if 'cuadrilla_form' not in context:
+            data = self.request.POST if self.request.method == 'POST' else None
+            context['cuadrilla_form'] = ProgramacionCuadrillaForm(data, prefix='cuadrilla')
+        _contexto_programacion(context)
         return context
 
     def form_valid(self, form):
-        context = self.get_context_data()
-        formset = context['formset']
-        if not formset.is_valid():
-            return self.form_invalid(form)
-        # Se corren ambas validaciones (no se corta en la primera) para mostrar
-        # de una vez todos los problemas: cursos exigidos y seguridad social.
-        cursos_ok = _validar_cursos_cuadrillas(form, formset)
-        ss_ok = _validar_ss_cuadrillas(form, formset)
-        # Al crear se genera la orden de una vez, así que debe haber al menos una
-        # cuadrilla con vehículo (cada una genera un recorrido).
-        tiene_vehiculo = any(
-            f.cleaned_data and not f.cleaned_data.get('DELETE') and f.cleaned_data.get('vehiculo')
-            for f in formset.forms
-        )
-        if not (cursos_ok and ss_ok) or not tiene_vehiculo:
-            if not tiene_vehiculo:
-                messages.error(
-                    self.request,
-                    "Asigna al menos una cuadrilla con vehículo: la orden se genera "
-                    "al crear la programación."
-                )
-            else:
-                messages.error(
-                    self.request,
-                    "No se guardó: revisa la documentación del personal asignado "
-                    "(seguridad social vigente y cursos exigidos)."
-                )
-            # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
-            # errores marcados en las filas del personal que incumple.
-            context['form'] = form
-            return self.render_to_response(context)
+        # Una programación = un vehículo = una orden. Una sola cuadrilla.
+        cuadrilla_form = ProgramacionCuadrillaForm(self.request.POST, prefix='cuadrilla')
+        if not cuadrilla_form.is_valid():
+            return self.render_to_response(
+                self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
+        cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
+        ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
+        if not (cursos_ok and ss_ok):
+            messages.error(
+                self.request,
+                "No se guardó: revisa la documentación del personal asignado "
+                "(seguridad social vigente y cursos exigidos)."
+            )
+            return self.render_to_response(
+                self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
 
         form.instance.creado_por = self.request.user
         self.object = form.save()
-        formset.instance = self.object
-        formset.save()
+        cuadrilla = cuadrilla_form.save(commit=False)
+        cuadrilla.programacion = self.object
+        cuadrilla.save()
 
         # Se genera la orden inmediatamente (no queda en borrador) y se envía la
-        # seguridad social al cliente, igual que al pulsar "Generar orden".
+        # seguridad social al cliente.
         try:
             orden = self.object.convertir_en_orden(self.request.user)
         except ValueError as e:
-            # No debería ocurrir (ya validamos), pero si pasa queda en borrador.
             messages.warning(self.request, f"Programación creada en borrador: {e}")
             return HttpResponseRedirect(self.get_success_url())
 
         messages.success(
             self.request,
-            f"Programación creada y Orden #{orden.numero_orden} generada "
-            f"({orden.recorridos.count()} recorrido(s))."
+            f"Programación creada y Orden #{orden.numero_orden} generada."
         )
         try:
             enviado, detalle = _enviar_seguridad_social_cliente(orden, self.object)
@@ -1645,42 +1621,33 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        if self.request.method == 'POST':
-            context['formset'] = ProgramacionCuadrillaFormSet(
-                self.request.POST, instance=self.object, prefix='cuadrilla'
-            )
-        else:
-            context['formset'] = ProgramacionCuadrillaFormSet(
-                instance=self.object, prefix='cuadrilla'
-            )
-        context['personal_docs'] = _estado_documentos_personal()
-        context['direcciones_clientes'] = _direcciones_clientes()
-        context['sedes_por_cliente'] = _sedes_por_cliente()
-        context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
-        context['vehiculos_cargados'] = _vehiculos_cargados()
-        context['disposicion_meta'] = _disposicion_meta()
+        if 'cuadrilla_form' not in context:
+            data = self.request.POST if self.request.method == 'POST' else None
+            context['cuadrilla_form'] = ProgramacionCuadrillaForm(
+                data, prefix='cuadrilla', instance=self.object.cuadrillas.first())
+        _contexto_programacion(context)
         return context
 
     def form_valid(self, form):
-        context = self.get_context_data()
-        formset = context['formset']
-        if not formset.is_valid():
-            return self.form_invalid(form)
-        cursos_ok = _validar_cursos_cuadrillas(form, formset)
-        ss_ok = _validar_ss_cuadrillas(form, formset)
+        cuadrilla_form = ProgramacionCuadrillaForm(
+            self.request.POST, prefix='cuadrilla', instance=self.object.cuadrillas.first())
+        if not cuadrilla_form.is_valid():
+            return self.render_to_response(
+                self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
+        cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
+        ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
         if not (cursos_ok and ss_ok):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
                 "(seguridad social vigente y cursos exigidos)."
             )
-            # Se re-renderiza ESTE formset (no uno nuevo) para conservar los
-            # errores marcados en las filas del personal que incumple.
-            context['form'] = form
-            return self.render_to_response(context)
+            return self.render_to_response(
+                self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
         self.object = form.save()
-        formset.instance = self.object
-        formset.save()
+        cuadrilla = cuadrilla_form.save(commit=False)
+        cuadrilla.programacion = self.object
+        cuadrilla.save()
         messages.success(self.request, "Programación actualizada.")
         return HttpResponseRedirect(self.get_success_url())
 

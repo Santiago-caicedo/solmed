@@ -13,12 +13,12 @@
 <form method="post" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
 
-    {% if form.errors or formset.errors or formset.non_form_errors %}
+    {% if form.errors or cuadrilla_form.errors %}
     <div class="alert alert-danger">
         <strong><i class="bi bi-exclamation-triangle-fill me-1"></i> Corrige los siguientes errores:</strong>
         <ul class="mb-0">
             {% for field in form %}{% for e in field.errors %}<li>{{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}
-            {% for e in formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}
+            {% for field in cuadrilla_form %}{% for e in field.errors %}<li>{{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}
         </ul>
     </div>
     {% endif %}
@@ -173,81 +173,41 @@
         </div>
     </div>
 
-    {# ============ CUADRILLAS (CONDUCTOR / PLACA / AYUDANTE) ============ #}
+    {# ============ PERSONAL Y VEHÍCULO DEL SERVICIO (UNA cuadrilla) ============ #}
     <div class="card shadow mb-4">
-        <div class="card-header"><h5 class="mb-0">Cuadrillas — conductor, placa y ayudante</h5></div>
+        <div class="card-header"><h5 class="mb-0">Personal y vehículo del servicio</h5></div>
         <div class="card-body p-4">
             <p class="text-muted small">
-                Cada fila con vehículo genera un recorrido al convertir la programación en orden.
-                La novedad registra cómo cubre el turno el ayudante ese día: dónde lo inicia o lo termina,
-                si retorna a bodega o si apoya una disposición.
+                <i class="bi bi-info-circle me-1"></i>
+                Cada programación genera <strong>una orden con un vehículo</strong> (un recorrido y un acta de
+                servicio). Conductor y placa son obligatorios. La novedad registra cómo cubre el turno el
+                ayudante ese día.
             </p>
-            {{ formset.management_form }}
-            <div class="table-responsive">
-                <table class="table table-bordered align-middle">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="min-width:170px">Conductor</th>
-                            <th style="min-width:140px">Placa / vehículo</th>
-                            <th style="min-width:170px">Ayudante</th>
-                            <th style="min-width:150px">Novedad ayudante</th>
-                            {% if formset.can_delete %}<th class="text-center" style="width:48px"><i class="bi bi-trash"></i></th>{% endif %}
-                        </tr>
-                    </thead>
-                    <tbody id="cuadrillas-tbody">
-                        {% for cf in formset %}
-                        <tr class="cuadrilla-row">
-                            {% for hidden in cf.hidden_fields %}{{ hidden }}{% endfor %}
-                            <td>
-                                {{ cf.conductor }}
-                                {% for e in cf.conductor.errors %}
-                                <div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
-                                {% endfor %}
-                            </td>
-                            <td>{{ cf.vehiculo }}</td>
-                            <td>
-                                {{ cf.ayudante }}
-                                {% for e in cf.ayudante.errors %}
-                                <div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
-                                {% endfor %}
-                            </td>
-                            <td>{{ cf.ayudante_novedad }}</td>
-                            {% if formset.can_delete %}
-                            <td class="text-center align-middle">
-                                <span class="d-none">{{ cf.DELETE }}</span>
-                                <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-cuadrilla" title="Eliminar fila" aria-label="Eliminar fila">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                            {% endif %}
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            {# Contenedor con id cuadrillas-tbody y clase cuadrilla-row para que el
+               JS de SS/cursos/carga siga funcionando con los nombres cuadrilla-*. #}
+            <div id="cuadrillas-tbody">
+                <div class="row g-3 cuadrilla-row">
+                    <div class="col-md-6 col-lg-3">
+                        <label for="{{ cuadrilla_form.conductor.id_for_label }}" class="form-label">Conductor <span class="text-danger">*</span></label>
+                        {{ cuadrilla_form.conductor }}
+                        {% for e in cuadrilla_form.conductor.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <label for="{{ cuadrilla_form.vehiculo.id_for_label }}" class="form-label">Placa / vehículo <span class="text-danger">*</span></label>
+                        {{ cuadrilla_form.vehiculo }}
+                        {% for e in cuadrilla_form.vehiculo.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <label for="{{ cuadrilla_form.ayudante.id_for_label }}" class="form-label">Ayudante</label>
+                        {{ cuadrilla_form.ayudante }}
+                        {% for e in cuadrilla_form.ayudante.errors %}<div class="text-danger small mt-1"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6 col-lg-3">
+                        <label for="{{ cuadrilla_form.ayudante_novedad.id_for_label }}" class="form-label">Novedad del ayudante</label>
+                        {{ cuadrilla_form.ayudante_novedad }}
+                    </div>
+                </div>
             </div>
-
-            <button type="button" id="btn-agregar-cuadrilla" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-plus-circle me-1"></i> Añadir fila
-            </button>
-
-            {# Plantilla de fila vacía; el JS reemplaza __prefix__ por el índice nuevo #}
-            <template id="cuadrilla-empty-form">
-                <tr class="cuadrilla-row">
-                    {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
-                    <td>{{ formset.empty_form.conductor }}</td>
-                    <td>{{ formset.empty_form.vehiculo }}</td>
-                    <td>{{ formset.empty_form.ayudante }}</td>
-                    <td>{{ formset.empty_form.ayudante_novedad }}</td>
-                    {% if formset.can_delete %}
-                    <td class="text-center align-middle">
-                        <span class="d-none">{{ formset.empty_form.DELETE }}</span>
-                        <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-cuadrilla" title="Eliminar fila" aria-label="Eliminar fila">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                    {% endif %}
-                </tr>
-            </template>
         </div>
     </div>
 
@@ -288,12 +248,11 @@
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-1"></i>
         {% if object %}
-        Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una nueva
-        Orden de Servicio y se crea un recorrido por cada cuadrilla con vehículo. Se requiere al menos una.
+        Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una
+        Orden de Servicio con su recorrido y acta de servicio (un vehículo por orden).
         {% else %}
         Al pulsar <strong>Crear y generar orden</strong> se genera de una vez la Orden de Servicio
-        (un recorrido por cada cuadrilla con vehículo) y se envía la seguridad social al cliente.
-        Se requiere al menos una cuadrilla con vehículo.
+        (un vehículo, un recorrido, un acta) y se envía la seguridad social al cliente.
         {% endif %}
     </div>
 
@@ -667,7 +626,7 @@ function actualizarEnvioSS(personal) {
     }
 
     if (personal.length === 0) {
-        cuerpo.innerHTML = '<span class="text-muted">Asigna personal en las cuadrillas para ver el envío.</span>';
+        cuerpo.innerHTML = '<span class="text-muted">Asigna el conductor y el ayudante para ver el envío.</span>';
         adjuntos.innerHTML = '<div class="list-group-item text-muted small">Aún no hay personal asignado.</div>';
         contador.textContent = '0 documentos';
         return;
@@ -755,47 +714,6 @@ document.addEventListener('input', function (e) {
         revisarDocumentos();
     }
 });
-
-// Papelera de cada fila de cuadrilla: marca la casilla DELETE del formset (oculta)
-// y esconde la fila. Al guardar, Django elimina esa cuadrilla (o la ignora si era nueva).
-document.addEventListener('click', function (e) {
-    var boton = e.target.closest('.btn-eliminar-cuadrilla');
-    if (!boton) return;
-    var fila = boton.closest('.cuadrilla-row');
-    if (!fila) return;
-    var checkboxDelete = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
-    if (checkboxDelete) {
-        checkboxDelete.checked = true;
-        fila.style.display = 'none';
-    } else {
-        fila.remove();
-    }
-    revisarDocumentos();   // quitar el aviso de la persona que estaba en esa fila
-});
-
-// Botón "Añadir fila": clona la plantilla empty_form, reemplaza __prefix__ por el
-// índice siguiente y actualiza el contador TOTAL_FORMS del formset.
-var btnAgregar = document.getElementById('btn-agregar-cuadrilla');
-if (btnAgregar) {
-    btnAgregar.addEventListener('click', function () {
-        var tbody = document.getElementById('cuadrillas-tbody');
-        var totalInput = document.querySelector('input[name="cuadrilla-TOTAL_FORMS"]');
-        var plantilla = document.getElementById('cuadrilla-empty-form');
-        if (!tbody || !totalInput || !plantilla) return;
-
-        var index = parseInt(totalInput.value, 10);
-        var html = plantilla.innerHTML.replace(/__prefix__/g, index).trim();
-
-        // Un <tbody> temporal permite parsear un <tr> suelto correctamente.
-        var temp = document.createElement('tbody');
-        temp.innerHTML = html;
-        var nuevaFila = temp.querySelector('tr');
-        if (!nuevaFila) return;
-
-        tbody.appendChild(nuevaFila);
-        totalInput.value = index + 1;
-    });
-}
 
 // Revisar al cargar la página (por si se edita con personal ya asignado).
 pintarSwitches();

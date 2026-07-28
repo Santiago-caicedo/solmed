@@ -696,15 +696,19 @@ class ProgramacionForm(forms.ModelForm):
 
 
 class ProgramacionCuadrillaForm(forms.ModelForm):
-    """Una fila CONDUCTOR / PLACA / AYUDANTE del formato, con sus novedades."""
+    """
+    Personal y vehículo del servicio: UNA cuadrilla por programación (una orden =
+    un vehículo = un recorrido = un acta). Conductor y placa son obligatorios.
+    Se usa como formulario único con prefijo 'cuadrilla' (no como formset).
+    """
     class Meta:
         model = ProgramacionCuadrilla
         fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante_novedad']
         widgets = {
-            'conductor': forms.Select(attrs={'class': 'form-select form-select-sm'}),
-            'vehiculo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
-            'ayudante': forms.Select(attrs={'class': 'form-select form-select-sm'}),
-            'ayudante_novedad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'conductor': forms.Select(attrs={'class': 'form-select'}),
+            'vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante_novedad': forms.Select(attrs={'class': 'form-select'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -713,17 +717,15 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
         self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
         self.fields['ayudante'].queryset = personal_activo_del_grupo('Ayudantes')
+        # Conductor y vehículo son obligatorios (la orden necesita ambos).
+        self.fields['conductor'].required = True
+        self.fields['vehiculo'].required = True
+        self.fields['vehiculo'].empty_label = '--- Elige la placa ---'
+        self.fields['conductor'].empty_label = '--- Elige el conductor ---'
+        self.fields['ayudante'].empty_label = '--- Sin ayudante ---'
         # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
         _mostrar_nombres(self.fields['conductor'])
         _mostrar_nombres(self.fields['ayudante'])
-
-
-# Formset en línea: hasta 3 cuadrillas nuevas por defecto (CONDUCTOR 1/2/3 del formato).
-ProgramacionCuadrillaFormSet = forms.inlineformset_factory(
-    Programacion, ProgramacionCuadrilla,
-    form=ProgramacionCuadrillaForm,
-    extra=3, can_delete=True,
-)
 
 
 class DocumentoPersonalForm(forms.ModelForm):
