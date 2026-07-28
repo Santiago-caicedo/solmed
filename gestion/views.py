@@ -505,6 +505,45 @@ def _resumen_instrucciones_de(recorrido):
     return programacion.resumen_instrucciones() if programacion else []
 
 
+def _acta_para_vista(recorrido):
+    """
+    Acta a mostrar en formato documento. Si el conductor ya la diligenció,
+    devuelve el Manifiesto real; si no, uno SIN GUARDAR con las instrucciones
+    del asesor (para previsualizar "hasta donde va"). Devuelve (acta, estado):
+      - 'FIRMADA'    : el cliente ya firmó.
+      - 'DILIGENCIADA': el conductor la llenó, falta firma del cliente.
+      - 'PENDIENTE'  : solo hay instrucciones del asesor.
+    """
+    try:
+        manifiesto = recorrido.manifiesto
+    except Manifiesto.DoesNotExist:
+        datos = _instrucciones_servicio_de(recorrido)
+        return Manifiesto(recorrido=recorrido, **datos), 'PENDIENTE'
+    estado = 'FIRMADA' if manifiesto.estado_firma == 'FIRMADO' else 'DILIGENCIADA'
+    return manifiesto, estado
+
+
+class ActaFormatoView(LoginRequiredMixin, View):
+    """
+    Vista del acta (Orden de Servicio) en el MISMO formato del PDF final, pero en
+    la plataforma y pre-llenada "hasta donde va": las instrucciones del asesor
+    (definidas en la programación) más lo que el conductor haya diligenciado.
+    Accesible desde la orden (asesor) y desde el detalle del conductor.
+    """
+    template_name = 'gestion/acta_formato.html'
+
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        if not _puede_gestionar_manifiesto(request.user, recorrido):
+            messages.error(request, "No tienes permiso para ver esta acta de servicio.")
+            return redirect('gestion:dashboard_redirect')
+        acta, estado = _acta_para_vista(recorrido)
+        return render(request, self.template_name, {
+            'recorrido': recorrido, 'orden': recorrido.orden,
+            'manifiesto': acta, 'estado_acta': estado,
+        })
+
+
 # ============================================================
 #  NOTA DE NOMENCLATURA: en el back se llama "Manifiesto" (modelo, estas
 #  vistas y URLs manifiesto_*); en el front se muestra como "ACTA DE SERVICIO".

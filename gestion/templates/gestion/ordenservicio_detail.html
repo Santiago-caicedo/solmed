@@ -74,6 +74,7 @@
                         <div class="rc-docs">
                             <div class="rc-doc">
                                 <span class="rc-doc-label">Acta de servicio</span>
+                                <a href="{% url 'gestion:acta_formato' recorrido.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-text me-1"></i>Ver en formato documento</a>
                                 {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                                     <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
                                 {% elif recorrido.manifiesto %}
