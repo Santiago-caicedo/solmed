@@ -183,8 +183,10 @@
                 servicio). Conductor y placa son obligatorios; puedes añadir hasta dos ayudantes. Las novedades
                 registran cómo cubre el turno cada ayudante (puedes marcar varias).
             </p>
-            {# Contenedor con id cuadrillas-tbody y clase cuadrilla-row para que el
-               JS de SS/cursos/carga siga funcionando con los nombres cuadrilla-*. #}
+            {% comment %}
+            Contenedor con id cuadrillas-tbody y clase cuadrilla-row para que el
+            JS de SS/cursos/carga siga funcionando con los nombres cuadrilla-*.
+            {% endcomment %}
             <div id="cuadrillas-tbody">
                 <div class="cuadrilla-row">
                     <div class="row g-3 mb-2">
@@ -209,7 +211,13 @@
                         </div>
                         <div class="col-md-7">
                             <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
-                            <div class="novedades-check">{{ cuadrilla_form.ayudante_novedad }}</div>
+                            <div class="novedades-check" id="novedades-ay1">{{ cuadrilla_form.ayudante_novedad }}</div>
+                            {# Placa de la que apoya la disposición: solo si marca "Apoya disposición de:" #}
+                            <div class="mt-2 d-none" id="campo-apoya-ay1">
+                                <label for="{{ cuadrilla_form.apoya_disposicion_vehiculo.id_for_label }}" class="form-label small mb-1">Apoya disposición del vehículo</label>
+                                {{ cuadrilla_form.apoya_disposicion_vehiculo }}
+                                {% for e in cuadrilla_form.apoya_disposicion_vehiculo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
                         </div>
                     </div>
 
@@ -222,7 +230,12 @@
                         </div>
                         <div class="col-md-7">
                             <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
-                            <div class="novedades-check">{{ cuadrilla_form.ayudante2_novedad }}</div>
+                            <div class="novedades-check" id="novedades-ay2">{{ cuadrilla_form.ayudante2_novedad }}</div>
+                            <div class="mt-2 d-none" id="campo-apoya-ay2">
+                                <label for="{{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo.id_for_label }}" class="form-label small mb-1">Apoya disposición del vehículo</label>
+                                {{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo }}
+                                {% for e in cuadrilla_form.ayudante2_apoya_disposicion_vehiculo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -301,6 +314,25 @@
 {{ docs_correo_por_cliente|json_script:"docs-correo-data" }}
 {{ vehiculos_cargados|json_script:"vehiculos-cargados-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
+<script>
+// --- "Apoya disposición de:" -> abre el selector de placa por ayudante ---
+(function () {
+    [['novedades-ay1', 'campo-apoya-ay1'], ['novedades-ay2', 'campo-apoya-ay2']].forEach(function (par) {
+        var cont = document.getElementById(par[0]);
+        var campo = document.getElementById(par[1]);
+        if (!cont || !campo) return;
+        var check = cont.querySelector('input[type="checkbox"][value="APOYA_DISPOSICION"]');
+        var sel = campo.querySelector('select');
+        if (!check) return;
+        function aplicar() {
+            campo.classList.toggle('d-none', !check.checked);
+            if (sel) { sel.disabled = !check.checked; if (!check.checked) sel.value = ''; }
+        }
+        check.addEventListener('change', aplicar);
+        aplicar();
+    });
+})();
+</script>
 <script>
 // --- Disposición final: SÍ -> proveedor externo; NO -> destino interno
 //     (trasiego / dejar carro cargado) + alertas de carga pendiente. ---

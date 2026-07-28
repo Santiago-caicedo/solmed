@@ -723,12 +723,15 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
     class Meta:
         model = ProgramacionCuadrilla
         # Las novedades se manejan aparte (CSV); no van en Meta.fields.
-        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante2']
+        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante2',
+                  'apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo']
         widgets = {
             'conductor': forms.Select(attrs={'class': 'form-select'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'ayudante': forms.Select(attrs={'class': 'form-select'}),
             'ayudante2': forms.Select(attrs={'class': 'form-select'}),
+            'apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante2_apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -739,6 +742,10 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         for campo in ('ayudante', 'ayudante2'):
             self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
             _mostrar_nombres(self.fields[campo])
+        # Placa de la que se apoya la disposición (solo vehículos operativos).
+        for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
+            self.fields[campo].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+            self.fields[campo].empty_label = '--- Elige la placa ---'
         # Conductor y vehículo son obligatorios (la orden necesita ambos).
         self.fields['conductor'].required = True
         self.fields['vehiculo'].required = True
@@ -763,6 +770,18 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
             cleaned['ayudante_novedad'] = []
         if not a2:
             cleaned['ayudante2_novedad'] = []
+
+        # "Apoya disposición de:" requiere indicar la placa; si no se marca, se limpia.
+        apoya = ProgramacionCuadrilla.APOYA_DISPOSICION
+        for campo_nov, campo_veh in (
+            ('ayudante_novedad', 'apoya_disposicion_vehiculo'),
+            ('ayudante2_novedad', 'ayudante2_apoya_disposicion_vehiculo'),
+        ):
+            if apoya in (cleaned.get(campo_nov) or []):
+                if not cleaned.get(campo_veh):
+                    self.add_error(campo_veh, 'Indica de cuál vehículo se apoya la disposición.')
+            else:
+                cleaned[campo_veh] = None
         return cleaned
 
     def save(self, commit=True):

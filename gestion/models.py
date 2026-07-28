@@ -1010,6 +1010,8 @@ class ProgramacionCuadrilla(models.Model):
         ('INICIA_CLIENTE', 'Inicia turno donde el cliente'),
         ('APOYA_DISPOSICION', 'Apoya disposición de:'),
     ]
+    # Novedad que requiere indicar de cuál vehículo se apoya la disposición.
+    APOYA_DISPOSICION = 'APOYA_DISPOSICION'
 
     programacion = models.ForeignKey(Programacion, on_delete=models.CASCADE, related_name='cuadrillas')
     conductor = models.ForeignKey(
@@ -1036,6 +1038,16 @@ class ProgramacionCuadrilla(models.Model):
     )
     ayudante2_novedad = models.CharField(
         max_length=200, blank=True, default='', verbose_name="Novedades del segundo ayudante"
+    )
+    # Vehículo del que cada ayudante apoya la disposición (solo si marcó
+    # "Apoya disposición de:" en sus novedades).
+    apoya_disposicion_vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='cuadrillas_apoyo_ayudante', verbose_name="Apoya disposición del vehículo"
+    )
+    ayudante2_apoya_disposicion_vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='cuadrillas_apoyo_ayudante2', verbose_name="Apoya disposición del vehículo (2º ayudante)"
     )
     orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
 
