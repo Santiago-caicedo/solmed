@@ -36,7 +36,9 @@
       "Bash(PYTHONPATH=__TRACKED_VAR__ DJANGO_SETTINGS_MODULE=tsettings_file python3 manage.py seed_personal --wipe)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(awk '/^function actualizarEnvioSS/,/^}/' gestion/templates/gestion/form_programacion.html)"
+      "Bash(awk '/^function actualizarEnvioSS/,/^}/' gestion/templates/gestion/form_programacion.html)",
+      "Bash(git ls-files *)",
+      "Bash(pdftoppm -png -r 80 /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo_media/manifiestos_pdf/acta_demo_recorrido_2.pdf /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo2)"
     ]
   }
 }

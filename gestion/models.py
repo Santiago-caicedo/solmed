@@ -139,6 +139,16 @@ class Vehiculo(models.Model):
     capacidad = models.CharField(max_length=100, help_text="Ej: '3 toneladas', '20 m³'")
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='OPERATIVO')
 
+    # --- Carga pendiente de disposición ---
+    # True cuando el camión quedó con contenido sin disposición final (se marcó
+    # "dejar carro cargado" o fue destino de un trasiego a placa). Se limpia
+    # cuando participa en una orden con disposición final real (proveedor).
+    cargado = models.BooleanField(default=False, verbose_name="Cargado (pendiente de disposición)")
+    cargado_detalle = models.CharField(
+        max_length=255, blank=True,
+        help_text="De dónde viene la carga pendiente (orden y fecha)."
+    )
+
     # --- Documentos legales ---
     # Tarjeta de propiedad: solo se adjunta el PDF (no tiene vencimiento ni alerta).
     archivo_tarjeta = models.FileField(
@@ -519,7 +529,16 @@ class Dispositor(models.Model):
     residuos. Es parametrizable desde el admin para alimentar el desplegable de
     'Dispositor final' de la encuesta del conductor (trazabilidad de la cuna a la tumba).
     """
+    # PROVEEDOR: gestor externo (disposición final REAL — el camión queda vacío).
+    # INTERNO:   el contenido NO se dispone: queda en un camión (dejar cargado /
+    #            trasiego a placa) o en los tanques de SOLMED. Es carga PENDIENTE.
+    TIPO_CHOICES = [
+        ('PROVEEDOR', 'Proveedor externo (disposición final)'),
+        ('INTERNO', 'Destino interno (sin disposición)'),
+    ]
+
     nombre = models.CharField(max_length=200, verbose_name="Nombre del gestor / dispositor")
+    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='PROVEEDOR')
     descripcion = models.CharField(
         max_length=255, blank=True,
         help_text="Tipo de planta o celda, licencia ambiental, ciudad, etc."
@@ -533,6 +552,12 @@ class Dispositor(models.Model):
         verbose_name = "Dispositor final autorizado"
         verbose_name_plural = "Dispositores finales autorizados"
         ordering = ['nombre']
+
+    # Nombres exactos de los destinos internos (sembrados por migración) que
+    # tienen comportamiento especial al convertir la programación en orden.
+    DEJAR_CARRO_CARGADO = 'DEJAR CARRO CARGADO'
+    TRASIEGO_PLACA = 'TRASIEGO A ------ PLACA'
+    TANQUES = ('TRASIEGO TANQUE AUXILIAR', 'TRASIEGO TANQUE SUBTERRANEO')
 
     def __str__(self):
         return self.nombre
@@ -773,6 +798,12 @@ class Programacion(models.Model):
         Dispositor, on_delete=models.PROTECT, null=True, blank=True,
         related_name='programaciones', verbose_name="Proveedor de disposición final"
     )
+    # Cuando NO hay disposición y el destino es "TRASIEGO A ------ PLACA":
+    # el camión al que se pasa el contenido (queda cargado).
+    trasiego_vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='trasiegos_recibidos', verbose_name="Placa a la que se trasiega"
+    )
 
     # --- Cursos exigidos al ayudante para ESTE servicio ---
     # No son obligatorios en el expediente del ayudante: solo se validan cuando
@@ -904,7 +935,55 @@ class Programacion(models.Model):
             self.orden = orden
             self.estado = 'CONVERTIDA'
             self.save()
+            # Actualiza el estado de carga de los camiones según la disposición.
+            self._actualizar_carga_vehiculos(orden, [c.vehiculo for c in cuadrillas])
         return orden
+
+    def _actualizar_carga_vehiculos(self, orden, vehiculos):
+        """
+        Lleva el rastro de la carga pendiente de disposición:
+          - Disposición SÍ (proveedor): los camiones del servicio quedan vacíos.
+          - NO + "DEJAR CARRO CARGADO": los camiones del servicio quedan CARGADOS.
+          - NO + "TRASIEGO A PLACA": el camión destino queda CARGADO y los del
+            servicio vacíos (trasegaron su contenido).
+          - NO + trasiego a tanque: los camiones quedan vacíos (el contenido pasa
+            a los tanques de SOLMED; queda registrado en la programación para
+            estadística).
+        Si la pregunta quedó sin responder, no se toca nada.
+        """
+        detalle = f"Orden #{orden.numero_orden} del {self.fecha.strftime('%d/%m/%Y')}"
+        if self.requiere_disposicion_final == 'SI':
+            for v in vehiculos:
+                if v.cargado:
+                    v.cargado = False
+                    v.cargado_detalle = ''
+                    v.save(update_fields=['cargado', 'cargado_detalle'])
+            return
+        if self.requiere_disposicion_final != 'NO' or not self.dispositor_final_id:
+            return
+
+        destino = self.dispositor_final.nombre
+        if destino == Dispositor.DEJAR_CARRO_CARGADO:
+            for v in vehiculos:
+                v.cargado = True
+                v.cargado_detalle = f"{detalle}: quedó cargado (sin disposición)"
+                v.save(update_fields=['cargado', 'cargado_detalle'])
+        elif destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id:
+            destino_v = self.trasiego_vehiculo
+            destino_v.cargado = True
+            destino_v.cargado_detalle = f"{detalle}: recibió trasiego (sin disposición)"
+            destino_v.save(update_fields=['cargado', 'cargado_detalle'])
+            for v in vehiculos:
+                if v.pk != destino_v.pk and v.cargado:
+                    v.cargado = False
+                    v.cargado_detalle = ''
+                    v.save(update_fields=['cargado', 'cargado_detalle'])
+        elif destino in Dispositor.TANQUES:
+            for v in vehiculos:
+                if v.cargado:
+                    v.cargado = False
+                    v.cargado_detalle = ''
+                    v.save(update_fields=['cargado', 'cargado_detalle'])
 
 
 class ProgramacionCuadrilla(models.Model):

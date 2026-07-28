@@ -15,6 +15,22 @@
     {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
 {% endfor %}
 
+{# Camiones con carga pendiente de disposición final #}
+{% if vehiculos_cargados %}
+<div class="alert alert-danger">
+    <strong><i class="bi bi-truck me-1"></i> Camiones CARGADOS, pendientes de disposición final:</strong>
+    <ul class="mb-0 mt-1">
+        {% for v in vehiculos_cargados %}
+        <li>
+            <a href="{% url 'gestion:detalle_vehiculo' v.pk %}" class="alert-link">{{ v.placa }}</a>
+            — {{ v.cargado_detalle|default:"carga pendiente de disposición" }}
+        </li>
+        {% endfor %}
+    </ul>
+    <div class="small mt-1">Programa la disposición final con un proveedor para descargarlos.</div>
+</div>
+{% endif %}
+
 {# ===== Métricas ===== #}
 <div class="metric-grid mb-4">
     <div class="metric t-steel">

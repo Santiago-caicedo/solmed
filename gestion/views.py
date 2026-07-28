@@ -119,6 +119,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             v for v in Vehiculo.objects.all() if v.tiene_alerta_documentos
         ]
 
+        # Camiones con carga PENDIENTE de disposición final (estadística/alerta).
+        context['vehiculos_cargados'] = Vehiculo.objects.filter(cargado=True).order_by('placa')
+
         # Vehículos fuera de servicio (mantenimiento + stand by).
         context['vehiculos_mantenimiento'] = Vehiculo.objects.filter(estado='MANTENIMIENTO').count()
         context['vehiculos_stand_by'] = Vehiculo.objects.filter(estado='STAND_BY').count()
@@ -1463,6 +1466,60 @@ def _docs_correo_por_cliente():
     return data
 
 
+def _vehiculos_cargados():
+    """
+    Mapa {id_vehiculo: detalle} de los camiones con carga PENDIENTE de
+    disposición, para alertar en vivo al asignarlos en la programación.
+    """
+    return {
+        str(pk): detalle or 'carga pendiente de disposición'
+        for pk, detalle in Vehiculo.objects.filter(cargado=True)
+                                            .values_list('pk', 'cargado_detalle')
+    }
+
+
+def _disposicion_meta():
+    """IDs de los destinos internos especiales, para la lógica del formulario."""
+    from .models import Dispositor
+    nombres = {d.nombre: d.pk for d in Dispositor.objects.filter(tipo='INTERNO')}
+    return {
+        'dejar_cargado': nombres.get(Dispositor.DEJAR_CARRO_CARGADO),
+        'trasiego_placa': nombres.get(Dispositor.TRASIEGO_PLACA),
+    }
+
+
+def _avisar_carga_pendiente(request, programacion, orden):
+    """
+    Tras generar la orden: si el servicio quedó SIN disposición final, avisa
+    qué quedó cargado (camiones o tanques) para que el personal lo tenga en cuenta.
+    """
+    from .models import Dispositor
+    if programacion.requiere_disposicion_final != 'NO' or not programacion.dispositor_final_id:
+        return
+    destino = programacion.dispositor_final.nombre
+    if destino == Dispositor.DEJAR_CARRO_CARGADO:
+        placas = ", ".join(sorted({
+            r.vehiculo.placa for r in orden.recorridos.all() if r.vehiculo_id
+        }))
+        messages.warning(
+            request,
+            f"OJO: sin disposición final — el/los camión(es) {placas} quedaron CARGADOS, "
+            f"pendientes de disposición."
+        )
+    elif destino == Dispositor.TRASIEGO_PLACA and programacion.trasiego_vehiculo_id:
+        messages.warning(
+            request,
+            f"OJO: el contenido se trasegó al camión {programacion.trasiego_vehiculo.placa}, "
+            f"que quedó CARGADO pendiente de disposición."
+        )
+    elif destino in Dispositor.TANQUES:
+        messages.warning(
+            request,
+            f"OJO: el contenido quedó en {destino.title()} (tanques SOLMED), "
+            f"pendiente de disposición final."
+        )
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
@@ -1502,6 +1559,8 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         context['direcciones_clientes'] = _direcciones_clientes()
         context['sedes_por_cliente'] = _sedes_por_cliente()
         context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
+        context['vehiculos_cargados'] = _vehiculos_cargados()
+        context['disposicion_meta'] = _disposicion_meta()
         return context
 
     def form_valid(self, form):
@@ -1561,6 +1620,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(self.request, detalle.capitalize())
+        _avisar_carga_pendiente(self.request, self.object, orden)
 
         return HttpResponseRedirect(reverse('gestion:detalle_orden', kwargs={'pk': orden.pk}))
 
@@ -1597,6 +1657,8 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         context['direcciones_clientes'] = _direcciones_clientes()
         context['sedes_por_cliente'] = _sedes_por_cliente()
         context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
+        context['vehiculos_cargados'] = _vehiculos_cargados()
+        context['disposicion_meta'] = _disposicion_meta()
         return context
 
     def form_valid(self, form):
@@ -1739,6 +1801,7 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(request, detalle.capitalize())
+        _avisar_carga_pendiente(request, programacion, orden)
 
         return redirect('gestion:detalle_orden', pk=orden.pk)
 

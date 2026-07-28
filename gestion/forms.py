@@ -562,6 +562,15 @@ class ProgramacionForm(forms.ModelForm):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'})
     )
 
+    # Cuando NO hay disposición final: a dónde queda el contenido (trasiegos /
+    # dejar carro cargado). Se guarda en el mismo campo dispositor_final.
+    destino_sin_disposicion = forms.ModelChoiceField(
+        queryset=Dispositor.objects.none(), required=False,
+        label="¿Dónde queda el contenido?",
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Elige el destino ---',
+    )
+
     class Meta:
         model = Programacion
         fields = [
@@ -574,6 +583,7 @@ class ProgramacionForm(forms.ModelForm):
             'responsable_sg',
             'requiere_disposicion_final',
             'dispositor_final',
+            'trasiego_vehiculo',
             'exige_curso_alturas',
             'exige_curso_confinados',
             'nombre_contacto_recibe',
@@ -593,6 +603,7 @@ class ProgramacionForm(forms.ModelForm):
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
             'requiere_disposicion_final': forms.Select(attrs={'class': 'form-select'}),
             'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
+            'trasiego_vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
@@ -604,9 +615,20 @@ class ProgramacionForm(forms.ModelForm):
         for campo in ('paleada', 'bascula', 'registro_fotografico', 'responsable_sg',
                       'requiere_disposicion_final'):
             self.fields[campo].empty_label = '---------'
-        # Solo proveedores de disposición activos.
-        self.fields['dispositor_final'].queryset = Dispositor.objects.filter(activo=True)
+        # Disposición SÍ -> solo proveedores externos; NO -> destinos internos
+        # (trasiegos / dejar carro cargado). Ambos parametrizables en el admin.
+        self.fields['dispositor_final'].queryset = Dispositor.objects.filter(
+            activo=True, tipo='PROVEEDOR')
         self.fields['dispositor_final'].empty_label = '--- Elige el proveedor ---'
+        self.fields['destino_sin_disposicion'].queryset = Dispositor.objects.filter(
+            activo=True, tipo='INTERNO')
+        self.fields['trasiego_vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+        self.fields['trasiego_vehiculo'].empty_label = '--- Elige la placa ---'
+        # Al editar: si lo guardado es un destino interno, va en el campo de "No".
+        if self.instance.pk and self.instance.dispositor_final_id \
+                and self.instance.dispositor_final.tipo == 'INTERNO':
+            self.initial['destino_sin_disposicion'] = self.instance.dispositor_final_id
+            self.initial['dispositor_final'] = None
         # El interruptor se marca solo si el valor guardado es 'SI'
         # (sin esto, 'NO' se leería como texto no vacío = encendido).
         for campo in self.CAMPOS_SWITCH:
@@ -646,12 +668,30 @@ class ProgramacionForm(forms.ModelForm):
         if cliente and not sede and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
 
-        # Si se realizará disposición final, exigir el proveedor; si no, se limpia.
-        if cleaned.get('requiere_disposicion_final') == 'SI':
+        # --- Disposición final ---
+        # SÍ  -> proveedor externo obligatorio (el contenido se dispone).
+        # NO  -> destino interno obligatorio (queda en camión o tanques SOLMED);
+        #        se guarda en el mismo dispositor_final. Si es trasiego a placa,
+        #        también la placa destino.
+        requiere = cleaned.get('requiere_disposicion_final')
+        if requiere == 'SI':
             if not cleaned.get('dispositor_final'):
                 self.add_error('dispositor_final', 'Indica con cuál proveedor se hará la disposición final.')
+            cleaned['trasiego_vehiculo'] = None
+        elif requiere == 'NO':
+            destino = cleaned.get('destino_sin_disposicion')
+            if not destino:
+                self.add_error('destino_sin_disposicion',
+                               'Indica dónde queda el contenido (trasiego o carro cargado).')
+            cleaned['dispositor_final'] = destino
+            if destino and destino.nombre == Dispositor.TRASIEGO_PLACA:
+                if not cleaned.get('trasiego_vehiculo'):
+                    self.add_error('trasiego_vehiculo', 'Indica a cuál placa se trasiega el contenido.')
+            else:
+                cleaned['trasiego_vehiculo'] = None
         else:
             cleaned['dispositor_final'] = None
+            cleaned['trasiego_vehiculo'] = None
         return cleaned
 
 

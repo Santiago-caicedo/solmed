@@ -21,8 +21,8 @@ class ClienteAdmin(admin.ModelAdmin):
 
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
-    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado')
-    list_filter = ('estado', 'marca')
+    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado', 'cargado')
+    list_filter = ('estado', 'marca', 'cargado')
     search_fields = ('placa', 'marca', 'modelo')
 
 @admin.register(OrdenServicio)
@@ -69,8 +69,8 @@ class ManifiestoAdmin(admin.ModelAdmin):
 
 @admin.register(Dispositor)
 class DispositorAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'descripcion', 'activo')
-    list_filter = ('activo',)
+    list_display = ('nombre', 'tipo', 'descripcion', 'activo')
+    list_filter = ('tipo', 'activo')
     search_fields = ('nombre', 'descripcion')
 
 
