@@ -12,6 +12,13 @@
     .form-section-header { background-color: #f8f9fa; padding: 0.75rem; border: 1px solid #dee2e6; margin-bottom: 1rem; }
     .form-group-custom { margin-bottom: 1rem; }
     .form-group-custom label { font-weight: bold; display: block; margin-bottom: 0.3rem; }
+    /* Bloque de referencia (lo definió el asesor / la orden): NO editable */
+    .ref-box { background:#f8f9fa; border:1px solid #e3e6ea; border-radius:10px; padding:1rem 1.15rem; margin-bottom:1.5rem; }
+    .ref-box .ref-title { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#6c757d; margin-bottom:.6rem; }
+    .ref-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:.35rem .9rem; }
+    .ref-grid div span { color:#6c757d; font-weight:600; }
+    .ref-instr { margin:.7rem 0 0; padding-top:.6rem; border-top:1px dashed #dbe0e5; }
+    .ref-instr ul { margin:.25rem 0 0; padding-left:1.1rem; }
 </style>
 
 <div class="wizard-container">
@@ -26,45 +33,32 @@
         <div class="wizard-step">Paso 3: Responsable y Observaciones</div>
     </div>
 
-    {# Instrucciones del servicio: las define el asesor en la programación. El
-       conductor solo las ve, no las edita (primera parte del acta). #}
-    {% if instrucciones_resumen %}
-    <div class="alert alert-info">
-        <h6 class="mb-2"><i class="bi bi-clipboard-check me-1"></i>Instrucciones del servicio (definidas por el asesor)</h6>
-        <ul class="mb-0">
-            {% for linea in instrucciones_resumen %}<li>{{ linea }}</li>{% endfor %}
-        </ul>
+    {# Referencia (solo lectura): datos de la orden + instrucciones del asesor.
+       El conductor NO edita nada de esto; solo lo consulta. #}
+    <div class="ref-box">
+        <div class="ref-title"><i class="bi bi-lock-fill me-1"></i>Información del servicio (solo lectura)</div>
+        <div class="ref-grid">
+            <div><span>Fecha:</span> {{ recorrido.fecha_recorrido|date:'d/m/Y' }}</div>
+            <div><span>Empresa:</span> {{ recorrido.orden.cliente.nombre }}</div>
+            <div><span>Dirección:</span> {{ recorrido.orden.direccion_servicio }}</div>
+            <div><span>Vehículo:</span> {{ recorrido.vehiculo.placa }} ({{ recorrido.vehiculo.marca }})</div>
+            <div><span>Conductor:</span> {{ recorrido.conductor.get_full_name|default:'N/A' }}</div>
+        </div>
+        {% if instrucciones_resumen %}
+        <div class="ref-instr">
+            <span class="fw-semibold text-secondary"><i class="bi bi-clipboard-check me-1"></i>Servicio a realizar (definido por el asesor):</span>
+            <ul>
+                {% for linea in instrucciones_resumen %}<li>{{ linea }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
 
     <form method="post">
         {% csrf_token %}
         <div class="form-section-header">
-            <h3>Información General del Servicio</h3>
+            <h3 class="h5 mb-0"><i class="bi bi-pencil-fill me-2"></i>Lo que tú debes llenar</h3>
         </div>
-        
-        <div class="mb-3">
-            <label class="form-label">Fecha del Recorrido:</label>
-            <input type="text" class="form-control" value="{{ recorrido.fecha_recorrido|date:'d/m/Y' }}" readonly>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Empresa / Cliente:</label>
-            <input type="text" class="form-control" value="{{ recorrido.orden.cliente.nombre }}" readonly>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Dirección:</label>
-            <input type="text" class="form-control" value="{{ recorrido.orden.direccion_servicio }}" readonly>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Equipo / Vehículo:</label>
-            <input type="text" class="form-control" value="{{ recorrido.vehiculo.placa }} ({{ recorrido.vehiculo.marca }})" readonly>
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Conductor Asignado:</label>
-            <input type="text" class="form-control" value="{{ recorrido.vehiculo.conductor_asignado.get_full_name|default:'N/A' }}" readonly>
-        </div>
-
-        <hr>
 
         <div class="form-group-custom">
             {{ form.auxiliar1.label_tag }}
