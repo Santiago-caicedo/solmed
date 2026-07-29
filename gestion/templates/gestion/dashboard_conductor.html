@@ -27,9 +27,7 @@
                     {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
                     <div class="mt-2">
                         {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                        <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
-                            <i class="bi bi-file-earmark-pdf-fill"></i> Ver PDF
-                        </a>
+                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Acta firmada</span>
                         {% if not recorrido.encuesta_conductor %}
                         <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-sm btn-warning">
                             <i class="bi bi-clipboard-check"></i> Encuesta de cierre

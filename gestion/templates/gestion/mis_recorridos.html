@@ -34,9 +34,7 @@
             <hr>
 
             {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-danger">
-                    <i class="bi bi-file-earmark-pdf-fill"></i> Ver Acta firmada
-                </a>
+                <span class="badge bg-success align-middle"><i class="bi bi-check-circle me-1"></i>Acta firmada por el cliente</span>
                 {% if not recorrido.encuesta_conductor %}
                 <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning ms-2">
                     <i class="bi bi-clipboard-check"></i> Encuesta de cierre (pendiente)

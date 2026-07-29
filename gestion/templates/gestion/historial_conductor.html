@@ -37,9 +37,7 @@
                         </td>
                         <td>
                             {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm">
-                                    <i class="bi bi-file-earmark-pdf-fill"></i> PDF
-                                </a>
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Acta firmada</span>
                             {% elif recorrido.manifiesto %}
                                 <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm">
                                     <i class="bi bi-qr-code"></i> QR

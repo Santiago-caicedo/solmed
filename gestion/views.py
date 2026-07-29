@@ -536,20 +536,18 @@ def _actas_formato(recorridos):
     return resultado
 
 
-class ActaFormatoView(LoginRequiredMixin, View):
+class ActaFormatoView(NoConductorRequiredMixin, View):
     """
     Vista del acta (Orden de Servicio) en el MISMO formato del PDF final, pero en
     la plataforma y pre-llenada "hasta donde va": las instrucciones del asesor
     (definidas en la programación) más lo que el conductor haya diligenciado.
-    Accesible desde la orden (asesor) y desde el detalle del conductor.
+    Solo para gestión (asesor/superusuario): el CONDUCTOR NO accede al acta como
+    documento ni la descarga; él solo la diligencia (asistente) y muestra el QR.
     """
     template_name = 'gestion/acta_formato.html'
 
     def get(self, request, pk):
         recorrido = get_object_or_404(Recorrido, pk=pk)
-        if not _puede_gestionar_manifiesto(request.user, recorrido):
-            messages.error(request, "No tienes permiso para ver esta acta de servicio.")
-            return redirect('gestion:dashboard_redirect')
         acta, estado = _acta_para_vista(recorrido)
         return render(request, self.template_name, {
             'recorrido': recorrido, 'orden': recorrido.orden,
