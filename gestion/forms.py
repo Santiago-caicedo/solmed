@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -116,6 +116,28 @@ class SedeForm(forms.ModelForm):
 # Sedes del cliente (bloque dinámico en el formulario de cliente).
 SedeFormSet = forms.inlineformset_factory(
     Cliente, Sede, form=SedeForm,
+    extra=1, can_delete=True,
+)
+
+
+class TerceroForm(forms.ModelForm):
+    """Un tercero (punto de recogida) del cliente."""
+    class Meta:
+        model = Tercero
+        fields = ['nombre', 'direccion', 'ciudad', 'telefono', 'persona_contacto', 'activo']
+        widgets = {
+            'nombre': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre del tercero'}),
+            'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'ciudad': forms.TextInput(attrs={'class': 'form-control'}),
+            'telefono': forms.TextInput(attrs={'class': 'form-control'}),
+            'persona_contacto': forms.TextInput(attrs={'class': 'form-control'}),
+            'activo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+# Terceros del cliente (bloque dinámico en el formulario de cliente).
+TerceroFormSet = forms.inlineformset_factory(
+    Cliente, Tercero, form=TerceroForm,
     extra=1, can_delete=True,
 )
 
@@ -583,7 +605,7 @@ class ProgramacionForm(forms.ModelForm):
         model = Programacion
         fields = [
             'fecha', 'hora_ingreso_bodega', 'hora_servicio',
-            'cliente', 'sede_cliente', 'direccion', 'correo_seguridad_social',
+            'cliente', 'sede_cliente', 'tercero', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
             'paleada',
             'bascula',
@@ -602,6 +624,7 @@ class ProgramacionForm(forms.ModelForm):
             'hora_servicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
             'cliente': forms.Select(attrs={'class': 'form-select'}),
             'sede_cliente': forms.Select(attrs={'class': 'form-select'}),
+            'tercero': forms.Select(attrs={'class': 'form-select'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
             'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
@@ -657,6 +680,21 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
 
+        # Tercero: misma lógica que la sede. El JS filtra en vivo por cliente;
+        # aquí el queryset abarca todos los activos para que valide el enviado
+        # (o solo los del cliente ya elegido, al editar).
+        terceros = Tercero.objects.filter(activo=True).select_related('cliente')
+        if self.instance.pk and self.instance.cliente_id:
+            terceros = terceros.filter(cliente_id=self.instance.cliente_id)
+        elif 'cliente' in self.data:
+            try:
+                terceros = terceros.filter(cliente_id=int(self.data.get('cliente')))
+            except (TypeError, ValueError):
+                pass
+        self.fields['tercero'].queryset = terceros
+        self.fields['tercero'].empty_label = '--- Sin tercero ---'
+        self.fields['tercero'].label = 'Tercero'
+
         # --- Instrucciones del servicio (primera parte del acta) ---
         # Casillas de qué se hace + su cantidad. Es lo que antes llenaba el
         # conductor; ahora lo define el asesor y se copia al acta.
@@ -688,10 +726,17 @@ class ProgramacionForm(forms.ModelForm):
         cleaned = super().clean()
         cliente = cleaned.get('cliente')
         sede = cleaned.get('sede_cliente')
+        tercero = cleaned.get('tercero')
         if cliente and sede and sede.cliente_id != cliente.id:
             self.add_error('sede_cliente', 'Esa sede no pertenece al cliente seleccionado.')
-        # Si el cliente tiene sedes, exigir que se elija una.
-        if cliente and not sede and cliente.sedes.filter(activa=True).exists():
+        if cliente and tercero and tercero.cliente_id != cliente.id:
+            self.add_error('tercero', 'Ese tercero no pertenece al cliente seleccionado.')
+        # El servicio ocurre en un solo lugar: sede o tercero, no ambos.
+        if sede and tercero:
+            self.add_error('tercero', 'Elige la sede o el tercero, pero no ambos.')
+        # Si el cliente tiene sedes, exigir que se elija una (salvo que el
+        # servicio se recoja donde un tercero).
+        if cliente and not sede and not tercero and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
 
         # --- Disposición final ---

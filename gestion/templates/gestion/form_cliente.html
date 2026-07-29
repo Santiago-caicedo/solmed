@@ -36,6 +36,11 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-terceros" type="button" role="tab">
+                <i class="bi bi-person-badge me-1"></i> Terceros
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-contactos" type="button" role="tab">
                 <i class="bi bi-people me-1"></i> Contactos
                 <span class="badge bg-light text-muted border ms-1">opcional</span>
@@ -181,6 +186,78 @@
                             <td class="text-center">
                                 <span class="d-none">{{ sede_formset.empty_form.DELETE }}</span>
                                 <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-sede" title="Eliminar sede"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        {# ========================= TAB: TERCEROS ========================= #}
+        <div class="tab-pane fade" id="tab-terceros" role="tabpanel">
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-badge me-1"></i>Terceros del cliente</h5></div>
+                <div class="card-body p-4">
+                    <p class="text-muted small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Para los clientes que no manejan sedes sino terceros: puntos donde se recoge el
+                        servicio, con su propio nombre, dirección y contacto. Al programar un servicio
+                        podrás elegir el tercero y sus datos se arrastran a la orden.
+                    </p>
+                    {{ tercero_formset.management_form }}
+                    {% if tercero_formset.non_form_errors %}
+                    <div class="alert alert-danger">{% for e in tercero_formset.non_form_errors %}<div>{{ e }}</div>{% endfor %}</div>
+                    {% endif %}
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="min-width:160px">Nombre <span class="text-danger">*</span></th>
+                                    <th style="min-width:180px">Dirección</th>
+                                    <th style="min-width:120px">Ciudad</th>
+                                    <th style="min-width:120px">Teléfono</th>
+                                    <th style="min-width:150px">Contacto</th>
+                                    <th class="text-center" style="width:70px">Activo</th>
+                                    <th class="text-center" style="width:48px"><i class="bi bi-trash"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="terceros-tbody">
+                                {% for tf in tercero_formset %}
+                                <tr class="tercero-row">
+                                    {% for hidden in tf.hidden_fields %}{{ hidden }}{% endfor %}
+                                    <td>{{ tf.nombre }}{% for e in tf.nombre.errors %}<div class="field-error text-danger small mt-1">{{ e }}</div>{% endfor %}</td>
+                                    <td>{{ tf.direccion }}</td>
+                                    <td>{{ tf.ciudad }}</td>
+                                    <td>{{ tf.telefono }}</td>
+                                    <td>{{ tf.persona_contacto }}</td>
+                                    <td class="text-center">{{ tf.activo }}</td>
+                                    <td class="text-center">
+                                        <span class="d-none">{{ tf.DELETE }}</span>
+                                        <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-tercero" title="Eliminar tercero"><i class="bi bi-trash"></i></button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button type="button" id="btn-agregar-tercero" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-plus-circle me-1"></i> Añadir tercero
+                    </button>
+
+                    <template id="tercero-empty-form">
+                        <tr class="tercero-row">
+                            {% for hidden in tercero_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+                            <td>{{ tercero_formset.empty_form.nombre }}</td>
+                            <td>{{ tercero_formset.empty_form.direccion }}</td>
+                            <td>{{ tercero_formset.empty_form.ciudad }}</td>
+                            <td>{{ tercero_formset.empty_form.telefono }}</td>
+                            <td>{{ tercero_formset.empty_form.persona_contacto }}</td>
+                            <td class="text-center">{{ tercero_formset.empty_form.activo }}</td>
+                            <td class="text-center">
+                                <span class="d-none">{{ tercero_formset.empty_form.DELETE }}</span>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-eliminar-tercero" title="Eliminar tercero"><i class="bi bi-trash"></i></button>
                             </td>
                         </tr>
                     </template>
@@ -500,6 +577,37 @@
         var boton = e.target.closest('.btn-eliminar-sede');
         if (!boton) return;
         var fila = boton.closest('.sede-row');
+        if (!fila) return;
+        var del = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        if (del) { del.checked = true; fila.style.display = 'none'; }
+        else { fila.remove(); }
+    });
+})();
+
+// ===== Terceros: añadir / quitar filas del formset =====
+(function () {
+    var tbody = document.getElementById('terceros-tbody');
+    var plantilla = document.getElementById('tercero-empty-form');
+    var totalInput = document.querySelector('input[name="tercero-TOTAL_FORMS"]');
+    var btnAgregar = document.getElementById('btn-agregar-tercero');
+    if (!tbody || !plantilla || !totalInput || !btnAgregar) return;
+
+    btnAgregar.addEventListener('click', function () {
+        var index = parseInt(totalInput.value, 10);
+        var html = plantilla.innerHTML.replace(/__prefix__/g, index).trim();
+        var temp = document.createElement('tbody');
+        temp.innerHTML = html;
+        var fila = temp.querySelector('tr');
+        if (!fila) return;
+        tbody.appendChild(fila);
+        totalInput.value = index + 1;
+    });
+
+    // Papelera: si la fila ya existe en BD, marca DELETE y la oculta; si es nueva, la quita.
+    document.addEventListener('click', function (e) {
+        var boton = e.target.closest('.btn-eliminar-tercero');
+        if (!boton) return;
+        var fila = boton.closest('.tercero-row');
         if (!fila) return;
         var del = fila.querySelector('input[type="checkbox"][name$="-DELETE"]');
         if (del) { del.checked = true; fila.style.display = 'none'; }

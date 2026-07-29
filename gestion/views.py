@@ -31,8 +31,8 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, Tercero
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
@@ -276,7 +276,7 @@ class ListaClientesView(LoginRequiredMixin, ListView):
 class ClienteFormMixin:
     """
     Maneja, además del cliente:
-      - Las SEDES del cliente (formset inline).
+      - Las SEDES y los TERCEROS del cliente (formsets inline).
       - La carga MÚLTIPLE de documentos ambientales ('documentos_ambientales') y
         la eliminación de los marcados ('eliminar_doc_ambiental').
     """
@@ -289,6 +289,13 @@ class ClienteFormMixin:
                 )
             else:
                 context['sede_formset'] = SedeFormSet(instance=self.object, prefix='sede')
+        if 'tercero_formset' not in context:
+            if self.request.method == 'POST':
+                context['tercero_formset'] = TerceroFormSet(
+                    self.request.POST, instance=self.object, prefix='tercero'
+                )
+            else:
+                context['tercero_formset'] = TerceroFormSet(instance=self.object, prefix='tercero')
         if 'doc_correo_formset' not in context:
             if self.request.method == 'POST':
                 context['doc_correo_formset'] = DocumentoCorreoFormSet(
@@ -302,16 +309,18 @@ class ClienteFormMixin:
         # El cliente aún sin guardar, para enlazar los formsets.
         self.object = form.save(commit=False)
         sede_formset = SedeFormSet(self.request.POST, instance=self.object, prefix='sede')
+        tercero_formset = TerceroFormSet(self.request.POST, instance=self.object, prefix='tercero')
         doc_correo_formset = DocumentoCorreoFormSet(
             self.request.POST, self.request.FILES, instance=self.object, prefix='doccorreo'
         )
-        # Cliente + sedes + documentos se validan juntos: si algo falla, no se guarda nada.
-        if not (sede_formset.is_valid() and doc_correo_formset.is_valid()):
+        # Cliente + sedes + terceros + documentos se validan juntos: si algo falla, no se guarda nada.
+        if not (sede_formset.is_valid() and tercero_formset.is_valid() and doc_correo_formset.is_valid()):
             return self.render_to_response(self.get_context_data(
-                form=form, sede_formset=sede_formset, doc_correo_formset=doc_correo_formset
+                form=form, sede_formset=sede_formset, tercero_formset=tercero_formset,
+                doc_correo_formset=doc_correo_formset
             ))
         self.object.save()
-        for fs in (sede_formset, doc_correo_formset):
+        for fs in (sede_formset, tercero_formset, doc_correo_formset):
             fs.instance = self.object
             fs.save()
 
@@ -1533,6 +1542,24 @@ def _sedes_por_cliente():
     return data
 
 
+def _terceros_por_cliente():
+    """
+    Mapa {id_cliente: [{id, nombre, direccion, contacto, telefono}, ...]} de los
+    terceros activos, para poblar en vivo el desplegable de tercero al elegir el
+    cliente en la programación (y arrastrar su dirección y contacto).
+    """
+    data = {}
+    terceros = Tercero.objects.filter(activo=True).values(
+        'id', 'cliente_id', 'nombre', 'direccion', 'persona_contacto', 'telefono'
+    ).order_by('nombre')
+    for t in terceros:
+        data.setdefault(str(t['cliente_id']), []).append({
+            'id': t['id'], 'nombre': t['nombre'], 'direccion': t['direccion'] or '',
+            'contacto': t['persona_contacto'] or '', 'telefono': t['telefono'] or '',
+        })
+    return data
+
+
 def _docs_correo_por_cliente():
     """
     Mapa {id_cliente: [nombre_documento, ...]} de los documentos del cliente que
@@ -1625,6 +1652,7 @@ def _contexto_programacion(context):
     context['personal_docs'] = _estado_documentos_personal()
     context['direcciones_clientes'] = _direcciones_clientes()
     context['sedes_por_cliente'] = _sedes_por_cliente()
+    context['terceros_por_cliente'] = _terceros_por_cliente()
     context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()

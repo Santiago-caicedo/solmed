@@ -171,6 +171,34 @@ class Sede(models.Model):
         return f"{self.nombre} ({self.cliente.nombre})"
 
 
+class Tercero(models.Model):
+    """
+    Tercero de un cliente: algunos clientes no manejan sedes sino terceros,
+    puntos donde se recoge el servicio (con su propio nombre, dirección y
+    contacto). Se registran desde la ficha del cliente, igual que las sedes,
+    y al programar un servicio se puede elegir el tercero para arrastrar su
+    dirección y contacto a la orden.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='terceros')
+    nombre = models.CharField(max_length=200, help_text="Nombre o razón social del tercero")
+    direccion = models.CharField(max_length=255, blank=True)
+    ciudad = models.CharField(max_length=100, blank=True)
+    telefono = models.CharField(max_length=30, blank=True)
+    persona_contacto = models.CharField(max_length=200, blank=True, verbose_name="Persona de contacto")
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarlo de los desplegables sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Tercero"
+        verbose_name_plural = "Terceros"
+
+    def __str__(self):
+        return f"{self.nombre} ({self.cliente.nombre})"
+
+
 class Vehiculo(models.Model):
     ESTADO_CHOICES = [
         ('OPERATIVO', 'Operativo'),
@@ -810,6 +838,13 @@ class Programacion(models.Model):
         related_name='programaciones', verbose_name="Sede del cliente"
     )
     sede = models.CharField(max_length=150, blank=True)
+    # Tercero del cliente donde se recoge el servicio (para los clientes que
+    # manejan terceros en lugar de sedes). Su dirección y contacto se arrastran
+    # a la orden. Excluyente con la sede: el servicio ocurre en un solo lugar.
+    tercero = models.ForeignKey(
+        Tercero, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='programaciones', verbose_name="Tercero del cliente"
+    )
     direccion = models.CharField(
         max_length=255, blank=True,
         help_text="Se arrastra a la orden al convertir. Si se deja vacío se usa la dirección del cliente."
@@ -1060,19 +1095,34 @@ class Programacion(models.Model):
                 f"No se puede generar la orden: esta programación exige cursos y {detalle}."
             )
 
-        # La dirección del servicio: la de la sede elegida, si no la de la
-        # programación, si no la del cliente.
+        # La dirección del servicio: la del tercero elegido, si no la de la
+        # sede, si no la de la programación, si no la del cliente.
         direccion_servicio = (
-            (self.sede_cliente.direccion if self.sede_cliente_id else '')
+            (self.tercero.direccion if self.tercero_id else '')
+            or (self.sede_cliente.direccion if self.sede_cliente_id else '')
             or self.direccion or self.cliente.direccion or 'Por definir'
         )
+
+        # Si el servicio se recoge donde un tercero del cliente, sus datos
+        # quedan registrados en la descripción de la orden.
+        descripcion = self.observaciones_servicio or f'Orden generada desde la programación #{self.pk}'
+        if self.tercero_id:
+            t = self.tercero
+            datos = ", ".join(filter(None, [
+                t.direccion, t.ciudad,
+                f"Tel: {t.telefono}" if t.telefono else '',
+                f"Contacto: {t.persona_contacto}" if t.persona_contacto else '',
+            ]))
+            descripcion += f"\n\nServicio donde el tercero: {t.nombre}"
+            if datos:
+                descripcion += f" ({datos})"
 
         with transaction.atomic():
             orden = OrdenServicio.objects.create(
                 cliente=self.cliente,
                 asesor=usuario,
                 direccion_servicio=direccion_servicio,
-                descripcion=self.observaciones_servicio or f'Orden generada desde la programación #{self.pk}',
+                descripcion=descripcion,
                 bascula=self.bascula,
                 registro_fotografico=self.registro_fotografico,
             )
