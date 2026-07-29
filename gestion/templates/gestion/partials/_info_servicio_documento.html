@@ -1,0 +1,151 @@
+{% load static %}
+{% comment %}
+    Hoja de INFORMACIÓN DEL SERVICIO para el conductor, en el mismo estilo del
+    documento (azul SOLMED) pero encabezada por la información del servicio, no
+    por el número de orden. Contexto: `orden`, `recorrido`, `manifiesto` (vista
+    previa con las instrucciones del asesor). Requiere _acta_estilos.html en la página.
+{% endcomment %}
+<div class="acta-wrap">
+    <div class="acta-doc">
+
+        <!-- ================= CABECERA ================= -->
+        <table class="header" style="margin-bottom: 6px;">
+            <tr>
+                <td class="h-left"><img src="{% static 'images/logo-solmed.png' %}" style="max-width: 150px;"></td>
+                <td class="h-mid">
+                    <span class="empresa">SOLUCIONES MEDIOAMBIENTALES S.A.S.</span><br>
+                    <b>SOLMED S.A.S.</b><br>
+                    NIT 830.514.597-2
+                </td>
+                <td class="h-meta">
+                    <table class="meta-box">
+                        <tr><td><span class="lbl">CÓDIGO:</span> GO-F-04</td></tr>
+                        <tr><td><span class="lbl">Versión:</span> 01</td></tr>
+                    </table>
+                </td>
+                <td class="h-os">
+                    <div class="os-box">
+                        <div class="t">INFORMACIÓN DEL SERVICIO</div>
+                        <div class="info">{{ recorrido.fecha_recorrido|date:"d-m-Y" }}</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <!-- ================= DATOS GENERALES ================= -->
+        <div class="section">
+            <table class="grid">
+                <tr>
+                    <td style="width: 38%;"><span class="lbl">Fecha:</span> {{ recorrido.fecha_recorrido|date:"d-m-Y" }}</td>
+                    <td style="width: 62%;" colspan="2"><span class="lbl">Empresa:</span> {{ orden.cliente.nombre }}</td>
+                </tr>
+                <tr>
+                    <td><span class="lbl">Dirección:</span> {{ orden.direccion_servicio }}</td>
+                    <td style="width: 31%;"><span class="lbl">Tel.:</span> {{ orden.cliente.telefono }}</td>
+                    <td style="width: 31%;"><span class="lbl">Nit:</span> {{ orden.cliente.identificacion }}</td>
+                </tr>
+                <tr>
+                    <td><span class="lbl">Equipo:</span> {{ recorrido.vehiculo.modelo }}</td>
+                    <td><span class="lbl">Marca:</span> {{ recorrido.vehiculo.marca }}</td>
+                    <td><span class="lbl">Placa:</span> {{ recorrido.vehiculo.placa }}</td>
+                </tr>
+                <tr>
+                    <td><span class="lbl">Conductor:</span> {{ recorrido.conductor.get_full_name|default:'' }}</td>
+                    <td><span class="lbl">Ayudante 1:</span> {{ recorrido.ayudante.get_full_name|default:'' }}</td>
+                    <td><span class="lbl">Ayudante 2:</span> {{ recorrido.ayudante2.get_full_name|default:'' }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- ================= SERVICIO A REALIZAR (4 COLUMNAS) ================= -->
+        <div class="section">
+            <table class="grid"><tr><td class="band">SERVICIO A REALIZAR</td></tr></table>
+            <table>
+                <tr>
+                    <td style="width: 31%; border-right: 1px solid #2C4D9E;" class="srv-h">Succión</td>
+                    <td style="width: 27%; border-right: 1px solid #2C4D9E;" class="srv-h">Sondeo</td>
+                    <td style="width: 21%; border-right: 1px solid #2C4D9E;" class="srv-h">Lavado</td>
+                    <td style="width: 21%;" class="srv-h">Transporte</td>
+                </tr>
+                <tr>
+                    <!-- SUCCIÓN -->
+                    <td style="border-right: 1px solid #2C4D9E; vertical-align: top;">
+                        <div class="srv-row">Canecas
+                            <span class="box">{% if manifiesto.succ_canecas %}X{% endif %}</span>
+                            <span class="srv-qty">Ton/M³ <b>{{ manifiesto.succ_canecas_cant }}</b></span></div>
+                        <div class="srv-row">Pozos de inspección
+                            <span class="box">{% if manifiesto.succ_pozos_inspeccion %}X{% endif %}</span>
+                            <span class="srv-qty">Ton/M³ <b>{{ manifiesto.succ_pozos_inspeccion_cant }}</b></span></div>
+                        <div class="srv-row">Pozos Sépticos
+                            <span class="box">{% if manifiesto.succ_pozos_septicos %}X{% endif %}</span>
+                            <span class="srv-qty">Ton/M³ <b>{{ manifiesto.succ_pozos_septicos_cant }}</b></span></div>
+                        <div class="srv-row">Tanques
+                            <span class="box">{% if manifiesto.succ_tanques %}X{% endif %}</span>
+                            <span class="srv-qty">Ton/M³ <b>{{ manifiesto.succ_tanques_cant }}</b></span></div>
+                        <div class="srv-row">Trampas de Grasa
+                            <span class="box">{% if manifiesto.succ_trampas_grasa %}X{% endif %}</span>
+                            <span class="srv-qty">Ton/M³ <b>{{ manifiesto.succ_trampas_grasa_cant }}</b></span></div>
+                        <div class="srv-row">Otros <b>{{ manifiesto.succ_otros }}</b></div>
+                    </td>
+                    <!-- SONDEO -->
+                    <td style="border-right: 1px solid #2C4D9E; vertical-align: top;">
+                        <div class="srv-row">Red de agua lluvias
+                            <span class="box">{% if manifiesto.sond_red_aguas_lluvias %}X{% endif %}</span>
+                            <span class="srv-qty">H/ML <b>{{ manifiesto.sond_red_aguas_lluvias_cant }}</b></span></div>
+                        <div class="srv-row">Red de aguas negras
+                            <span class="box">{% if manifiesto.sond_red_aguas_negras %}X{% endif %}</span>
+                            <span class="srv-qty">H/ML <b>{{ manifiesto.sond_red_aguas_negras_cant }}</b></span></div>
+                        <div class="srv-row">Red Acueducto
+                            <span class="box">{% if manifiesto.sond_red_acueducto %}X{% endif %}</span>
+                            <span class="srv-qty">H/ML <b>{{ manifiesto.sond_red_acueducto_cant }}</b></span></div>
+                        <div class="srv-row">Correctivo
+                            <span class="box">{% if manifiesto.sond_correctivo %}X{% endif %}</span>
+                            <span class="srv-qty"><b>{{ manifiesto.sond_correctivo_cant }}</b></span></div>
+                        <div class="srv-row">Preventivo
+                            <span class="box">{% if manifiesto.sond_preventivo %}X{% endif %}</span>
+                            <span class="srv-qty"><b>{{ manifiesto.sond_preventivo_cant }}</b></span></div>
+                        <div class="srv-row">Diámetro <b>{{ manifiesto.sond_diametro }}</b></div>
+                    </td>
+                    <!-- LAVADO -->
+                    <td style="border-right: 1px solid #2C4D9E; vertical-align: top;">
+                        <div class="srv-row"><span class="lbl">Concepto</span><br><b>{{ manifiesto.lavado_concepto }}</b></div>
+                        <div class="srv-row"><span class="lbl">Cantidad</span><br><b>{{ manifiesto.lavado_cantidad }}</b></div>
+                        <div class="srv-row"><span class="lbl">Correctivo</span><br><b>{{ manifiesto.lavado_correctivo }}</b></div>
+                        <div class="srv-row"><span class="lbl">Preventivo</span><br><b>{{ manifiesto.lavado_preventivo }}</b></div>
+                    </td>
+                    <!-- TRANSPORTE -->
+                    <td style="vertical-align: top;">
+                        <div class="srv-row"><span class="lbl">Tipo</span><br><b>{{ manifiesto.transporte_tipo }}</b></div>
+                        <div class="srv-row"><span class="lbl">Cantidad</span><br><b>{{ manifiesto.transporte_cantidad }}</b></div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- ================= INDICACIONES OPERATIVAS ================= -->
+        <div class="section">
+            <table class="grid">
+                <tr>
+                    <td class="th-s" style="width: 50%;">¿Pesan en báscula?</td>
+                    <td class="th-s" style="width: 50%;">¿Requiere registro fotográfico?</td>
+                </tr>
+                <tr>
+                    <td class="center"><b>{{ orden.get_bascula_display|default:"—" }}</b></td>
+                    <td class="center"><b>{{ orden.get_registro_fotografico_display|default:"—" }}</b></td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- ================= DESCRIPCIÓN DEL TRABAJO ================= -->
+        <div class="section">
+            <div class="obs"><span class="lbl">DESCRIPCIÓN DEL TRABAJO:</span> {{ orden.descripcion|linebreaksbr }}</div>
+        </div>
+
+        <div class="foot">
+            Cra. 69A No. 24 Sur - 17 &bull; Tels.: (601) 403 2799 - (601) 679 2566 &bull; Cel.: 313 466 4660<br>
+            e-mail: info@solmed.com.co &bull; www.solmed.com.co &bull; Bogotá, D.C. - Colombia
+            &nbsp;&bull;&nbsp; <span style="opacity:.7;">Ref. Orden {{ orden.numero_orden }}</span>
+        </div>
+
+    </div>
+</div>

@@ -1,132 +1,114 @@
 {% extends "gestion/base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+{% include 'gestion/partials/_acta_estilos.html' %}
+
+{# Encabezado: la información manda, no el número de orden. #}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
-        <h1 class="mb-0">Orden #{{ orden.numero_orden }}</h1>
-        <span class="badge fs-6" style="background-color: #008cba;">{{ orden.get_estado_orden_display }}</span>
+        <h1 class="mb-0">{{ orden.cliente.nombre }}</h1>
+        <span class="text-muted"><i class="bi bi-geo-alt-fill me-1"></i>{{ orden.direccion_servicio }}</span>
+        <span class="badge ms-2" style="background-color: #008cba;">{{ orden.get_estado_orden_display }}</span>
     </div>
     <a href="{% url 'gestion:historial_conductor' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Volver al historial
     </a>
 </div>
 
-{# Pestañas: los datos de la orden y el acta en formato documento (igual al PDF). #}
+{# Pestañas: información del servicio (estilo documento) y el acta en formato PDF. #}
 <ul class="nav nav-tabs mb-3" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="tab-orden-btn" data-bs-toggle="tab" data-bs-target="#tab-orden" type="button" role="tab">
-            <i class="bi bi-list-check me-1"></i>Mi orden
+        <button class="nav-link active" id="tab-info-btn" data-bs-toggle="tab" data-bs-target="#tab-info" type="button" role="tab">
+            <i class="bi bi-file-earmark-text me-1"></i>Información del servicio
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="tab-acta-btn" data-bs-toggle="tab" data-bs-target="#tab-acta" type="button" role="tab">
-            <i class="bi bi-file-earmark-text me-1"></i>Acta de servicio <span class="text-muted d-none d-md-inline">(formato documento)</span>
+            <i class="bi bi-clipboard-check me-1"></i>Acta de servicio <span class="text-muted d-none d-md-inline">(formato documento)</span>
         </button>
     </li>
 </ul>
 
 <div class="tab-content">
-<div class="tab-pane fade show active" id="tab-orden" role="tabpanel" aria-labelledby="tab-orden-btn">
-<div class="row">
-    <!-- Datos del servicio (solo lectura) -->
-    <div class="col-lg-4">
-        <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Datos del Servicio</h5></div>
-            <div class="card-body">
-                <p><strong><i class="bi bi-building me-1"></i> Cliente:</strong><br>{{ orden.cliente.nombre }}</p>
-                <p><strong><i class="bi bi-geo-alt-fill me-1"></i> Dirección:</strong><br>{{ orden.direccion_servicio }}</p>
-                {% if orden.cliente.persona_contacto %}
-                <p><strong><i class="bi bi-person me-1"></i> Contacto:</strong><br>
-                    {{ orden.cliente.persona_contacto }}
-                    {% if orden.cliente.telefono %}<br><i class="bi bi-telephone me-1"></i>{{ orden.cliente.telefono }}{% endif %}
-                </p>
-                {% endif %}
-                <hr>
-                <p class="mb-0"><strong>Descripción del trabajo:</strong><br>{{ orden.descripcion|linebreaks }}</p>
-            </div>
-        </div>
-    </div>
 
-    <!-- Mis recorridos en esta orden -->
-    <div class="col-lg-8">
-        <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Mis recorridos en esta orden</h5></div>
-            <div class="card-body">
-                {% if mis_recorridos %}
-                <div class="list-group">
-                    {% for recorrido in mis_recorridos %}
-                    <div class="list-group-item">
-                        <div class="d-flex w-100 justify-content-between align-items-center">
-                            <h6 class="mb-1"><i class="bi bi-calendar-event me-2"></i>{{ recorrido.fecha_recorrido|date:"l, d \d\e F, Y" }}</h6>
-                            <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
-                        </div>
-                        <small class="text-muted d-block mb-2"><i class="bi bi-truck me-1"></i>Vehículo: {{ recorrido.vehiculo.placa }}{% if recorrido.descripcion %} · {{ recorrido.descripcion }}{% endif %}</small>
-                        {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
+    {# ---------- Pestaña 1: información del servicio en estilo documento ---------- #}
+    <div class="tab-pane fade show active" id="tab-info" role="tabpanel" aria-labelledby="tab-info-btn">
+        {% for item in actas_formato %}
+        {% include 'gestion/partials/_info_servicio_documento.html' with orden=orden recorrido=item.recorrido manifiesto=item.acta %}
 
-                        {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                            <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
-                                <i class="bi bi-file-earmark-pdf-fill"></i> Acta de servicio
+        {# Alertas del vehículo + acciones del recorrido #}
+        <div class="card shadow my-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <h6 class="mb-0"><i class="bi bi-truck me-1"></i>{{ item.recorrido.vehiculo.placa }}
+                        <span class="badge ms-1 {% if item.recorrido.estado == 'COMPLETADO' %}bg-success{% elif item.recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ item.recorrido.get_estado_display }}</span>
+                    </h6>
+                </div>
+                {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=item.recorrido.vehiculo %}
+
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    {% if item.recorrido.manifiesto.estado_firma == 'FIRMADO' %}
+                        <a href="{{ item.recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-danger">
+                            <i class="bi bi-file-earmark-pdf-fill"></i> Acta de servicio (PDF)
+                        </a>
+                        {% if item.recorrido.encuesta_conductor %}
+                            {% if item.recorrido.encuesta_conductor.pdf_generado %}
+                            <a href="{{ item.recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
                             </a>
-                            {% if recorrido.encuesta_conductor %}
-                                {% if recorrido.encuesta_conductor.pdf_generado %}
-                                <a href="{{ recorrido.encuesta_conductor.pdf_generado.url }}" target="_blank" class="btn btn-sm btn-outline-danger">
-                                    <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
-                                </a>
-                                {% endif %}
-                            {% else %}
-                                <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-sm btn-warning">
-                                    <i class="bi bi-clipboard-check"></i> Encuesta de cierre (pendiente)
-                                </a>
                             {% endif %}
-                        {% elif recorrido.manifiesto %}
-                            <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-sm btn-primary">
-                                <i class="bi bi-qr-code"></i> Ver QR para firma
-                            </a>
                         {% else %}
-                            <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
-                                <i class="bi bi-pen-fill"></i> Llenar Acta de servicio
+                            <a href="{% url 'gestion:encuesta_conductor' item.recorrido.pk %}" class="btn btn-sm btn-warning">
+                                <i class="bi bi-clipboard-check"></i> Encuesta de cierre (pendiente)
                             </a>
                         {% endif %}
-                    </div>
-                    {% endfor %}
+                    {% elif item.recorrido.manifiesto %}
+                        <a href="{% url 'gestion:manifiesto_qr' item.recorrido.pk %}" class="btn btn-sm btn-primary">
+                            <i class="bi bi-qr-code"></i> Ver QR para firma
+                        </a>
+                    {% else %}
+                        <a href="{% url 'gestion:firmar_manifiesto_step' item.recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
+                            <i class="bi bi-pen-fill"></i> Llenar Acta de servicio
+                        </a>
+                    {% endif %}
                 </div>
-                {% else %}
-                <p class="text-muted">No tienes recorridos asignados en esta orden.</p>
-                {% endif %}
             </div>
         </div>
+        {% empty %}
+        <p class="text-muted">No tienes recorridos asignados en esta orden.</p>
+        {% endfor %}
     </div>
-</div>
-</div>{# /tab-orden #}
 
-<div class="tab-pane fade" id="tab-acta" role="tabpanel" aria-labelledby="tab-acta-btn">
-    {% for item in actas_formato %}
-    <div class="card shadow mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div>
-                <h5 class="mb-0 d-inline"><i class="bi bi-truck me-1"></i>{{ item.recorrido.vehiculo.placa|default:"Recorrido" }}</h5>
-                {% if item.estado == 'FIRMADA' %}
-                    <span class="badge bg-success ms-2"><i class="bi bi-check-circle me-1"></i>Firmada por el cliente</span>
-                {% elif item.estado == 'DILIGENCIADA' %}
-                    <span class="badge bg-primary ms-2"><i class="bi bi-pencil-square me-1"></i>Diligenciada — pendiente firma</span>
-                {% else %}
-                    <span class="badge bg-secondary ms-2"><i class="bi bi-hourglass-split me-1"></i>Vista previa — instrucciones del asesor</span>
-                {% endif %}
+    {# ---------- Pestaña 2: acta en formato documento (igual al PDF) ---------- #}
+    <div class="tab-pane fade" id="tab-acta" role="tabpanel" aria-labelledby="tab-acta-btn">
+        {% for item in actas_formato %}
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h5 class="mb-0 d-inline"><i class="bi bi-truck me-1"></i>{{ item.recorrido.vehiculo.placa|default:"Recorrido" }}</h5>
+                    {% if item.estado == 'FIRMADA' %}
+                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle me-1"></i>Firmada por el cliente</span>
+                    {% elif item.estado == 'DILIGENCIADA' %}
+                        <span class="badge bg-primary ms-2"><i class="bi bi-pencil-square me-1"></i>Diligenciada — pendiente firma</span>
+                    {% else %}
+                        <span class="badge bg-secondary ms-2"><i class="bi bi-hourglass-split me-1"></i>Vista previa — instrucciones del asesor</span>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    {% if item.acta.pdf_generado %}
+                    <a href="{{ item.acta.pdf_generado.url }}" target="_blank" class="btn btn-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF final</a>
+                    {% endif %}
+                    <a href="{% url 'gestion:acta_formato' item.recorrido.pk %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrows-fullscreen me-1"></i>Pantalla completa / imprimir</a>
+                </div>
             </div>
-            <div class="d-flex gap-2">
-                {% if item.acta.pdf_generado %}
-                <a href="{{ item.acta.pdf_generado.url }}" target="_blank" class="btn btn-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF final</a>
-                {% endif %}
-                <a href="{% url 'gestion:acta_formato' item.recorrido.pk %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrows-fullscreen me-1"></i>Pantalla completa / imprimir</a>
+            <div class="card-body">
+                {% include 'gestion/partials/_acta_documento.html' with manifiesto=item.acta recorrido=item.recorrido orden=orden %}
             </div>
         </div>
-        <div class="card-body">
-            {% include 'gestion/partials/_acta_documento.html' with manifiesto=item.acta recorrido=item.recorrido orden=orden %}
-        </div>
+        {% empty %}
+        <p class="text-muted">No tienes recorridos asignados en esta orden.</p>
+        {% endfor %}
     </div>
-    {% empty %}
-    <p class="text-muted">No tienes recorridos asignados en esta orden.</p>
-    {% endfor %}
-</div>{# /tab-acta #}
+
 </div>{# /tab-content #}
 {% endblock %}

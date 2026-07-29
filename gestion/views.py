@@ -517,8 +517,12 @@ def _acta_para_vista(recorrido):
     try:
         manifiesto = recorrido.manifiesto
     except Manifiesto.DoesNotExist:
+        # OJO: NO pasar recorrido=recorrido; enlazar el recorrido a este Manifiesto
+        # sin guardar contaminaría la caché inversa recorrido.manifiesto y haría
+        # creer a las plantillas que el acta ya existe. El recorrido viaja aparte
+        # en el contexto de la plantilla.
         datos = _instrucciones_servicio_de(recorrido)
-        return Manifiesto(recorrido=recorrido, **datos), 'PENDIENTE'
+        return Manifiesto(**datos), 'PENDIENTE'
     estado = 'FIRMADA' if manifiesto.estado_firma == 'FIRMADO' else 'DILIGENCIADA'
     return manifiesto, estado
 

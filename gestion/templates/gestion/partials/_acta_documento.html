@@ -4,64 +4,8 @@
     PDF final (formato físico SOLMED "ORDEN DE SERVICIO" GO-F-04). Reutilizable:
     se embebe como pestaña en la orden y en la página independiente acta_formato.
     Contexto esperado: `manifiesto` (real o vista previa), `recorrido`, `orden`.
+    Requiere que la página incluya una vez _acta_estilos.html.
 {% endcomment %}
-<style>
-    .acta-wrap { background: #e9ecef; padding: 1.5rem 0; overflow-x: auto; border-radius: 8px; }
-    .acta-doc {
-        background: #fff; width: 850px; max-width: 100%; margin: 0 auto;
-        padding: 26px 30px; box-shadow: 0 6px 24px rgba(0,0,0,.15);
-        font-family: "Helvetica", Arial, sans-serif; font-size: 11px; color: #000; line-height: 1.25;
-    }
-    .acta-doc .section { border: 1.6px solid #2C4D9E; border-radius: 9px; margin-bottom: 6px; overflow: hidden; }
-    .acta-doc .lbl { color: #2C4D9E; font-weight: bold; }
-    .acta-doc .val { color: #000; }
-    .acta-doc table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-    .acta-doc td, .acta-doc th { padding: 4px 7px; vertical-align: middle; word-wrap: break-word; }
-    .acta-doc .grid td, .acta-doc .grid th { border: 1px solid #2C4D9E; }
-    .acta-doc .grid tr:first-child > * { border-top: none; }
-    .acta-doc .grid tr:last-child > * { border-bottom: none; }
-    .acta-doc .grid tr > *:first-child { border-left: none; }
-    .acta-doc .grid tr > *:last-child { border-right: none; }
-    .acta-doc .band { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: .4px; }
-    .acta-doc .center { text-align: center; }
-    .acta-doc .box {
-        display: inline-block; width: 13px; height: 13px; border: 1.3px solid #2C4D9E; border-radius: 2px;
-        text-align: center; font-size: 10px; line-height: 12px; font-weight: bold; color: #000; vertical-align: -2px;
-    }
-    .acta-doc .header td { vertical-align: middle; }
-    .acta-doc .header .h-left { width: 26%; }
-    .acta-doc .header .h-mid { width: 40%; text-align: center; color: #2C4D9E; }
-    .acta-doc .header .h-mid .empresa { font-weight: bold; font-size: 12.5px; }
-    .acta-doc .header .h-meta { width: 17%; }
-    .acta-doc .header .h-os { width: 17%; }
-    .acta-doc .meta-box td { border: 1px solid #2C4D9E; font-size: 9.5px; padding: 2px 5px; }
-    .acta-doc .os-box { border: 1.6px solid #2C4D9E; border-radius: 7px; text-align: center; padding: 4px 3px; }
-    .acta-doc .os-box .t { color: #2C4D9E; font-weight: bold; font-size: 10.5px; }
-    .acta-doc .os-box .n { color: #C00000; font-weight: bold; font-size: 21px; letter-spacing: 1px; }
-    .acta-doc .srv-h { color: #2C4D9E; font-weight: bold; border-bottom: 1px solid #2C4D9E; }
-    .acta-doc .srv-row { padding: 2.5px 0; }
-    .acta-doc .srv-qty { float: right; color: #2C4D9E; font-size: 9.5px; }
-    .acta-doc .srv-qty b { color: #000; font-size: 11px; }
-    .acta-doc .th-s { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; font-size: 9.5px; }
-    .acta-doc .big { text-align: center; font-size: 14px; font-weight: bold; height: 24px; }
-    .acta-doc .sat td, .acta-doc .sat th { border: 1px solid #2C4D9E; font-size: 9.8px; padding: 3px 5px; }
-    .acta-doc .sat tr:first-child > * { border-top: none; }
-    .acta-doc .sat tr:last-child > * { border-bottom: none; }
-    .acta-doc .sat tr > *:first-child { border-left: none; }
-    .acta-doc .sat tr > *:last-child { border-right: none; }
-    .acta-doc .sat .grupo { color: #2C4D9E; font-weight: bold; text-align: center; text-transform: uppercase; }
-    .acta-doc .sat .marca { text-align: center; font-weight: bold; font-size: 12px; color: #2C4D9E; }
-    .acta-doc .obs { min-height: 40px; padding: 4px 8px; }
-    .acta-doc .firma-img { max-height: 60px; }
-    .acta-doc .foot { text-align: center; font-size: 9.5px; color: #2C4D9E; font-weight: bold; margin-top: 8px; }
-
-    @media print {
-        .acta-toolbar, .app-sidebar, nav, .navbar, footer, .nav-tabs { display: none !important; }
-        .acta-wrap { background: #fff; padding: 0; }
-        .acta-doc { box-shadow: none; width: 100%; padding: 0; }
-    }
-</style>
-
 <div class="acta-wrap">
     <div class="acta-doc">
 
