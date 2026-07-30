@@ -38,6 +38,9 @@
                 </span>
             </td>
             <td>
+                <a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-folder2-open"></i> Expediente
+                </a>
                 <a href="{% url 'gestion:actualizar_vehiculo' vehiculo.pk %}" class="btn btn-sm btn-secondary">Editar</a>
             </td>
         </tr>
