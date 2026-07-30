@@ -15,9 +15,11 @@
     </a>
 </div>
 
-{# Solo la INFORMACIÓN del servicio (estilo documento). El conductor NO accede al
-   acta como documento ni la descarga: únicamente la diligencia (asistente) y
-   muestra el QR para la firma del cliente. #}
+{% comment %}
+Solo la INFORMACIÓN del servicio (estilo documento). El conductor NO accede al
+acta como documento ni la descarga: únicamente la diligencia (asistente) y
+muestra el QR para la firma del cliente.
+{% endcomment %}
 {% for item in actas_formato %}
 {% include 'gestion/partials/_info_servicio_documento.html' with orden=orden recorrido=item.recorrido manifiesto=item.acta %}
 
