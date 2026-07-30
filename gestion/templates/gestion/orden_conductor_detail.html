@@ -3,6 +3,51 @@
 {% block content %}
 {% include 'gestion/partials/_acta_estilos.html' %}
 
+<style>
+/* ============ Orden del conductor (solo esta vista, prefijo oc-) ============ */
+/* Pasos del servicio: diligenciar acta -> firma del cliente -> encuesta */
+.oc-pasos{ display:flex; flex-direction:column; gap:.55rem; margin-top:.35rem; }
+.oc-paso{
+    display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+    border:1px solid var(--line-2); border-radius:var(--r-sm);
+    padding:.6rem .75rem; background:var(--panel-2);
+}
+.oc-paso .ico{
+    width:34px; height:34px; flex-shrink:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1rem; background:#E4E9EF; color:var(--ink-3);
+}
+.oc-paso .tx{ flex:1 1 140px; min-width:0; }
+.oc-paso .tx .t{ font-weight:600; font-size:.86rem; color:var(--ink); }
+.oc-paso .tx .s{ font-size:.75rem; color:var(--ink-3); }
+.oc-paso.hecho{ background:var(--ok-tint); border-color:var(--ok-line); }
+.oc-paso.hecho .ico{ background:var(--ok); color:#fff; }
+.oc-paso.actual{ background:#fff; border-color:var(--warn-line); box-shadow:0 1px 4px rgba(15,23,35,.06); }
+.oc-paso.actual .ico{ background:var(--warn-tint); color:var(--warn); }
+
+/* Soportes del servicio (báscula / fotos) */
+.oc-soporte{ border:1px dashed #cdd4dd; border-radius:var(--r-md); padding:.85rem .9rem; background:#fbfcfd; }
+.oc-soporte + .oc-soporte{ margin-top:.75rem; }
+.oc-soporte .cab{ display:flex; align-items:center; gap:.5rem; margin-bottom:.4rem; }
+.oc-soporte .cab i{ font-size:1.05rem; color:var(--brand-700); }
+.oc-soporte .cab .t{ font-weight:600; font-size:.88rem; color:var(--ink); }
+.oc-fotos{ display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.5rem; }
+.oc-fotos a{
+    display:inline-flex; align-items:center; gap:.35rem;
+    font-size:.76rem; font-weight:600; color:var(--ink-2);
+    background:#fff; border:1px solid var(--line); border-radius:var(--r-xs);
+    padding:.28rem .55rem;
+}
+.oc-form{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+.oc-form input[type=file]{ flex:1 1 220px; }
+
+/* Móvil: acciones y botones a lo ancho */
+@media (max-width:600px){
+    .oc-paso .btn, .oc-form .btn{ width:100%; }
+    .oc-form input[type=file]{ flex-basis:100%; }
+}
+</style>
+
 {# Encabezado: la información manda, no el número de orden. #}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
@@ -10,8 +55,8 @@
         <span class="text-muted"><i class="bi bi-geo-alt-fill me-1"></i>{{ orden.direccion_servicio }}</span>
         <span class="badge ms-2" style="background-color: #008cba;">{{ orden.get_estado_orden_display }}</span>
     </div>
-    <a href="{% url 'gestion:historial_conductor' %}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i> Volver al historial
+    <a href="{% url 'gestion:dashboard_conductor' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver a mi jornada
     </a>
 </div>
 
@@ -23,39 +68,134 @@ muestra el QR para la firma del cliente.
 {% for item in actas_formato %}
 {% include 'gestion/partials/_info_servicio_documento.html' with orden=orden recorrido=item.recorrido manifiesto=item.acta %}
 
-{# Alertas del vehículo + acciones del recorrido #}
+{# ================= PASOS DEL SERVICIO (por recorrido) ================= #}
 <div class="card shadow my-3">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h5 class="mb-0">Tu servicio · {{ item.recorrido.fecha_recorrido|date:"d/m/Y" }}</h5>
+        <span>
+            {% if item.recorrido.vehiculo %}<span class="badge bg-light"><i class="bi bi-truck me-1"></i>{{ item.recorrido.vehiculo.placa }}</span>{% endif %}
+            <span class="badge {% if item.recorrido.estado == 'COMPLETADO' %}bg-success{% elif item.recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ item.recorrido.get_estado_display }}</span>
+        </span>
+    </div>
     <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-            <h6 class="mb-0"><i class="bi bi-truck me-1"></i>{{ item.recorrido.vehiculo.placa }}
-                <span class="badge ms-1 {% if item.recorrido.estado == 'COMPLETADO' %}bg-success{% elif item.recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ item.recorrido.get_estado_display }}</span>
-            </h6>
-        </div>
         {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=item.recorrido.vehiculo %}
 
-        <div class="d-flex flex-wrap gap-2 mt-2">
-            {% if item.recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                <span class="badge bg-success align-self-center"><i class="bi bi-check-circle me-1"></i>Acta firmada por el cliente</span>
-                {% if item.recorrido.encuesta_conductor %}
-                    <span class="badge bg-secondary align-self-center"><i class="bi bi-clipboard-check me-1"></i>Encuesta de cierre diligenciada</span>
-                {% else %}
-                    <a href="{% url 'gestion:encuesta_conductor' item.recorrido.pk %}" class="btn btn-sm btn-warning">
-                        <i class="bi bi-clipboard-check"></i> Encuesta de cierre (pendiente)
-                    </a>
-                {% endif %}
-            {% elif item.recorrido.manifiesto %}
-                <a href="{% url 'gestion:manifiesto_qr' item.recorrido.pk %}" class="btn btn-sm btn-primary">
-                    <i class="bi bi-qr-code"></i> Ver QR para firma
-                </a>
-            {% else %}
+        <div class="oc-pasos">
+            {# --- 1. Diligenciar el acta --- #}
+            <div class="oc-paso {% if item.estado != 'PENDIENTE' %}hecho{% else %}actual{% endif %}">
+                <span class="ico"><i class="bi {% if item.estado != 'PENDIENTE' %}bi-check-lg{% else %}bi-pen{% endif %}"></i></span>
+                <span class="tx">
+                    <span class="t d-block">1 · Diligenciar el acta</span>
+                    <span class="s">{% if item.estado != 'PENDIENTE' %}Datos del servicio registrados{% else %}Auxiliares, tiempos, kilómetros y responsable{% endif %}</span>
+                </span>
+                {% if item.estado == 'PENDIENTE' %}
                 <a href="{% url 'gestion:firmar_manifiesto_step' item.recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
-                    <i class="bi bi-pen-fill"></i> Llenar Acta de servicio
+                    <i class="bi bi-pen-fill me-1"></i>Diligenciar
                 </a>
-            {% endif %}
+                {% endif %}
+            </div>
+
+            {# --- 2. Firma del cliente --- #}
+            <div class="oc-paso {% if item.estado == 'FIRMADA' %}hecho{% elif item.estado == 'DILIGENCIADA' %}actual{% endif %}">
+                <span class="ico"><i class="bi {% if item.estado == 'FIRMADA' %}bi-check-lg{% else %}bi-qr-code{% endif %}"></i></span>
+                <span class="tx">
+                    <span class="t d-block">2 · Firma del cliente</span>
+                    <span class="s">{% if item.estado == 'FIRMADA' %}El cliente ya firmó el acta{% elif item.estado == 'DILIGENCIADA' %}Muéstrale el QR para que firme desde su celular{% else %}Se habilita al diligenciar el acta{% endif %}</span>
+                </span>
+                {% if item.estado == 'DILIGENCIADA' %}
+                <a href="{% url 'gestion:manifiesto_qr' item.recorrido.pk %}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-qr-code me-1"></i>Mostrar QR
+                </a>
+                {% endif %}
+            </div>
+
+            {# --- 3. Encuesta de cierre --- #}
+            <div class="oc-paso {% if item.recorrido.encuesta_conductor %}hecho{% elif item.estado == 'FIRMADA' %}actual{% endif %}">
+                <span class="ico"><i class="bi {% if item.recorrido.encuesta_conductor %}bi-check-lg{% else %}bi-clipboard-check{% endif %}"></i></span>
+                <span class="tx">
+                    <span class="t d-block">3 · Encuesta de cierre</span>
+                    <span class="s">{% if item.recorrido.encuesta_conductor %}Servicio completado{% elif item.estado == 'FIRMADA' %}Diligénciala para cerrar el servicio{% else %}Se habilita cuando el cliente firme{% endif %}</span>
+                </span>
+                {% if item.estado == 'FIRMADA' and not item.recorrido.encuesta_conductor %}
+                <a href="{% url 'gestion:encuesta_conductor' item.recorrido.pk %}" class="btn btn-sm btn-warning">
+                    <i class="bi bi-clipboard-check me-1"></i>Diligenciar
+                </a>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
 {% empty %}
 <p class="text-muted">No tienes recorridos asignados en esta orden.</p>
 {% endfor %}
+
+{# ================= SOPORTES DEL SERVICIO (báscula / fotos) ================= #}
+{% if orden.requiere_bascula or orden.requiere_registro_fotografico %}
+<div class="card shadow my-3">
+    <div class="card-header"><h5 class="mb-0">Soportes del servicio</h5></div>
+    <div class="card-body">
+
+        {% if orden.requiere_bascula %}
+        <div class="oc-soporte">
+            <div class="cab">
+                <i class="bi bi-speedometer2"></i>
+                <span class="t">Tiquete de báscula</span>
+                {% if orden.bascula_adjunto %}
+                    <span class="badge bg-success ms-auto"><i class="bi bi-check2 me-1"></i>Cargado</span>
+                {% else %}
+                    <span class="badge bg-warning text-dark ms-auto">Pendiente</span>
+                {% endif %}
+            </div>
+            {% if orden.bascula_adjunto %}
+            <div class="oc-fotos">
+                <a href="{{ orden.bascula_adjunto.url }}" target="_blank"><i class="bi bi-file-earmark-image"></i>Ver soporte cargado</a>
+            </div>
+            {% endif %}
+            <form method="post" enctype="multipart/form-data" class="oc-form">
+                {% csrf_token %}
+                <input type="file" name="bascula_adjunto" class="form-control form-control-sm"
+                       accept="image/*,application/pdf" capture="environment" required>
+                <button name="submit_bascula" class="btn btn-sm btn-success">
+                    <i class="bi bi-upload me-1"></i>{% if orden.bascula_adjunto %}Reemplazar{% else %}Cargar tiquete{% endif %}
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if orden.requiere_registro_fotografico %}
+        <div class="oc-soporte">
+            <div class="cab">
+                <i class="bi bi-camera-fill"></i>
+                <span class="t">Registro fotográfico</span>
+                {% if orden.registro_fotografico_adjunto or fotos_registro %}
+                    <span class="badge bg-success ms-auto"><i class="bi bi-check2 me-1"></i>Con fotos</span>
+                {% else %}
+                    <span class="badge bg-warning text-dark ms-auto">Pendiente</span>
+                {% endif %}
+            </div>
+            {% if orden.registro_fotografico_adjunto or fotos_registro %}
+            <div class="oc-fotos">
+                {% if orden.registro_fotografico_adjunto %}
+                <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank"><i class="bi bi-image"></i>Foto 1</a>
+                {% endif %}
+                {% for doc in fotos_registro %}
+                <a href="{{ doc.archivo.url }}" target="_blank"><i class="bi bi-image"></i>Foto {{ forloop.counter|add:1 }}</a>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <form method="post" enctype="multipart/form-data" class="oc-form">
+                {% csrf_token %}
+                <input type="file" name="fotos" class="form-control form-control-sm"
+                       accept="image/*" capture="environment" multiple required>
+                <button name="submit_fotos" class="btn btn-sm btn-success">
+                    <i class="bi bi-upload me-1"></i>Cargar fotos
+                </button>
+            </form>
+            <div class="text-muted mt-1" style="font-size:.74rem;">Puedes seleccionar varias fotos a la vez.</div>
+        </div>
+        {% endif %}
+
+    </div>
+</div>
+{% endif %}
 {% endblock %}

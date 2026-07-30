@@ -288,7 +288,11 @@
                 <p class="mb-0"><strong>Registro fotográfico:</strong> {{ orden.get_registro_fotografico_display|default:"—" }}
                     {% if orden.requiere_registro_fotografico %}
                         {% if orden.registro_fotografico_adjunto %}
-                            · <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank">ver soporte</a>
+                            · <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank">foto 1</a>
+                            {# Fotos adicionales que el conductor cargó desde su vista de la orden #}
+                            {% for doc in fotos_registro %}
+                                · <a href="{{ doc.archivo.url }}" target="_blank" title="{{ doc.descripcion }}">foto {{ forloop.counter|add:1 }}</a>
+                            {% endfor %}
                         {% else %}
                             <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
                         {% endif %}

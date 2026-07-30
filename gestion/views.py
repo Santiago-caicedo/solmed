@@ -33,7 +33,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Mani
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, Tercero
+from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -1157,6 +1157,10 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
         context['actas_formato'] = _actas_formato(
             self.object.recorridos.all().order_by('fecha_recorrido'))
+        # Fotos adicionales del registro fotográfico que cargó el conductor.
+        context['fotos_registro'] = self.object.documentos.filter(
+            descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
+        )
         return context
 
     def post(self, request, *args, **kwargs):
@@ -1430,16 +1434,22 @@ class HistorialConductorView(ConductorRequiredMixin, PaginadoMixin, ListView):
         ).select_related('orden', 'orden__cliente', 'vehiculo').order_by('-fecha_recorrido')
 
 
-# --- VISTA DE ORDEN (SOLO LECTURA) PARA EL CONDUCTOR ---
+# --- VISTA DE ORDEN PARA EL CONDUCTOR ---
 class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
     """
-    Ficha de SOLO LECTURA de la orden, pensada para el conductor.
-    Solo deja ver órdenes en las que el conductor tiene algún recorrido asignado
-    (cualquier otra devuelve 404). No expone datos financieros ni de gestión.
+    Ficha de la orden pensada para el conductor. Solo deja ver órdenes en las
+    que tiene algún recorrido asignado (cualquier otra devuelve 404) y no expone
+    datos financieros ni de gestión. Es de solo lectura salvo los SOPORTES del
+    servicio: si la programación marcó báscula o registro fotográfico, el
+    conductor carga aquí la foto del tiquete y las fotos del servicio.
     """
     model = OrdenServicio
     template_name = 'gestion/orden_conductor_detail.html'
     context_object_name = 'orden'
+
+    # Etiqueta con la que se guardan las fotos adicionales del registro
+    # fotográfico como documentos de la orden (visibles en el expediente).
+    ETIQUETA_FOTO = 'Registro fotográfico'
 
     def get_queryset(self):
         # Restringe el acceso a las órdenes propias del conductor.
@@ -1456,7 +1466,51 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
         context['mis_recorridos'] = mis_recorridos
         # Acta(s) en formato documento (igual al PDF) para la pestaña del conductor.
         context['actas_formato'] = _actas_formato(mis_recorridos)
+        # Fotos adicionales del registro fotográfico ya cargadas.
+        context['fotos_registro'] = self.object.documentos.filter(
+            descripcion__startswith=self.ETIQUETA_FOTO
+        )
         return context
+
+    def post(self, request, *args, **kwargs):
+        """Carga de soportes: tiquete de báscula y fotos del registro fotográfico."""
+        self.object = self.get_object()   # 404 si la orden no es suya
+        orden = self.object
+
+        if 'submit_bascula' in request.POST and orden.requiere_bascula:
+            archivo = request.FILES.get('bascula_adjunto')
+            if archivo:
+                orden.bascula_adjunto = archivo
+                orden.save(update_fields=['bascula_adjunto'])
+                messages.success(request, "Soporte de báscula cargado.")
+            else:
+                messages.error(request, "Selecciona la foto o el archivo del tiquete de báscula.")
+
+        elif 'submit_fotos' in request.POST and orden.requiere_registro_fotografico:
+            fotos = request.FILES.getlist('fotos')
+            if fotos:
+                # La primera foto llena el soporte de la orden (si está vacío);
+                # el resto queda como documentos etiquetados, que la gestión ve
+                # en el expediente de la orden.
+                for foto in fotos:
+                    if not orden.registro_fotografico_adjunto:
+                        orden.registro_fotografico_adjunto = foto
+                        orden.save(update_fields=['registro_fotografico_adjunto'])
+                    else:
+                        DocumentoOrden.objects.create(
+                            orden=orden, archivo=foto,
+                            descripcion=f"{self.ETIQUETA_FOTO} ({request.user.get_full_name() or request.user.username})",
+                        )
+                messages.success(
+                    request,
+                    f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} del registro fotográfico cargada{'s' if len(fotos) != 1 else ''}."
+                )
+            else:
+                messages.error(request, "Selecciona al menos una foto del servicio.")
+        else:
+            messages.error(request, "Esta orden no tiene ese soporte habilitado.")
+
+        return redirect('gestion:detalle_orden_conductor', pk=orden.pk)
 
 
 # --- NUEVA VISTA: TABLERO DE PLANIFICACIÓN ---
