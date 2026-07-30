@@ -1,5 +1,6 @@
 from django import forms
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
+from django.db.models import Q
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -624,6 +625,15 @@ class ProgramacionForm(forms.ModelForm):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'})
     )
 
+    # Sitio de inicio: además del desplegable, se puede escribir uno NUEVO aquí
+    # mismo; se crea en el catálogo y queda seleccionado (ver clean()).
+    nuevo_sitio_inicio = forms.CharField(
+        required=False, label="Nuevo sitio de inicio",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control', 'placeholder': 'Nombre del nuevo sitio',
+        })
+    )
+
     # Cuando NO hay disposición final: a dónde queda el contenido (trasiegos /
     # dejar carro cargado). Se guarda en el mismo campo dispositor_final.
     destino_sin_disposicion = forms.ModelChoiceField(
@@ -636,7 +646,7 @@ class ProgramacionForm(forms.ModelForm):
     class Meta:
         model = Programacion
         fields = [
-            'fecha', 'hora_ingreso_bodega', 'hora_servicio',
+            'fecha', 'hora_ingreso_bodega', 'sitio_inicio', 'hora_servicio',
             'cliente', 'sede_cliente', 'tercero', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
             'paleada',
@@ -653,6 +663,7 @@ class ProgramacionForm(forms.ModelForm):
         widgets = {
             'fecha': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
             'hora_ingreso_bodega': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'sitio_inicio': forms.Select(attrs={'class': 'form-select'}),
             'hora_servicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
             'cliente': forms.Select(attrs={'class': 'form-select'}),
             'sede_cliente': forms.Select(attrs={'class': 'form-select'}),
@@ -712,6 +723,14 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
 
+        # Sitios de inicio activos (más el guardado, aunque esté inactivo, para
+        # que al editar no se pierda la selección).
+        sitios = Q(activo=True)
+        if self.instance.pk and self.instance.sitio_inicio_id:
+            sitios |= Q(pk=self.instance.sitio_inicio_id)
+        self.fields['sitio_inicio'].queryset = SitioInicio.objects.filter(sitios)
+        self.fields['sitio_inicio'].empty_label = '--- Elige el sitio ---'
+
         # Tercero: misma lógica que la sede. El JS filtra en vivo por cliente;
         # aquí el queryset abarca todos los activos para que valide el enviado
         # (o solo los del cliente ya elegido, al editar).
@@ -756,6 +775,18 @@ class ProgramacionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+
+        # --- Sitio de inicio nuevo: se crea (o reutiliza) y queda seleccionado ---
+        nuevo_sitio = (cleaned.get('nuevo_sitio_inicio') or '').strip()
+        if nuevo_sitio:
+            sitio = SitioInicio.objects.filter(nombre__iexact=nuevo_sitio).first()
+            if sitio is None:
+                sitio = SitioInicio.objects.create(nombre=nuevo_sitio)
+            elif not sitio.activo:
+                # Existía pero estaba oculto: se reactiva.
+                sitio.activo = True
+                sitio.save(update_fields=['activo'])
+            cleaned['sitio_inicio'] = sitio
 
         cliente = cleaned.get('cliente')
         sede = cleaned.get('sede_cliente')

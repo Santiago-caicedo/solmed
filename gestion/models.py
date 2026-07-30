@@ -928,6 +928,28 @@ class EncuestaConductor(models.Model):
             recorrido.save()
 
 
+class SitioInicio(models.Model):
+    """
+    Sitio donde el personal inicia el turno / ingresa antes del servicio
+    (bodega, sede del cliente, taller…). Catálogo del desplegable "Sitio de
+    inicio" de la programación; se pueden crear nuevos desde el mismo
+    formulario y quedan disponibles para las siguientes programaciones.
+    """
+    nombre = models.CharField(max_length=150, unique=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarlo del desplegable sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Sitio de inicio"
+        verbose_name_plural = "Sitios de inicio"
+
+    def __str__(self):
+        return self.nombre
+
+
 # Cursos que se le pueden EXIGIR al ayudante desde la programación. No son
 # obligatorios en su expediente: cada programación decide si este servicio los
 # requiere (ver Programacion.exige_curso_alturas / exige_curso_confinados).
@@ -1002,7 +1024,14 @@ class Programacion(models.Model):
 
     # --- Cabecera del servicio ---
     fecha = models.DateField(verbose_name="Fecha del servicio")
-    hora_ingreso_bodega = models.TimeField(null=True, blank=True, verbose_name="Hora ingreso a bodega")
+    # Antes se llamaba "Hora ingreso a bodega", pero el turno no siempre inicia
+    # en la bodega: la hora va aparte y el lugar se elige en `sitio_inicio`.
+    # El nombre del campo se conserva por compatibilidad.
+    hora_ingreso_bodega = models.TimeField(null=True, blank=True, verbose_name="Hora de ingreso")
+    sitio_inicio = models.ForeignKey(
+        SitioInicio, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='programaciones', verbose_name="Sitio de inicio"
+    )
     hora_servicio = models.TimeField(null=True, blank=True, verbose_name="Hora del servicio")
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='programaciones')
