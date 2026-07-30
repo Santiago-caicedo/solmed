@@ -1058,6 +1058,13 @@ class Programacion(models.Model):
         blank=True, verbose_name="Correo del cliente (seguridad social)",
         help_text="Correo del cliente a donde se comparten los documentos de seguridad social."
     )
+    # La seguridad social vigente del personal se adjunta SIEMPRE al correo.
+    # Aquí el asesor puede sumar otros documentos del expediente del personal
+    # asignado (cédula, licencia, cursos, otros) para ese mismo envío.
+    documentos_adicionales = models.ManyToManyField(
+        'DocumentoPersonal', blank=True, related_name='programaciones_adjuntas',
+        verbose_name="Documentos adicionales del personal para el correo",
+    )
     observaciones_servicio = models.TextField(
         blank=True, verbose_name="Observaciones detalladas del servicio a prestar"
     )

@@ -1818,6 +1818,16 @@ def _estado_documentos_personal():
             tipo: any(d.tipo == tipo and not d.vencido for d in docs)
             for tipo, _etiqueta in CURSOS_EXIGIBLES
         }
+        # Documentos del expediente que se pueden ADJUNTAR al correo además de la
+        # seguridad social (que va siempre): cédula, licencia, cursos, otros.
+        adjuntables = [{
+            'id': d.pk,
+            'label': (
+                (d.descripcion if d.tipo == 'OTRO' and d.descripcion else tipo_label[d.tipo])
+                + (' (vencido)' if d.vencido else '')
+            ),
+        } for d in docs if d.tipo != 'SEGURIDAD_SOCIAL']
+
         data[u.id] = {
             'nombre': u.get_full_name() or u.username,
             'faltan': faltan,
@@ -1827,6 +1837,7 @@ def _estado_documentos_personal():
             'ss_al_dia': ss_doc is not None,
             'ss_vence': ss_doc.fecha_vencimiento.strftime('%d/%m/%Y') if ss_doc else '',
             'ss_url': ss_doc.archivo.url if ss_doc else '',
+            'docs': adjuntables,
         }
     return data
 
@@ -1865,6 +1876,31 @@ def _tiene_ss_vigente(persona):
         tipo='SEGURIDAD_SOCIAL',
         fecha_vencimiento__gte=timezone.localdate(),
     ).exists()
+
+
+def _validar_docs_adicionales(form, cuadrilla_form):
+    """
+    Los documentos adicionales para el correo deben ser del personal asignado en
+    la cuadrilla (si se cambió el conductor/ayudante, los del anterior no valen).
+    Marca el error en el campo. Devuelve True si todo cuadra.
+    """
+    documentos = form.cleaned_data.get('documentos_adicionales') or []
+    if not documentos:
+        return True
+    ids_personal = {
+        persona.pk
+        for campo in ('conductor', 'ayudante', 'ayudante2')
+        if (persona := cuadrilla_form.cleaned_data.get(campo)) is not None
+    }
+    ajenos = [d for d in documentos if d.usuario_id not in ids_personal]
+    if ajenos:
+        form.add_error(
+            'documentos_adicionales',
+            'Solo puedes adjuntar documentos del personal asignado en la cuadrilla. '
+            'Revisa la selección de documentos adicionales.'
+        )
+        return False
+    return True
 
 
 def _validar_ss_cuadrilla(form, cuadrilla_form):
@@ -2029,9 +2065,22 @@ def _contexto_programacion(context):
     context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
+    # Documentos adicionales ya seleccionados (para que el JS los marque al
+    # re-renderizar el formulario o al editar una programación guardada).
+    form = context.get('form')
+    seleccionados = []
+    if form is not None:
+        if form.is_bound:
+            seleccionados = form.data.getlist('documentos_adicionales')
+        elif form.instance.pk:
+            seleccionados = [
+                str(pk) for pk in
+                form.instance.documentos_adicionales.values_list('pk', flat=True)
+            ]
+    context['docs_adicionales_sel'] = seleccionados
+
     # Instrucciones del servicio: pares (casilla, cantidad) para renderizar la
     # primera parte del acta (Succión y Sondeo) en dos columnas alineadas.
-    form = context.get('form')
     if form is not None:
         context['instrucciones_succion'] = [
             (form['succ_canecas'], form['succ_canecas_cant']),
@@ -2072,7 +2121,8 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
                 self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
         cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
         ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
-        if not (cursos_ok and ss_ok):
+        docs_ok = _validar_docs_adicionales(form, cuadrilla_form)
+        if not (cursos_ok and ss_ok and docs_ok):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
@@ -2144,7 +2194,8 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
                 self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
         cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
         ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
-        if not (cursos_ok and ss_ok):
+        docs_ok = _validar_docs_adicionales(form, cuadrilla_form)
+        if not (cursos_ok and ss_ok and docs_ok):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
@@ -2208,6 +2259,22 @@ def _enviar_seguridad_social_cliente(orden, programacion):
         adjuntos.append((f"SS_{nombre_limpio}{ext}", contenido, tipo))
         lineas.append(f"- {nombre} ({rol}) — vigente hasta {doc.fecha_vencimiento.strftime('%d/%m/%Y')}")
 
+    # Documentos ADICIONALES del expediente que el asesor marcó en la
+    # programación (cédula, licencia, cursos…). La SS ya va siempre.
+    lineas_adicionales = []
+    for doc in programacion.documentos_adicionales.select_related('usuario'):
+        with doc.archivo.open('rb') as fh:
+            contenido = fh.read()
+        base = os.path.basename(doc.archivo.name)
+        ext = os.path.splitext(base)[1] or '.pdf'
+        tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
+        nombre_persona = doc.usuario.get_full_name() or doc.usuario.username
+        etiqueta = (doc.descripcion if doc.tipo == 'OTRO' and doc.descripcion
+                    else doc.get_tipo_display())
+        nombre_archivo = f"{etiqueta} - {nombre_persona}{ext}".replace('/', '-')
+        adjuntos.append((nombre_archivo, contenido, tipo))
+        lineas_adicionales.append(f"- {nombre_persona}: {etiqueta}")
+
     # Documentos del cliente que se adjuntan a TODA orden suya (además de la SS).
     lineas_cliente = []
     if orden.cliente_id:
@@ -2227,6 +2294,8 @@ def _enviar_seguridad_social_cliente(orden, programacion):
         f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
         + "\n".join(lineas)
     )
+    if lineas_adicionales:
+        cuerpo += "\n\nDocumentos adicionales del personal:\n" + "\n".join(lineas_adicionales)
     if lineas_cliente:
         cuerpo += "\n\nDocumentos del cliente:\n" + "\n".join(lineas_cliente)
     cuerpo += "\n\nCordialmente,\nSOLMED SAS"

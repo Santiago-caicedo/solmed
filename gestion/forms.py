@@ -659,6 +659,7 @@ class ProgramacionForm(forms.ModelForm):
             'exige_curso_alturas',
             'exige_curso_confinados',
             'nombre_contacto_recibe',
+            'documentos_adicionales',
         ] + list(Programacion.CAMPOS_INSTRUCCIONES_ACTA)
         widgets = {
             'fecha': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
@@ -722,6 +723,14 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sede_cliente'].queryset = sedes
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
+
+        # Documentos adicionales del personal para el correo: los checkboxes los
+        # dibuja el JS según el personal asignado (no se renderiza el widget);
+        # la seguridad social nunca va aquí porque se adjunta siempre.
+        self.fields['documentos_adicionales'].queryset = (
+            DocumentoPersonal.objects.exclude(tipo='SEGURIDAD_SOCIAL')
+        )
+        self.fields['documentos_adicionales'].required = False
 
         # Sitios de inicio activos (más el guardado, aunque esté inactivo, para
         # que al editar no se pierda la selección).

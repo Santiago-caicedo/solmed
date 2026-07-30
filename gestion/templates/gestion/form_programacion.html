@@ -380,6 +380,23 @@
                 y no se puede guardar.
             </p>
 
+            {# --- Documentos adicionales del expediente para el mismo correo --- #}
+            <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
+                <div class="fw-semibold small mb-1">
+                    <i class="bi bi-paperclip me-1"></i>Documentos adicionales del personal <span class="text-muted fw-normal">(opcional)</span>
+                </div>
+                <p class="text-muted small mb-2">
+                    La seguridad social se adjunta siempre. Si el cliente pide más soportes, marca aquí
+                    qué otros documentos del expediente del personal asignado van en el mismo correo.
+                </p>
+                <div id="docs-adicionales">
+                    <span class="text-muted small">Asigna el conductor y los ayudantes para ver sus documentos.</span>
+                </div>
+                {% for e in form.documentos_adicionales.errors %}
+                <div class="text-danger small mt-2"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
+                {% endfor %}
+            </div>
+
             {# Vista previa del correo (maqueta) #}
             <div class="border rounded overflow-hidden">
                 <div class="px-3 py-2 bg-light border-bottom small">
@@ -427,6 +444,7 @@
 {{ docs_correo_por_cliente|json_script:"docs-correo-data" }}
 {{ vehiculos_cargados|json_script:"vehiculos-cargados-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
+{{ docs_adicionales_sel|json_script:"docs-adicionales-sel" }}
 <script>
 // --- Sitio de inicio: enlace que abre el campo para crear uno nuevo ---
 (function () {
@@ -712,6 +730,10 @@ var personalDocs = JSON.parse(document.getElementById('personal-docs-data').text
 var contenedorAlertas = document.getElementById('alertas-documentos');
 // Documentos del cliente que se adjuntan al correo: { "<id_cliente>": [nombre, ...] }
 var docsCorreoPorCliente = JSON.parse(document.getElementById('docs-correo-data').textContent);
+// Documentos adicionales ya marcados (al editar o tras un error de validación).
+var docsAdicionalesSel = new Set(
+    JSON.parse(document.getElementById('docs-adicionales-sel').textContent).map(String)
+);
 
 // --- Cursos exigidos por ESTA programación al ayudante ---
 var CURSOS = [
@@ -854,16 +876,52 @@ function revisarDocumentos() {
 
     contenedorAlertas.innerHTML = html;
 
-    actualizarEnvioSS(personal);
+    var adicionales = renderDocsAdicionales(personal);
+    actualizarEnvioSS(personal, adicionales);
 
     var bloquear = (bloqueosSS.length + bloqueosCursos.length) > 0;
     bloquearGuardado(bloquear);
     return bloquear;
 }
 
+// Dibuja los checkboxes de documentos ADICIONALES del expediente del personal
+// asignado (la SS va siempre y no aparece aquí). Devuelve los marcados
+// [{label, persona}] para reflejarlos en la vista previa del correo.
+function renderDocsAdicionales(personal) {
+    var cont = document.getElementById('docs-adicionales');
+    if (!cont) return [];
+    var html = '';
+    var marcados = [];
+    personal.forEach(function (p) {
+        var docs = (p.info && p.info.docs) || [];
+        if (!docs.length) return;
+        html += '<div class="mb-2"><div class="small fw-semibold mb-1">'
+            + esc(p.nombre) + ' <span class="text-muted fw-normal">(' + esc(p.rol) + ')</span></div>';
+        docs.forEach(function (d) {
+            var checked = docsAdicionalesSel.has(String(d.id));
+            if (checked) marcados.push({ label: d.label, persona: p.nombre });
+            html += '<div class="form-check form-check-inline">'
+                + '<input class="form-check-input chk-doc-adicional" type="checkbox" '
+                + 'name="documentos_adicionales" value="' + d.id + '" id="doc-ad-' + d.id + '"'
+                + (checked ? ' checked' : '') + '>'
+                + '<label class="form-check-label small" for="doc-ad-' + d.id + '">' + esc(d.label) + '</label>'
+                + '</div>';
+        });
+        html += '</div>';
+    });
+    if (!html) {
+        html = personal.length
+            ? '<span class="text-muted small">El personal asignado no tiene otros documentos en su expediente.</span>'
+            : '<span class="text-muted small">Asigna el conductor y los ayudantes para ver sus documentos.</span>';
+    }
+    cont.innerHTML = html;
+    return marcados;
+}
+
 // Construye la vista previa del correo de seguridad social que se le enviará al
 // cliente: destinatario, cuerpo con el personal y los documentos adjuntos.
-function actualizarEnvioSS(personal) {
+function actualizarEnvioSS(personal, adicionales) {
+    adicionales = adicionales || [];
     var campoCorreo = document.getElementById('id_correo_seguridad_social');
     var correo = campoCorreo ? campoCorreo.value.trim() : '';
 
@@ -920,6 +978,11 @@ function actualizarEnvioSS(personal) {
         + 'en la orden de servicio SOLMED ' + esc(ORDEN)
         + (cliente ? ' para ' + esc(cliente) : '') + ':'
         + '<ul class="mt-2 mb-2">' + lineas + '</ul>'
+        + (adicionales.length
+            ? 'Documentos adicionales del personal:<ul class="mt-2 mb-2">'
+              + adicionales.map(function (a) { return '<li>' + esc(a.persona) + ': ' + esc(a.label) + '</li>'; }).join('')
+              + '</ul>'
+            : '')
         + (docsCliente.length
             ? 'Documentos del cliente:<ul class="mt-2 mb-2">'
               + docsCliente.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('')
@@ -947,6 +1010,13 @@ function actualizarEnvioSS(personal) {
                 + '<i class="bi bi-folder2-open"></i> Cargar</a>' : '')
             + '</div>';
     });
+    // Documentos adicionales del expediente marcados por el asesor.
+    adicionales.forEach(function (a) {
+        filas.push('<div class="list-group-item d-flex align-items-center">'
+            + '<i class="bi bi-file-earmark-plus text-muted me-2"></i>'
+            + esc(a.label) + ' &mdash; <strong class="ms-1">' + esc(a.persona) + '</strong>'
+            + ' <span class="text-muted small ms-1">(documento adicional)</span></div>');
+    });
     // Documentos fijos del cliente, al final de la lista de adjuntos.
     docsCliente.forEach(function (n) {
         filas.push('<div class="list-group-item d-flex align-items-center">'
@@ -955,8 +1025,8 @@ function actualizarEnvioSS(personal) {
     });
     adjuntos.innerHTML = filas.join('');
 
-    var total = personal.length + docsCliente.length;
-    var conDoc = listos + docsCliente.length;
+    var total = personal.length + adicionales.length + docsCliente.length;
+    var conDoc = listos + adicionales.length + docsCliente.length;
     contador.textContent = conDoc + ' de ' + total + ' documento' + (total === 1 ? '' : 's');
 }
 
@@ -975,6 +1045,12 @@ document.addEventListener('change', function (e) {
         || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')
         || e.target.matches('#id_cliente')) {   // el cliente aparece en el cuerpo del correo
         pintarSwitches();
+        revisarDocumentos();
+    }
+    // Marcar/desmarcar un documento adicional refresca la vista previa.
+    if (e.target.matches('.chk-doc-adicional')) {
+        if (e.target.checked) docsAdicionalesSel.add(e.target.value);
+        else docsAdicionalesSel.delete(e.target.value);
         revisarDocumentos();
     }
 });
