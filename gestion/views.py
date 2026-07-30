@@ -582,7 +582,7 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
         if fecha_str:
             fecha_seleccionada = datetime.datetime.strptime(fecha_str, '%Y-%m-%d').date()
         else:
-            fecha_seleccionada = timezone.now().date()
+            fecha_seleccionada = timezone.localdate()
         
         context['fecha_seleccionada'] = fecha_seleccionada
         context['programacion_del_dia'] = Recorrido.objects.filter(
@@ -1328,7 +1328,7 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         conductor = self.request.user
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         # Recorridos para el día de hoy
         context['recorridos_hoy'] = Recorrido.objects.filter(
@@ -1366,7 +1366,7 @@ class MisRecorridosView(ConductorRequiredMixin, ListView):
     def get_queryset(self):
         # Filtramos para mostrar solo los recorridos del usuario logueado
         # que no estén completados, ordenados por fecha.
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         return Recorrido.objects.filter(
             conductor=self.request.user,
             fecha_recorrido__gte=hoy,
@@ -1429,7 +1429,7 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
         
         # 1. Obtener la fecha (igual que en el expediente del vehículo)
         fecha_str = self.request.GET.get('fecha')
-        fecha_seleccionada = timezone.now().date()
+        fecha_seleccionada = timezone.localdate()
         if fecha_str:
             try:
                 fecha_seleccionada = datetime.datetime.strptime(fecha_str, '%Y-%m-%d').date()
@@ -1472,7 +1472,7 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
             messages.error(request, "El recorrido que intentas modificar no existe.")
             
         # Redirige a la misma página de planificación con la fecha seleccionada
-        fecha = request.POST.get('fecha', timezone.now().date().isoformat())
+        fecha = request.POST.get('fecha', timezone.localdate().isoformat())
         return redirect(f"{reverse('gestion:planificacion')}?fecha={fecha}")
 
 
