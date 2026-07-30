@@ -732,37 +732,16 @@ class DocumentoDispositor(models.Model):
 
 class EncuestaConductor(models.Model):
     """
-    Encuesta operativa que llena EL CONDUCTOR al cerrar el servicio, una vez firmado
-    el manifiesto del cliente. Es evidencia de cumplimiento del PESV (Plan Estratégico
-    de Seguridad Vial) y de la gestión ambiental de SOLMED SAS.
-    Diligenciarla marca automáticamente el recorrido como COMPLETADO (es obligatoria).
+    Encuesta de cierre que llena EL CONDUCTOR una vez firmada el acta por el
+    cliente. Son siete preguntas de Sí/No sobre seguridad vial y su propia
+    salud: evidencia de cumplimiento del PESV (Plan Estratégico de Seguridad
+    Vial) de SOLMED SAS. Diligenciarla marca el recorrido como COMPLETADO
+    (es obligatoria).
+
+    La última pregunta (condición de riesgo o casi-accidente) abre el tipo de
+    evento y su descripción para poder investigarlo.
     """
     SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
-
-    NIVEL_COMBUSTIBLE_CHOICES = [
-        ('1/4', '¼'),
-        ('1/2', '½'),
-        ('3/4', '¾'),
-        ('FULL', 'Full'),
-    ]
-
-    TIPO_RESIDUO_CHOICES = [
-        ('AGUAS_DOM_SEPT', 'Aguas domésticas/sépticas'),
-        ('AGUAS_LLUVIAS', 'Aguas lluvias'),
-        ('TRAMPAS_GRASA', 'Trampas de grasa'),
-        ('AGUAS_HIDROCARBURADAS', 'Aguas hidrocarburadas (RESPEL)'),
-        ('OTROS_RESPEL', 'Otros RESPEL'),
-        ('ORGANICOS', 'Orgánicos'),
-        ('ESCOMBROS', 'Escombros'),
-    ]
-
-    RIESGO_VIAL_CHOICES = [
-        ('NINGUNA', 'Ninguna'),
-        ('VIA_MAL_ESTADO', 'Vía en mal estado/huecos'),
-        ('FALTA_ILUMINACION', 'Falta de iluminación'),
-        ('SENALIZACION_DEFICIENTE', 'Señalización deficiente'),
-        ('PUNTO_CRITICO', 'Punto crítico de accidentes'),
-    ]
 
     TIPO_INCIDENTE_CHOICES = [
         ('FALLA_MECANICA', 'Falla mecánica (Varada)'),
@@ -770,47 +749,67 @@ class EncuestaConductor(models.Model):
         ('SINIESTRO_TERCEROS', 'Siniestro vial con terceros'),
     ]
 
+    # Preguntas en las que responder "SÍ" es la señal de alerta (las demás se
+    # alertan al responder "NO"). Se usa para los indicadores del tablero.
+    PREGUNTAS_ALERTA_SI = ('presento_fatiga', 'molestias_fisicas', 'condicion_riesgo')
+
     recorrido = models.OneToOneField(
         Recorrido, on_delete=models.CASCADE, related_name='encuesta_conductor'
     )
 
-    # --- 1. Control de Fatiga y Nivel de Combustible ---
+    # --- 1. Fatiga ---
     presento_fatiga = models.CharField(
         max_length=2, choices=SI_NO_CHOICES,
-        verbose_name="¿Presentó síntomas de fatiga, cansancio o microsueños durante la ruta?"
-    )
-    nivel_combustible = models.CharField(
-        max_length=4, choices=NIVEL_COMBUSTIBLE_CHOICES,
-        verbose_name="Nivel de combustible al cierre del servicio"
+        verbose_name="¿Presentó síntomas de fatiga, cansancio o microsueños durante el desarrollo de la ruta?"
     )
 
-    # --- 2. Caracterización del Residuo y Dispositor Final ---
-    tipo_residuo = models.CharField(
-        max_length=30, choices=TIPO_RESIDUO_CHOICES,
-        verbose_name="Tipo de residuo transportado"
-    )
-    dispositor_final = models.ForeignKey(
-        Dispositor, on_delete=models.PROTECT, related_name='encuestas',
-        verbose_name="Dispositor final / destino autorizado"
-    )
-
-    # --- 3. Reporte de Novedades en la Vía ---
-    riesgo_vial = models.CharField(
-        max_length=30, choices=RIESGO_VIAL_CHOICES, default='NINGUNA',
-        verbose_name="Condiciones de riesgo identificadas en la infraestructura vial"
-    )
-
-    # --- 4. Gestión de Incidentes en Ruta ---
-    hubo_incidente = models.CharField(
+    # --- 2. Pausas activas ---
+    realizo_pausas_activas = models.CharField(
         max_length=2, choices=SI_NO_CHOICES,
-        verbose_name="¿Se presentó algún incidente, varada o evento vial durante el trayecto?"
+        verbose_name="¿Realizó las pausas activas recomendadas durante el trayecto "
+                     "(al menos 05-10 minutos por cada 2 horas de conducción)?"
+    )
+
+    # --- 3. Molestias físicas ---
+    molestias_fisicas = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Ha experimentado molestias físicas (lumbalgia, dolor de cuello o piernas) "
+                     "durante o al finalizar el recorrido?"
+    )
+
+    # --- 4. Tiempos de la ruta ---
+    tiempos_adecuados = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Considera que los tiempos asignados para la ruta son adecuados y realistas "
+                     "sin necesidad de exceder los límites de velocidad?"
+    )
+
+    # --- 5. Condiciones de la cabina ---
+    cabina_optima = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿El asiento, cinturón de seguridad y controles de la cabina se encuentran "
+                     "en condiciones óptimas de confort y funcionamiento?"
+    )
+
+    # --- 6. Zonas de descanso ---
+    zonas_seguras_descanso = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Dispuso de zonas seguras y autorizadas para realizar sus paradas de descanso "
+                     "o alimentación durante la ruta?"
+    )
+
+    # --- 7. Condición de riesgo / casi-accidente (con detalle si es SÍ) ---
+    condicion_riesgo = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES,
+        verbose_name="¿Estuvo involucrado o presenció alguna condición de riesgo o casi-accidente "
+                     "durante el turno?"
     )
     tipo_incidente = models.CharField(
         max_length=20, choices=TIPO_INCIDENTE_CHOICES, blank=True,
         verbose_name="Tipo de evento"
     )
     descripcion_incidente = models.TextField(
-        blank=True, verbose_name="Descripción del incidente (opcional)"
+        blank=True, verbose_name="Descripción de lo ocurrido"
     )
 
     # --- PDF generado (evidencia documental independiente) ---
@@ -821,8 +820,38 @@ class EncuestaConductor(models.Model):
         verbose_name = "Encuesta de cierre del conductor"
         verbose_name_plural = "Encuestas de cierre del conductor"
 
+    # Las siete preguntas, en el orden del formato.
+    CAMPOS_PREGUNTAS = (
+        'presento_fatiga', 'realizo_pausas_activas', 'molestias_fisicas',
+        'tiempos_adecuados', 'cabina_optima', 'zonas_seguras_descanso',
+        'condicion_riesgo',
+    )
+
     def __str__(self):
         return f"Encuesta de cierre - Recorrido #{self.recorrido_id}"
+
+    def respuestas(self):
+        """
+        Las siete preguntas con su respuesta, para el PDF y las vistas:
+        [{'numero', 'pregunta', 'respuesta', 'alerta'}]. `alerta` marca la
+        respuesta que exige atención (según PREGUNTAS_ALERTA_SI).
+        """
+        items = []
+        for i, campo in enumerate(self.CAMPOS_PREGUNTAS, start=1):
+            valor = getattr(self, campo)
+            esperado_si = campo in self.PREGUNTAS_ALERTA_SI
+            items.append({
+                'numero': i,
+                'pregunta': self._meta.get_field(campo).verbose_name,
+                'respuesta': dict(self.SI_NO_CHOICES).get(valor, '—'),
+                'alerta': (valor == 'SI') if esperado_si else (valor == 'NO'),
+            })
+        return items
+
+    @property
+    def tiene_alertas(self):
+        """True si alguna respuesta exige atención (para avisos y estadística)."""
+        return any(item['alerta'] for item in self.respuestas())
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

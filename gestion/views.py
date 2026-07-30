@@ -196,22 +196,33 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context['actas_firmadas'] = Manifiesto.objects.filter(estado_firma='FIRMADO').count()
         context['actas_por_firmar'] = Manifiesto.objects.filter(estado_firma='PENDIENTE_FIRMA').count()
 
-        # ================= RESIDUOS Y PESV (encuestas del conductor) =================
-        etiquetas_residuo = dict(EncuestaConductor.TIPO_RESIDUO_CHOICES)
-        residuos = [{
-            'label': etiquetas_residuo.get(r['tipo_residuo'], r['tipo_residuo']),
-            'total': r['total'],
-        } for r in EncuestaConductor.objects.values('tipo_residuo')
-                                            .annotate(total=Count('id')).order_by('-total')]
-        context['residuos'] = residuos
-        context['residuos_max'] = max([r['total'] for r in residuos] + [1])
-
+        # ================= PESV (encuestas de cierre del conductor) =================
+        # Una fila por pregunta: cuántas respuestas exigen atención este mes.
+        # En fatiga, molestias y condición de riesgo la alerta es responder SÍ;
+        # en las demás (pausas activas, tiempos, cabina, zonas de descanso), NO.
         encuestas_mes = EncuestaConductor.objects.filter(fecha_diligenciamiento__date__gte=inicio_mes)
+        total_encuestas = encuestas_mes.count()
+        etiquetas_pesv = {
+            'presento_fatiga': 'Reportó fatiga o microsueños',
+            'realizo_pausas_activas': 'No hizo las pausas activas',
+            'molestias_fisicas': 'Reportó molestias físicas',
+            'tiempos_adecuados': 'Tiempos de ruta no realistas',
+            'cabina_optima': 'Cabina en mal estado',
+            'zonas_seguras_descanso': 'Sin zonas seguras de descanso',
+            'condicion_riesgo': 'Condición de riesgo o casi-accidente',
+        }
+        pesv_preguntas = []
+        for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
+            respuesta_alerta = 'SI' if campo in EncuestaConductor.PREGUNTAS_ALERTA_SI else 'NO'
+            pesv_preguntas.append({
+                'label': etiquetas_pesv[campo],
+                'total': encuestas_mes.filter(**{campo: respuesta_alerta}).count(),
+            })
         context['pesv'] = {
-            'encuestas_mes': encuestas_mes.count(),
-            'incidentes_mes': encuestas_mes.filter(hubo_incidente='SI').count(),
-            'fatiga_mes': encuestas_mes.filter(presento_fatiga='SI').count(),
-            'riesgos_via_mes': encuestas_mes.exclude(riesgo_vial='NINGUNA').count(),
+            'encuestas_mes': total_encuestas,
+            'preguntas': pesv_preguntas,
+            'hallazgos': sum(p['total'] for p in pesv_preguntas),
+            'casi_accidentes': encuestas_mes.filter(condicion_riesgo='SI').count(),
         }
 
         # ================= FLOTA =================

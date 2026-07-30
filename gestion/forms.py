@@ -949,41 +949,55 @@ class PagoForm(forms.ModelForm):
 
 
 class EncuestaConductorForm(forms.ModelForm):
-    """Encuesta de cierre (PESV + ambiental) que diligencia el conductor."""
+    """
+    Encuesta de cierre (PESV) que diligencia el conductor: siete preguntas de
+    Sí/No sobre seguridad vial y su salud. La última abre el tipo de evento y su
+    descripción cuando la respuesta es Sí.
+    """
     class Meta:
         model = EncuestaConductor
-        fields = [
-            'presento_fatiga', 'nivel_combustible',
-            'tipo_residuo', 'dispositor_final',
-            'riesgo_vial',
-            'hubo_incidente', 'tipo_incidente', 'descripcion_incidente',
+        fields = list(EncuestaConductor.CAMPOS_PREGUNTAS) + [
+            'tipo_incidente', 'descripcion_incidente',
         ]
         widgets = {
-            'presento_fatiga': forms.RadioSelect,
-            'nivel_combustible': forms.RadioSelect,
-            'tipo_residuo': forms.Select(attrs={'class': 'form-select'}),
-            'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
-            'riesgo_vial': forms.Select(attrs={'class': 'form-select'}),
-            'hubo_incidente': forms.RadioSelect,
+            **{campo: forms.RadioSelect for campo in EncuestaConductor.CAMPOS_PREGUNTAS},
             'tipo_incidente': forms.Select(attrs={'class': 'form-select'}),
             'descripcion_incidente': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Solo dispositores activos en el desplegable.
-        self.fields['dispositor_final'].queryset = Dispositor.objects.filter(activo=True)
-        # Estos campos solo se exigen si hubo incidente (ver clean()).
+        # Las siete preguntas son obligatorias; el detalle del evento solo se
+        # exige si se reportó una condición de riesgo (ver clean()).
+        for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
+            self.fields[campo].required = True
         self.fields['tipo_incidente'].required = False
         self.fields['descripcion_incidente'].required = False
 
+    def preguntas(self):
+        """Los campos de las siete preguntas, numerados, para la plantilla."""
+        return [
+            {'numero': i, 'campo': self[campo]}
+            for i, campo in enumerate(EncuestaConductor.CAMPOS_PREGUNTAS, start=1)
+        ]
+
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get('hubo_incidente') == 'SI' and not cleaned.get('tipo_incidente'):
-            self.add_error(
-                'tipo_incidente',
-                'Debes seleccionar el tipo de evento cuando reportas un incidente.'
-            )
+        if cleaned.get('condicion_riesgo') == 'SI':
+            if not cleaned.get('tipo_incidente'):
+                self.add_error(
+                    'tipo_incidente',
+                    'Indica el tipo de evento cuando reportas una condición de riesgo.'
+                )
+            if not (cleaned.get('descripcion_incidente') or '').strip():
+                self.add_error(
+                    'descripcion_incidente',
+                    'Describe brevemente lo ocurrido.'
+                )
+        else:
+            # Sin condición de riesgo no se guarda detalle del evento.
+            cleaned['tipo_incidente'] = ''
+            cleaned['descripcion_incidente'] = ''
         return cleaned
 
 class DispositorForm(forms.ModelForm):

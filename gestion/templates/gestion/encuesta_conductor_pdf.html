@@ -54,7 +54,7 @@
         {% if logo_b64 %}<img src="{{ logo_b64 }}" alt="SOLMED">{% endif %}
         <div>
             <div class="title">Encuesta de Cierre del Conductor</div>
-            <div class="subtitle">Evidencia de cumplimiento PESV (Seguridad Vial) y Gestión Ambiental — SOLMED SAS</div>
+            <div class="subtitle">Evidencia de cumplimiento del PESV (Plan Estratégico de Seguridad Vial) — SOLMED SAS</div>
         </div>
     </div>
 
@@ -73,64 +73,29 @@
         </tr>
     </table>
 
-    <!-- 1 -->
     <div class="section">
-        <div class="section-title">1. Control de Fatiga y Nivel de Combustible</div>
+        <div class="section-title">Seguridad vial y salud del conductor</div>
+        {% for r in encuesta.respuestas %}
         <div class="qa">
-            <div class="q">¿Presentó síntomas de fatiga, cansancio o microsueños durante la ruta?</div>
-            <div class="a">{{ encuesta.get_presento_fatiga_display }}</div>
+            <div class="q">{{ r.numero }}. {{ r.pregunta }}</div>
+            <div class="a">{{ r.respuesta }}</div>
         </div>
-        <div class="qa">
-            <div class="q">Nivel de combustible al cierre del servicio</div>
-            <div class="a">{{ encuesta.get_nivel_combustible_display }}</div>
-        </div>
+        {% endfor %}
     </div>
 
-    <!-- 2 -->
+    {% if encuesta.condicion_riesgo == 'SI' %}
     <div class="section">
-        <div class="section-title">2. Caracterización del Residuo y Dispositor Final</div>
-        <div class="qa">
-            <div class="q">Tipo de residuo transportado</div>
-            <div class="a">{{ encuesta.get_tipo_residuo_display }}</div>
-        </div>
-        <div class="qa">
-            <div class="q">Dispositor final / destino autorizado</div>
-            <div class="a">
-                {{ encuesta.dispositor_final.nombre }}
-                {% if encuesta.dispositor_final.descripcion %} — {{ encuesta.dispositor_final.descripcion }}{% endif %}
-            </div>
-        </div>
-    </div>
-
-    <!-- 3 -->
-    <div class="section">
-        <div class="section-title">3. Reporte de Novedades en la Vía</div>
-        <div class="qa">
-            <div class="q">Condiciones de riesgo identificadas en la infraestructura vial</div>
-            <div class="a">{{ encuesta.get_riesgo_vial_display }}</div>
-        </div>
-    </div>
-
-    <!-- 4 -->
-    <div class="section">
-        <div class="section-title">4. Gestión de Incidentes en Ruta</div>
-        <div class="qa">
-            <div class="q">¿Se presentó algún incidente, varada o evento vial durante el trayecto?</div>
-            <div class="a">{{ encuesta.get_hubo_incidente_display }}</div>
-        </div>
-        {% if encuesta.hubo_incidente == 'SI' %}
+        <div class="section-title">Detalle de la condición de riesgo o casi-accidente</div>
         <div class="qa">
             <div class="q">Tipo de evento</div>
             <div class="a">{{ encuesta.get_tipo_incidente_display|default:"—" }}</div>
         </div>
-        {% if encuesta.descripcion_incidente %}
         <div class="qa">
-            <div class="q">Descripción del incidente</div>
-            <div class="a">{{ encuesta.descripcion_incidente }}</div>
+            <div class="q">Descripción de lo ocurrido</div>
+            <div class="a">{{ encuesta.descripcion_incidente|default:"—" }}</div>
         </div>
-        {% endif %}
-        {% endif %}
     </div>
+    {% endif %}
 
     <div class="sign-row">
         <div class="sign-box">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}<br>Conductor</div>

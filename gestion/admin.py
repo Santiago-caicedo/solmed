@@ -147,7 +147,11 @@ class PerfilPersonaAdmin(admin.ModelAdmin):
 class EncuestaConductorAdmin(admin.ModelAdmin):
     list_display = (
         'recorrido', 'fecha_diligenciamiento', 'presento_fatiga',
-        'nivel_combustible', 'tipo_residuo', 'dispositor_final', 'hubo_incidente',
+        'realizo_pausas_activas', 'molestias_fisicas', 'condicion_riesgo',
     )
-    list_filter = ('presento_fatiga', 'hubo_incidente', 'riesgo_vial', 'tipo_residuo')
+    list_filter = (
+        'presento_fatiga', 'realizo_pausas_activas', 'molestias_fisicas',
+        'tiempos_adecuados', 'cabina_optima', 'zonas_seguras_descanso',
+        'condicion_riesgo',
+    )
     search_fields = ('recorrido__orden__cliente__nombre',)

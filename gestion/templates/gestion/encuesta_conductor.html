@@ -2,144 +2,160 @@
 
 {% block content %}
 <style>
-    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
-    .wizard-header { text-align: center; margin-bottom: 1.5rem; }
-    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; border-radius: 6px; overflow: hidden; }
-    .form-section-title { background-color: #f8f9fa; padding: 0.75rem 1rem; font-weight: bold; border-bottom: 1px solid #dee2e6; }
-    .form-section-title small { display: block; font-weight: normal; color: #6c757d; font-size: 0.8rem; margin-top: 0.15rem; }
-    .form-section-content { padding: 1rem; }
-    .form-section-content label { font-weight: 600; }
-    /* Radios SÍ/NO y combustible en línea */
-    .form-section-content ul { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-wrap: wrap; gap: 1.25rem; }
-    .form-section-content ul li label { font-weight: 400; }
+/* ============ Encuesta de cierre (solo esta vista, prefijo ec-) ============ */
+.ec-wrap{ max-width:760px; margin:0 auto; }
+.ec-head{ margin-bottom:1.1rem; }
+.ec-head .eyebrow{ margin-bottom:.2rem; }
+.ec-head .meta{ color:var(--ink-2); font-size:.86rem; }
+.ec-head .meta .sep{ color:var(--ink-3); margin:0 .35rem; }
+
+/* Una pregunta = una tarjeta con su par de botones Sí/No */
+.ec-q{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
+    padding:.9rem 1rem; margin-bottom:.7rem;
+    display:flex; gap:.9rem; align-items:flex-start; flex-wrap:wrap;
+}
+.ec-q.error{ border-color:var(--err-line); background:var(--err-tint); }
+.ec-q .num{
+    flex-shrink:0; width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--steel-tint); color:var(--steel-600);
+    font-family:var(--mono); font-size:.78rem; font-weight:600;
+}
+.ec-q .texto{ flex:1 1 260px; min-width:0; font-size:.92rem; color:var(--ink); line-height:1.45; }
+.ec-q .err{ color:var(--err); font-size:.78rem; margin-top:.3rem; }
+
+/* Botones Sí / No: grandes, cómodos con guantes */
+.ec-sino{ flex:0 0 auto; }
+.ec-sino ul{ list-style:none; margin:0; padding:0; display:flex; gap:.5rem; }
+.ec-sino li{ margin:0; }
+.ec-sino label{
+    display:flex; align-items:center; justify-content:center; gap:.35rem;
+    min-width:74px; padding:.5rem .9rem; cursor:pointer;
+    border:1.5px solid var(--line); border-radius:var(--r-sm);
+    background:var(--panel-2); color:var(--ink-2);
+    font-weight:600; font-size:.88rem;
+    transition:background .12s ease,border-color .12s ease,color .12s ease;
+}
+.ec-sino input[type=radio]{ position:absolute; opacity:0; width:0; height:0; }
+.ec-sino label:hover{ border-color:#b9c3ce; }
+.ec-sino input:checked + span,
+.ec-sino li.on label{ }
+.ec-sino li.on label{ background:var(--steel); border-color:var(--steel); color:#fff; }
+.ec-sino input:focus-visible + label,
+.ec-sino label:focus-within{ outline:2px solid var(--brand-600); outline-offset:2px; }
+
+/* Detalle del evento (pregunta 7 = Sí) */
+.ec-detalle{
+    border:1px solid var(--warn-line); background:var(--warn-tint);
+    border-radius:var(--r-md); padding:1rem; margin:0 0 .7rem;
+}
+.ec-detalle .t{ font-weight:600; font-size:.88rem; color:#7a4e05; margin-bottom:.6rem; display:flex; align-items:center; gap:.4rem; }
+
+.ec-enviar{ display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.1rem; }
+
+/* Móvil: la pregunta arriba, los botones a lo ancho debajo */
+@media (max-width:620px){
+    .ec-q{ padding:.85rem; }
+    .ec-sino{ flex:1 1 100%; }
+    .ec-sino ul{ gap:.6rem; }
+    .ec-sino li{ flex:1 1 0; }
+    .ec-sino label{ width:100%; min-width:0; padding:.6rem .5rem; }
+    .ec-enviar .btn{ width:100%; }
+}
 </style>
 
-<div class="wizard-container">
-    <div class="wizard-header">
-        <h1 class="h3 mb-1">Encuesta de Cierre del Conductor</h1>
-        <p class="text-muted mb-1">
-            Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }} ·
-            Recorrido del {{ recorrido.fecha_recorrido }} · Vehículo {{ recorrido.vehiculo.placa }}
-        </p>
-        <p class="text-muted small">Evidencia de cumplimiento PESV (Seguridad Vial) y Gestión Ambiental — SOLMED SAS.</p>
+<div class="ec-wrap">
+    <div class="ec-head">
+        <div class="eyebrow">Cierre del servicio · PESV</div>
+        <h1 class="mb-1">Encuesta de cierre</h1>
+        <div class="meta">
+            {{ recorrido.orden.cliente.nombre }}
+            <span class="sep">·</span>Orden #{{ recorrido.orden.numero_orden }}
+            <span class="sep">·</span>{{ recorrido.fecha_recorrido|date:"d/m/Y" }}
+            {% if recorrido.vehiculo %}<span class="sep">·</span>{{ recorrido.vehiculo.placa }}{% endif %}
+        </div>
     </div>
 
     {% if ya_diligenciada %}
     <div class="alert alert-info">
         <i class="bi bi-info-circle me-1"></i>
-        Esta encuesta ya fue diligenciada. Puedes revisarla o actualizarla.
+        Ya diligenciaste esta encuesta. Puedes revisarla o corregir tus respuestas.
     </div>
     {% endif %}
 
-    {% if form.non_field_errors %}
-    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% if form.errors %}
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        Responde todas las preguntas para cerrar el servicio.
+    </div>
     {% endif %}
 
-    <form method="post">
+    <form method="post" id="form-encuesta">
         {% csrf_token %}
 
-        <!-- 1. Control de Fatiga y Combustible -->
-        <div class="form-section">
-            <div class="form-section-title">
-                1. Control de Fatiga y Nivel de Combustible
-                <small>Auto-reporte de condiciones de salud y línea base de eficiencia energética / huella de carbono.</small>
+        {% for p in form.preguntas %}
+        <div class="ec-q {% if p.campo.errors %}error{% endif %}">
+            <span class="num">{{ p.numero }}</span>
+            <div class="texto">
+                {{ p.campo.label }}
+                {% for e in p.campo.errors %}<div class="err">{{ e }}</div>{% endfor %}
             </div>
-            <div class="form-section-content">
-                <div class="mb-3">
-                    {{ form.presento_fatiga.label_tag }}
-                    {{ form.presento_fatiga }}
-                    {% for e in form.presento_fatiga.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                </div>
-                <div>
-                    {{ form.nivel_combustible.label_tag }}
-                    {{ form.nivel_combustible }}
-                    {% for e in form.nivel_combustible.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                </div>
+            <div class="ec-sino">{{ p.campo }}</div>
+        </div>
+        {% endfor %}
+
+        {# Detalle del evento: solo si la pregunta 7 se responde Sí #}
+        <div class="ec-detalle" id="bloque-evento">
+            <div class="t"><i class="bi bi-exclamation-triangle-fill"></i>Cuéntanos qué pasó</div>
+            <div class="mb-3">
+                <label for="{{ form.tipo_incidente.id_for_label }}" class="form-label">{{ form.tipo_incidente.label }}</label>
+                {{ form.tipo_incidente }}
+                {% for e in form.tipo_incidente.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+            </div>
+            <div>
+                <label for="{{ form.descripcion_incidente.id_for_label }}" class="form-label">{{ form.descripcion_incidente.label }}</label>
+                {{ form.descripcion_incidente }}
+                {% for e in form.descripcion_incidente.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
             </div>
         </div>
 
-        <!-- 2. Caracterización del Residuo y Dispositor Final -->
-        <div class="form-section">
-            <div class="form-section-title">
-                2. Caracterización del Residuo y Dispositor Final
-                <small>Trazabilidad obligatoria de la carga (de la cuna a la tumba) y control de centro de gravedad.</small>
-            </div>
-            <div class="form-section-content">
-                <div class="mb-3">
-                    {{ form.tipo_residuo.label_tag }}
-                    {{ form.tipo_residuo }}
-                    {% for e in form.tipo_residuo.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                </div>
-                <div>
-                    {{ form.dispositor_final.label_tag }}
-                    {{ form.dispositor_final }}
-                    {% for e in form.dispositor_final.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                    <div class="form-text">Si el destino no aparece, pídele al administrador que lo registre como gestor avalado.</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. Reporte de Novedades en la Vía -->
-        <div class="form-section">
-            <div class="form-section-title">
-                3. Reporte de Novedades en la Vía
-                <small>Alimenta la Matriz de Rutas Planificadas y permite alertas tempranas del Líder de Seguridad Vial.</small>
-            </div>
-            <div class="form-section-content">
-                {{ form.riesgo_vial.label_tag }}
-                {{ form.riesgo_vial }}
-                {% for e in form.riesgo_vial.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-            </div>
-        </div>
-
-        <!-- 4. Gestión de Incidentes en Ruta -->
-        <div class="form-section">
-            <div class="form-section-title">
-                4. Gestión de Incidentes en Ruta
-                <small>Activa los protocolos de atención a emergencias y el Plan de Contingencia Ambiental.</small>
-            </div>
-            <div class="form-section-content">
-                <div class="mb-3">
-                    {{ form.hubo_incidente.label_tag }}
-                    {{ form.hubo_incidente }}
-                    {% for e in form.hubo_incidente.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                </div>
-                <div id="bloque-incidente">
-                    <div class="mb-3">
-                        {{ form.tipo_incidente.label_tag }}
-                        {{ form.tipo_incidente }}
-                        {% for e in form.tipo_incidente.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                    </div>
-                    <div>
-                        {{ form.descripcion_incidente.label_tag }}
-                        {{ form.descripcion_incidente }}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="d-flex justify-content-end mt-4">
+        <div class="ec-enviar">
             <button type="submit" class="btn btn-success btn-lg">
-                <i class="bi bi-check2-circle me-1"></i> Registrar encuesta y cerrar recorrido
+                <i class="bi bi-check2-circle me-1"></i> Registrar y cerrar el servicio
             </button>
         </div>
     </form>
 </div>
 
 <script>
-    // Muestra/oculta el detalle del incidente según la respuesta SÍ/NO.
-    (function () {
-        var bloque = document.getElementById('bloque-incidente');
-        function radiosHubo() {
-            return document.querySelectorAll('input[name="hubo_incidente"]');
-        }
-        function sync() {
-            var marcado = document.querySelector('input[name="hubo_incidente"]:checked');
-            var mostrar = marcado && marcado.value === 'SI';
-            bloque.style.display = mostrar ? 'block' : 'none';
-        }
-        radiosHubo().forEach(function (r) { r.addEventListener('change', sync); });
-        sync();
-    })();
+// Resalta la opción elegida (Sí/No) y abre el detalle solo si la 7 es "Sí".
+(function () {
+    var form = document.getElementById('form-encuesta');
+    if (!form) return;
+
+    function pintar(grupo) {
+        grupo.querySelectorAll('li').forEach(function (li) {
+            var radio = li.querySelector('input[type=radio]');
+            li.classList.toggle('on', !!(radio && radio.checked));
+        });
+    }
+
+    form.querySelectorAll('.ec-sino ul').forEach(function (grupo) {
+        // El <label> envuelve al radio, así que basta escuchar el cambio.
+        grupo.addEventListener('change', function () { pintar(grupo); });
+        pintar(grupo);
+    });
+
+    var bloque = document.getElementById('bloque-evento');
+    function sincronizarDetalle() {
+        var marcado = form.querySelector('input[name="condicion_riesgo"]:checked');
+        bloque.style.display = (marcado && marcado.value === 'SI') ? 'block' : 'none';
+    }
+    form.querySelectorAll('input[name="condicion_riesgo"]').forEach(function (r) {
+        r.addEventListener('change', sincronizarDetalle);
+    });
+    sincronizarDetalle();
+})();
 </script>
 {% endblock %}

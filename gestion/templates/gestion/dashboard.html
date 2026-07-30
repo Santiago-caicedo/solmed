@@ -193,41 +193,19 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
             </div>
         </div>
 
-        <div class="row g-3">
-            {# --- Top clientes del año --- #}
-            <div class="col-md-6">
-                <div class="card shadow h-100">
-                    <div class="card-header"><h5>Top clientes · {{ hoy|date:"Y" }}</h5></div>
-                    <div class="card-body">
-                        {% for c in top_clientes %}
-                        <div class="db-row" title="{{ c.orden__cliente__nombre }}: {{ c.total }} servicio{{ c.total|pluralize }}">
-                            <span class="lbl">{{ c.orden__cliente__nombre }}</span>
-                            <span class="track"><span class="fill tn-acero" style="width:{% widthratio c.total top_clientes_max 100 %}%"></span></span>
-                            <span class="val">{{ c.total }}</span>
-                        </div>
-                        {% empty %}
-                        <div class="db-vacio"><i class="bi bi-people"></i>Sin servicios completados este año.</div>
-                        {% endfor %}
-                    </div>
+        {# --- Top clientes del año --- #}
+        <div class="card shadow">
+            <div class="card-header"><h5>Top clientes · {{ hoy|date:"Y" }}</h5></div>
+            <div class="card-body">
+                {% for c in top_clientes %}
+                <div class="db-row" title="{{ c.orden__cliente__nombre }}: {{ c.total }} servicio{{ c.total|pluralize }}">
+                    <span class="lbl">{{ c.orden__cliente__nombre }}</span>
+                    <span class="track"><span class="fill tn-acero" style="width:{% widthratio c.total top_clientes_max 100 %}%"></span></span>
+                    <span class="val">{{ c.total }}</span>
                 </div>
-            </div>
-
-            {# --- Residuos transportados --- #}
-            <div class="col-md-6">
-                <div class="card shadow h-100">
-                    <div class="card-header"><h5>Residuos transportados</h5></div>
-                    <div class="card-body">
-                        {% for r in residuos %}
-                        <div class="db-row" title="{{ r.label }}: {{ r.total }}">
-                            <span class="lbl">{{ r.label }}</span>
-                            <span class="track"><span class="fill tn-verde" style="width:{% widthratio r.total residuos_max 100 %}%"></span></span>
-                            <span class="val">{{ r.total }}</span>
-                        </div>
-                        {% empty %}
-                        <div class="db-vacio"><i class="bi bi-droplet"></i>Sin encuestas de cierre registradas.</div>
-                        {% endfor %}
-                    </div>
-                </div>
+                {% empty %}
+                <div class="db-vacio"><i class="bi bi-people"></i>Sin servicios completados este año.</div>
+                {% endfor %}
             </div>
         </div>
 
@@ -249,7 +227,7 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
                                     <tr>
                                         <td><a href="{% url 'gestion:detalle_orden' r.orden.pk %}"><strong>{{ r.orden.cliente.nombre }}</strong></a></td>
                                         <td class="mono">{{ r.vehiculo.placa|default:"—" }}</td>
-                                        <td>{{ r.conductor.get_full_name|default:r.conductor.username|default:"—" }}</td>
+                                        <td>{% if r.conductor %}{{ r.conductor.get_full_name|default:r.conductor.username }}{% else %}<span class="text-muted">Sin asignar</span>{% endif %}</td>
                                         <td><span class="badge {% if r.estado == 'COMPLETADO' %}bg-success{% elif r.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ r.get_estado_display }}</span></td>
                                     </tr>
                                     {% endfor %}
@@ -326,12 +304,25 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
 
         {# --- Cumplimiento PESV (mes en curso) --- #}
         <div class="card shadow">
-            <div class="card-header"><h5>Seguridad vial · este mes</h5></div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Seguridad vial · este mes</h5>
+                <span class="eyebrow">{{ pesv.encuestas_mes }} encuesta{{ pesv.encuestas_mes|pluralize }}</span>
+            </div>
             <div class="card-body">
-                <div class="db-ind"><span>Encuestas de cierre diligenciadas</span><span class="n">{{ pesv.encuestas_mes }}</span></div>
-                <div class="db-ind"><span>Incidentes en ruta</span><span class="n {% if pesv.incidentes_mes %}malo{% else %}bueno{% endif %}">{{ pesv.incidentes_mes }}</span></div>
-                <div class="db-ind"><span>Reportes de fatiga del conductor</span><span class="n {% if pesv.fatiga_mes %}malo{% else %}bueno{% endif %}">{{ pesv.fatiga_mes }}</span></div>
-                <div class="db-ind"><span>Riesgos viales identificados</span><span class="n">{{ pesv.riesgos_via_mes }}</span></div>
+                {% if pesv.encuestas_mes %}
+                    {% if pesv.hallazgos %}
+                    <p class="text-muted small mb-2">Respuestas que exigen atención, por pregunta:</p>
+                    {% else %}
+                    <p class="mb-2" style="color:var(--ok); font-size:.82rem;">
+                        <i class="bi bi-shield-check me-1"></i>Ninguna respuesta exige atención este mes.
+                    </p>
+                    {% endif %}
+                    {% for p in pesv.preguntas %}
+                    <div class="db-ind"><span>{{ p.label }}</span><span class="n {% if p.total %}malo{% else %}bueno{% endif %}">{{ p.total }}</span></div>
+                    {% endfor %}
+                {% else %}
+                <div class="db-vacio"><i class="bi bi-clipboard-check"></i>Sin encuestas de cierre este mes.</div>
+                {% endif %}
             </div>
         </div>
 
