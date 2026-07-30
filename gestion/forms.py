@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -50,6 +50,38 @@ class VehiculoForm(forms.ModelForm):
             'fecha_vencimiento_tecnomecanica': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
             'archivo_tecnomecanica': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
         }
+
+class FiltroAceiteForm(forms.ModelForm):
+    """Registro de un cambio de filtro o aceite en el expediente del vehículo."""
+    class Meta:
+        model = FiltroAceite
+        fields = ['tipo', 'fecha_cambio', 'cantidad', 'unidad',
+                  'kilometraje', 'referencia', 'observaciones']
+        widgets = {
+            'tipo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'fecha_cambio': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}, format='%Y-%m-%d'),
+            'cantidad': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': '0.01', 'step': '0.01'}),
+            'unidad': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'kilometraje': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': '0', 'placeholder': 'Opcional'}),
+            'referencia': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Ej: Mobil Delvac 15W-40'}),
+            'observaciones': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Opcional'}),
+        }
+        labels = {
+            'fecha_cambio': 'Fecha del cambio',
+            'kilometraje': 'Kilometraje',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['fecha_cambio'].input_formats = ['%Y-%m-%d']
+        self.fields['tipo'].choices = [('', '--- Elige filtro o aceite ---')] + list(FiltroAceite.TIPO_CHOICES)
+
+    def clean_cantidad(self):
+        cantidad = self.cleaned_data.get('cantidad')
+        if cantidad is not None and cantidad <= 0:
+            raise forms.ValidationError('La cantidad debe ser mayor que cero.')
+        return cantidad
+
 
 class ClienteForm(forms.ModelForm):
     class Meta:
@@ -724,6 +756,7 @@ class ProgramacionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+
         cliente = cleaned.get('cliente')
         sede = cleaned.get('sede_cliente')
         tercero = cleaned.get('tercero')

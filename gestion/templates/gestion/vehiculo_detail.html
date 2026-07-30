@@ -48,6 +48,125 @@
             </div>
         </div>
 
+        {# ================= FILTROS Y ACEITES (mantenimiento) ================= #}
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-droplet-half me-1"></i>Filtros y aceites</h5>
+                {% if filtros_registros %}<span class="badge bg-light">{{ filtros_registros|length }} registro{{ filtros_registros|length|pluralize }}</span>{% endif %}
+            </div>
+            <div class="card-body">
+
+                {# --- Último cambio por tipo --- #}
+                {% if filtros_resumen %}
+                <h6 class="text-muted mb-2" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.06em;">Último cambio por tipo</h6>
+                <div class="table-responsive mb-3">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Tipo</th><th>Último cambio</th><th>Cantidad</th><th>Km</th><th>Referencia</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for r in filtros_resumen %}
+                            <tr>
+                                <td><strong>{{ r.get_tipo_display }}</strong></td>
+                                <td>
+                                    {{ r.fecha_cambio|date:"d/m/Y" }}
+                                    <small class="text-muted d-block">hace {{ r.dias_desde_cambio }} día{{ r.dias_desde_cambio|pluralize }}</small>
+                                </td>
+                                <td class="mono">{{ r.cantidad|floatformat:"-2" }} {{ r.get_unidad_display }}</td>
+                                <td class="mono">{{ r.kilometraje|default:"—" }}</td>
+                                <td class="text-muted">{{ r.referencia|default:"—" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted text-center py-2 mb-3">
+                    <i class="bi bi-droplet me-1"></i>Aún no hay cambios de filtros o aceites registrados para este vehículo.
+                </p>
+                {% endif %}
+
+                {# --- Registrar un cambio (asesores y superusuarios) --- #}
+                {% if puede_gestionar_filtros %}
+                <form method="post" action="{% url 'gestion:registrar_filtro_aceite' vehiculo.pk %}"
+                      class="border rounded p-3 mb-3" style="background:var(--panel-2);">
+                    {% csrf_token %}
+                    <h6 class="mb-2"><i class="bi bi-plus-circle me-1"></i>Registrar cambio</h6>
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Filtro / aceite <span class="text-danger">*</span></label>
+                            {{ form_filtro_aceite.tipo }}
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1">Fecha del cambio <span class="text-danger">*</span></label>
+                            {{ form_filtro_aceite.fecha_cambio }}
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1">Cantidad <span class="text-danger">*</span></label>
+                            {{ form_filtro_aceite.cantidad }}
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-1">Unidad</label>
+                            {{ form_filtro_aceite.unidad }}
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1">Kilometraje</label>
+                            {{ form_filtro_aceite.kilometraje }}
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small mb-1">Referencia / marca</label>
+                            {{ form_filtro_aceite.referencia }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Observaciones</label>
+                            {{ form_filtro_aceite.observaciones }}
+                        </div>
+                        <div class="col-12 text-end">
+                            <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Registrar</button>
+                        </div>
+                    </div>
+                </form>
+                {% endif %}
+
+                {# --- Historial completo (aquí se eliminan registros equivocados) --- #}
+                {% if filtros_registros %}
+                <details>
+                    <summary class="text-muted small mb-2" style="cursor:pointer;">
+                        Ver historial completo ({{ filtros_registros|length }})
+                    </summary>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr><th>Fecha</th><th>Tipo</th><th>Cantidad</th><th>Km</th><th>Referencia</th><th>Obs.</th>{% if puede_gestionar_filtros %}<th></th>{% endif %}</tr>
+                            </thead>
+                            <tbody>
+                                {% for r in filtros_registros %}
+                                <tr>
+                                    <td class="mono">{{ r.fecha_cambio|date:"d/m/Y" }}</td>
+                                    <td>{{ r.get_tipo_display }}</td>
+                                    <td class="mono">{{ r.cantidad|floatformat:"-2" }} {{ r.get_unidad_display }}</td>
+                                    <td class="mono">{{ r.kilometraje|default:"—" }}</td>
+                                    <td class="text-muted">{{ r.referencia|default:"—" }}</td>
+                                    <td class="text-muted">{{ r.observaciones|default:"—" }}</td>
+                                    {% if puede_gestionar_filtros %}
+                                    <td class="text-end">
+                                        <form method="post" action="{% url 'gestion:eliminar_filtro_aceite' r.pk %}" class="d-inline"
+                                              onsubmit="return confirm('¿Eliminar este registro del historial?');">
+                                            {% csrf_token %}
+                                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Eliminar registro"><i class="bi bi-trash"></i></button>
+                                        </form>
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                {% endif %}
+            </div>
+        </div>
+
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0">Historial de Recorridos Finalizados</h5></div>
             <div class="card-body">
@@ -107,4 +226,20 @@
         </div>
     </div>
 </div>
+
+{% if puede_gestionar_filtros %}
+<script>
+// Al elegir el tipo, se preselecciona la unidad natural: aceites en galones,
+// filtros en unidades (se puede cambiar a mano).
+(function () {
+    var tipo = document.getElementById('id_tipo');
+    var unidad = document.getElementById('id_unidad');
+    if (!tipo || !unidad) return;
+    tipo.addEventListener('change', function () {
+        if (tipo.value.indexOf('ACEITE') === 0) unidad.value = 'GALONES';
+        else if (tipo.value.indexOf('FILTRO') === 0) unidad.value = 'UNIDADES';
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

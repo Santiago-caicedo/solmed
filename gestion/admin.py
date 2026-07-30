@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Tercero, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Tercero, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -31,11 +31,17 @@ class ClienteAdmin(admin.ModelAdmin):
     search_fields = ('nombre', 'identificacion')
     inlines = [SedeInline, TerceroInline, DocumentoCorreoClienteInline]
 
+class FiltroAceiteInline(admin.TabularInline):
+    model = FiltroAceite
+    extra = 0
+
+
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
     list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado', 'cargado')
     list_filter = ('estado', 'marca', 'cargado')
     search_fields = ('placa', 'marca', 'modelo')
+    inlines = [FiltroAceiteInline]
 
 @admin.register(OrdenServicio)
 class OrdenServicioAdmin(admin.ModelAdmin):

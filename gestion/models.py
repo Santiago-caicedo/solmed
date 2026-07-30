@@ -283,6 +283,71 @@ class Vehiculo(models.Model):
     def tiene_alerta_documentos(self):
         return bool(self.documentos_por_vencer())
 
+
+class FiltroAceite(models.Model):
+    """
+    Registro de FILTROS y ACEITES del vehículo. Cada cambio se anota con su
+    fecha, la cantidad (galones/litros de aceite aplicados o unidades de filtro
+    instaladas), el kilometraje y la referencia. El "último cambio" de cada tipo
+    es el registro más reciente; los anteriores quedan como historial de
+    mantenimiento del vehículo.
+    """
+    TIPO_CHOICES = [
+        ('ACEITE_MOTOR', 'Aceite de motor'),
+        ('ACEITE_CAJA', 'Aceite de caja'),
+        ('ACEITE_CORONA', 'Aceite de corona / diferencial'),
+        ('ACEITE_HIDRAULICO', 'Aceite hidráulico'),
+        ('FILTRO_ACEITE', 'Filtro de aceite'),
+        ('FILTRO_AIRE', 'Filtro de aire'),
+        ('FILTRO_COMBUSTIBLE', 'Filtro de combustible'),
+        ('FILTRO_SEPARADOR', 'Filtro separador de agua'),
+        ('OTRO', 'Otro (indicar en la referencia)'),
+    ]
+    UNIDAD_CHOICES = [
+        ('UNIDADES', 'unidad(es)'),
+        ('GALONES', 'galón(es)'),
+        ('LITROS', 'litro(s)'),
+        ('CUARTOS', 'cuarto(s)'),
+    ]
+    # Tipos que son aceite (para preseleccionar la unidad en el formulario).
+    TIPOS_ACEITE = ('ACEITE_MOTOR', 'ACEITE_CAJA', 'ACEITE_CORONA', 'ACEITE_HIDRAULICO')
+
+    vehiculo = models.ForeignKey(Vehiculo, on_delete=models.CASCADE, related_name='filtros_aceites')
+    tipo = models.CharField(max_length=30, choices=TIPO_CHOICES)
+    fecha_cambio = models.DateField(verbose_name="Fecha del cambio")
+    cantidad = models.DecimalField(
+        max_digits=8, decimal_places=2,
+        verbose_name="Cantidad",
+        help_text="Galones/litros de aceite aplicados o número de filtros instalados."
+    )
+    unidad = models.CharField(max_length=10, choices=UNIDAD_CHOICES, default='UNIDADES')
+    kilometraje = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name="Kilometraje en el cambio (opcional)"
+    )
+    referencia = models.CharField(
+        max_length=150, blank=True, verbose_name="Referencia / marca",
+        help_text="Ej: Mobil Delvac 15W-40, filtro FL-820S…"
+    )
+    observaciones = models.CharField(max_length=255, blank=True)
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_cambio', '-id']
+        verbose_name = "Cambio de filtro / aceite"
+        verbose_name_plural = "Filtros y aceites del vehículo"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} - {self.vehiculo.placa} ({self.fecha_cambio:%d/%m/%Y})"
+
+    @property
+    def es_aceite(self):
+        return self.tipo in self.TIPOS_ACEITE
+
+    @property
+    def dias_desde_cambio(self):
+        return (timezone.localdate() - self.fecha_cambio).days
+
+
 class OrdenServicio(models.Model):
     # --- NUEVOS ESTADOS AUTOMÁTICOS PARA LA ORDEN ---
     ESTADO_ORDEN_CHOICES = [

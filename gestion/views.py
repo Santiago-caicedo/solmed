@@ -32,8 +32,8 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, Tercero
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -651,8 +651,57 @@ class VehiculoDetailView(LoginRequiredMixin, DetailView):
         ingresos_generados = historial_recorridos.aggregate(total=Sum('orden__valor_servicio'))
         context['total_ingresos_generados'] = ingresos_generados['total'] or 0
 
+        # --- Filtros y aceites (mantenimiento) ---
+        registros = list(vehiculo.filtros_aceites.all())   # ya ordenados: más reciente primero
+        # Último cambio por tipo (el primero que aparece de cada tipo).
+        resumen, vistos = [], set()
+        for r in registros:
+            if r.tipo not in vistos:
+                vistos.add(r.tipo)
+                resumen.append(r)
+        context['filtros_registros'] = registros
+        context['filtros_resumen'] = resumen
+        context['form_filtro_aceite'] = FiltroAceiteForm(
+            initial={'fecha_cambio': timezone.localdate()})
+        # El registro lo gestionan asesores y superusuarios (el resto solo consulta).
+        context['puede_gestionar_filtros'] = (
+            self.request.user.is_superuser
+            or self.request.user.groups.filter(name='Asesores').exists()
+        )
         return context
 
+
+
+class RegistrarFiltroAceiteView(AsesorRequiredMixin, View):
+    """Registra un cambio de filtro o aceite en el expediente del vehículo (solo POST)."""
+    def post(self, request, pk):
+        vehiculo = get_object_or_404(Vehiculo, pk=pk)
+        form = FiltroAceiteForm(request.POST)
+        if form.is_valid():
+            registro = form.save(commit=False)
+            registro.vehiculo = vehiculo
+            registro.save()
+            messages.success(
+                request,
+                f"{registro.get_tipo_display()} registrado "
+                f"({registro.cantidad.normalize()} {registro.get_unidad_display()})."
+            )
+        else:
+            errores = "; ".join(
+                f"{form.fields[c].label or c}: {e[0]}" for c, e in form.errors.items()
+            )
+            messages.error(request, f"No se pudo registrar el cambio. {errores}")
+        return redirect('gestion:detalle_vehiculo', pk=pk)
+
+
+class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
+    """Elimina un registro de filtro/aceite del expediente del vehículo (solo POST)."""
+    def post(self, request, pk):
+        registro = get_object_or_404(FiltroAceite, pk=pk)
+        vehiculo_pk = registro.vehiculo_id
+        registro.delete()
+        messages.success(request, "Registro eliminado del historial de filtros y aceites.")
+        return redirect('gestion:detalle_vehiculo', pk=vehiculo_pk)
 
 
 # --- HELPERS COMPARTIDOS PARA EL MANIFIESTO ---

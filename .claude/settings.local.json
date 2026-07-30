@@ -38,7 +38,18 @@
       "Bash(git commit -m ' *)",
       "Bash(awk '/^function actualizarEnvioSS/,/^}/' gestion/templates/gestion/form_programacion.html)",
       "Bash(git ls-files *)",
-      "Bash(pdftoppm -png -r 80 /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo_media/manifiestos_pdf/acta_demo_recorrido_2.pdf /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo2)"
+      "Bash(pdftoppm -png -r 80 /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo_media/manifiestos_pdf/acta_demo_recorrido_2.pdf /tmp/claude-1000/-mnt-c-Users-ASUS-documents-crm-transporte/16c5563b-e50e-4a8f-beae-e379ac3ab9dd/scratchpad/demo2)",
+      "Bash(cd *)",
+      "Bash(grep -o -E \"<h[123][^>]*>[^<]{3,80}<\" presentacion_flujos.html)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node scripts/validate_palette.js \"#5E8C1B,#215E8C,#9A6206,#8A97A5\" --mode light --surface \"#ffffff\")",
+      "Bash(node scripts/validate_palette.js \"#5E8C1B,#2569A1,#9A6206\" --mode light --surface \"#ffffff\")",
+      "Bash(sed -i \"s/\\('3.7', 'satisfacción promedio \\(11\\\\/3\\)'\\)/\\('3,7', 'satisfacción promedio localizada \\(11\\\\/3\\)'\\)/; s/assert '3.7' in html/assert '3,7' in html/; s/\\(3.7 \\\\/ 4\\)/\\(3,7 \\\\/ 4\\)/\" test_dashboard.py)",
+      "Bash(rm -f test_terceros.sqlite3)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(git fetch *)",
+      "Bash(timeout 60 git ls-remote --heads origin)",
+      "Bash(timeout 60 git ls-remote origin)"
     ]
   }
 }
