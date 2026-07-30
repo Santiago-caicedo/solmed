@@ -267,6 +267,29 @@
     .metric-value{ font-family:var(--mono); font-weight:600; font-size:1.85rem; letter-spacing:-.01em; color:var(--ink); margin-top:.45rem; line-height:1.1; }
     .metric-foot{ font-size:.76rem; color:var(--ink-3); margin-top:.3rem; }
 
+    /* ===================== PAGINACIÓN (listados) ===================== */
+    .pg{
+        display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;
+        margin-top:1rem; padding:.7rem .9rem;
+        background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
+    }
+    .pg-info{ font-size:.78rem; color:var(--ink-2); }
+    .pg-info b{ font-family:var(--mono); font-weight:600; color:var(--ink); }
+    .pg-list{ display:flex; align-items:center; gap:.25rem; list-style:none; margin:0; padding:0; }
+    .pg-list a,.pg-list .act,.pg-list .off,.pg-list .gap{
+        display:flex; align-items:center; justify-content:center;
+        min-width:30px; height:30px; padding:0 .45rem;
+        font-family:var(--mono); font-size:.78rem; font-weight:600;
+        border:1px solid var(--line); border-radius:var(--r-sm);
+        background:var(--panel); color:var(--ink-2); text-decoration:none;
+        transition:background .12s ease,border-color .12s ease,color .12s ease;
+    }
+    .pg-list a:hover{ background:var(--panel-2); border-color:#cbd2db; color:var(--ink); text-decoration:none; }
+    .pg-list .act{ background:var(--steel); border-color:var(--steel); color:#fff; }
+    .pg-list .off{ color:var(--ink-3); background:var(--panel-2); cursor:default; }
+    .pg-list .gap{ border-color:transparent; background:transparent; color:var(--ink-3); min-width:20px; }
+    @media (max-width:600px){ .pg{ justify-content:center; } .pg-info{ width:100%; text-align:center; } }
+
     /* Legacy helpers (compat con plantillas existentes) */
     .text-xs{ font-size:.7rem; letter-spacing:.05em; }
     .text-gray-800{ color:var(--ink)!important; }

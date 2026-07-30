@@ -14,6 +14,7 @@ from django.contrib.auth.mixins import UserPassesTestMixin
 from django.template.loader import get_template
 from django.urls import reverse, reverse_lazy
 from django.core.files.base import ContentFile
+from django.core.paginator import Paginator
 from django.views import View
 from io import BytesIO
 import qrcode
@@ -33,6 +34,39 @@ from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, Tercero
+
+
+def rango_de_paginas(page_obj, a_los_lados=2):
+    """
+    Números de página a dibujar alrededor de la actual, con elipsis donde la
+    lista se recorta. Devuelve [{'numero': n, 'elipsis': bool}] (vacío si no hay
+    paginación). Lo consume `partials/_paginacion.html`.
+    """
+    if page_obj is None:
+        return []
+    rango = []
+    for p in page_obj.paginator.get_elided_page_range(
+            page_obj.number, on_each_side=a_los_lados, on_ends=1):
+        # get_elided_page_range devuelve enteros y, donde recorta, la elipsis.
+        rango.append({'numero': p, 'elipsis': not isinstance(p, int)})
+    return rango
+
+
+class PaginadoMixin:
+    """
+    Paginación uniforme de los listados: fija el tamaño de página y expone el
+    rango de páginas que dibuja `partials/_paginacion.html`. Los filtros de la
+    URL se conservan al cambiar de página (lo hace el tag `querystring`).
+    """
+    paginate_by = 20
+    paginas_a_los_lados = 2
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['pagina_rango'] = rango_de_paginas(
+            context.get('page_obj'), self.paginas_a_los_lados
+        )
+        return context
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
@@ -319,7 +353,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 # --- Vistas para Órdenes de Servicio ---
 # Todas las vistas de gestión se protegen con LoginRequiredMixin.
 # Se usa 'form_class' para conectar la vista con el formulario personalizado.
-class ListaOrdenesView(AsesorRequiredMixin, ListView):
+class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = OrdenServicio
     template_name = 'gestion/lista_ordenes.html'
     context_object_name = 'ordenes'
@@ -442,10 +476,12 @@ class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
         return HttpResponseRedirect(self.get_success_url())
 
 # --- Vistas para Vehículos ---
-class ListaVehiculosView(LoginRequiredMixin, ListView):
+class ListaVehiculosView(LoginRequiredMixin, PaginadoMixin, ListView):
     model = Vehiculo
     template_name = 'gestion/lista_vehiculos.html'
     context_object_name = 'vehiculos'
+    # Orden estable: sin él la paginación puede repetir o saltarse filas.
+    ordering = ['placa']
 
 class CrearVehiculoView(LoginRequiredMixin, CreateView):
     model = Vehiculo
@@ -460,10 +496,11 @@ class ActualizarVehiculoView(LoginRequiredMixin, UpdateView):
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
 # --- Vistas para Clientes ---
-class ListaClientesView(LoginRequiredMixin, ListView):
+class ListaClientesView(LoginRequiredMixin, PaginadoMixin, ListView):
     model = Cliente
     template_name = 'gestion/lista_clientes.html'
     context_object_name = 'clientes'
+    ordering = ['nombre']
 
 
 class ClienteFormMixin:
@@ -1038,10 +1075,11 @@ class SuperuserRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
 # --- Vistas para Administración de Usuarios ---
 
-class ListaUsuariosView(SuperuserRequiredMixin, ListView):
+class ListaUsuariosView(SuperuserRequiredMixin, PaginadoMixin, ListView):
     model = User
     template_name = 'gestion/lista_usuarios.html'
     context_object_name = 'usuarios'
+    ordering = ['first_name', 'username']
 
 class CrearUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, CreateView):
     model = User
@@ -1358,10 +1396,11 @@ def dashboard_redirect_view(request):
 
 
 # --- VISTA PRINCIPAL PARA CONDUCTORES ---
-class MisRecorridosView(ConductorRequiredMixin, ListView):
+class MisRecorridosView(ConductorRequiredMixin, PaginadoMixin, ListView):
     model = Recorrido
     template_name = 'gestion/mis_recorridos.html'
     context_object_name = 'recorridos'
+    paginate_by = 10
 
     def get_queryset(self):
         # Filtramos para mostrar solo los recorridos del usuario logueado
@@ -1375,7 +1414,7 @@ class MisRecorridosView(ConductorRequiredMixin, ListView):
 
 
 # --- HISTORIAL DEL CONDUCTOR ---
-class HistorialConductorView(ConductorRequiredMixin, ListView):
+class HistorialConductorView(ConductorRequiredMixin, PaginadoMixin, ListView):
     """
     Historial de TODOS los recorridos del conductor (los más recientes primero).
     Surface también las encuestas de cierre pendientes para que pueda completarlas.
@@ -1846,7 +1885,7 @@ def _avisar_carga_pendiente(request, programacion, orden):
         )
 
 
-class ListaProgramacionesView(AsesorRequiredMixin, ListView):
+class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
     context_object_name = 'programaciones'
@@ -2156,7 +2195,7 @@ def _perfil_de(persona):
     return perfil
 
 
-class ListaPersonalView(AsesorRequiredMixin, ListView):
+class ListaPersonalView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = User
     template_name = 'gestion/lista_personal.html'
     context_object_name = 'usuarios'
@@ -2438,29 +2477,36 @@ class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
     y las vencidas quedan aquí como soporte histórico.
     """
     template_name = 'gestion/historial_seguridad_social.html'
+    REGISTROS_POR_PAGINA = 12
 
-    def _context(self, persona):
-        documentos = persona.documentos_personales.filter(
-            tipo='SEGURIDAD_SOCIAL'
-        ).order_by('-fecha_vencimiento', '-fecha_subida')
-
+    def _context(self, persona, pagina=None):
+        documentos = list(
+            persona.documentos_personales.filter(tipo='SEGURIDAD_SOCIAL')
+            .order_by('-fecha_vencimiento', '-fecha_subida')
+        )
+        # El resumen (al día / total) se calcula sobre TODO el historial; la
+        # tabla muestra solo la página pedida.
+        page_obj = Paginator(documentos, self.REGISTROS_POR_PAGINA).get_page(pagina)
         registros = [{
             'doc': documento,
             'vigente': documento.vigente,
-        } for documento in documentos]
+        } for documento in page_obj.object_list]
 
         return {
             'persona': persona,
             'perfil': _perfil_de(persona),
             'registros': registros,
-            'al_dia': any(r['vigente'] for r in registros),
-            'total': len(registros),
+            'al_dia': any(d.vigente for d in documentos),
+            'total': len(documentos),
             'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
+            'page_obj': page_obj,
+            'pagina_rango': rango_de_paginas(page_obj),
         }
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        return render(request, self.template_name, self._context(persona))
+        return render(request, self.template_name,
+                      self._context(persona, request.GET.get('page')))
 
     def post(self, request, pk):
         """Carga una seguridad social (con su vigencia) desde el historial."""
@@ -2626,7 +2672,7 @@ from .models import Dispositor, DocumentoDispositor
 from .forms import DispositorForm, DocumentoDispositorForm
 
 
-class ListaDispositoresView(AsesorRequiredMixin, ListView):
+class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Dispositor
     template_name = 'gestion/lista_dispositores.html'
     context_object_name = 'dispositores'

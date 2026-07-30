@@ -1,0 +1,51 @@
+{% comment %}
+Paginación compartida de los listados. Necesita `page_obj` en el contexto y,
+para los números de página, `pagina_rango` (lo pone PaginadoMixin en views.py).
+Los filtros de la URL se conservan al cambiar de página.
+
+Uso:  {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
+{% endcomment %}
+{% if page_obj %}
+<nav class="pg" aria-label="Paginación de {{ etiqueta|default:'resultados' }}">
+    <div class="pg-info">
+        {% if page_obj.paginator.count %}
+            Mostrando <b>{{ page_obj.start_index }}–{{ page_obj.end_index }}</b>
+            de <b>{{ page_obj.paginator.count }}</b> {{ etiqueta|default:"resultados" }}
+        {% else %}
+            Sin {{ etiqueta|default:"resultados" }}
+        {% endif %}
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <ul class="pg-list">
+        <li>
+            {% if page_obj.has_previous %}
+            <a href="{% querystring page=page_obj.previous_page_number %}" rel="prev" aria-label="Página anterior"><i class="bi bi-chevron-left"></i></a>
+            {% else %}
+            <span class="off" aria-hidden="true"><i class="bi bi-chevron-left"></i></span>
+            {% endif %}
+        </li>
+
+        {% for p in pagina_rango %}
+            {% if p.elipsis %}
+            <li><span class="gap">…</span></li>
+            {% elif p.numero == page_obj.number %}
+            <li><span class="act" aria-current="page">{{ p.numero }}</span></li>
+            {% else %}
+            <li><a href="{% querystring page=p.numero %}">{{ p.numero }}</a></li>
+            {% endif %}
+        {% empty %}
+            <li><span class="act">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+        {% endfor %}
+
+        <li>
+            {% if page_obj.has_next %}
+            <a href="{% querystring page=page_obj.next_page_number %}" rel="next" aria-label="Página siguiente"><i class="bi bi-chevron-right"></i></a>
+            {% else %}
+            <span class="off" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
+            {% endif %}
+        </li>
+    </ul>
+    {% endif %}
+</nav>
+{% endif %}

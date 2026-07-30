@@ -52,6 +52,7 @@
         </div>
     </div>
     {% endfor %}
+    {% include 'gestion/partials/_paginacion.html' with etiqueta="recorridos" %}
 {% else %}
     <div class="alert alert-success text-center">
         <h4 class="alert-heading">¡Todo al día!</h4>
