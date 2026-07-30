@@ -18,7 +18,7 @@ from django.views import View
 from io import BytesIO
 import qrcode
 from weasyprint import HTML
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, Avg
 import base64
 import datetime
 from django.db.models.functions import TruncMonth
@@ -63,69 +63,254 @@ class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return user.is_superuser or not user.groups.filter(name='Conductores').exists()
 
 
+# Nombres cortos de los meses para las series de 12 meses del tablero.
+MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+                'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+
 # --- Vista Principal (Dashboard) ---
 # Se protege con LoginRequiredMixin para que sea la página de inicio después del login.
 class DashboardView(LoginRequiredMixin, TemplateView):
+    """
+    Parte de operaciones: estadísticas clave de todo lo mapeado en el sistema
+    (servicios, órdenes, actas, flota, personal, proveedores, PESV, cobranza y
+    conciliación) más el centro de alertas accionable.
+    """
     template_name = 'gestion/dashboard.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        now = timezone.now()
+        hoy = timezone.localdate()
+        inicio_mes = hoy.replace(day=1)
+        context['hoy'] = hoy
 
-        # --- MÉTRICAS ---
-        # Mantenemos esta consulta porque la usamos en varios lugares
-        ordenes_activas = OrdenServicio.objects.filter(estado_orden='EN_EJECUCION')
-        context['ordenes_activas'] = ordenes_activas.count()
-        
-        cobranza = OrdenServicio.objects.filter(estado_pago='PENDIENTE').aggregate(total=Sum('valor_servicio'))
-        context['cobranza_pendiente'] = cobranza['total'] or 0.00
-        
-        ingresos_mes_query = OrdenServicio.objects.filter(estado_orden='FINALIZADA')
-        ingresos_mes_total = ingresos_mes_query.aggregate(total=Sum('valor_servicio'))
-        context['ingresos_del_mes'] = ingresos_mes_total['total'] or 0.00
-        context['servicios_completados_mes'] = ingresos_mes_query.count()
-
-        context['ordenes_pendientes_iniciar'] = OrdenServicio.objects.filter(estado_orden='PROGRAMADA').count()
-        
-        # --- LÓGICA CORREGIDA PARA UTILIZACIÓN DE VEHÍCULOS ---
-        total_vehiculos = Vehiculo.objects.filter(estado='OPERATIVO').count()
-        if total_vehiculos > 0:
-            # CORRECCIÓN: Buscamos vehículos que tengan recorridos cuya orden esté en ejecución.
-            vehiculos_en_servicio_qs = Vehiculo.objects.filter(
-                recorridos__orden__estado_orden='EN_EJECUCION'
-            ).distinct()
-            
-            vehiculos_en_servicio = vehiculos_en_servicio_qs.count()
-            
-            context['utilizacion_vehiculos'] = round((vehiculos_en_servicio / total_vehiculos) * 100, 1)
-            context['vehiculos_disponibles'] = total_vehiculos - vehiculos_en_servicio
-        else:
-            context['utilizacion_vehiculos'] = 0
-            context['vehiculos_disponibles'] = 0
-
-        # --- LISTAS ACCIONABLES ---
-        context['servicios_hoy'] = Recorrido.objects.filter(
-            fecha_recorrido=now.date(), 
-            estado__in=['PROGRAMADO', 'EN_CURSO']
+        # ================= HOY (agenda operativa) =================
+        recorridos_hoy = (
+            Recorrido.objects.filter(fecha_recorrido=hoy)
+            .exclude(orden__estado_orden='CANCELADA')
+            .select_related('orden__cliente', 'vehiculo', 'conductor')
+            .order_by('orden__fecha_creacion')
         )
-        
-        context['cobranza_prioritaria'] = OrdenServicio.objects.filter(
-            estado_orden='FINALIZADA',
-            estado_pago='PENDIENTE'
-        ).order_by('fecha_creacion')
+        context['servicios_hoy'] = recorridos_hoy
+        context['servicios_hoy_total'] = recorridos_hoy.count()
+        vehiculos_en_ruta_hoy = (
+            recorridos_hoy.exclude(vehiculo=None).values('vehiculo').distinct().count()
+        )
+        context['vehiculos_en_ruta_hoy'] = vehiculos_en_ruta_hoy
 
-        # Vehículos con documentos vencidos o próximos a vencer (para el aviso del dashboard).
-        context['vehiculos_con_alerta'] = [
-            v for v in Vehiculo.objects.all() if v.tiene_alerta_documentos
+        # ================= ÓRDENES =================
+        conteo_estados = dict(
+            OrdenServicio.objects.values_list('estado_orden')
+            .annotate(c=Count('numero_orden'))
+        )
+        colores_estado = {
+            'PROGRAMADA': 'neutro', 'EN_EJECUCION': 'acero',
+            'FINALIZADA': 'verde', 'CANCELADA': 'gris',
+        }
+        ordenes_por_estado = [{
+            'codigo': codigo, 'label': label,
+            'total': conteo_estados.get(codigo, 0),
+            'tono': colores_estado.get(codigo, 'neutro'),
+        } for codigo, label in OrdenServicio.ESTADO_ORDEN_CHOICES]
+        context['ordenes_por_estado'] = ordenes_por_estado
+        context['ordenes_estado_max'] = max([e['total'] for e in ordenes_por_estado] + [1])
+        context['ordenes_total'] = sum(e['total'] for e in ordenes_por_estado)
+        context['ordenes_activas'] = conteo_estados.get('EN_EJECUCION', 0)
+
+        # ================= SERVICIOS (recorridos completados) =================
+        completados = Recorrido.objects.filter(estado='COMPLETADO')
+        context['servicios_completados_mes'] = completados.filter(
+            fecha_recorrido__gte=inicio_mes, fecha_recorrido__lte=hoy
+        ).count()
+        context['servicios_completados_total'] = completados.count()
+
+        # Actividad de los últimos 12 meses (incluye meses en cero).
+        anio, mes = hoy.year, hoy.month
+        claves_meses = []
+        for _ in range(12):
+            claves_meses.append((anio, mes))
+            mes -= 1
+            if mes == 0:
+                mes, anio = 12, anio - 1
+        claves_meses.reverse()
+        desde = datetime.date(claves_meses[0][0], claves_meses[0][1], 1)
+        conteo_meses = {
+            (m.year, m.month): c for m, c in
+            completados.filter(fecha_recorrido__gte=desde)
+            .annotate(mes=TruncMonth('fecha_recorrido'))
+            .values('mes').annotate(c=Count('id')).values_list('mes', 'c')
+        }
+        servicios_por_mes = [{
+            'label': MESES_CORTOS[m - 1],
+            'anio': a,
+            'total': conteo_meses.get((a, m), 0),
+            'actual': (a, m) == (hoy.year, hoy.month),
+        } for a, m in claves_meses]
+        context['servicios_por_mes'] = servicios_por_mes
+        context['servicios_mes_max'] = max([x['total'] for x in servicios_por_mes] + [1])
+
+        # Top clientes por servicios completados en el año.
+        top_clientes = list(
+            completados.filter(fecha_recorrido__year=hoy.year)
+            .values('orden__cliente__nombre', 'orden__cliente_id')
+            .annotate(total=Count('id')).order_by('-total')[:5]
+        )
+        context['top_clientes'] = top_clientes
+        context['top_clientes_max'] = max([c['total'] for c in top_clientes] + [1])
+
+        # ================= ACTAS DE SERVICIO =================
+        context['actas_firmadas'] = Manifiesto.objects.filter(estado_firma='FIRMADO').count()
+        context['actas_por_firmar'] = Manifiesto.objects.filter(estado_firma='PENDIENTE_FIRMA').count()
+
+        # Satisfacción del cliente: promedio de las 11 preguntas (escala 1-4)
+        # de todas las actas firmadas.
+        campos_eval = [f.name for f in Manifiesto._meta.fields if f.name.startswith('eval_')]
+        promedios = Manifiesto.objects.filter(estado_firma='FIRMADO').aggregate(
+            **{campo: Avg(campo) for campo in campos_eval}
+        )
+        valores = [v for v in promedios.values() if v is not None]
+        satisfaccion = round(sum(valores) / len(valores), 1) if valores else None
+        context['satisfaccion'] = satisfaccion
+        context['satisfaccion_pct'] = round(satisfaccion / 4 * 100) if satisfaccion else 0
+
+        # ================= RESIDUOS Y PESV (encuestas del conductor) =================
+        etiquetas_residuo = dict(EncuestaConductor.TIPO_RESIDUO_CHOICES)
+        residuos = [{
+            'label': etiquetas_residuo.get(r['tipo_residuo'], r['tipo_residuo']),
+            'total': r['total'],
+        } for r in EncuestaConductor.objects.values('tipo_residuo')
+                                            .annotate(total=Count('id')).order_by('-total')]
+        context['residuos'] = residuos
+        context['residuos_max'] = max([r['total'] for r in residuos] + [1])
+
+        encuestas_mes = EncuestaConductor.objects.filter(fecha_diligenciamiento__date__gte=inicio_mes)
+        context['pesv'] = {
+            'encuestas_mes': encuestas_mes.count(),
+            'incidentes_mes': encuestas_mes.filter(hubo_incidente='SI').count(),
+            'fatiga_mes': encuestas_mes.filter(presento_fatiga='SI').count(),
+            'riesgos_via_mes': encuestas_mes.exclude(riesgo_vial='NINGUNA').count(),
+        }
+
+        # ================= FLOTA =================
+        vehiculos = list(Vehiculo.objects.all())
+        operativos = [v for v in vehiculos if v.estado == 'OPERATIVO']
+        flota = {
+            'total': len(vehiculos),
+            'operativos': len(operativos),
+            'en_ruta_hoy': vehiculos_en_ruta_hoy,
+            'disponibles': max(len(operativos) - vehiculos_en_ruta_hoy, 0),
+            'mantenimiento': sum(1 for v in vehiculos if v.estado == 'MANTENIMIENTO'),
+            'stand_by': sum(1 for v in vehiculos if v.estado == 'STAND_BY'),
+            'cargados': sum(1 for v in vehiculos if v.cargado),
+        }
+        context['flota'] = flota
+        context['vehiculos_con_alerta'] = [v for v in vehiculos if v.tiene_alerta_documentos]
+        context['vehiculos_cargados'] = sorted(
+            (v for v in vehiculos if v.cargado), key=lambda v: v.placa
+        )
+
+        # ================= PERSONAL =================
+        docs_personal = _estado_documentos_personal()
+        personal_ss_ok = sum(1 for d in docs_personal.values() if d['ss_al_dia'])
+        context['personal'] = {
+            'con_requisitos': len(docs_personal),
+            'ss_al_dia': personal_ss_ok,
+            'ss_pendiente': len(docs_personal) - personal_ss_ok,
+            'conductores': User.objects.filter(groups__name='Conductores')
+                                       .exclude(perfil__retirado=True).count(),
+            'ayudantes': User.objects.filter(groups__name='Ayudantes')
+                                     .exclude(perfil__retirado=True).count(),
+        }
+        personal_con_faltantes = [d for d in docs_personal.values() if d['faltan']]
+
+        # ================= PROVEEDORES (dispositores) =================
+        tipos_doc_proveedor = [t for t, _ in DocumentoDispositor.TIPO_CHOICES]
+        proveedores = list(
+            Dispositor.objects.filter(tipo='PROVEEDOR', activo=True)
+            .prefetch_related('documentos')
+        )
+        proveedores_incompletos = [
+            p for p in proveedores
+            if {d.tipo for d in p.documentos.all()} < set(tipos_doc_proveedor)
         ]
+        context['proveedores'] = {
+            'activos': len(proveedores),
+            'incompletos': len(proveedores_incompletos),
+        }
 
-        # Camiones con carga PENDIENTE de disposición final (estadística/alerta).
-        context['vehiculos_cargados'] = Vehiculo.objects.filter(cargado=True).order_by('placa')
+        # ================= COBRANZA Y CONCILIACIÓN =================
+        context['cobranza_pendiente'] = OrdenServicio.objects.filter(
+            estado_pago='PENDIENTE'
+        ).aggregate(total=Sum('valor_servicio'))['total'] or 0
+        context['cobranza_prioritaria'] = (
+            OrdenServicio.objects.filter(estado_orden='FINALIZADA', estado_pago='PENDIENTE')
+            .select_related('cliente').order_by('fecha_creacion')[:6]
+        )
+        pendientes_conciliacion = (
+            OrdenServicio.objects.filter(estado_conciliacion='PENDIENTE')
+            .exclude(estado_orden='CANCELADA')
+            .select_related('cliente').order_by('fecha_creacion')
+        )
+        context['pendientes_conciliacion_count'] = pendientes_conciliacion.count()
 
-        # Vehículos fuera de servicio (mantenimiento + stand by).
-        context['vehiculos_mantenimiento'] = Vehiculo.objects.filter(estado='MANTENIMIENTO').count()
-        context['vehiculos_stand_by'] = Vehiculo.objects.filter(estado='STAND_BY').count()
-        context['vehiculos_fuera_servicio'] = context['vehiculos_mantenimiento'] + context['vehiculos_stand_by']
+        # ================= CENTRO DE ALERTAS (cola accionable) =================
+        # nivel 'err' = requiere acción ya; 'warn' = atender pronto.
+        alertas = []
+        for v in context['vehiculos_cargados']:
+            alertas.append({
+                'nivel': 'err', 'icono': 'bi-truck',
+                'texto': f"{v.placa} está CARGADO, pendiente de disposición final",
+                'detalle': v.cargado_detalle or '',
+                'url': reverse('gestion:detalle_vehiculo', args=[v.pk]),
+            })
+        for v in context['vehiculos_con_alerta']:
+            for d in v.documentos_por_vencer():
+                vencido = d['vencido']
+                alertas.append({
+                    'nivel': 'err' if vencido else 'warn',
+                    'icono': 'bi-file-earmark-x' if vencido else 'bi-clock-history',
+                    'texto': (f"{v.placa}: {d['documento']} "
+                              + (f"vencido hace {d['dias_abs']} día(s)" if vencido
+                                 else f"vence en {d['dias_restantes']} día(s)")),
+                    'detalle': d['fecha'].strftime('%d/%m/%Y'),
+                    'url': reverse('gestion:actualizar_vehiculo', args=[v.pk]),
+                })
+        for info in personal_con_faltantes:
+            sin_ss = not info['ss_al_dia']
+            alertas.append({
+                'nivel': 'err' if sin_ss else 'warn',
+                'icono': 'bi-person-x' if sin_ss else 'bi-person-exclamation',
+                'texto': f"{info['nombre']}: falta {', '.join(info['faltan']).lower()}",
+                'detalle': '',
+                'url': info['url'],
+            })
+        if context['pendientes_conciliacion_count']:
+            n = context['pendientes_conciliacion_count']
+            alertas.append({
+                'nivel': 'warn', 'icono': 'bi-calculator',
+                'texto': f"{n} orden(es) pendiente(s) de conciliación (Transporte - Cantidad)",
+                'detalle': 'Corte del mes calendario',
+                'url': reverse('gestion:lista_ordenes') + '?conciliacion=PENDIENTE',
+            })
+        if context['actas_por_firmar']:
+            alertas.append({
+                'nivel': 'warn', 'icono': 'bi-pen',
+                'texto': f"{context['actas_por_firmar']} acta(s) diligenciada(s) sin firma del cliente",
+                'detalle': '',
+                'url': reverse('gestion:lista_ordenes') + '?estado=EN_EJECUCION',
+            })
+        if proveedores_incompletos:
+            alertas.append({
+                'nivel': 'warn', 'icono': 'bi-recycle',
+                'texto': f"{len(proveedores_incompletos)} proveedor(es) con expediente incompleto",
+                'detalle': '',
+                'url': reverse('gestion:lista_dispositores'),
+            })
+        alertas.sort(key=lambda a: 0 if a['nivel'] == 'err' else 1)
+        context['alertas'] = alertas[:14]
+        context['alertas_criticas'] = sum(1 for a in alertas if a['nivel'] == 'err')
+        context['alertas_restantes'] = max(len(alertas) - 14, 0)
+        context['alertas_total'] = len(alertas)
 
         return context
 

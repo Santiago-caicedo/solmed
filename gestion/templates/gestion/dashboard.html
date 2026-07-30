@@ -2,171 +2,366 @@
 {% load humanize %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-end mb-4 flex-wrap gap-2">
+<style>
+/* ============ Parte de operaciones (solo esta vista, prefijo db-) ============ */
+.db-head{ display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:1rem; margin-bottom:1.4rem; }
+.db-resumen{ font-family:var(--mono); font-size:.78rem; color:var(--ink-2); letter-spacing:.02em; margin-top:.4rem; }
+.db-resumen b{ color:var(--ink); font-weight:600; }
+.db-resumen .sep{ color:var(--ink-3); margin:0 .45rem; }
+
+/* KPIs navegables */
+.db-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(175px,1fr)); gap:.9rem; margin-bottom:1.4rem; }
+a.metric{ display:block; color:inherit; text-decoration:none; transition:box-shadow .14s ease,transform .14s ease; }
+a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(15,23,35,.10); transform:translateY(-1px); }
+
+/* Barras verticales (actividad 12 meses) */
+.db-chart12{ display:flex; align-items:flex-end; gap:6px; height:175px; padding-top:1.1rem; }
+.db-c12{ flex:1 1 0; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; min-width:0; position:relative; }
+.db-c12 .num{ font-family:var(--mono); font-size:.66rem; font-weight:600; color:var(--ink-2); margin-bottom:.2rem; }
+.db-c12 .fill{ width:100%; max-width:34px; background:#B9CE86; border-radius:3px 3px 0 0; min-height:2px; transition:filter .12s ease; }
+.db-c12.actual .fill{ background:var(--brand-600); }
+.db-c12:hover .fill{ filter:brightness(.88); }
+.db-c12 .eje{ font-family:var(--mono); font-size:.62rem; color:var(--ink-3); text-transform:uppercase; margin-top:.4rem; letter-spacing:.04em; }
+.db-c12.actual .eje{ color:var(--brand-700); font-weight:600; }
+
+/* Barras horizontales (estado, clientes, residuos) */
+.db-row{ display:flex; align-items:center; gap:.65rem; padding:.4rem 0; }
+.db-row .lbl{ flex:0 0 132px; font-size:.79rem; color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.db-row .track{ flex:1 1 auto; height:10px; background:var(--panel-2); border:1px solid var(--line-2); border-radius:3px; overflow:hidden; }
+.db-row .fill{ display:block; height:100%; border-radius:2px; min-width:2px; }
+.db-row .val{ flex:0 0 34px; text-align:right; font-family:var(--mono); font-size:.78rem; font-weight:600; color:var(--ink); }
+.db-row .fill.tn-verde{ background:var(--brand-600); }
+.db-row .fill.tn-acero{ background:#2569A1; }
+.db-row .fill.tn-ok{ background:var(--ok); }
+.db-row .fill.tn-neutro{ background:#C0CAD4; }
+.db-row .fill.tn-gris{ background:#8A97A5; }
+.db-row.cero .fill{ display:none; }
+
+/* Barra de capacidad de flota */
+.db-cap{ display:flex; gap:2px; height:14px; border-radius:3px; overflow:hidden; margin:.35rem 0 .9rem; }
+.db-cap span{ display:block; height:100%; }
+.db-leyenda{ display:flex; flex-direction:column; gap:.1rem; }
+.db-leyenda .fila{ display:flex; align-items:center; gap:.55rem; padding:.34rem 0; border-bottom:1px solid var(--line-2); font-size:.8rem; color:var(--ink-2); }
+.db-leyenda .fila:last-child{ border-bottom:0; }
+.db-leyenda .dot{ width:9px; height:9px; border-radius:2px; flex-shrink:0; }
+.db-leyenda .n{ margin-left:auto; font-family:var(--mono); font-weight:600; color:var(--ink); }
+
+/* Centro de alertas (cola accionable) */
+.db-alertas a.item{ display:flex; gap:.6rem; align-items:flex-start; padding:.55rem .65rem; margin-bottom:.45rem;
+    border:1px solid var(--line-2); border-left:3px solid var(--ink-3); border-radius:var(--r-sm);
+    font-size:.8rem; color:var(--ink); text-decoration:none; transition:background .12s ease; }
+.db-alertas a.item:hover{ background:var(--panel-2); text-decoration:none; }
+.db-alertas a.item i{ font-size:.95rem; flex-shrink:0; margin-top:.05rem; }
+.db-alertas .item.n-err{ border-left-color:var(--err); } .db-alertas .item.n-err i{ color:var(--err); }
+.db-alertas .item.n-warn{ border-left-color:var(--warn); } .db-alertas .item.n-warn i{ color:var(--warn); }
+.db-alertas .det{ display:block; color:var(--ink-3); font-size:.72rem; margin-top:.1rem; }
+.db-vacio{ text-align:center; color:var(--ink-3); padding:1.6rem .5rem; font-size:.84rem; }
+.db-vacio i{ display:block; font-size:1.5rem; margin-bottom:.35rem; color:var(--ok); }
+
+/* Filas de indicadores (cumplimiento / personal) */
+.db-ind{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.44rem 0; border-bottom:1px solid var(--line-2); font-size:.8rem; color:var(--ink-2); }
+.db-ind:last-child{ border-bottom:0; }
+.db-ind .n{ font-family:var(--mono); font-weight:600; font-size:.92rem; color:var(--ink); }
+.db-ind .n.malo{ color:var(--err); }
+.db-ind .n.bueno{ color:var(--ok); }
+
+@media (max-width:900px){ .db-row .lbl{ flex-basis:96px; } .db-chart12{ height:140px; } }
+</style>
+
+{# ================= PARTE DE OPERACIONES (cabecera) ================= #}
+<div class="db-head">
     <div>
-        <div class="eyebrow mb-1">Panel de control</div>
-        <h1 class="mb-0">Tablero de operaciones</h1>
+        <div class="eyebrow mb-1">Parte de operaciones</div>
+        <h1 class="mb-0">{{ hoy|date:"l j \d\e F \d\e Y"|capfirst }}</h1>
+        <div class="db-resumen">
+            <b>{{ servicios_hoy_total }}</b> servicio{{ servicios_hoy_total|pluralize }} hoy
+            <span class="sep">·</span><b>{{ vehiculos_en_ruta_hoy }}</b> camion{{ vehiculos_en_ruta_hoy|pluralize:"es" }} en ruta
+            <span class="sep">·</span><b>{{ ordenes_activas }}</b> orden{{ ordenes_activas|pluralize:"es" }} en ejecución
+            <span class="sep">·</span>{% if alertas_total %}<b>{{ alertas_total }}</b> alerta{{ alertas_total|pluralize }} activa{{ alertas_total|pluralize }}{% else %}sin alertas activas{% endif %}
+        </div>
     </div>
-    <a href="{% url 'gestion:lista_ordenes' %}" class="btn btn-primary btn-sm"><i class="bi bi-clipboard-data me-1"></i> Ver órdenes</a>
+    <div class="d-flex gap-2">
+        <a href="{% url 'gestion:crear_programacion' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i> Nueva programación</a>
+        <a href="{% url 'gestion:calendario' %}" class="btn btn-secondary btn-sm"><i class="bi bi-calendar3 me-1"></i> Calendario</a>
+    </div>
 </div>
 
-{# Avisos de documentos de vehículos vencidos / por vencer #}
-{% for vehiculo in vehiculos_con_alerta %}
-    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
-{% endfor %}
-
-{# Camiones con carga pendiente de disposición final #}
-{% if vehiculos_cargados %}
-<div class="alert alert-danger">
-    <strong><i class="bi bi-truck me-1"></i> Camiones CARGADOS, pendientes de disposición final:</strong>
-    <ul class="mb-0 mt-1">
-        {% for v in vehiculos_cargados %}
-        <li>
-            <a href="{% url 'gestion:detalle_vehiculo' v.pk %}" class="alert-link">{{ v.placa }}</a>
-            — {{ v.cargado_detalle|default:"carga pendiente de disposición" }}
-        </li>
-        {% endfor %}
-    </ul>
-    <div class="small mt-1">Programa la disposición final con un proveedor para descargarlos.</div>
-</div>
-{% endif %}
-
-{# ===== Métricas ===== #}
-<div class="metric-grid mb-4">
-    <div class="metric t-steel">
-        <div class="metric-eyebrow"><span>Ingresos del mes</span><i class="bi bi-graph-up-arrow"></i></div>
-        <div class="metric-value">${{ ingresos_del_mes|intcomma }}</div>
-        <div class="metric-foot">Servicios finalizados</div>
-    </div>
-    <div class="metric t-amber">
-        <div class="metric-eyebrow"><span>Cobranza pendiente</span><i class="bi bi-cash-coin"></i></div>
-        <div class="metric-value">${{ cobranza_pendiente|intcomma }}</div>
-        <div class="metric-foot">Total por cobrar</div>
-    </div>
-    <div class="metric t-steel">
-        <div class="metric-eyebrow"><span>Órdenes en proceso</span><i class="bi bi-clipboard-pulse"></i></div>
+{# ================= KPIs (cada uno navega a su vista) ================= #}
+<div class="db-kpis">
+    <a class="metric t-steel" href="{% url 'gestion:calendario' %}">
+        <div class="metric-eyebrow"><span>Servicios hoy</span><i class="bi bi-calendar-check"></i></div>
+        <div class="metric-value">{{ servicios_hoy_total }}</div>
+        <div class="metric-foot">Programados para hoy</div>
+    </a>
+    <a class="metric t-steel" href="{% url 'gestion:lista_ordenes' %}?estado=EN_EJECUCION">
+        <div class="metric-eyebrow"><span>En ejecución</span><i class="bi bi-clipboard-pulse"></i></div>
         <div class="metric-value">{{ ordenes_activas }}</div>
-        <div class="metric-foot">En ejecución</div>
-    </div>
-    <div class="metric t-green">
-        <div class="metric-eyebrow"><span>Servicios completados</span><i class="bi bi-check2-circle"></i></div>
+        <div class="metric-foot">Órdenes en proceso</div>
+    </a>
+    <a class="metric t-green" href="{% url 'gestion:lista_ordenes' %}?estado=FINALIZADA">
+        <div class="metric-eyebrow"><span>Completados</span><i class="bi bi-check2-circle"></i></div>
         <div class="metric-value">{{ servicios_completados_mes }}</div>
-        <div class="metric-foot">Acumulado</div>
+        <div class="metric-foot">Servicios este mes · {{ servicios_completados_total }} histórico</div>
+    </a>
+    <div class="metric t-green">
+        <div class="metric-eyebrow"><span>Satisfacción</span><i class="bi bi-emoji-smile"></i></div>
+        <div class="metric-value">{% if satisfaccion %}{{ satisfaccion }}<span style="font-size:1rem;color:var(--ink-3);"> / 4</span>{% else %}—{% endif %}</div>
+        <div class="metric-foot">{% if actas_firmadas %}Promedio de {{ actas_firmadas }} acta{{ actas_firmadas|pluralize }} firmada{{ actas_firmadas|pluralize }}{% else %}Aún sin actas firmadas{% endif %}</div>
     </div>
+    <a class="metric t-amber" href="{% url 'gestion:lista_ordenes' %}?conciliacion=PENDIENTE">
+        <div class="metric-eyebrow"><span>Por conciliar</span><i class="bi bi-calculator"></i></div>
+        <div class="metric-value">{{ pendientes_conciliacion_count }}</div>
+        <div class="metric-foot">Transporte - Cantidad pendiente</div>
+    </a>
+    <a class="metric {% if actas_por_firmar %}t-amber{% else %}t-green{% endif %}" href="{% url 'gestion:lista_ordenes' %}?estado=EN_EJECUCION">
+        <div class="metric-eyebrow"><span>Actas por firmar</span><i class="bi bi-pen"></i></div>
+        <div class="metric-value">{{ actas_por_firmar }}</div>
+        <div class="metric-foot">Esperando firma del cliente</div>
+    </a>
 </div>
 
-<div class="row g-3 mb-2">
-    {# Utilización de flota #}
-    <div class="col-lg-7">
-        <div class="card shadow h-100">
-            <div class="card-header"><h5>Utilización de la flota</h5></div>
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-around flex-wrap gap-3">
-                    <div style="position:relative; width:180px; height:180px;">
-                        <canvas id="utilizacionChart"></canvas>
-                        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center;">
-                            <div class="mono" style="font-size:2rem; font-weight:600; color:var(--ink); line-height:1;">{{ utilizacion_vehiculos }}%</div>
-                            <div class="eyebrow" style="margin-top:.25rem;">En servicio</div>
-                        </div>
-                    </div>
-                    <div style="max-width:260px;">
-                        <div class="d-flex align-items-center mb-2">
-                            <span style="display:inline-block; width:11px; height:11px; background:var(--brand-600); border-radius:2px; margin-right:.5rem;"></span>
-                            <span class="text-muted small">Vehículos en servicio</span>
-                        </div>
-                        <div class="d-flex align-items-center">
-                            <span style="display:inline-block; width:11px; height:11px; background:#E1E6EC; border-radius:2px; margin-right:.5rem;"></span>
-                            <span class="text-muted small">Vehículos disponibles</span>
-                        </div>
-                        <hr class="my-3">
-                        <p class="text-muted small mb-0">Porcentaje de la flota operativa que atiende órdenes en ejecución.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="row g-3">
+    {# ================= COLUMNA PRINCIPAL ================= #}
+    <div class="col-lg-8 d-flex flex-column gap-3">
 
-    {# Estado de flota #}
-    <div class="col-lg-5">
-        <div class="card shadow h-100">
-            <div class="card-header"><h5>Estado de la flota</h5></div>
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                    <span class="text-muted small">Disponibles para asignar</span>
-                    <span class="mono fw-semibold" style="font-size:1.15rem; color:var(--brand-700);">{{ vehiculos_disponibles }}</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                    <span class="text-muted small">Órdenes por iniciar</span>
-                    <span class="mono fw-semibold" style="font-size:1.15rem;">{{ ordenes_pendientes_iniciar }}</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center py-2">
-                    <span class="text-muted small">Fuera de servicio</span>
-                    <span class="mono fw-semibold" style="font-size:1.15rem; color:var(--err);">{{ vehiculos_fuera_servicio }}</span>
-                </div>
-                <div class="mt-2">
-                    <span class="badge bg-warning">{{ vehiculos_mantenimiento }} mantenimiento</span>
-                    <span class="badge bg-dark">{{ vehiculos_stand_by }} stand by</span>
-                </div>
+        {# --- Actividad de servicios: últimos 12 meses --- #}
+        <div class="card shadow">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Actividad de servicios · últimos 12 meses</h5>
+                <span class="eyebrow">Recorridos completados</span>
             </div>
-        </div>
-    </div>
-</div>
-
-{# Cobranza prioritaria #}
-<div class="card shadow mt-3">
-    <div class="card-header"><h5>Cobranza prioritaria · finalizadas sin pago</h5></div>
-    <div class="card-body p-0">
-        {% if cobranza_prioritaria %}
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr><th># Orden</th><th>Cliente</th><th>Creada</th><th>Valor</th><th class="text-end">Acción</th></tr>
-                </thead>
-                <tbody>
-                    {% for orden in cobranza_prioritaria %}
-                    <tr>
-                        <td class="mono">#{{ orden.numero_orden }}</td>
-                        <td>{{ orden.cliente.nombre }}</td>
-                        <td class="mono text-muted">{{ orden.fecha_creacion|date:"d/m/Y" }}</td>
-                        <td class="mono"><strong>${{ orden.valor_servicio|intcomma }}</strong></td>
-                        <td class="text-end">
-                            <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-sm btn-outline-primary">Ver orden</a>
-                        </td>
-                    </tr>
+            <div class="card-body">
+                <div class="db-chart12">
+                    {% for m in servicios_por_mes %}
+                    <div class="db-c12 {% if m.actual %}actual{% endif %}" title="{{ m.label }} {{ m.anio }}: {{ m.total }} servicio{{ m.total|pluralize }}">
+                        {% if m.total %}<span class="num">{{ m.total }}</span>{% endif %}
+                        <span class="fill" style="height:{% widthratio m.total servicios_mes_max 100 %}%"></span>
+                        <span class="eje">{{ m.label }}</span>
+                    </div>
                     {% endfor %}
-                </tbody>
-            </table>
+                </div>
+            </div>
         </div>
-        {% else %}
-        <p class="text-muted text-center py-4 mb-0"><i class="bi bi-check-circle me-1 text-success"></i> No hay cobranzas prioritarias pendientes.</p>
-        {% endif %}
+
+        <div class="row g-3">
+            {# --- Órdenes por estado --- #}
+            <div class="col-md-6">
+                <div class="card shadow h-100">
+                    <div class="card-header"><h5>Órdenes por estado</h5></div>
+                    <div class="card-body">
+                        {% for e in ordenes_por_estado %}
+                        <div class="db-row {% if not e.total %}cero{% endif %}" title="{{ e.label }}: {{ e.total }}">
+                            <span class="lbl">{{ e.label }}</span>
+                            <span class="track"><span class="fill tn-{{ e.tono }}" style="width:{% widthratio e.total ordenes_estado_max 100 %}%"></span></span>
+                            <span class="val">{{ e.total }}</span>
+                        </div>
+                        {% endfor %}
+                        <div class="db-ind mt-2" style="border-top:1px solid var(--line-2); border-bottom:0; padding-top:.6rem;">
+                            <span>Total histórico de órdenes</span><span class="n">{{ ordenes_total }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Flota --- #}
+            <div class="col-md-6">
+                <div class="card shadow h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>Flota</h5>
+                        <span class="eyebrow">{{ flota.total }} vehículo{{ flota.total|pluralize }}</span>
+                    </div>
+                    <div class="card-body">
+                        {% if flota.total %}
+                        <div class="db-cap" role="img" aria-label="En ruta {{ flota.en_ruta_hoy }}, disponibles {{ flota.disponibles }}, mantenimiento {{ flota.mantenimiento }}, stand by {{ flota.stand_by }}">
+                            {% if flota.en_ruta_hoy %}<span style="background:var(--brand-600); width:{% widthratio flota.en_ruta_hoy flota.total 100 %}%" title="En ruta hoy: {{ flota.en_ruta_hoy }}"></span>{% endif %}
+                            {% if flota.disponibles %}<span style="background:#C0CAD4; width:{% widthratio flota.disponibles flota.total 100 %}%" title="Disponibles: {{ flota.disponibles }}"></span>{% endif %}
+                            {% if flota.mantenimiento %}<span style="background:#9A6206; width:{% widthratio flota.mantenimiento flota.total 100 %}%" title="Mantenimiento: {{ flota.mantenimiento }}"></span>{% endif %}
+                            {% if flota.stand_by %}<span style="background:#8A97A5; width:{% widthratio flota.stand_by flota.total 100 %}%" title="Stand by: {{ flota.stand_by }}"></span>{% endif %}
+                        </div>
+                        <div class="db-leyenda">
+                            <div class="fila"><span class="dot" style="background:var(--brand-600)"></span>En ruta hoy<span class="n">{{ flota.en_ruta_hoy }}</span></div>
+                            <div class="fila"><span class="dot" style="background:#C0CAD4"></span>Disponibles<span class="n">{{ flota.disponibles }}</span></div>
+                            <div class="fila"><span class="dot" style="background:#9A6206"></span>En mantenimiento<span class="n">{{ flota.mantenimiento }}</span></div>
+                            <div class="fila"><span class="dot" style="background:#8A97A5"></span>Stand by (reparación mayor)<span class="n">{{ flota.stand_by }}</span></div>
+                            <div class="fila"><i class="bi bi-truck" style="color:var(--err)"></i>Cargados sin disposición<span class="n {% if flota.cargados %}malo{% endif %}">{{ flota.cargados }}</span></div>
+                        </div>
+                        {% else %}
+                        <div class="db-vacio"><i class="bi bi-truck"></i>Aún no hay vehículos registrados.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            {# --- Top clientes del año --- #}
+            <div class="col-md-6">
+                <div class="card shadow h-100">
+                    <div class="card-header"><h5>Top clientes · {{ hoy|date:"Y" }}</h5></div>
+                    <div class="card-body">
+                        {% for c in top_clientes %}
+                        <div class="db-row" title="{{ c.orden__cliente__nombre }}: {{ c.total }} servicio{{ c.total|pluralize }}">
+                            <span class="lbl">{{ c.orden__cliente__nombre }}</span>
+                            <span class="track"><span class="fill tn-acero" style="width:{% widthratio c.total top_clientes_max 100 %}%"></span></span>
+                            <span class="val">{{ c.total }}</span>
+                        </div>
+                        {% empty %}
+                        <div class="db-vacio"><i class="bi bi-people"></i>Sin servicios completados este año.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            {# --- Residuos transportados --- #}
+            <div class="col-md-6">
+                <div class="card shadow h-100">
+                    <div class="card-header"><h5>Residuos transportados</h5></div>
+                    <div class="card-body">
+                        {% for r in residuos %}
+                        <div class="db-row" title="{{ r.label }}: {{ r.total }}">
+                            <span class="lbl">{{ r.label }}</span>
+                            <span class="track"><span class="fill tn-verde" style="width:{% widthratio r.total residuos_max 100 %}%"></span></span>
+                            <span class="val">{{ r.total }}</span>
+                        </div>
+                        {% empty %}
+                        <div class="db-vacio"><i class="bi bi-droplet"></i>Sin encuestas de cierre registradas.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            {# --- Agenda de hoy --- #}
+            <div class="col-md-7">
+                <div class="card shadow h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>Agenda de hoy</h5>
+                        <a href="{% url 'gestion:planificacion' %}" class="eyebrow" style="color:var(--steel)">Planificación →</a>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if servicios_hoy %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead><tr><th>Cliente</th><th>Placa</th><th>Conductor</th><th>Estado</th></tr></thead>
+                                <tbody>
+                                    {% for r in servicios_hoy %}
+                                    <tr>
+                                        <td><a href="{% url 'gestion:detalle_orden' r.orden.pk %}"><strong>{{ r.orden.cliente.nombre }}</strong></a></td>
+                                        <td class="mono">{{ r.vehiculo.placa|default:"—" }}</td>
+                                        <td>{{ r.conductor.get_full_name|default:r.conductor.username|default:"—" }}</td>
+                                        <td><span class="badge {% if r.estado == 'COMPLETADO' %}bg-success{% elif r.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ r.get_estado_display }}</span></td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="db-vacio"><i class="bi bi-calendar-check"></i>No hay servicios programados para hoy.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {# --- Cobranza --- #}
+            <div class="col-md-5">
+                <div class="card shadow h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>Cobranza</h5>
+                        <span class="eyebrow">Por cobrar: ${{ cobranza_pendiente|intcomma }}</span>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if cobranza_prioritaria %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead><tr><th># Orden</th><th>Cliente</th><th class="text-end">Creada</th></tr></thead>
+                                <tbody>
+                                    {% for o in cobranza_prioritaria %}
+                                    <tr>
+                                        <td class="mono"><a href="{% url 'gestion:detalle_orden' o.pk %}">#{{ o.numero_orden }}</a></td>
+                                        <td>{{ o.cliente.nombre }}</td>
+                                        <td class="mono text-end text-muted">{{ o.fecha_creacion|date:"d/m/Y" }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="db-vacio"><i class="bi bi-cash-coin"></i>Sin órdenes finalizadas pendientes de pago.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ================= RAIL DERECHO ================= #}
+    <div class="col-lg-4 d-flex flex-column gap-3">
+
+        {# --- Centro de alertas --- #}
+        <div class="card shadow">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Centro de alertas</h5>
+                {% if alertas_total %}
+                <span>
+                    {% if alertas_criticas %}<span class="badge bg-danger">{{ alertas_criticas }} crítica{{ alertas_criticas|pluralize }}</span>{% endif %}
+                    <span class="badge bg-warning">{{ alertas_total }} total</span>
+                </span>
+                {% endif %}
+            </div>
+            <div class="card-body db-alertas">
+                {% for a in alertas %}
+                <a class="item n-{{ a.nivel }}" href="{{ a.url }}">
+                    <i class="bi {{ a.icono }}"></i>
+                    <span>{{ a.texto }}{% if a.detalle %}<span class="det">{{ a.detalle }}</span>{% endif %}</span>
+                </a>
+                {% empty %}
+                <div class="db-vacio"><i class="bi bi-shield-check"></i>Operación sin alertas. Todo al día.</div>
+                {% endfor %}
+                {% if alertas_restantes %}
+                <div class="text-center text-muted small mt-2">… y {{ alertas_restantes }} alerta{{ alertas_restantes|pluralize }} más</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# --- Cumplimiento PESV (mes en curso) --- #}
+        <div class="card shadow">
+            <div class="card-header"><h5>Seguridad vial · este mes</h5></div>
+            <div class="card-body">
+                <div class="db-ind"><span>Encuestas de cierre diligenciadas</span><span class="n">{{ pesv.encuestas_mes }}</span></div>
+                <div class="db-ind"><span>Incidentes en ruta</span><span class="n {% if pesv.incidentes_mes %}malo{% else %}bueno{% endif %}">{{ pesv.incidentes_mes }}</span></div>
+                <div class="db-ind"><span>Reportes de fatiga del conductor</span><span class="n {% if pesv.fatiga_mes %}malo{% else %}bueno{% endif %}">{{ pesv.fatiga_mes }}</span></div>
+                <div class="db-ind"><span>Riesgos viales identificados</span><span class="n">{{ pesv.riesgos_via_mes }}</span></div>
+            </div>
+        </div>
+
+        {# --- Personal --- #}
+        <div class="card shadow">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Personal</h5>
+                <a href="{% url 'gestion:lista_personal' %}" class="eyebrow" style="color:var(--steel)">Ver todo →</a>
+            </div>
+            <div class="card-body">
+                <div class="db-ind"><span>Conductores activos</span><span class="n">{{ personal.conductores }}</span></div>
+                <div class="db-ind"><span>Ayudantes activos</span><span class="n">{{ personal.ayudantes }}</span></div>
+                <div class="db-ind"><span>Seguridad social al día</span><span class="n bueno">{{ personal.ss_al_dia }}/{{ personal.con_requisitos }}</span></div>
+                {% if personal.ss_pendiente %}
+                <div class="db-ind"><span>Con seguridad social pendiente</span><span class="n malo">{{ personal.ss_pendiente }}</span></div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# --- Proveedores --- #}
+        <div class="card shadow">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>Proveedores</h5>
+                <a href="{% url 'gestion:lista_dispositores' %}" class="eyebrow" style="color:var(--steel)">Panel →</a>
+            </div>
+            <div class="card-body">
+                <div class="db-ind"><span>Dispositores activos</span><span class="n">{{ proveedores.activos }}</span></div>
+                <div class="db-ind"><span>Con expediente incompleto</span><span class="n {% if proveedores.incompletos %}malo{% else %}bueno{% endif %}">{{ proveedores.incompletos }}</span></div>
+            </div>
+        </div>
     </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var utilizacion = {{ utilizacion_vehiculos|default:0 }};
-    var ctx = document.getElementById('utilizacionChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: ['En servicio', 'Disponibles'],
-            datasets: [{
-                data: [utilizacion, 100 - utilizacion],
-                backgroundColor: ['#5E8C1B', '#E1E6EC'],
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: true, cutout: '76%',
-            plugins: {
-                legend: { display: false },
-                tooltip: { callbacks: { label: function (c) { return c.label + ': ' + c.parsed + '%'; } } }
-            }
-        }
-    });
-});
-</script>
 {% endblock %}
