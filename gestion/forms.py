@@ -1,5 +1,5 @@
 from django import forms
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, Tercero, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -985,6 +985,46 @@ class EncuestaConductorForm(forms.ModelForm):
                 'Debes seleccionar el tipo de evento cuando reportas un incidente.'
             )
         return cleaned
+
+class DispositorForm(forms.ModelForm):
+    """
+    Alta/edición de un proveedor de disposición final desde su panel. El tipo
+    NO se pide: el panel solo gestiona proveedores externos (los destinos
+    internos especiales — trasiegos, dejar cargado — se siembran por migración).
+    """
+    class Meta:
+        model = Dispositor
+        fields = ['nombre', 'descripcion', 'activo']
+        labels = {
+            'nombre': 'Nombre del proveedor',
+            'descripcion': 'Descripción',
+            'activo': 'Activo (aparece en los desplegables)',
+        }
+        widgets = {
+            'nombre': forms.TextInput(attrs={'class': 'form-control'}),
+            'descripcion': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Tipo de planta o celda, licencia ambiental, ciudad…',
+            }),
+            'activo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+
+class DocumentoDispositorForm(forms.ModelForm):
+    """Carga de un documento al expediente de un proveedor (dispositor)."""
+    class Meta:
+        model = DocumentoDispositor
+        fields = ['tipo', 'archivo', 'descripcion']
+        widgets = {
+            'tipo': forms.HiddenInput(),
+            'archivo': forms.FileInput(attrs={'class': 'form-control form-control-sm'}),
+            'descripcion': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Detalle (opcional)'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['descripcion'].required = False
+
 
 class DocumentoInternoForm(forms.ModelForm):
     """Carga de un documento interno de SOLMED (RUT, cámara, certificaciones, etc.)."""

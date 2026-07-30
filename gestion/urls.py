@@ -53,6 +53,13 @@ urlpatterns = [
     path('documentacion/', views.DocumentacionSolmedView.as_view(), name='documentacion'),
     path('documentacion/<int:pk>/eliminar/', views.EliminarDocumentoInternoView.as_view(), name='eliminar_documento_interno'),
 
+    # --- Proveedores de disposición final (Dispositor) y su expediente ---
+    path('proveedores/', views.ListaDispositoresView.as_view(), name='lista_dispositores'),
+    path('proveedores/nuevo/', views.CrearDispositorView.as_view(), name='crear_dispositor'),
+    path('proveedores/<int:pk>/', views.FichaDispositorView.as_view(), name='ficha_dispositor'),
+    path('proveedores/<int:pk>/editar/', views.ActualizarDispositorView.as_view(), name='actualizar_dispositor'),
+    path('documento-dispositor/<int:pk>/eliminar/', views.EliminarDocumentoDispositorView.as_view(), name='eliminar_documento_dispositor'),
+
     path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
     path('dashboard/redirect/', views.dashboard_redirect_view, name='dashboard_redirect'),
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),

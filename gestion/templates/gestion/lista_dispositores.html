@@ -1,0 +1,71 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-recycle me-2"></i>Proveedores de disposición final</h1>
+        <div class="text-muted">Gestores y plantas autorizadas, con su expediente documental.</div>
+    </div>
+    <a href="{% url 'gestion:crear_dispositor' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Añadir proveedor
+    </a>
+</div>
+
+<div class="card shadow">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Proveedor</th>
+                        <th>Descripción</th>
+                        <th>Expediente</th>
+                        <th class="text-center">Estado</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in dispositores %}
+                    <tr {% if not d.activo %}class="table-light text-muted"{% endif %}>
+                        <td><strong>{{ d.nombre }}</strong></td>
+                        <td>{{ d.descripcion|default:"—" }}</td>
+                        <td>
+                            {% if d.docs_faltan %}
+                                <span class="badge bg-warning text-dark" title="Faltan: {{ d.docs_faltan|join:', ' }}">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>{{ d.docs_cargados }}/{{ d.docs_total }} documentos
+                                </span>
+                                <small class="text-muted d-block mt-1">Faltan: {{ d.docs_faltan|join:", " }}</small>
+                            {% else %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if d.activo %}
+                                <span class="badge bg-success">Activo</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'gestion:ficha_dispositor' d.pk %}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-folder2-open"></i> Expediente
+                            </a>
+                            <a href="{% url 'gestion:actualizar_dispositor' d.pk %}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil-square"></i> Editar
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center py-4">
+                            No hay proveedores registrados.
+                            <a href="{% url 'gestion:crear_dispositor' %}">Añade el primero</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

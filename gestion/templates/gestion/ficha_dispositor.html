@@ -1,0 +1,103 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-recycle me-2"></i>{{ dispositor.nombre }}</h1>
+        <div class="text-muted">
+            Expediente del proveedor de disposición final.
+            {% if dispositor.descripcion %} · {{ dispositor.descripcion }}{% endif %}
+            {% if dispositor.activo %}
+                <span class="badge bg-success ms-1">Activo</span>
+            {% else %}
+                <span class="badge bg-secondary ms-1">Inactivo</span>
+            {% endif %}
+        </div>
+    </div>
+    <div>
+        <a href="{% url 'gestion:actualizar_dispositor' dispositor.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil-square me-1"></i> Editar datos
+        </a>
+        <a href="{% url 'gestion:lista_dispositores' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Volver al listado
+        </a>
+    </div>
+</div>
+
+{% if faltan %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+    <strong>Expediente incompleto.</strong> Falta cargar: {{ faltan|join:", " }}.
+</div>
+{% else %}
+<div class="alert alert-success">
+    <i class="bi bi-check-circle-fill me-1"></i>
+    Expediente completo: todos los documentos están cargados.
+</div>
+{% endif %}
+
+<div class="row">
+    {% for s in secciones %}
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text me-1"></i>{{ s.titulo }}</h5>
+                {% if s.docs %}
+                    <span class="badge bg-success">{{ s.docs|length }} cargado{{ s.docs|length|pluralize }}</span>
+                {% else %}
+                    <span class="badge bg-secondary">Sin cargar</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {# Documentos ya cargados #}
+                {% if s.docs %}
+                <ul class="list-group mb-3">
+                    {% for d in s.docs %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span class="text-truncate">
+                            <i class="bi bi-file-earmark-arrow-down me-1 text-muted"></i>
+                            <a href="{{ d.archivo.url }}" target="_blank">{{ d.archivo.name|cut:"dispositores_documentos/" }}</a>
+                            {% if not s.multiple and forloop.first and s.docs|length > 1 %}
+                                <span class="badge bg-info text-dark ms-1">Vigente (más reciente)</span>
+                            {% endif %}
+                            <small class="text-muted d-block">
+                                Cargado el {{ d.fecha_subida|date:"d/m/Y" }}{% if d.descripcion %} · {{ d.descripcion }}{% endif %}
+                            </small>
+                        </span>
+                        <form method="post" action="{% url 'gestion:eliminar_documento_dispositor' d.pk %}"
+                              onsubmit="return confirm('¿Eliminar este documento del expediente?');">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted small mb-3"><i class="bi bi-exclamation-circle me-1"></i>Aún no se ha cargado este documento.</p>
+                {% endif %}
+
+                {# Formulario de carga #}
+                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+                    {% csrf_token %}
+                    <input type="hidden" name="tipo" value="{{ s.tipo }}">
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">
+                            {% if s.docs and not s.multiple %}Reemplazar (cargar más reciente){% else %}Archivo{% endif %}
+                        </label>
+                        <input type="file" name="archivo" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Detalle (opcional)</label>
+                        <input type="text" name="descripcion" class="form-control form-control-sm"
+                               placeholder="{% if s.multiple %}Ej: Licencia ambiental{% else %}Opcional{% endif %}">
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

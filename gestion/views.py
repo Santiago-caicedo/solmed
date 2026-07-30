@@ -2392,3 +2392,128 @@ class EliminarDocumentoInternoView(AsesorRequiredMixin, View):
         documento.delete()
         messages.success(request, "Documento eliminado.")
         return redirect('gestion:documentacion')
+
+
+# ============================================================
+#  PROVEEDORES DE DISPOSICIÓN FINAL (Dispositor, tipo PROVEEDOR)
+#  Panel propio para darlos de alta y llevar el expediente documental de
+#  cada uno (RUT, cámara, cédula del representante, certificación bancaria
+#  y documentos ambientales). Los destinos INTERNOS (trasiegos, dejar
+#  cargado) se siembran por migración y siguen siendo cosa del admin.
+#  Gestionado por asesores y superusuarios.
+# ============================================================
+from .models import Dispositor, DocumentoDispositor
+from .forms import DispositorForm, DocumentoDispositorForm
+
+
+class ListaDispositoresView(AsesorRequiredMixin, ListView):
+    model = Dispositor
+    template_name = 'gestion/lista_dispositores.html'
+    context_object_name = 'dispositores'
+
+    def get_queryset(self):
+        # Solo los proveedores externos; los inactivos van al final.
+        return (
+            Dispositor.objects.filter(tipo='PROVEEDOR')
+            .prefetch_related('documentos')
+            .order_by('-activo', 'nombre')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Documentos únicos que le faltan a cada proveedor (para el aviso del listado).
+        tipos = [t for t, _ in DocumentoDispositor.TIPO_CHOICES]
+        etiquetas = dict(DocumentoDispositor.TIPO_CHOICES)
+        for d in context['dispositores']:
+            cargados = {doc.tipo for doc in d.documentos.all()}
+            d.docs_faltan = [etiquetas[t] for t in tipos if t not in cargados]
+            d.docs_cargados = len(cargados)
+            d.docs_total = len(tipos)
+        return context
+
+
+class CrearDispositorView(AsesorRequiredMixin, CreateView):
+    model = Dispositor
+    form_class = DispositorForm
+    template_name = 'gestion/form_dispositor.html'
+
+    def form_valid(self, form):
+        # El panel solo crea proveedores externos.
+        form.instance.tipo = 'PROVEEDOR'
+        self.object = form.save()
+        messages.success(
+            self.request,
+            "Proveedor creado. Ahora puedes cargar los documentos de su expediente."
+        )
+        return HttpResponseRedirect(reverse('gestion:ficha_dispositor', kwargs={'pk': self.object.pk}))
+
+
+class ActualizarDispositorView(AsesorRequiredMixin, UpdateView):
+    model = Dispositor
+    form_class = DispositorForm
+    template_name = 'gestion/form_dispositor.html'
+    queryset = Dispositor.objects.filter(tipo='PROVEEDOR')
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, "Proveedor actualizado.")
+        return HttpResponseRedirect(reverse('gestion:ficha_dispositor', kwargs={'pk': self.object.pk}))
+
+
+class FichaDispositorView(AsesorRequiredMixin, View):
+    """
+    Expediente documental del proveedor: una tarjeta por tipo de documento
+    (RUT, cámara, cédula del representante, certificación bancaria) y los
+    documentos ambientales, que admiten varios.
+    """
+    template_name = 'gestion/ficha_dispositor.html'
+
+    def _context(self, dispositor):
+        docs = list(dispositor.documentos.all())
+        por_tipo = {}
+        for d in docs:
+            por_tipo.setdefault(d.tipo, []).append(d)
+        secciones = []
+        for tipo, label in DocumentoDispositor.TIPO_CHOICES:
+            multiple = tipo in DocumentoDispositor.TIPOS_MULTIPLES
+            secciones.append({
+                'tipo': tipo,
+                'label': label,
+                # Título de la tarjeta: en plural cuando admite varios.
+                'titulo': 'Documentos ambientales' if tipo == 'DOC_AMBIENTAL' else label,
+                'docs': por_tipo.get(tipo, []),
+                'multiple': multiple,
+            })
+        faltan = [s['label'] for s in secciones if not s['docs']]
+        return {
+            'dispositor': dispositor,
+            'secciones': secciones,
+            'faltan': faltan,
+        }
+
+    def get(self, request, pk):
+        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
+        return render(request, self.template_name, self._context(dispositor))
+
+    def post(self, request, pk):
+        # Carga de un documento al expediente (cada tarjeta envía su 'tipo').
+        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
+        form = DocumentoDispositorForm(request.POST, request.FILES)
+        if form.is_valid():
+            documento = form.save(commit=False)
+            documento.dispositor = dispositor
+            documento.save()
+            messages.success(request, "Documento cargado al expediente.")
+        else:
+            messages.error(request, "No se pudo cargar el documento (revisa el archivo).")
+        return redirect('gestion:ficha_dispositor', pk=pk)
+
+
+class EliminarDocumentoDispositorView(AsesorRequiredMixin, View):
+    """Elimina un documento del expediente del proveedor (solo POST)."""
+    def post(self, request, pk):
+        documento = get_object_or_404(DocumentoDispositor, pk=pk)
+        dispositor_pk = documento.dispositor_id
+        documento.delete()
+        messages.success(request, "Documento eliminado del expediente.")
+        return redirect('gestion:ficha_dispositor', pk=dispositor_pk)

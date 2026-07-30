@@ -412,6 +412,11 @@
             </a>
         </li>
         <li>
+            <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if 'proveedores' in request.path %}active{% endif %}">
+                <i class="bi bi-recycle"></i>Proveedores
+            </a>
+        </li>
+        <li>
             <a href="{% url 'gestion:documentacion' %}" class="nav-link {% if 'documentacion' in request.path %}active{% endif %}">
                 <i class="bi bi-folder-fill"></i>Documentación
             </a>

@@ -648,6 +648,39 @@ class Dispositor(models.Model):
         return self.nombre
 
 
+class DocumentoDispositor(models.Model):
+    """
+    Documento del expediente de un proveedor de disposición final (Dispositor):
+    RUT, cámara de comercio, cédula del representante legal, certificación
+    bancaria y documentos ambientales. Los ambientales admiten varios; en los
+    demás, el más reciente cargado es el que rige (los anteriores quedan de
+    soporte histórico).
+    """
+    TIPO_CHOICES = [
+        ('RUT', 'RUT'),
+        ('CAMARA_COMERCIO', 'Cámara de Comercio'),
+        ('CEDULA_REP_LEGAL', 'Cédula del representante legal'),
+        ('CERTIFICACION_BANCARIA', 'Certificación bancaria'),
+        ('DOC_AMBIENTAL', 'Documento ambiental'),
+    ]
+    # Tipos que admiten varios documentos a la vez (los demás muestran el más reciente).
+    TIPOS_MULTIPLES = ('DOC_AMBIENTAL',)
+
+    dispositor = models.ForeignKey(Dispositor, on_delete=models.CASCADE, related_name='documentos')
+    tipo = models.CharField(max_length=30, choices=TIPO_CHOICES)
+    archivo = models.FileField(upload_to='dispositores_documentos/')
+    descripcion = models.CharField(max_length=255, blank=True)
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['tipo', '-fecha_subida']
+        verbose_name = "Documento del proveedor (dispositor)"
+        verbose_name_plural = "Documentos de los proveedores (dispositores)"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} - {self.dispositor.nombre}"
+
+
 class EncuestaConductor(models.Model):
     """
     Encuesta operativa que llena EL CONDUCTOR al cerrar el servicio, una vez firmado

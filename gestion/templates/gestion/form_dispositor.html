@@ -1,0 +1,81 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="bi bi-recycle me-2"></i>
+        {% if form.instance.pk %}Editar proveedor{% else %}Nuevo proveedor de disposición final{% endif %}
+    </h1>
+    <a href="{% url 'gestion:lista_dispositores' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver al listado
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card shadow mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-card-text me-1"></i>Datos del proveedor</h5>
+            </div>
+            <div class="card-body p-4">
+                {% if form.errors %}
+                <div class="alert alert-danger">
+                    <strong>Revisa los campos:</strong>
+                    <ul class="mb-0">
+                        {% for field in form %}{% for error in field.errors %}<li>{{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+                        {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="{{ form.nombre.id_for_label }}" class="form-label">Nombre del proveedor <span class="text-danger">*</span></label>
+                        {{ form.nombre }}
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ form.descripcion.id_for_label }}" class="form-label">Descripción</label>
+                        {{ form.descripcion }}
+                        <small class="text-muted">Tipo de planta o celda, licencia ambiental, ciudad, etc.</small>
+                    </div>
+                    <div class="form-check form-switch mb-4">
+                        {{ form.activo }}
+                        <label class="form-check-label" for="{{ form.activo.id_for_label }}">
+                            Activo (aparece en los desplegables de programación y encuesta)
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save me-1"></i>
+                        {% if form.instance.pk %}Guardar cambios{% else %}Crear proveedor{% endif %}
+                    </button>
+                    {% if form.instance.pk %}
+                    <a href="{% url 'gestion:ficha_dispositor' form.instance.pk %}" class="btn btn-outline-primary">
+                        <i class="bi bi-folder2-open me-1"></i> Ir al expediente
+                    </a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card border-0 bg-light">
+            <div class="card-body">
+                <h6><i class="bi bi-info-circle me-1"></i>¿Qué es un proveedor?</h6>
+                <p class="small text-muted mb-2">
+                    Gestor, planta o celda de seguridad autorizada para la disposición final de
+                    residuos. Aparece en el desplegable de disposición final de la programación
+                    y en la encuesta de cierre del conductor (trazabilidad de la cuna a la tumba).
+                </p>
+                <p class="small text-muted mb-0">
+                    {% if not form.instance.pk %}Al crearlo pasarás a su <strong>expediente</strong> para
+                    cargar sus documentos: RUT, cámara de comercio, cédula del representante legal,
+                    certificación bancaria y documentos ambientales.{% else %}Su expediente guarda el RUT,
+                    la cámara de comercio, la cédula del representante legal, la certificación bancaria
+                    y los documentos ambientales.{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

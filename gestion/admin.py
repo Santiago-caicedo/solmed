@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Tercero, Vehiculo, OrdenServicio
+from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, Tercero, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -79,11 +79,17 @@ class ManifiestoAdmin(admin.ModelAdmin):
     search_fields = ('recorrido__orden__cliente__nombre',)
 
 
+class DocumentoDispositorInline(admin.TabularInline):
+    model = DocumentoDispositor
+    extra = 0
+
+
 @admin.register(Dispositor)
 class DispositorAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'tipo', 'descripcion', 'activo')
     list_filter = ('tipo', 'activo')
     search_fields = ('nombre', 'descripcion')
+    inlines = [DocumentoDispositorInline]
 
 
 class ProgramacionCuadrillaInline(admin.TabularInline):
