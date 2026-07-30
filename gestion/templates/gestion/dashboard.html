@@ -103,11 +103,11 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
         <div class="metric-value">{{ servicios_completados_mes }}</div>
         <div class="metric-foot">Servicios este mes · {{ servicios_completados_total }} histórico</div>
     </a>
-    <div class="metric t-green">
-        <div class="metric-eyebrow"><span>Satisfacción</span><i class="bi bi-emoji-smile"></i></div>
-        <div class="metric-value">{% if satisfaccion %}{{ satisfaccion }}<span style="font-size:1rem;color:var(--ink-3);"> / 4</span>{% else %}—{% endif %}</div>
-        <div class="metric-foot">{% if actas_firmadas %}Promedio de {{ actas_firmadas }} acta{{ actas_firmadas|pluralize }} firmada{{ actas_firmadas|pluralize }}{% else %}Aún sin actas firmadas{% endif %}</div>
-    </div>
+    <a class="metric t-green" href="{% url 'gestion:lista_ordenes' %}?estado=FINALIZADA">
+        <div class="metric-eyebrow"><span>Actas firmadas</span><i class="bi bi-file-earmark-check"></i></div>
+        <div class="metric-value">{{ actas_firmadas }}</div>
+        <div class="metric-foot">Con firma del cliente</div>
+    </a>
     <a class="metric t-amber" href="{% url 'gestion:lista_ordenes' %}?conciliacion=PENDIENTE">
         <div class="metric-eyebrow"><span>Por conciliar</span><i class="bi bi-calculator"></i></div>
         <div class="metric-value">{{ pendientes_conciliacion_count }}</div>

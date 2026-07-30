@@ -18,7 +18,7 @@ from django.views import View
 from io import BytesIO
 import qrcode
 from weasyprint import HTML
-from django.db.models import Sum, Count, Avg
+from django.db.models import Sum, Count
 import base64
 import datetime
 from django.db.models.functions import TruncMonth
@@ -162,17 +162,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context['actas_firmadas'] = Manifiesto.objects.filter(estado_firma='FIRMADO').count()
         context['actas_por_firmar'] = Manifiesto.objects.filter(estado_firma='PENDIENTE_FIRMA').count()
 
-        # Satisfacción del cliente: promedio de las 11 preguntas (escala 1-4)
-        # de todas las actas firmadas.
-        campos_eval = [f.name for f in Manifiesto._meta.fields if f.name.startswith('eval_')]
-        promedios = Manifiesto.objects.filter(estado_firma='FIRMADO').aggregate(
-            **{campo: Avg(campo) for campo in campos_eval}
-        )
-        valores = [v for v in promedios.values() if v is not None]
-        satisfaccion = round(sum(valores) / len(valores), 1) if valores else None
-        context['satisfaccion'] = satisfaccion
-        context['satisfaccion_pct'] = round(satisfaccion / 4 * 100) if satisfaccion else 0
-
         # ================= RESIDUOS Y PESV (encuestas del conductor) =================
         etiquetas_residuo = dict(EncuestaConductor.TIPO_RESIDUO_CHOICES)
         residuos = [{
@@ -284,26 +273,38 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 'detalle': '',
                 'url': info['url'],
             })
-        if context['pendientes_conciliacion_count']:
-            n = context['pendientes_conciliacion_count']
+        n = context['pendientes_conciliacion_count']
+        if n:
+            # Se nombran las primeras órdenes para saber CUÁLES son de un vistazo;
+            # el enlace lleva al listado filtrado con todas.
+            numeros = list(pendientes_conciliacion.values_list('numero_orden', flat=True)[:5])
+            detalle = 'Orden' + ('es ' if len(numeros) > 1 else ' ')
+            detalle += ', '.join(f'#{numero}' for numero in numeros)
+            if n > len(numeros):
+                detalle += f' y {n - len(numeros)} más'
             alertas.append({
                 'nivel': 'warn', 'icono': 'bi-calculator',
-                'texto': f"{n} orden(es) pendiente(s) de conciliación (Transporte - Cantidad)",
-                'detalle': 'Corte del mes calendario',
+                'texto': (f"{n} orden pendiente de conciliación (Transporte - Cantidad)" if n == 1
+                          else f"{n} órdenes pendientes de conciliación (Transporte - Cantidad)"),
+                'detalle': detalle,
                 'url': reverse('gestion:lista_ordenes') + '?conciliacion=PENDIENTE',
             })
-        if context['actas_por_firmar']:
+        n = context['actas_por_firmar']
+        if n:
             alertas.append({
                 'nivel': 'warn', 'icono': 'bi-pen',
-                'texto': f"{context['actas_por_firmar']} acta(s) diligenciada(s) sin firma del cliente",
+                'texto': (f"{n} acta diligenciada espera la firma del cliente" if n == 1
+                          else f"{n} actas diligenciadas esperan la firma del cliente"),
                 'detalle': '',
                 'url': reverse('gestion:lista_ordenes') + '?estado=EN_EJECUCION',
             })
-        if proveedores_incompletos:
+        n = len(proveedores_incompletos)
+        if n:
             alertas.append({
                 'nivel': 'warn', 'icono': 'bi-recycle',
-                'texto': f"{len(proveedores_incompletos)} proveedor(es) con expediente incompleto",
-                'detalle': '',
+                'texto': (f"{n} proveedor con el expediente incompleto" if n == 1
+                          else f"{n} proveedores con el expediente incompleto"),
+                'detalle': ', '.join(p.nombre for p in proveedores_incompletos[:4]),
                 'url': reverse('gestion:lista_dispositores'),
             })
         alertas.sort(key=lambda a: 0 if a['nivel'] == 'err' else 1)
