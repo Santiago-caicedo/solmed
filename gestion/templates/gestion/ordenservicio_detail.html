@@ -7,6 +7,13 @@
     <div>
         <h1 class="mb-1">Expediente de Orden #{{ orden.numero_orden }}</h1>
         <span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span>
+        {% if orden.estado_conciliacion == 'PENDIENTE' %}
+            <span class="badge bg-warning text-dark"><i class="bi bi-calculator me-1"></i>Pendiente de conciliación</span>
+        {% elif orden.estado_conciliacion == 'CONCILIADA' %}
+            <span class="badge bg-success" {% if orden.fecha_conciliacion %}title="Conciliada el {{ orden.fecha_conciliacion|date:'d/m/Y H:i' }}"{% endif %}>
+                <i class="bi bi-calculator me-1"></i>Conciliada
+            </span>
+        {% endif %}
     </div>
     <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
         <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
@@ -24,6 +31,25 @@
         </li>
         {% endfor %}
     </ul>
+</div>
+{% endif %}
+
+{# Conciliación de "Transporte - Cantidad": pendiente hasta que el asesor la haga. #}
+{% if orden.estado_conciliacion == 'PENDIENTE' %}
+<div class="alert alert-warning">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <strong><i class="bi bi-calculator me-1"></i> Pendiente de conciliación.</strong>
+            La cantidad de transporte no se diligenció al programar: concíliala aquí
+            cuando hagas el corte del mes.
+        </div>
+        <form method="post" action="{% url 'gestion:conciliar_orden' orden.pk %}" class="d-flex gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="text" name="transporte_cantidad" class="form-control form-control-sm" style="max-width:220px"
+                   placeholder="Cantidad de transporte" required>
+            <button class="btn btn-sm btn-success text-nowrap"><i class="bi bi-check2-circle me-1"></i>Conciliar</button>
+        </form>
+    </div>
 </div>
 {% endif %}
 

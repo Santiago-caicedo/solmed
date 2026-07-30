@@ -44,8 +44,8 @@ class OrdenServicioAdmin(admin.ModelAdmin):
     manifiestos, encuestas de conductor, documentos, pagos y la programación que
     la originó. La página de confirmación de Django lista todo antes de borrar.
     """
-    list_display = ('numero_orden', 'cliente', 'display_vehiculos', 'estado_orden', 'estado_pago')
-    list_filter = ('estado_orden', 'estado_pago', 'cliente')
+    list_display = ('numero_orden', 'cliente', 'display_vehiculos', 'estado_orden', 'estado_pago', 'estado_conciliacion')
+    list_filter = ('estado_orden', 'estado_pago', 'estado_conciliacion', 'cliente')
     search_fields = ('numero_orden', 'cliente__nombre')
 
     def get_queryset(self, request):

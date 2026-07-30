@@ -299,6 +299,19 @@ class OrdenServicio(models.Model):
         ('ABONADO', 'Abonado'),
     ]
 
+    # --- Conciliación de "Transporte - Cantidad" ---
+    # Ese campo de las instrucciones del servicio por lo general NO se llena al
+    # crear la programación: el asesor lo concilia DESPUÉS de prestar el
+    # servicio, durante el mes calendario. Si la orden se genera con el campo
+    # vacío queda PENDIENTE (con alerta y estadística) hasta que el asesor la
+    # concilie desde el expediente de la orden. NO_APLICA = órdenes creadas a
+    # mano (sin programación, no tienen instrucciones del servicio).
+    CONCILIACION_CHOICES = [
+        ('NO_APLICA', 'No aplica'),
+        ('PENDIENTE', 'Pendiente de conciliación'),
+        ('CONCILIADA', 'Conciliada'),
+    ]
+
     SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
     BASCULA_CHOICES = [
         ('PESAN', 'Sí'),
@@ -333,9 +346,45 @@ class OrdenServicio(models.Model):
     # --- Campos de Seguimiento ---
     estado_orden = models.CharField(max_length=20, choices=ESTADO_ORDEN_CHOICES, default='PROGRAMADA')
     estado_pago = models.CharField(max_length=20, choices=ESTADO_PAGO_CHOICES, default='PENDIENTE')
+    estado_conciliacion = models.CharField(
+        max_length=20, choices=CONCILIACION_CHOICES, default='NO_APLICA',
+        verbose_name="Conciliación (Transporte - Cantidad)"
+    )
+    fecha_conciliacion = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de conciliación")
 
     def __str__(self):
         return f"Orden #{self.numero_orden} - {self.cliente.nombre}"
+
+    @property
+    def pendiente_conciliacion(self):
+        return self.estado_conciliacion == 'PENDIENTE'
+
+    def conciliar_transporte(self, cantidad):
+        """
+        Registra la conciliación de "Transporte - Cantidad" (la hace el asesor
+        durante el mes, después de prestado el servicio): guarda la cantidad en
+        la programación de origen y marca la orden como CONCILIADA.
+
+        DECISIÓN PROVISIONAL (pendiente de confirmar en la empresa): si el acta
+        ya fue diligenciada o firmada, el valor TAMBIÉN se actualiza en ella
+        (el PDF firmado ya generado no se regenera). Si el acta aún no se ha
+        cerrado, el valor llega solo al copiarse las instrucciones al cerrarla.
+        """
+        cantidad = (cantidad or '').strip()
+        programacion = getattr(self, 'programacion_origen', None)
+        if programacion is not None:
+            programacion.transporte_cantidad = cantidad
+            programacion.save(update_fields=['transporte_cantidad'])
+        for recorrido in self.recorridos.all():
+            try:
+                manifiesto = recorrido.manifiesto
+            except Manifiesto.DoesNotExist:
+                continue
+            manifiesto.transporte_cantidad = cantidad
+            manifiesto.save(update_fields=['transporte_cantidad'])
+        self.estado_conciliacion = 'CONCILIADA'
+        self.fecha_conciliacion = timezone.now()
+        self.save(update_fields=['estado_conciliacion', 'fecha_conciliacion'])
 
     @property
     def requiere_bascula(self):
@@ -1150,6 +1199,10 @@ class Programacion(models.Model):
             if datos:
                 descripcion += f" ({datos})"
 
+        # Conciliación de "Transporte - Cantidad": si el asesor no la llenó al
+        # programar (lo usual), la orden queda pendiente de conciliar.
+        conciliacion = 'CONCILIADA' if (self.transporte_cantidad or '').strip() else 'PENDIENTE'
+
         with transaction.atomic():
             orden = OrdenServicio.objects.create(
                 cliente=self.cliente,
@@ -1158,6 +1211,7 @@ class Programacion(models.Model):
                 descripcion=descripcion,
                 bascula=self.bascula,
                 registro_fotografico=self.registro_fotografico,
+                estado_conciliacion=conciliacion,
             )
             for c in cuadrillas:
                 Recorrido.objects.create(

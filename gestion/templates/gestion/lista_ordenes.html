@@ -9,16 +9,25 @@
 <div class="card shadow mb-4">
     <div class="card-body">
         <form method="get" action="{% url 'gestion:lista_ordenes' %}" class="row g-3 align-items-end">
-            <div class="col-md-5">
+            <div class="col-md-4">
                 <label for="q" class="form-label">Buscar</label>
                 <input type="text" name="q" id="q" class="form-control" placeholder="N° de orden o cliente" value="{{ request.GET.q }}">
             </div>
-            <div class="col-md-5">
+            <div class="col-md-3">
                 <label for="estado" class="form-label">Estado de la orden</label>
                 <select name="estado" id="estado" class="form-select">
                     <option value="">Todos los estados</option>
                     {% for value, display in estado_choices %}
                         <option value="{{ value }}" {% if current_estado == value %}selected{% endif %}>{{ display }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label for="conciliacion" class="form-label">Conciliación</label>
+                <select name="conciliacion" id="conciliacion" class="form-select">
+                    <option value="">Todas</option>
+                    {% for value, display in conciliacion_choices %}
+                        <option value="{{ value }}" {% if current_conciliacion == value %}selected{% endif %}>{{ display }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -40,6 +49,7 @@
                         <th>Creada</th>
                         <th>Recorridos</th>
                         <th>Estado</th>
+                        <th>Conciliación</th>
                         <th>Acciones</th>
                     </tr>
                 </thead>
@@ -52,13 +62,22 @@
                         <td><span class="badge bg-secondary">{{ orden.recorridos.count }}</span></td>
                         <td><span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span></td>
                         <td>
+                            {% if orden.estado_conciliacion == 'PENDIENTE' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-calculator me-1"></i>Pendiente</span>
+                            {% elif orden.estado_conciliacion == 'CONCILIADA' %}
+                                <span class="badge bg-success">Conciliada</span>
+                            {% else %}
+                                <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
                             <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
                             <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No hay órdenes de servicio registradas.</td>
+                        <td colspan="7" class="text-center text-muted py-4">No hay órdenes de servicio registradas.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

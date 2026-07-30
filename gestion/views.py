@@ -146,6 +146,7 @@ class ListaOrdenesView(AsesorRequiredMixin, ListView):
         # --- LÓGICA DE FILTROS ---
         estado_filtro = self.request.GET.get('estado')
         pago_filtro = self.request.GET.get('pago')
+        conciliacion_filtro = self.request.GET.get('conciliacion')
 
         # Búsqueda por texto
         if query:
@@ -153,14 +154,18 @@ class ListaOrdenesView(AsesorRequiredMixin, ListView):
                 Q(numero_orden__icontains=query) |
                 Q(cliente__nombre__icontains=query)
             )
-        
+
         # Filtro por estado de la orden
         if estado_filtro:
             queryset = queryset.filter(estado_orden=estado_filtro)
-        
+
         # Filtro por estado del pago
         if pago_filtro:
             queryset = queryset.filter(estado_pago=pago_filtro)
+
+        # Filtro por conciliación de "Transporte - Cantidad"
+        if conciliacion_filtro:
+            queryset = queryset.filter(estado_conciliacion=conciliacion_filtro)
 
         return queryset
 
@@ -170,10 +175,12 @@ class ListaOrdenesView(AsesorRequiredMixin, ListView):
         # Pasamos las opciones de los modelos para construir los dropdowns
         context['estado_choices'] = OrdenServicio.ESTADO_ORDEN_CHOICES
         context['pago_choices'] = OrdenServicio.ESTADO_PAGO_CHOICES
-        
+        context['conciliacion_choices'] = OrdenServicio.CONCILIACION_CHOICES
+
         # Pasamos los valores actuales de los filtros para que se mantengan seleccionados
         context['current_estado'] = self.request.GET.get('estado', '')
         context['current_pago'] = self.request.GET.get('pago', '')
+        context['current_conciliacion'] = self.request.GET.get('conciliacion', '')
         return context
 
 class CrearOrdenView(LoginRequiredMixin, CreateView):
@@ -1305,6 +1312,33 @@ class RegistrarPagoView(AsesorRequiredMixin, CreateView):
     def get_success_url(self):
         # Después de registrar el pago, volvemos al expediente de la orden
         return reverse('gestion:detalle_orden', kwargs={'pk': self.kwargs['orden_pk']})
+
+
+class ConciliarOrdenView(AsesorRequiredMixin, View):
+    """
+    Concilia la "Transporte - Cantidad" de una orden (solo POST): el asesor la
+    diligencia durante el mes, después de prestado el servicio. Guarda la
+    cantidad en la programación de origen (y en el acta si ya existe — decisión
+    provisional, ver OrdenServicio.conciliar_transporte) y limpia el estado
+    PENDIENTE de la orden.
+    """
+    def post(self, request, pk):
+        orden = get_object_or_404(OrdenServicio, pk=pk)
+        if orden.estado_conciliacion == 'NO_APLICA':
+            messages.info(request, "Esta orden no maneja conciliación (se creó sin programación).")
+            return redirect('gestion:detalle_orden', pk=pk)
+
+        cantidad = request.POST.get('transporte_cantidad', '').strip()
+        if not cantidad:
+            messages.error(request, "Ingresa la cantidad de transporte para conciliar la orden.")
+            return redirect('gestion:detalle_orden', pk=pk)
+
+        orden.conciliar_transporte(cantidad)
+        messages.success(
+            request,
+            f"Orden #{orden.numero_orden} conciliada: Transporte - Cantidad = {cantidad}."
+        )
+        return redirect('gestion:detalle_orden', pk=pk)
 
 
 # ============================================================
