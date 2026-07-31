@@ -1,6 +1,6 @@
 from django import forms
 from django.db.models import Q
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, Vehiculo, Cliente
+from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -634,6 +634,15 @@ class ProgramacionForm(forms.ModelForm):
         })
     )
 
+    # Caracterización del residuo: además del desplegable se puede escribir uno
+    # NUEVO aquí mismo; se crea en el catálogo y queda seleccionado (ver clean()).
+    nuevo_tipo_residuo = forms.CharField(
+        required=False, label="Nuevo residuo",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-sm', 'placeholder': 'Nombre del nuevo residuo',
+        })
+    )
+
     # Cuando NO hay disposición final: a dónde queda el contenido (trasiegos /
     # dejar carro cargado). Se guarda en el mismo campo dispositor_final.
     destino_sin_disposicion = forms.ModelChoiceField(
@@ -679,6 +688,9 @@ class ProgramacionForm(forms.ModelForm):
             'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
             'trasiego_vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'nombre_contacto_recibe': forms.TextInput(attrs={'class': 'form-control'}),
+            # Caracterización del residuo: desplegable alimentado por el catálogo
+            # TipoResiduo (el valor guardado sigue siendo el NOMBRE, ver models).
+            'transporte_tipo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -727,6 +739,16 @@ class ProgramacionForm(forms.ModelForm):
         # llegan como tokens en POST 'adjuntos_correo' (checkboxes que dibuja el
         # JS por fuente) y las vistas los validan/guardan en
         # Programacion.adjuntos_correo. La SS nunca va ahí: se adjunta siempre.
+
+        # Residuos del catálogo (activos) + el valor ya guardado, para no perderlo
+        # al editar si alguien lo desactivó o se escribió a mano antes.
+        nombres = list(TipoResiduo.objects.filter(activo=True).values_list('nombre', flat=True))
+        guardado = (self.instance.transporte_tipo or '').strip() if self.instance else ''
+        if guardado and guardado not in nombres:
+            nombres.append(guardado)
+        self.fields['transporte_tipo'].widget.choices = (
+            [('', '--- Elige el residuo ---')] + [(n, n) for n in sorted(nombres)]
+        )
 
         # Sitios de inicio activos (más el guardado, aunque esté inactivo, para
         # que al editar no se pierda la selección).
@@ -780,6 +802,17 @@ class ProgramacionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+
+        # --- Residuo nuevo: se crea (o reutiliza) y queda seleccionado ---
+        nuevo_residuo = (cleaned.get('nuevo_tipo_residuo') or '').strip()
+        if nuevo_residuo:
+            residuo = TipoResiduo.objects.filter(nombre__iexact=nuevo_residuo).first()
+            if residuo is None:
+                residuo = TipoResiduo.objects.create(nombre=nuevo_residuo)
+            elif not residuo.activo:
+                residuo.activo = True
+                residuo.save(update_fields=['activo'])
+            cleaned['transporte_tipo'] = residuo.nombre
 
         # --- Sitio de inicio nuevo: se crea (o reutiliza) y queda seleccionado ---
         nuevo_sitio = (cleaned.get('nuevo_sitio_inicio') or '').strip()

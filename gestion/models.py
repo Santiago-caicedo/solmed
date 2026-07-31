@@ -928,6 +928,32 @@ class EncuestaConductor(models.Model):
             recorrido.save()
 
 
+class TipoResiduo(models.Model):
+    """
+    Catálogo de residuos para la "Caracterización del Residuo" de la
+    programación (antes se llamaba Transporte). Alimenta el desplegable y se
+    pueden crear nombres nuevos desde el mismo formulario, que quedan
+    disponibles para las siguientes programaciones.
+
+    Ojo: `Programacion.transporte_tipo` sigue guardando el NOMBRE como texto
+    (no una FK), porque ese valor se copia tal cual al acta (Manifiesto), que
+    también lo guarda como texto. Este modelo es el catálogo de sugerencias.
+    """
+    nombre = models.CharField(max_length=100, unique=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarlo del desplegable sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Residuo (caracterización)"
+        verbose_name_plural = "Residuos (caracterización)"
+
+    def __str__(self):
+        return self.nombre
+
+
 class SitioInicio(models.Model):
     """
     Sitio donde el personal inicia el turno / ingresa antes del servicio
@@ -1243,7 +1269,7 @@ class Programacion(models.Model):
             (f"Lavado: {self.lavado_concepto}" if self.lavado_concepto else "Lavado", bool(self.lavado_concepto), self.lavado_cantidad),
             (f"Lavado correctivo: {self.lavado_correctivo}", bool(self.lavado_correctivo), ""),
             (f"Lavado preventivo: {self.lavado_preventivo}", bool(self.lavado_preventivo), ""),
-            (f"Transporte: {self.transporte_tipo}" if self.transporte_tipo else "Transporte", bool(self.transporte_tipo), self.transporte_cantidad),
+            (f"Residuo: {self.transporte_tipo}" if self.transporte_tipo else "Caracterización del residuo", bool(self.transporte_tipo), self.transporte_cantidad),
         ]
         resumen = []
         for etiqueta, activo, cantidad in items:

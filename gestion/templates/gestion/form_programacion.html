@@ -168,14 +168,23 @@
             </div>
 
             {# --- Transporte --- #}
-            <h6 class="text-primary border-bottom pb-1 mb-3 mt-4"><i class="bi bi-truck me-1"></i>Transporte</h6>
+            <h6 class="text-primary border-bottom pb-1 mb-3 mt-4"><i class="bi bi-recycle me-1"></i>Caracterización del Residuo</h6>
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label mb-1">Tipo</label>
+                    <label for="{{ form.transporte_tipo.id_for_label }}" class="form-label mb-1">Residuo</label>
                     {{ form.transporte_tipo }}
+                    {% for e in form.transporte_tipo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    <a href="#" id="toggle-nuevo-residuo" class="small d-inline-block mt-1">
+                        <i class="bi bi-plus-circle me-1"></i>Crear nuevo residuo
+                    </a>
+                    <div id="campo-nuevo-residuo" class="mt-1 d-none">
+                        {{ form.nuevo_tipo_residuo }}
+                        <small class="text-muted">Se crea y queda disponible para las próximas programaciones.</small>
+                        {% for e in form.nuevo_tipo_residuo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    </div>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label mb-1">Cantidad</label>
+                    <label for="{{ form.transporte_cantidad.id_for_label }}" class="form-label mb-1">Cantidad</label>
                     {{ form.transporte_cantidad }}
                 </div>
             </div>
@@ -510,34 +519,45 @@
 {{ docs_solmed|json_script:"docs-solmed-data" }}
 {{ docs_clientes|json_script:"docs-clientes-data" }}
 <script>
-// --- Sitio de inicio: enlace que abre el campo para crear uno nuevo ---
+// --- Catálogos con "crear nuevo" (sitio de inicio y residuo) ---
+// El enlace abre un campo de texto; lo escrito ahí manda sobre el desplegable.
 (function () {
-    var enlace = document.getElementById('toggle-nuevo-sitio');
-    var campo = document.getElementById('campo-nuevo-sitio');
-    var input = campo ? campo.querySelector('input') : null;
-    var select = document.getElementById('id_sitio_inicio');
-    if (!enlace || !campo) return;
-    function abrir(mostrar) {
-        campo.classList.toggle('d-none', !mostrar);
-        enlace.innerHTML = mostrar
-            ? '<i class="bi bi-x-circle me-1"></i>Cancelar (usar la lista)'
-            : '<i class="bi bi-plus-circle me-1"></i>Crear nuevo sitio';
-        if (mostrar && input) input.focus();
-        if (!mostrar && input) input.value = '';
-    }
-    enlace.addEventListener('click', function (e) {
-        e.preventDefault();
-        abrir(campo.classList.contains('d-none'));
-    });
-    // Si escribe un sitio nuevo, ese manda: se atenúa el desplegable.
-    if (input && select) {
-        input.addEventListener('input', function () {
-            select.disabled = false;   // el valor del select viaja igual; solo es visual
-            select.classList.toggle('opacity-50', input.value.trim() !== '');
+    [
+        { enlace: 'toggle-nuevo-sitio', campo: 'campo-nuevo-sitio',
+          select: 'id_sitio_inicio', crear: 'Crear nuevo sitio' },
+        { enlace: 'toggle-nuevo-residuo', campo: 'campo-nuevo-residuo',
+          select: 'id_transporte_tipo', crear: 'Crear nuevo residuo' },
+    ].forEach(function (cfg) {
+        var enlace = document.getElementById(cfg.enlace);
+        var campo = document.getElementById(cfg.campo);
+        if (!enlace || !campo) return;
+        var input = campo.querySelector('input');
+        var select = document.getElementById(cfg.select);
+
+        function abrir(mostrar) {
+            campo.classList.toggle('d-none', !mostrar);
+            enlace.innerHTML = mostrar
+                ? '<i class="bi bi-x-circle me-1"></i>Cancelar (usar la lista)'
+                : '<i class="bi bi-plus-circle me-1"></i>' + cfg.crear;
+            if (mostrar && input) input.focus();
+            if (!mostrar && input) input.value = '';
+        }
+
+        enlace.addEventListener('click', function (e) {
+            e.preventDefault();
+            abrir(campo.classList.contains('d-none'));
         });
-    }
-    // Si vuelve con error en el campo nuevo, se muestra abierto.
-    if (input && input.value.trim() !== '') abrir(true);
+
+        // Si escribe uno nuevo, ese manda: se atenúa el desplegable.
+        if (input && select) {
+            input.addEventListener('input', function () {
+                select.classList.toggle('opacity-50', input.value.trim() !== '');
+            });
+        }
+
+        // Si vuelve con error tras escribir uno nuevo, se muestra abierto.
+        if (input && input.value.trim() !== '') abrir(true);
+    });
 })();
 </script>
 <script>
