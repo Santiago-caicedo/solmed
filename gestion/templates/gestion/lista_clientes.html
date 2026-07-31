@@ -8,6 +8,27 @@
     </a>
 </div>
 
+{# Buscador: razón social, sigla, NIT, ciudad o contacto #}
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <form method="get" action="{% url 'gestion:lista_clientes' %}" class="row g-2 align-items-end">
+            <div class="col-md-8">
+                <label for="q" class="form-label">Buscar cliente</label>
+                <input type="search" name="q" id="q" class="form-control" autofocus
+                       placeholder="Razón social, sigla, NIT, ciudad o contacto" value="{{ q }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search me-1"></i>Buscar</button>
+            </div>
+            <div class="col-md-2">
+                {% if q %}
+                <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-secondary w-100">Limpiar</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card shadow">
     <div class="card-body">
         <div class="table-responsive">
@@ -22,7 +43,10 @@
     <tbody>
         {% for cliente in clientes %}
         <tr>
-            <td><strong>{{ cliente.nombre }}</strong></td>
+            <td>
+                <strong>{{ cliente.nombre }}</strong>
+                {% if cliente.sigla %}<span class="badge bg-light ms-1">{{ cliente.sigla }}</span>{% endif %}
+            </td>
             <td>{{ cliente.identificacion }}</td>
             <td>{{ cliente.ciudad }}</td> <td>{{ cliente.persona_contacto }}</td> <td class="text-end">
                 <a href="{% url 'gestion:actualizar_cliente' cliente.pk %}" class="btn btn-sm btn-outline-secondary">
@@ -32,7 +56,14 @@
         </tr>
         {% empty %}
         <tr>
-            <td colspan="5" class="text-center py-4">No hay clientes registrados.</td>
+            <td colspan="5" class="text-center text-muted py-4">
+                {% if q %}
+                    Ningún cliente coincide con «{{ q }}».
+                    <a href="{% url 'gestion:lista_clientes' %}">Ver todos</a>.
+                {% else %}
+                    No hay clientes registrados.
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>

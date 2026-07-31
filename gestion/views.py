@@ -513,6 +513,23 @@ class ListaClientesView(LoginRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'clientes'
     ordering = ['nombre']
 
+    def get_queryset(self):
+        """Busca por razón social, sigla, NIT, ciudad o persona de contacto."""
+        queryset = super().get_queryset()
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            queryset = queryset.filter(
+                Q(nombre__icontains=q) | Q(sigla__icontains=q)
+                | Q(identificacion__icontains=q) | Q(ciudad__icontains=q)
+                | Q(persona_contacto__icontains=q)
+            )
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['q'] = self.request.GET.get('q', '')
+        return context
+
 
 class ClienteFormMixin:
     """
