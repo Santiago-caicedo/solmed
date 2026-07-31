@@ -1097,8 +1097,10 @@ function actualizarEnvioSS(personal, adicionales) {
     // así que en la vista previa va como marcador.
     var ORDEN = '#(se asigna al generar la orden)';
 
-    // El asunto refleja el real: "SOLMED - Seguridad social - Orden de servicio #N".
-    asunto.textContent = 'SOLMED - Seguridad social - Orden de servicio ' + ORDEN;
+    // El asunto refleja el real: nombra la documentación si se marcaron adjuntos
+    // adicionales ("SOLMED - Seguridad social y documentación - Orden de servicio #N").
+    var tema = adicionales.length ? 'Seguridad social y documentación' : 'Seguridad social';
+    asunto.textContent = 'SOLMED - ' + tema + ' - Orden de servicio ' + ORDEN;
 
     // Nombre del cliente seleccionado arriba (para el cuerpo, igual que el real).
     var selCliente = document.getElementById('id_cliente');

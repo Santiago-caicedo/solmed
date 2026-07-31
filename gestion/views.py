@@ -2482,7 +2482,10 @@ def _enviar_seguridad_social_cliente(orden, programacion):
             adjuntos.append((base, contenido, tipo))
             lineas_cliente.append(f"- {doc.descripcion or base}")
 
-    asunto = f"SOLMED - Seguridad social - Orden de servicio #{orden.numero_orden}"
+    # El asunto anuncia lo que va: si además de la SS se adjuntaron documentos
+    # de otras fuentes, se nombra también la documentación.
+    tema = "Seguridad social y documentación" if lineas_adicionales else "Seguridad social"
+    asunto = f"SOLMED - {tema} - Orden de servicio #{orden.numero_orden}"
     cuerpo = (
         f"Buen día,\n\n"
         f"Adjuntamos la seguridad social vigente del personal que participa "
