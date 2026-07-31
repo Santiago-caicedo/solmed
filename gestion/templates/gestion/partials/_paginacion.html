@@ -5,7 +5,11 @@ Los filtros de la URL se conservan al cambiar de página.
 
 Uso:  {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
 {% endcomment %}
-{% if page_obj %}
+{% comment %}
+Se pregunta por el paginador y no por `page_obj`: una página vacía (búsqueda sin
+resultados) evalúa como falsa y escondería la barra, incluido el conteo en cero.
+{% endcomment %}
+{% if page_obj.paginator %}
 <nav class="pg" aria-label="Paginación de {{ etiqueta|default:'resultados' }}">
     <div class="pg-info">
         {% if page_obj.paginator.count %}
