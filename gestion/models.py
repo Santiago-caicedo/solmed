@@ -1059,11 +1059,18 @@ class Programacion(models.Model):
         help_text="Correo del cliente a donde se comparten los documentos de seguridad social."
     )
     # La seguridad social vigente del personal se adjunta SIEMPRE al correo.
-    # Aquí el asesor puede sumar otros documentos del expediente del personal
-    # asignado (cédula, licencia, cursos, otros) para ese mismo envío.
-    documentos_adicionales = models.ManyToManyField(
-        'DocumentoPersonal', blank=True, related_name='programaciones_adjuntas',
-        verbose_name="Documentos adicionales del personal para el correo",
+    # Aquí el asesor puede sumar CUALQUIER documento que ya viva en el sistema,
+    # organizado por fuente. Se guarda como lista de tokens (JSON):
+    #   personal:<doc_id>                       documento del expediente (sin SS)
+    #   vehiculo:<veh_id>:soat|tecno|tarjeta    documentos de la placa asignada
+    #   proveedor:<doc_id>                      expediente del dispositor elegido
+    #   solmed:<doc_id>                         documentación interna de SOLMED
+    #   cliente_fijo:<cli_id>:rut|camara|cedula documentos fijos del cliente
+    #   cliente_amb:<doc_id>                    documento ambiental del cliente
+    # La resolución/validación vive en views._resolver_adjunto_correo.
+    adjuntos_correo = models.JSONField(
+        default=list, blank=True,
+        verbose_name="Documentos adicionales para el correo (tokens)",
     )
     observaciones_servicio = models.TextField(
         blank=True, verbose_name="Observaciones detalladas del servicio a prestar"

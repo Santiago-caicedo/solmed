@@ -380,21 +380,81 @@
                 y no se puede guardar.
             </p>
 
-            {# --- Documentos adicionales del expediente para el mismo correo --- #}
+            {# --- Documentos adicionales para el mismo correo (todas las fuentes) --- #}
             <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
                 <div class="fw-semibold small mb-1">
-                    <i class="bi bi-paperclip me-1"></i>Documentos adicionales del personal <span class="text-muted fw-normal">(opcional)</span>
+                    <i class="bi bi-paperclip me-1"></i>Documentos adicionales para el correo <span class="text-muted fw-normal">(opcional)</span>
                 </div>
                 <p class="text-muted small mb-2">
-                    La seguridad social se adjunta siempre. Si el cliente pide más soportes, marca aquí
-                    qué otros documentos del expediente del personal asignado van en el mismo correo.
+                    La seguridad social se adjunta siempre. Si el cliente pide más soportes, ábrelos por
+                    fuente y marca cuáles van en el mismo correo; el número muestra cuántos llevas de cada una.
                 </p>
-                <div id="docs-adicionales">
-                    <span class="text-muted small">Asigna el conductor y los ayudantes para ver sus documentos.</span>
+
+                <div class="accordion" id="acordeon-adjuntos">
+                    {# Cada fuente: encabezado con contador + cuerpo que llena el JS #}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#adj-personal">
+                                <i class="bi bi-person-badge me-2"></i>Personal asignado
+                                <span class="badge bg-secondary ms-2 adj-contador" data-grupo="personal">0</span>
+                            </button>
+                        </h2>
+                        <div id="adj-personal" class="accordion-collapse collapse">
+                            <div class="accordion-body py-3" id="adj-grupo-personal"></div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#adj-vehiculo">
+                                <i class="bi bi-truck me-2"></i>Vehículo del servicio
+                                <span class="ms-2 small text-muted" id="adj-placa"></span>
+                                <span class="badge bg-secondary ms-2 adj-contador" data-grupo="vehiculo">0</span>
+                            </button>
+                        </h2>
+                        <div id="adj-vehiculo" class="accordion-collapse collapse">
+                            <div class="accordion-body py-3" id="adj-grupo-vehiculo"></div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#adj-proveedor">
+                                <i class="bi bi-recycle me-2"></i>Proveedor de disposición
+                                <span class="badge bg-secondary ms-2 adj-contador" data-grupo="proveedor">0</span>
+                            </button>
+                        </h2>
+                        <div id="adj-proveedor" class="accordion-collapse collapse">
+                            <div class="accordion-body py-3" id="adj-grupo-proveedor"></div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#adj-solmed">
+                                <i class="bi bi-building me-2"></i>Documentación de SOLMED
+                                <span class="badge bg-secondary ms-2 adj-contador" data-grupo="solmed">0</span>
+                            </button>
+                        </h2>
+                        <div id="adj-solmed" class="accordion-collapse collapse">
+                            <div class="accordion-body py-3" id="adj-grupo-solmed"></div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#adj-cliente">
+                                <i class="bi bi-buildings me-2"></i>Documentos del cliente
+                                <span class="badge bg-secondary ms-2 adj-contador" data-grupo="cliente">0</span>
+                            </button>
+                        </h2>
+                        <div id="adj-cliente" class="accordion-collapse collapse">
+                            <div class="accordion-body py-3" id="adj-grupo-cliente"></div>
+                        </div>
+                    </div>
                 </div>
-                {% for e in form.documentos_adicionales.errors %}
-                <div class="text-danger small mt-2"><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>
-                {% endfor %}
+
+                {% if form.non_field_errors %}
+                <div class="text-danger small mt-2">
+                    {% for e in form.non_field_errors %}<div><i class="bi bi-x-octagon-fill me-1"></i>{{ e }}</div>{% endfor %}
+                </div>
+                {% endif %}
             </div>
 
             {# Vista previa del correo (maqueta) #}
@@ -445,6 +505,10 @@
 {{ vehiculos_cargados|json_script:"vehiculos-cargados-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ docs_adicionales_sel|json_script:"docs-adicionales-sel" }}
+{{ docs_vehiculos|json_script:"docs-vehiculos-data" }}
+{{ docs_proveedores|json_script:"docs-proveedores-data" }}
+{{ docs_solmed|json_script:"docs-solmed-data" }}
+{{ docs_clientes|json_script:"docs-clientes-data" }}
 <script>
 // --- Sitio de inicio: enlace que abre el campo para crear uno nuevo ---
 (function () {
@@ -730,10 +794,15 @@ var personalDocs = JSON.parse(document.getElementById('personal-docs-data').text
 var contenedorAlertas = document.getElementById('alertas-documentos');
 // Documentos del cliente que se adjuntan al correo: { "<id_cliente>": [nombre, ...] }
 var docsCorreoPorCliente = JSON.parse(document.getElementById('docs-correo-data').textContent);
-// Documentos adicionales ya marcados (al editar o tras un error de validación).
+// Tokens de adjuntos ya marcados (al editar o tras un error de validación).
 var docsAdicionalesSel = new Set(
     JSON.parse(document.getElementById('docs-adicionales-sel').textContent).map(String)
 );
+// Catálogos de documentos adjuntables por fuente.
+var docsVehiculos = JSON.parse(document.getElementById('docs-vehiculos-data').textContent);
+var docsProveedores = JSON.parse(document.getElementById('docs-proveedores-data').textContent);
+var docsSolmed = JSON.parse(document.getElementById('docs-solmed-data').textContent);
+var docsClientes = JSON.parse(document.getElementById('docs-clientes-data').textContent);
 
 // --- Cursos exigidos por ESTA programación al ayudante ---
 var CURSOS = [
@@ -884,37 +953,122 @@ function revisarDocumentos() {
     return bloquear;
 }
 
-// Dibuja los checkboxes de documentos ADICIONALES del expediente del personal
-// asignado (la SS va siempre y no aparece aquí). Devuelve los marcados
-// [{label, persona}] para reflejarlos en la vista previa del correo.
+// ================== ADJUNTOS ADICIONALES (acordeón por fuente) ==================
+// Cada checkbox lleva name="adjuntos_correo" y como value el TOKEN que valida y
+// resuelve el servidor. Devuelve los marcados [{label, origen}] para la vista previa.
+
+function chkAdjunto(token, label, marcados, origen) {
+    var checked = docsAdicionalesSel.has(String(token));
+    if (checked) marcados.push({ label: label, origen: origen });
+    var id = 'adj-' + token.replace(/[^a-z0-9]/gi, '-');
+    return '<div class="form-check">'
+        + '<input class="form-check-input chk-doc-adicional" type="checkbox" '
+        + 'name="adjuntos_correo" value="' + esc(token) + '" id="' + id + '"'
+        + (checked ? ' checked' : '') + '>'
+        + '<label class="form-check-label small" for="' + id + '">' + esc(label) + '</label>'
+        + '</div>';
+}
+
+function vacio(texto) {
+    return '<span class="text-muted small">' + texto + '</span>';
+}
+
 function renderDocsAdicionales(personal) {
-    var cont = document.getElementById('docs-adicionales');
-    if (!cont) return [];
-    var html = '';
     var marcados = [];
-    personal.forEach(function (p) {
-        var docs = (p.info && p.info.docs) || [];
-        if (!docs.length) return;
-        html += '<div class="mb-2"><div class="small fw-semibold mb-1">'
-            + esc(p.nombre) + ' <span class="text-muted fw-normal">(' + esc(p.rol) + ')</span></div>';
-        docs.forEach(function (d) {
-            var checked = docsAdicionalesSel.has(String(d.id));
-            if (checked) marcados.push({ label: d.label, persona: p.nombre });
-            html += '<div class="form-check form-check-inline">'
-                + '<input class="form-check-input chk-doc-adicional" type="checkbox" '
-                + 'name="documentos_adicionales" value="' + d.id + '" id="doc-ad-' + d.id + '"'
-                + (checked ? ' checked' : '') + '>'
-                + '<label class="form-check-label small" for="doc-ad-' + d.id + '">' + esc(d.label) + '</label>'
-                + '</div>';
+
+    // --- Personal asignado (agrupado por persona) ---
+    var contP = document.getElementById('adj-grupo-personal');
+    if (contP) {
+        var html = '';
+        personal.forEach(function (p) {
+            var docs = (p.info && p.info.docs) || [];
+            if (!docs.length) return;
+            html += '<div class="mb-2"><div class="small fw-semibold mb-1">'
+                + esc(p.nombre) + ' <span class="text-muted fw-normal">(' + esc(p.rol) + ')</span></div>';
+            docs.forEach(function (d) {
+                html += chkAdjunto('personal:' + d.id, d.label, marcados, p.nombre);
+            });
+            html += '</div>';
         });
-        html += '</div>';
-    });
-    if (!html) {
-        html = personal.length
-            ? '<span class="text-muted small">El personal asignado no tiene otros documentos en su expediente.</span>'
-            : '<span class="text-muted small">Asigna el conductor y los ayudantes para ver sus documentos.</span>';
+        contP.innerHTML = html || vacio(personal.length
+            ? 'El personal asignado no tiene otros documentos en su expediente.'
+            : 'Asigna el conductor y los ayudantes para ver sus documentos.');
     }
-    cont.innerHTML = html;
+
+    // --- Vehículo del servicio (la placa de la cuadrilla) ---
+    var contV = document.getElementById('adj-grupo-vehiculo');
+    var selVeh = document.querySelector('#cuadrillas-tbody select[name$="-vehiculo"]');
+    var placaEl = document.getElementById('adj-placa');
+    if (contV) {
+        var vid = selVeh && selVeh.value;
+        var placa = '';
+        if (vid && selVeh.selectedIndex > -1) {
+            var textoVeh = selVeh.options[selVeh.selectedIndex].text;
+            var m = textoVeh.match(/\(([^)]+)\)\s*$/);   // "Marca Modelo (PLACA)"
+            placa = m ? m[1] : textoVeh;
+        }
+        if (placaEl) placaEl.textContent = placa ? '· ' + placa : '';
+        var docsV = (vid && docsVehiculos[vid]) || [];
+        if (!vid) {
+            contV.innerHTML = vacio('Asigna la placa en la cuadrilla para ver sus documentos.');
+        } else if (!docsV.length) {
+            contV.innerHTML = vacio('Esta placa no tiene documentos cargados (SOAT, tecnomecánica, tarjeta).');
+        } else {
+            contV.innerHTML = docsV.map(function (d) {
+                return chkAdjunto(d.token, d.label, marcados, 'Vehículo ' + placa);
+            }).join('');
+        }
+    }
+
+    // --- Proveedor de disposición (el elegido arriba) ---
+    var contD = document.getElementById('adj-grupo-proveedor');
+    var selReqD = document.getElementById('id_requiere_disposicion_final');
+    var selProvD = document.getElementById('id_dispositor_final');
+    if (contD) {
+        if (!selReqD || selReqD.value !== 'SI' || !selProvD || !selProvD.value) {
+            contD.innerHTML = vacio('Elige el proveedor en "¿Se realizará disposición final?" para ver su expediente.');
+        } else {
+            var nombreProv = selProvD.options[selProvD.selectedIndex].text;
+            var docsD = docsProveedores[selProvD.value] || [];
+            contD.innerHTML = docsD.length
+                ? docsD.map(function (d) { return chkAdjunto(d.token, d.label, marcados, 'Proveedor ' + nombreProv); }).join('')
+                : vacio('El proveedor elegido no tiene documentos en su expediente.');
+        }
+    }
+
+    // --- Documentación de SOLMED (catálogo fijo) ---
+    var contS = document.getElementById('adj-grupo-solmed');
+    if (contS) {
+        contS.innerHTML = docsSolmed.length
+            ? docsSolmed.map(function (d) { return chkAdjunto(d.token, d.label, marcados, 'SOLMED'); }).join('')
+            : vacio('No hay documentación interna cargada (panel Documentación).');
+    }
+
+    // --- Documentos del cliente elegido ---
+    var contC = document.getElementById('adj-grupo-cliente');
+    var selCli = document.getElementById('id_cliente');
+    if (contC) {
+        var cid = selCli && selCli.value;
+        var nombreCli = cid ? selCli.options[selCli.selectedIndex].text : '';
+        var docsC = (cid && docsClientes[cid]) || [];
+        if (!cid) {
+            contC.innerHTML = vacio('Elige el cliente para ver sus documentos.');
+        } else {
+            contC.innerHTML = docsC.length
+                ? docsC.map(function (d) { return chkAdjunto(d.token, d.label, marcados, 'Cliente ' + nombreCli); }).join('')
+                : vacio('Este cliente no tiene documentos fijos ni ambientales cargados.');
+        }
+    }
+
+    // --- Contadores por fuente en los encabezados del acordeón ---
+    document.querySelectorAll('.adj-contador').forEach(function (badge) {
+        var grupo = document.getElementById('adj-grupo-' + badge.getAttribute('data-grupo'));
+        var n = grupo ? grupo.querySelectorAll('.chk-doc-adicional:checked').length : 0;
+        badge.textContent = n;
+        badge.classList.toggle('bg-success', n > 0);
+        badge.classList.toggle('bg-secondary', n === 0);
+    });
+
     return marcados;
 }
 
@@ -979,8 +1133,8 @@ function actualizarEnvioSS(personal, adicionales) {
         + (cliente ? ' para ' + esc(cliente) : '') + ':'
         + '<ul class="mt-2 mb-2">' + lineas + '</ul>'
         + (adicionales.length
-            ? 'Documentos adicionales del personal:<ul class="mt-2 mb-2">'
-              + adicionales.map(function (a) { return '<li>' + esc(a.persona) + ': ' + esc(a.label) + '</li>'; }).join('')
+            ? 'Documentos adicionales:<ul class="mt-2 mb-2">'
+              + adicionales.map(function (a) { return '<li>' + esc(a.origen) + ': ' + esc(a.label) + '</li>'; }).join('')
               + '</ul>'
             : '')
         + (docsCliente.length
@@ -1010,11 +1164,11 @@ function actualizarEnvioSS(personal, adicionales) {
                 + '<i class="bi bi-folder2-open"></i> Cargar</a>' : '')
             + '</div>';
     });
-    // Documentos adicionales del expediente marcados por el asesor.
+    // Documentos adicionales marcados por el asesor (todas las fuentes).
     adicionales.forEach(function (a) {
         filas.push('<div class="list-group-item d-flex align-items-center">'
             + '<i class="bi bi-file-earmark-plus text-muted me-2"></i>'
-            + esc(a.label) + ' &mdash; <strong class="ms-1">' + esc(a.persona) + '</strong>'
+            + esc(a.label) + ' &mdash; <strong class="ms-1">' + esc(a.origen) + '</strong>'
             + ' <span class="text-muted small ms-1">(documento adicional)</span></div>');
     });
     // Documentos fijos del cliente, al final de la lista de adjuntos.
@@ -1042,6 +1196,8 @@ function bloquearGuardado(bloquear) {
 
 document.addEventListener('change', function (e) {
     if (e.target.matches('#cuadrillas-tbody select[name$="-conductor"], #cuadrillas-tbody select[name$="-ayudante"], #cuadrillas-tbody select[name$="-ayudante2"]')
+        || e.target.matches('#cuadrillas-tbody select[name$="-vehiculo"]')          // fuente Vehículo
+        || e.target.matches('#id_requiere_disposicion_final, #id_dispositor_final') // fuente Proveedor
         || e.target.matches('#id_exige_curso_alturas, #id_exige_curso_confinados')
         || e.target.matches('#id_cliente')) {   // el cliente aparece en el cuerpo del correo
         pintarSwitches();
