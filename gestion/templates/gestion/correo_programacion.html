@@ -1,0 +1,172 @@
+{% comment %}
+Correo de programación de servicio (conductor y ayudantes). Diseño de marca
+SOLMED apto para clientes de correo: TODO con tablas y estilos en línea, sin
+CSS externo ni fuentes web (Gmail/Outlook los ignoran). Contexto: nombre,
+primer_nombre, programacion, cliente_nombre, rol, detalles [(etiqueta, valor)],
+novedades, fotos_pedidas, url, url_boton, fecha_limite.
+{% endcomment %}<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servicio SOLMED</title>
+</head>
+<body style="margin:0; padding:0; background-color:#EDF0F4;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EDF0F4; padding:24px 12px;">
+<tr><td align="center">
+
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0"
+           style="max-width:600px; width:100%; background-color:#ffffff; border-radius:10px; overflow:hidden; border:1px solid #DCE1E8;">
+
+        {# ============ CABECERA DE MARCA ============ #}
+        <tr>
+            <td style="background-color:#16222F; padding:22px 28px;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:20px; font-weight:bold; color:#9CBE30; letter-spacing:2px;">
+                    SOLMED <span style="color:#ffffff;">SAS</span>
+                </div>
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#a7b2be; letter-spacing:2px; text-transform:uppercase; padding-top:4px;">
+                    Programación de servicio
+                </div>
+            </td>
+        </tr>
+
+        {# ============ FECHA DEL SERVICIO ============ #}
+        <tr>
+            <td style="background-color:#5E8C1B; padding:10px 28px;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#ffffff; font-weight:bold;">
+                    &#128197;&nbsp; Servicio del {{ programacion.fecha|date:"l j \d\e F \d\e Y" }}
+                </div>
+            </td>
+        </tr>
+
+        {# ============ SALUDO ============ #}
+        <tr>
+            <td style="padding:26px 28px 6px;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:17px; color:#111A24; font-weight:bold;">
+                    Hola, {{ primer_nombre }}
+                </div>
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#51606E; padding-top:6px; line-height:1.5;">
+                    {% if rol == 'conductor' %}
+                        Se te asignó un servicio como <strong>conductor</strong>. Estos son los datos:
+                    {% else %}
+                        Se te asignó un servicio como <strong>ayudante</strong>. Estos son los datos:
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+
+        {# ============ DATOS DEL SERVICIO ============ #}
+        <tr>
+            <td style="padding:16px 28px 4px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="border:1px solid #DCE1E8; border-radius:8px;">
+                    {% for etiqueta, valor in detalles %}
+                    <tr>
+                        <td style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#51606E; padding:9px 14px; border-bottom:1px solid #E9EDF2; width:150px; vertical-align:top;">
+                            {{ etiqueta }}
+                        </td>
+                        <td style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#111A24; font-weight:bold; padding:9px 14px; border-bottom:1px solid #E9EDF2; vertical-align:top;">
+                            {{ valor }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </td>
+        </tr>
+
+        {# ============ NOVEDADES DEL TURNO (ayudante) ============ #}
+        {% if novedades %}
+        <tr>
+            <td style="padding:16px 28px 4px;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-bottom:8px;">
+                    Tu turno
+                </div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#F7F9FB; border:1px solid #E9EDF2; border-radius:8px;">
+                    {% for n in novedades %}
+                    <tr>
+                        <td style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#111A24; padding:7px 14px;">
+                            <span style="color:#5E8C1B; font-weight:bold;">&#10003;</span>&nbsp; {{ n }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </td>
+        </tr>
+        {% endif %}
+
+        {# ============ FOTOS REQUERIDAS (ayudante) ============ #}
+        {% if fotos_pedidas %}
+        <tr>
+            <td style="padding:16px 28px 4px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background-color:#faf0da; border:1px solid #ecd4a3; border-radius:8px;">
+                    <tr>
+                        <td style="padding:12px 14px;">
+                            <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#7a4e05; font-weight:bold; padding-bottom:6px;">
+                                &#128247;&nbsp; Debes enviar una foto de:
+                            </div>
+                            {% for f in fotos_pedidas %}
+                            <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#7a4e05; padding:2px 0 2px 8px;">
+                                &bull;&nbsp; {{ f.etiqueta }}
+                            </div>
+                            {% endfor %}
+                            <div style="font-family:Arial,Helvetica,sans-serif; font-size:12px; color:#9A6206; padding-top:8px;">
+                                Las subes desde el botón de abajo, sin usuario ni contraseña.
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        {% endif %}
+
+        {# ============ OBSERVACIONES ============ #}
+        {% if programacion.observaciones_servicio %}
+        <tr>
+            <td style="padding:16px 28px 4px;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-bottom:8px;">
+                    Observaciones del servicio
+                </div>
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#111A24; background-color:#F7F9FB; border:1px solid #E9EDF2; border-radius:8px; padding:12px 14px; line-height:1.55; white-space:pre-line;">{{ programacion.observaciones_servicio }}</div>
+            </td>
+        </tr>
+        {% endif %}
+
+        {# ============ BOTÓN ============ #}
+        <tr>
+            <td align="center" style="padding:26px 28px 10px;">
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="background-color:#5E8C1B; border-radius:6px;">
+                            <a href="{{ url }}"
+                               style="display:inline-block; font-family:Arial,Helvetica,sans-serif; font-size:15px; font-weight:bold; color:#ffffff; text-decoration:none; padding:13px 34px;">
+                                {{ url_boton }} &rarr;
+                            </a>
+                        </td>
+                    </tr>
+                </table>
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; padding-top:10px;">
+                    Si el botón no abre, copia este enlace en tu navegador:<br>
+                    <a href="{{ url }}" style="color:#215E8C; word-break:break-all;">{{ url }}</a>
+                </div>
+            </td>
+        </tr>
+
+        {# ============ PIE ============ #}
+        <tr>
+            <td style="padding:18px 28px 24px; border-top:1px solid #E9EDF2;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; line-height:1.6; text-align:center;">
+                    {% if fecha_limite %}
+                    Este enlace es personal y sirve hasta el <strong>{{ fecha_limite|date:"d/m/Y" }}</strong>.<br>
+                    {% endif %}
+                    Correo automático de la plataforma SOLMED SAS &mdash; si algo no cuadra, avísale a tu coordinador.
+                </div>
+            </td>
+        </tr>
+    </table>
+
+</td></tr>
+</table>
+</body>
+</html>

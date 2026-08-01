@@ -2359,7 +2359,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(self.request, detalle.capitalize())
-        _avisar_correo_ayudantes(self.request, self.object)
+        _avisar_correos_programacion(self.request, self.object)
         _avisar_carga_pendiente(self.request, self.object, orden)
 
         return HttpResponseRedirect(reverse('gestion:detalle_orden', kwargs={'pk': orden.pk}))
@@ -2563,90 +2563,163 @@ def _datos_servicio_ayudante(cuadrilla, slot):
     }
 
 
-def _enviar_correo_ayudantes(programacion, request):
+def _lineas_correo_servicio(ctx):
+    """Versión de TEXTO del correo de programación (respaldo del HTML)."""
+    p = ctx['programacion']
+    lineas = [
+        f"Hola {ctx['nombre']},", "",
+        f"Se te asignó un servicio para el {p.fecha.strftime('%d/%m/%Y')}.", "",
+    ]
+    for etiqueta, valor in ctx['detalles']:
+        lineas.append(f"{etiqueta}: {valor}")
+    if ctx['novedades']:
+        lineas += ["", "Tu turno:"] + [f"- {n}" for n in ctx['novedades']]
+    if p.observaciones_servicio:
+        lineas += ["", "Observaciones del servicio:", p.observaciones_servicio]
+    if ctx['fotos_pedidas']:
+        lineas += ["", "Debes subir una foto de:"]
+        lineas += [f"- {f['etiqueta']}" for f in ctx['fotos_pedidas']]
+    lineas += ["", ctx['url_texto'] + ":", ctx['url'], ""]
+    if ctx.get('fecha_limite'):
+        lineas += [f"El enlace es personal y sirve hasta el "
+                   f"{ctx['fecha_limite'].strftime('%d/%m/%Y')}.", ""]
+    lineas += ["Cordialmente,", "SOLMED SAS"]
+    return lineas
+
+
+def _enviar_correo_servicio(ctx, correo):
+    """Envía el correo de programación (texto + HTML de marca) a una persona."""
+    from django.core.mail import EmailMultiAlternatives
+    p = ctx['programacion']
+    mensaje = EmailMultiAlternatives(
+        subject=(f"SOLMED - Servicio del {p.fecha.strftime('%d/%m/%Y')} "
+                 f"- {ctx['cliente_nombre']}"),
+        body="\n".join(_lineas_correo_servicio(ctx)),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[correo],
+    )
+    mensaje.attach_alternative(
+        get_template('gestion/correo_programacion.html').render(ctx), 'text/html')
+    mensaje.send(fail_silently=False)
+
+
+def _enviar_correos_programacion(programacion, request):
     """
-    Le envía a cada ayudante de la programación su hoja de ruta con el enlace
-    personal para subir fotos. Devuelve (enviados, avisos) para informar al
-    asesor; nunca lanza: un fallo de correo no debe tumbar la orden.
+    Notifica por correo a TODO el personal de la programación: el conductor
+    recibe su servicio con enlace a la plataforma, y cada ayudante su hoja de
+    ruta con el enlace personal (token) para ver el servicio y subir fotos.
+    Devuelve (enviados, avisos); un fallo de correo no debe tumbar la orden.
     """
     enviados, avisos = 0, []
     for cuadrilla in programacion.cuadrillas.select_related(
             'ayudante', 'ayudante2', 'conductor', 'vehiculo'):
+
+        # Datos comunes del servicio (mismos que ve el ayudante).
+        base = _datos_servicio_ayudante(cuadrilla, 1)
+
+        def detalles(rol_conductor, datos):
+            filas = [('Cliente', datos['cliente'].nombre)]
+            if datos['lugar']:
+                filas.append(('Lugar', datos['lugar']))
+            if datos['direccion']:
+                filas.append(('Dirección', datos['direccion']))
+            if programacion.hora_ingreso_bodega:
+                filas.append(('Hora de ingreso', programacion.hora_ingreso_bodega.strftime('%H:%M')))
+            if datos['sitio_inicio']:
+                filas.append(('Sitio de inicio', datos['sitio_inicio']))
+            if programacion.hora_servicio:
+                filas.append(('Hora del servicio', programacion.hora_servicio.strftime('%H:%M')))
+            if not rol_conductor and datos['conductor']:
+                filas.append(('Conductor', datos['conductor']))
+            if datos['placa']:
+                filas.append(('Vehículo', datos['placa']))
+            if datos['contacto']:
+                filas.append(('Contacto en el sitio', datos['contacto']))
+            return filas
+
+        destinatarios = []
+
+        # --- Conductor: enlace a su app (él sí tiene usuario) ---
+        if cuadrilla.conductor:
+            if programacion.orden_id:
+                url_conductor = request.build_absolute_uri(reverse(
+                    'gestion:detalle_orden_conductor', kwargs={'pk': programacion.orden_id}))
+            else:
+                url_conductor = request.build_absolute_uri(reverse('gestion:dashboard_conductor'))
+            ayudantes_fila = [
+                p.get_full_name() or p.username
+                for p in (cuadrilla.ayudante, cuadrilla.ayudante2) if p
+            ]
+            filas = detalles(True, base)
+            if ayudantes_fila:
+                filas.append(('Ayudante(s)', ', '.join(ayudantes_fila)))
+            destinatarios.append((cuadrilla.conductor, {
+                'rol': 'conductor',
+                'detalles': filas,
+                'novedades': [],
+                'fotos_pedidas': [],
+                'url': url_conductor,
+                'url_texto': 'Entra a la plataforma para ver tu servicio',
+                'url_boton': 'Ver mi servicio',
+                'fecha_limite': None,
+            }))
+
+        # --- Ayudantes: enlace personal con token ---
         for slot in (1, 2):
             ayudante = cuadrilla.ayudante_de(slot)
             if ayudante is None:
                 continue
-            nombre = ayudante.get_full_name() or ayudante.username
-            correo = (ayudante.email or '').strip()
-            if not correo:
-                avisos.append(f"{nombre} no tiene correo registrado: no se le pudo avisar")
-                continue
-
             datos = _datos_servicio_ayudante(cuadrilla, slot)
-            url = request.build_absolute_uri(reverse(
-                'gestion:acceso_ayudante', kwargs={'token': cuadrilla.token_de(slot)}))
+            destinatarios.append((ayudante, {
+                'rol': 'ayudante',
+                'detalles': detalles(False, datos),
+                'novedades': datos['novedades'],
+                'fotos_pedidas': datos['fotos_pedidas'],
+                'url': request.build_absolute_uri(reverse(
+                    'gestion:acceso_ayudante', kwargs={'token': cuadrilla.token_de(slot)})),
+                'url_texto': ('Entra aquí para verlo y subir las fotos '
+                              '(no necesitas usuario ni contraseña)'
+                              if datos['fotos_pedidas'] else
+                              'Entra aquí para ver los detalles del servicio'),
+                'url_boton': ('Ver mi servicio y subir fotos'
+                              if datos['fotos_pedidas'] else 'Ver mi servicio'),
+                'fecha_limite': cuadrilla.fecha_limite_acceso,
+            }))
 
-            lineas = [
-                f"Hola {nombre},", "",
-                f"Se te asignó un servicio para el {programacion.fecha.strftime('%d/%m/%Y')}.", "",
-                f"Cliente: {datos['cliente'].nombre}",
-            ]
-            if datos['lugar']:
-                lineas.append(f"Lugar: {datos['lugar']}")
-            if datos['direccion']:
-                lineas.append(f"Dirección: {datos['direccion']}")
-            if programacion.hora_ingreso_bodega:
-                lineas.append(f"Hora de ingreso: {programacion.hora_ingreso_bodega.strftime('%H:%M')}")
-            if datos['sitio_inicio']:
-                lineas.append(f"Sitio de inicio: {datos['sitio_inicio']}")
-            if programacion.hora_servicio:
-                lineas.append(f"Hora del servicio: {programacion.hora_servicio.strftime('%H:%M')}")
-            if datos['conductor']:
-                lineas.append(f"Conductor: {datos['conductor']}")
-            if datos['placa']:
-                lineas.append(f"Vehículo: {datos['placa']}")
-            if datos['contacto']:
-                lineas.append(f"Contacto en el sitio: {datos['contacto']}")
-            if datos['novedades']:
-                lineas += ["", "Tu turno:"] + [f"- {n}" for n in datos['novedades']]
-            if programacion.observaciones_servicio:
-                lineas += ["", "Observaciones del servicio:", programacion.observaciones_servicio]
-            if datos['fotos_pedidas']:
-                lineas += ["", "Debes subir una foto de:"]
-                lineas += [f"- {f['etiqueta']}" for f in datos['fotos_pedidas']]
-                lineas += ["", "Entra aquí para verlo y subir las fotos (no necesitas usuario ni contraseña):"]
-            else:
-                lineas += ["", "Entra aquí para ver los detalles del servicio:"]
-            lineas += [url, "",
-                       f"El enlace es personal y sirve hasta el "
-                       f"{cuadrilla.fecha_limite_acceso.strftime('%d/%m/%Y')}.", "",
-                       "Cordialmente,", "SOLMED SAS"]
-
-            EmailMessage(
-                subject=(f"SOLMED - Servicio del {programacion.fecha.strftime('%d/%m/%Y')} "
-                         f"- {datos['cliente'].nombre}"),
-                body="\n".join(lineas),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[correo],
-            ).send(fail_silently=False)
+        for persona, extra in destinatarios:
+            nombre = persona.get_full_name() or persona.username
+            correo = (persona.email or '').strip()
+            rol = 'conductor' if extra['rol'] == 'conductor' else 'ayudante'
+            if not correo:
+                avisos.append(f"El {rol} {nombre} no tiene correo registrado: no se le pudo avisar")
+                continue
+            ctx = {
+                'nombre': nombre,
+                'primer_nombre': (persona.first_name or nombre).split(' ')[0],
+                'programacion': programacion,
+                'cliente_nombre': base['cliente'].nombre,
+                **extra,
+            }
+            _enviar_correo_servicio(ctx, correo)
             enviados += 1
     return enviados, avisos
 
 
-def _avisar_correo_ayudantes(request, programacion):
-    """Envía la hoja de ruta a los ayudantes e informa el resultado al asesor."""
+def _avisar_correos_programacion(request, programacion):
+    """Notifica al personal (conductor y ayudantes) e informa el resultado."""
     try:
-        enviados, avisos = _enviar_correo_ayudantes(programacion, request)
+        enviados, avisos = _enviar_correos_programacion(programacion, request)
     except Exception as e:
-        messages.warning(request, f"No se pudo enviar el correo a los ayudantes ({e}).")
+        messages.warning(request, f"No se pudo notificar al personal por correo ({e}).")
         return
     if enviados:
         messages.success(
             request,
-            f"Se envió la hoja de ruta a {enviados} ayudante{'s' if enviados != 1 else ''}."
+            f"Programación enviada por correo a {enviados} "
+            f"persona{'s' if enviados != 1 else ''} (conductor y ayudantes)."
         )
     for aviso in avisos:
-        messages.warning(request, aviso.capitalize())
+        messages.warning(request, aviso)
 
 
 class AccesoAyudanteView(View):
@@ -2789,7 +2862,7 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(request, detalle.capitalize())
-        _avisar_correo_ayudantes(request, programacion)
+        _avisar_correos_programacion(request, programacion)
         _avisar_carga_pendiente(request, programacion, orden)
 
         return redirect('gestion:detalle_orden', pk=orden.pk)
