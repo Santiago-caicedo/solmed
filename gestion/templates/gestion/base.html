@@ -365,7 +365,7 @@
 
     <div class="sidebar-scroll">
     <ul class="nav flex-column">
-        {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
+        {% if es_asesor %}
         <li class="nav-section">Panel</li>
         <li>
             <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if 'dashboard' == request.resolver_match.view_name %}active{% endif %}">
@@ -374,7 +374,7 @@
         </li>
         {% endif %}
 
-        {% if user.groups.all.0.name == 'Conductores' %}
+        {% if es_conductor %}
         <li class="nav-section">Mi trabajo</li>
         <li>
             <a href="{% url 'gestion:dashboard_conductor' %}" class="nav-link {% if 'dashboard-conductor' in request.path %}active{% endif %}">
@@ -399,14 +399,14 @@
                 <i class="bi bi-calendar3"></i>Calendario
             </a>
         </li>
-        {% if user.is_superuser or user.groups.all.0.name == 'Planificadores' %}
+        {% if es_planificador %}
         <li>
             <a href="{% url 'gestion:planificacion' %}" class="nav-link {% if 'planificacion' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar2-week"></i>Planificación
             </a>
         </li>
         {% endif %}
-        {% if user.is_superuser or user.groups.all.0.name == 'Asesores' %}
+        {% if es_asesor %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar-plus"></i>Programación
@@ -446,7 +446,7 @@
         </li>
         {% endif %}
 
-        {% if user.is_superuser %}
+        {% if es_administrador %}
         <li class="nav-section">Sistema</li>
         <li>
             <a href="{% url 'gestion:reportes' %}" class="nav-link {% if 'reportes' in request.path %}active{% endif %}">
@@ -464,7 +464,8 @@
             <div class="user-info-text">
                 <div class="user-name">{{ user.get_full_name|default:user.username }}</div>
                 <div class="user-role">
-                    {% if user.is_superuser %}Administrador
+                    {% if user.is_superuser %}Superadministrador
+                    {% elif es_administrador %}Administrador
                     {% elif user.groups.all.0.name %}{{ user.groups.all.0.name }}
                     {% else %}Usuario{% endif %}
                 </div>

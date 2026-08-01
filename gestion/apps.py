@@ -12,6 +12,23 @@ def crear_roles(sender, **kwargs):
     # Define los roles y los permisos que cada uno debe tener.
     # La estructura es: 'Nombre del Rol': {'nombre_del_modelo': ['permiso1', 'permiso2']}
     ROLES = {
+        # Administrador de la plataforma: hace todo lo del superusuario DENTRO
+        # de la app (usuarios, reportes, gestión). Lo único que NO puede es
+        # entrar al admin de Django, porque eso exige is_staff y este rol no lo
+        # otorga. La app autoriza por nombre de grupo (ver es_administrador en
+        # views.py); estos permisos quedan por consistencia.
+        "Administradores": {
+            "ordenservicio": ["add", "change", "view", "delete"],
+            "cliente": ["add", "change", "view", "delete"],
+            "vehiculo": ["add", "change", "view", "delete"],
+            "documentoorden": ["add", "change", "view", "delete"],
+            "manifiesto": ["add", "change", "view", "delete"],
+            "programacion": ["add", "change", "view", "delete"],
+            "documentopersonal": ["add", "change", "view", "delete"],
+            "perfilpersona": ["add", "change", "view", "delete"],
+            "recorrido": ["add", "change", "view", "delete"],
+            "user": ["add", "change", "view"],
+        },
         "Asesores": {
             "ordenservicio": ["add", "change", "view", "delete"],
             "cliente": ["add", "change", "view", "delete"],

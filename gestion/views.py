@@ -70,19 +70,32 @@ class PaginadoMixin:
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA PLANIFICADORES ---
+def es_administrador(user):
+    """
+    Administrador de la plataforma: el superusuario y el rol 'Administradores'.
+    Hacen exactamente lo mismo DENTRO de la app; la diferencia es que el rol
+    Administradores no entra al admin de Django (eso exige is_staff).
+    """
+    return user.is_authenticated and (
+        user.is_superuser or user.groups.filter(name='Administradores').exists()
+    )
+
+
 class PlanificadorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     def test_func(self):
         user = self.request.user
-        return user.is_superuser or user.groups.filter(name='Planificadores').exists()
+        return es_administrador(user) or user.groups.filter(name='Planificadores').exists()
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA ASESORES Y ADMINS ---
 class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """
-    Este Mixin restringe el acceso a Superusuarios y a miembros del grupo 'Asesores'.
+    Restringe el acceso a administradores (superusuario o rol Administradores)
+    y a miembros del grupo 'Asesores'.
     """
     def test_func(self):
-        return self.request.user.is_superuser or self.request.user.groups.filter(name='Asesores').exists()
+        user = self.request.user
+        return es_administrador(user) or user.groups.filter(name='Asesores').exists()
 
 
 # --- MIXIN QUE BLOQUEA A LOS CONDUCTORES ---
@@ -94,7 +107,7 @@ class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """
     def test_func(self):
         user = self.request.user
-        return user.is_superuser or not user.groups.filter(name='Conductores').exists()
+        return es_administrador(user) or not user.groups.filter(name='Conductores').exists()
 
 
 # Nombres cortos de los meses para las series de 12 meses del tablero.
@@ -115,7 +128,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def dispatch(self, request, *args, **kwargs):
         # El conductor tiene su propio tablero: si llega aquí por URL, se le
         # redirige en vez de mostrarle las cifras de gestión.
-        if (request.user.is_authenticated and not request.user.is_superuser
+        if (request.user.is_authenticated and not es_administrador(request.user)
                 and request.user.groups.filter(name='Conductores').exists()):
             return redirect('gestion:dashboard_conductor')
         return super().dispatch(request, *args, **kwargs)
@@ -636,7 +649,7 @@ class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
             initial={'fecha_cambio': timezone.localdate()})
         # El registro lo gestionan asesores y superusuarios (el resto solo consulta).
         context['puede_gestionar_filtros'] = (
-            self.request.user.is_superuser
+            es_administrador(self.request.user)
             or self.request.user.groups.filter(name='Asesores').exists()
         )
         return context
@@ -680,7 +693,7 @@ class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
 def _puede_gestionar_manifiesto(user, recorrido):
     """Solo el conductor asignado, un Asesor o un superusuario pueden llenar el manifiesto."""
     return (
-        user.is_superuser
+        es_administrador(user)
         or user.groups.filter(name='Asesores').exists()
         or recorrido.conductor_id == user.id
     )
@@ -1113,11 +1126,15 @@ class EncuestaPublicaView(View):
 
 
 
-# --- Mixin de Seguridad para Superusuarios ---
-# Usaremos esto para proteger las vistas de administración
-class SuperuserRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+# --- Mixin para las vistas de administración de la plataforma ---
+# Superusuario y rol 'Administradores' (usuarios, reportes). El nombre viejo
+# SuperuserRequiredMixin se conserva como alias por compatibilidad.
+class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     def test_func(self):
-        return self.request.user.is_superuser
+        return es_administrador(self.request.user)
+
+
+SuperuserRequiredMixin = AdministradorRequiredMixin
 
 # --- Vistas para Administración de Usuarios ---
 
@@ -1144,12 +1161,24 @@ class CrearUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, CreateView):
         
         return response
 
-class ActualizarUsuarioView(SuperuserRequiredMixin, SuccessMessageMixin, UpdateView):
+class ActualizarUsuarioView(AdministradorRequiredMixin, SuccessMessageMixin, UpdateView):
     model = User
     form_class = ActualizarUsuarioForm
     template_name = 'gestion/form_usuario.html'
     success_url = reverse_lazy('gestion:lista_usuarios')
     success_message = "¡Usuario actualizado exitosamente!"
+
+    def dispatch(self, request, *args, **kwargs):
+        # Solo un superusuario edita a otro superusuario (ver _protege_superusuario).
+        if request.user.is_authenticated and not request.user.is_superuser:
+            persona = self.get_object()
+            if persona.is_superuser:
+                messages.error(
+                    request,
+                    "Solo un superadministrador puede modificar la cuenta de otro superadministrador."
+                )
+                return redirect('gestion:lista_usuarios')
+        return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         # Guardamos el usuario
@@ -1306,7 +1335,7 @@ def feed_calendario(request):
     user = request.user
 
     # Si el usuario es un conductor, filtra solo sus recorridos
-    if user.groups.filter(name='Conductores').exists():
+    if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
         recorridos = Recorrido.objects.filter(conductor=user)
     # Si es asesor o admin, muestra todos los recorridos
     else:
@@ -1457,7 +1486,7 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
 @login_required
 def dashboard_redirect_view(request):
     user = request.user
-    if user.groups.filter(name='Conductores').exists():
+    if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
         return redirect('gestion:dashboard_conductor')
     else: # Asesores y Superusuarios
         return redirect('gestion:dashboard')
@@ -2888,6 +2917,23 @@ class CancelarProgramacionView(AsesorRequiredMixin, View):
 #  y superusuarios.
 # ============================================================
 
+def _protege_superusuario(request, persona):
+    """
+    Impide que quien NO es superusuario modifique la cuenta de un superusuario
+    (editarla, cambiarle la contraseña o retirarla). Sin esto, el rol
+    Administradores podría apropiarse de una cuenta con acceso al admin de
+    Django, que es justo lo que no debe poder hacer. Devuelve una redirección
+    si hay que frenar, o None si puede seguir.
+    """
+    if persona.is_superuser and not request.user.is_superuser:
+        messages.error(
+            request,
+            "Solo un superadministrador puede modificar la cuenta de otro superadministrador."
+        )
+        return redirect('gestion:ficha_persona', pk=persona.pk)
+    return None
+
+
 def _perfil_de(persona):
     """Devuelve (creándolo si no existe) el perfil de datos de la persona."""
     perfil, _ = PerfilPersona.objects.get_or_create(usuario=persona)
@@ -3085,6 +3131,9 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona)
+        if frenar is not None:
+            return frenar
         sin_acceso = _persona_sin_acceso(persona)
         FormClass = PersonaSinAccesoForm if sin_acceso else ActualizarUsuarioForm
         return render(request, self.template_name, {
@@ -3098,6 +3147,9 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
 
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona)
+        if frenar is not None:
+            return frenar
         grupo = _grupo_de_post(request)
         sin_acceso = _grupo_es_sin_acceso(grupo)
         FormClass = PersonaSinAccesoForm if sin_acceso else ActualizarUsuarioForm
@@ -3140,6 +3192,9 @@ class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
             persona = get_object_or_404(User, pk=kwargs.get('pk'))
+            frenar = _protege_superusuario(request, persona)
+            if frenar is not None:
+                return frenar
             if _persona_sin_acceso(persona):
                 messages.info(
                     request,
@@ -3266,6 +3321,9 @@ class CambiarEstadoPersonaView(AsesorRequiredMixin, View):
     """
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona)
+        if frenar is not None:
+            return frenar
         perfil = _perfil_de(persona)
         if perfil.retirado:
             perfil.retirado = False
