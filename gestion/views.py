@@ -112,6 +112,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     """
     template_name = 'gestion/dashboard.html'
 
+    def dispatch(self, request, *args, **kwargs):
+        # El conductor tiene su propio tablero: si llega aquí por URL, se le
+        # redirige en vez de mostrarle las cifras de gestión.
+        if (request.user.is_authenticated and not request.user.is_superuser
+                and request.user.groups.filter(name='Conductores').exists()):
+            return redirect('gestion:dashboard_conductor')
+        return super().dispatch(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         hoy = timezone.localdate()
@@ -417,7 +425,7 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
 # Las órdenes NO se crean a mano (se eliminó CrearOrdenView): siempre nacen de
 # una programación, que valida personal/documentos y dispara los correos.
 # Aquí solo queda editarlas y añadirles recorridos.
-class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
+class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
     """
     Edita los datos de la orden y permite AÑADIR más recorridos (uno a uno).
     """
@@ -457,27 +465,27 @@ class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
         return HttpResponseRedirect(self.get_success_url())
 
 # --- Vistas para Vehículos ---
-class ListaVehiculosView(LoginRequiredMixin, PaginadoMixin, ListView):
+class ListaVehiculosView(NoConductorRequiredMixin, PaginadoMixin, ListView):
     model = Vehiculo
     template_name = 'gestion/lista_vehiculos.html'
     context_object_name = 'vehiculos'
     # Orden estable: sin él la paginación puede repetir o saltarse filas.
     ordering = ['placa']
 
-class CrearVehiculoView(LoginRequiredMixin, CreateView):
+class CrearVehiculoView(NoConductorRequiredMixin, CreateView):
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
-class ActualizarVehiculoView(LoginRequiredMixin, UpdateView):
+class ActualizarVehiculoView(NoConductorRequiredMixin, UpdateView):
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
 # --- Vistas para Clientes ---
-class ListaClientesView(LoginRequiredMixin, PaginadoMixin, ListView):
+class ListaClientesView(NoConductorRequiredMixin, PaginadoMixin, ListView):
     model = Cliente
     template_name = 'gestion/lista_clientes.html'
     context_object_name = 'clientes'
@@ -563,13 +571,13 @@ class ClienteFormMixin:
         return HttpResponseRedirect(self.get_success_url())
 
 
-class CrearClienteView(ClienteFormMixin, LoginRequiredMixin, CreateView):
+class CrearClienteView(ClienteFormMixin, NoConductorRequiredMixin, CreateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
 
-class ActualizarClienteView(ClienteFormMixin, LoginRequiredMixin, UpdateView):
+class ActualizarClienteView(ClienteFormMixin, NoConductorRequiredMixin, UpdateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
@@ -579,31 +587,7 @@ class ActualizarClienteView(ClienteFormMixin, LoginRequiredMixin, UpdateView):
 
 
 
-class OrdenServicioDetailView(LoginRequiredMixin, DetailView):
-    model = OrdenServicio
-    template_name = 'gestion/ordenservicio_detail.html'
-    context_object_name = 'orden'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['form_documento'] = DocumentoOrdenForm()
-        return context
-
-    def post(self, request, *args, **kwargs):
-        orden = self.get_object()
-        form = DocumentoOrdenForm(request.POST, request.FILES)
-        
-        if form.is_valid():
-            documento = form.save(commit=False)
-            documento.orden = orden
-            documento.save()
-            messages.success(request, '¡Documento adjuntado exitosamente!')
-        else:
-            messages.error(request, 'Error al adjuntar el documento.')
-            
-        return redirect('gestion:detalle_orden', pk=orden.pk)
-
-class VehiculoDetailView(LoginRequiredMixin, DetailView):
+class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
     model = Vehiculo
     template_name = 'gestion/vehiculo_detail.html'
     context_object_name = 'vehiculo'
@@ -993,6 +977,11 @@ class ManifiestoQRView(LoginRequiredMixin, View):
 def manifiesto_estado_json(request, pk):
     """Endpoint de polling para que la pantalla del QR detecte cuándo firma el cliente."""
     recorrido = get_object_or_404(Recorrido, pk=pk)
+    # Solo el conductor asignado, un asesor o un superusuario (mismo criterio
+    # del asistente del acta): sin esto, cualquier usuario podía sondear el
+    # estado y el PDF de actas ajenas.
+    if not _puede_gestionar_manifiesto(request.user, recorrido):
+        return JsonResponse({'error': 'Sin permiso para consultar esta acta.'}, status=403)
     try:
         manifiesto = recorrido.manifiesto
     except Manifiesto.DoesNotExist:
