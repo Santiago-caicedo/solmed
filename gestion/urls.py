@@ -28,6 +28,10 @@ urlpatterns = [
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
 
+    # --- Acceso del ayudante por token (sin usuario ni contraseña) ---
+    # Ve su servicio y sube las fotos que le exigen sus novedades.
+    path('ayudante/<uuid:token>/', views.AccesoAyudanteView.as_view(), name='acceso_ayudante'),
+
     # Aquí añadiremos las URLs para Clientes y Vehículos más adelante
 
     path('vehiculos/', views.ListaVehiculosView.as_view(), name='lista_vehiculos'),

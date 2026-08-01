@@ -149,6 +149,45 @@
             </div>
         </div>
 
+        {% if evidencias_ayudantes %}
+        {# Fotos que subieron los ayudantes desde su enlace personal #}
+        <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-camera me-1"></i>Evidencias de los ayudantes</h5></div>
+                <div class="card-body">
+                    {% for e in evidencias_ayudantes %}
+                    <div class="{% if not forloop.last %}border-bottom pb-3 mb-3{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                            <strong>{{ e.persona.get_full_name|default:e.persona.username }}</strong>
+                            {% if e.faltan %}
+                            <span class="badge bg-warning text-dark" title="{{ e.faltan|join:', ' }}">
+                                Falta{{ e.faltan|length|pluralize }}: {{ e.faltan|join:", " }}
+                            </span>
+                            {% else %}
+                            <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Completo</span>
+                            {% endif %}
+                        </div>
+                        {% if e.fotos %}
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for f in e.fotos %}
+                            <a href="{{ f.archivo.url }}" target="_blank" class="text-decoration-none"
+                               title="{{ f.get_novedad_display_label }} · {{ f.fecha_subida|date:'d/m/Y H:i' }}">
+                                <img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}"
+                                     style="width:88px; height:88px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
+                                <div class="small text-muted text-center" style="max-width:88px; font-size:.68rem; line-height:1.2;">
+                                    {{ f.get_novedad_display_label }}
+                                </div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <span class="text-muted small">Aún no ha enviado fotos.</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+        </div>
+        {% endif %}
+
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-vcard me-1"></i>Documentos del personal asignado</h5></div>
             <div class="card-body">

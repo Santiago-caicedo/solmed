@@ -1,0 +1,152 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mi servicio · SOLMED</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{ --brand:#9CBE30; --brand-600:#5E8C1B; --steel:#215E8C; --ink:#111A24; --ink-2:#51606E; --ink-3:#8A97A5; --line:#DCE1E8; }
+body{ font-family:'IBM Plex Sans',system-ui,sans-serif; background:#EDF0F4; color:var(--ink); margin:0; padding-bottom:2.5rem; }
+.ay-top{ background:linear-gradient(160deg,#16222F,#0A111A); color:#fff; padding:1.2rem 1rem 1.5rem; }
+.ay-top .marca{ font-size:.7rem; letter-spacing:.16em; text-transform:uppercase; color:var(--brand); font-weight:600; }
+.ay-top h1{ font-size:1.35rem; font-weight:700; margin:.2rem 0 0; }
+.ay-top .fecha{ color:#a7b2be; font-size:.9rem; margin-top:.15rem; }
+.ay-wrap{ max-width:640px; margin:-0.9rem auto 0; padding:0 .8rem; }
+.ay-card{ background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 10px rgba(15,23,35,.06); padding:1rem 1.1rem; margin-bottom:.9rem; }
+.ay-card h2{ font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3); font-weight:600; margin:0 0 .7rem; }
+.dato{ display:flex; gap:.7rem; padding:.45rem 0; border-bottom:1px solid #eef1f5; font-size:.95rem; }
+.dato:last-child{ border-bottom:0; }
+.dato .et{ flex:0 0 108px; color:var(--ink-2); font-size:.85rem; }
+.dato .va{ font-weight:600; min-width:0; }
+.nov{ display:flex; align-items:flex-start; gap:.5rem; padding:.35rem 0; font-size:.95rem; }
+.nov i{ color:var(--brand-600); margin-top:.15rem; }
+/* Fotos pedidas */
+.foto{ border:1px solid var(--line); border-radius:8px; padding:.85rem; margin-bottom:.7rem; background:#fbfcfd; }
+.foto.lista{ border-color:#bfe0c9; background:#e7f2eb; }
+.foto .cab{ display:flex; align-items:center; gap:.5rem; font-weight:600; margin-bottom:.5rem; }
+.foto .cab .badge{ margin-left:auto; }
+.foto input[type=file]{ width:100%; margin-bottom:.55rem; }
+.foto .btn{ width:100%; padding:.6rem; font-weight:600; }
+.previas{ display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.55rem; }
+.previas img{ width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+.aviso{ border-radius:8px; padding:.8rem 1rem; font-size:.92rem; margin-bottom:.9rem; }
+.pie{ text-align:center; color:var(--ink-3); font-size:.78rem; margin-top:1.2rem; }
+</style>
+</head>
+<body>
+
+<div class="ay-top">
+    <div class="ay-wrap" style="margin:0 auto; padding:0 .3rem;">
+        <div class="marca">SOLMED SAS</div>
+        <h1>Hola{% if ayudante %}, {{ ayudante.first_name|default:ayudante.username }}{% endif %}</h1>
+        <div class="fecha">
+            <i class="bi bi-calendar3 me-1"></i>Servicio del {{ programacion.fecha|date:"l j \d\e F" }}
+        </div>
+    </div>
+</div>
+
+<div class="ay-wrap">
+
+    {% if messages %}
+        {% for m in messages %}
+        <div class="aviso {% if m.tags == 'success' %}alert alert-success{% elif m.tags == 'error' %}alert alert-danger{% else %}alert alert-warning{% endif %}">{{ m }}</div>
+        {% endfor %}
+    {% endif %}
+
+    {% if not vigente %}
+    <div class="aviso alert alert-warning">
+        <i class="bi bi-clock-history me-1"></i>
+        Este enlace venció el {{ fecha_limite|date:"d/m/Y" }}. Puedes ver la información,
+        pero ya no se pueden subir fotos.
+    </div>
+    {% endif %}
+
+    {# ---------- Datos del servicio ---------- #}
+    <div class="ay-card">
+        <h2>Tu servicio</h2>
+        <div class="dato"><span class="et">Cliente</span><span class="va">{{ cliente.nombre }}</span></div>
+        {% if lugar %}<div class="dato"><span class="et">Lugar</span><span class="va">{{ lugar }}</span></div>{% endif %}
+        {% if direccion %}<div class="dato"><span class="et">Dirección</span><span class="va">{{ direccion }}</span></div>{% endif %}
+        {% if programacion.hora_ingreso_bodega %}<div class="dato"><span class="et">Hora de ingreso</span><span class="va">{{ programacion.hora_ingreso_bodega|time:"H:i" }}</span></div>{% endif %}
+        {% if sitio_inicio %}<div class="dato"><span class="et">Sitio de inicio</span><span class="va">{{ sitio_inicio }}</span></div>{% endif %}
+        {% if programacion.hora_servicio %}<div class="dato"><span class="et">Hora del servicio</span><span class="va">{{ programacion.hora_servicio|time:"H:i" }}</span></div>{% endif %}
+        {% if conductor %}<div class="dato"><span class="et">Conductor</span><span class="va">{{ conductor }}</span></div>{% endif %}
+        {% if placa %}<div class="dato"><span class="et">Vehículo</span><span class="va">{{ placa }}</span></div>{% endif %}
+        {% if contacto %}<div class="dato"><span class="et">Contacto</span><span class="va">{{ contacto }}</span></div>{% endif %}
+    </div>
+
+    {% if novedades %}
+    <div class="ay-card">
+        <h2>Tu turno</h2>
+        {% for n in novedades %}
+        <div class="nov"><i class="bi bi-check-circle-fill"></i><span>{{ n }}</span></div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if programacion.observaciones_servicio %}
+    <div class="ay-card">
+        <h2>Observaciones del servicio</h2>
+        <div style="font-size:.95rem; white-space:pre-line;">{{ programacion.observaciones_servicio }}</div>
+    </div>
+    {% endif %}
+
+    {# ---------- Fotos que debe subir ---------- #}
+    {% if fotos_pedidas %}
+    <div class="ay-card">
+        <h2>Fotos que debes enviar</h2>
+        {% if pendientes %}
+        <p style="font-size:.9rem; color:var(--ink-2); margin-top:-.3rem;">
+            Te faltan <strong>{{ pendientes|length }}</strong> de {{ fotos_pedidas|length }}.
+        </p>
+        {% else %}
+        <p style="font-size:.9rem; color:#1f5c33; margin-top:-.3rem;">
+            <i class="bi bi-check-circle-fill me-1"></i>Ya enviaste todas. Puedes añadir más si lo necesitas.
+        </p>
+        {% endif %}
+
+        {% for f in fotos_pedidas %}
+        <div class="foto {% if f.fotos %}lista{% endif %}">
+            <div class="cab">
+                <i class="bi {% if f.fotos %}bi-check-circle-fill text-success{% else %}bi-camera-fill{% endif %}"></i>
+                {{ f.etiqueta }}
+                {% if f.fotos %}<span class="badge bg-success">{{ f.fotos|length }}</span>
+                {% else %}<span class="badge bg-warning text-dark">Pendiente</span>{% endif %}
+            </div>
+
+            {% if f.fotos %}
+            <div class="previas">
+                {% for foto in f.fotos %}
+                <a href="{{ foto.archivo.url }}" target="_blank"><img src="{{ foto.archivo.url }}" alt="Foto enviada"></a>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if vigente %}
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="novedad" value="{{ f.codigo }}">
+                <input type="file" name="fotos" accept="image/*" capture="environment" multiple required
+                       class="form-control form-control-sm">
+                <button class="btn btn-success btn-sm">
+                    <i class="bi bi-upload me-1"></i>{% if f.fotos %}Añadir otra foto{% else %}Enviar foto{% endif %}
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="pie">
+        Enlace personal, válido hasta el {{ fecha_limite|date:"d/m/Y" }}.<br>
+        Si algo no cuadra, avísale a tu coordinador.
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,4 +1,5 @@
 # gestion/models.py
+import datetime
 import uuid
 from django.db import models, transaction
 from django.conf import settings # Para relacionar con el usuario/asesor
@@ -1464,6 +1465,14 @@ class ProgramacionCuadrilla(models.Model):
     # Novedad que requiere indicar de cuál vehículo se apoya la disposición.
     APOYA_DISPOSICION = 'APOYA_DISPOSICION'
 
+    # Novedades que le exigen al ayudante subir una FOTO como evidencia. Las
+    # sube desde un enlace con token que le llega por correo (no tiene usuario).
+    NOVEDADES_CON_FOTO = (
+        'INICIA_CLIENTE', 'TERMINA_CLIENTE', 'INICIA_PARQUEADERO', 'PUNTO_ENCUENTRO',
+    )
+    # Días que el enlace del ayudante sigue sirviendo después del servicio.
+    DIAS_VIGENCIA_ACCESO = 7
+
     programacion = models.ForeignKey(Programacion, on_delete=models.CASCADE, related_name='cuadrillas')
     conductor = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
@@ -1502,11 +1511,51 @@ class ProgramacionCuadrilla(models.Model):
     )
     orden_fila = models.PositiveSmallIntegerField(default=0, help_text="Orden de la fila en el formato")
 
+    # Enlace personal de cada ayudante (sin usuario ni contraseña) para ver su
+    # servicio y subir las fotos que le exijan sus novedades. Uno por ayudante.
+    token_ayudante = models.UUIDField(default=uuid.uuid4, editable=False, null=True, unique=True)
+    token_ayudante2 = models.UUIDField(default=uuid.uuid4, editable=False, null=True, unique=True)
+
     @staticmethod
     def novedades_display(csv):
         """Etiquetas legibles de una lista de novedades guardada como CSV."""
         etiquetas = dict(ProgramacionCuadrilla.NOVEDAD_CHOICES)
         return [etiquetas.get(c, c) for c in csv.split(',') if c]
+
+    # ---------- Acceso del ayudante por token ----------
+
+    def ayudante_de(self, slot):
+        """El ayudante 1 o 2 de la cuadrilla (None si no hay)."""
+        return self.ayudante if slot == 1 else self.ayudante2
+
+    def novedades_de(self, slot):
+        """Códigos de novedad marcados para ese ayudante."""
+        csv = self.ayudante_novedad if slot == 1 else self.ayudante2_novedad
+        return [c for c in (csv or '').split(',') if c]
+
+    def token_de(self, slot):
+        return self.token_ayudante if slot == 1 else self.token_ayudante2
+
+    def fotos_pedidas(self, slot):
+        """
+        Novedades de ese ayudante que exigen foto: [{'codigo', 'etiqueta'}].
+        Vacío si no le toca subir ninguna.
+        """
+        etiquetas = dict(self.NOVEDAD_CHOICES)
+        return [
+            {'codigo': codigo, 'etiqueta': etiquetas.get(codigo, codigo)}
+            for codigo in self.novedades_de(slot)
+            if codigo in self.NOVEDADES_CON_FOTO
+        ]
+
+    @property
+    def fecha_limite_acceso(self):
+        """Hasta cuándo sirve el enlace del ayudante."""
+        return self.programacion.fecha + datetime.timedelta(days=self.DIAS_VIGENCIA_ACCESO)
+
+    @property
+    def acceso_vigente(self):
+        return timezone.localdate() <= self.fecha_limite_acceso
 
     class Meta:
         ordering = ['orden_fila', 'id']
@@ -1516,6 +1565,47 @@ class ProgramacionCuadrilla(models.Model):
     def __str__(self):
         placa = self.vehiculo.placa if self.vehiculo else 'sin placa'
         return f"Cuadrilla ({placa}) - Programación #{self.programacion_id}"
+
+
+class FotoAyudante(models.Model):
+    """
+    Foto que sube el AYUDANTE como evidencia de una novedad de su turno (inicia
+    donde el cliente, termina donde el cliente, inicia en parqueadero o punto de
+    encuentro). La sube desde el enlace con token que le llega por correo, sin
+    usuario ni contraseña. Puede haber varias por novedad.
+    """
+    cuadrilla = models.ForeignKey(
+        ProgramacionCuadrilla, on_delete=models.CASCADE, related_name='fotos_ayudantes'
+    )
+    # 1 = ayudante, 2 = segundo ayudante de esa cuadrilla.
+    slot = models.PositiveSmallIntegerField(
+        choices=[(1, 'Ayudante'), (2, 'Segundo ayudante')]
+    )
+    novedad = models.CharField(max_length=30, help_text="Código de la novedad que la exige")
+    archivo = models.ImageField(upload_to='fotos_ayudantes/')
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['fecha_subida']
+        verbose_name = "Foto del ayudante"
+        verbose_name_plural = "Fotos de los ayudantes"
+
+    def __str__(self):
+        return f"{self.get_novedad_display_label()} - {self.persona_nombre}"
+
+    def get_novedad_display_label(self):
+        return dict(ProgramacionCuadrilla.NOVEDAD_CHOICES).get(self.novedad, self.novedad)
+
+    @property
+    def persona(self):
+        return self.cuadrilla.ayudante_de(self.slot)
+
+    @property
+    def persona_nombre(self):
+        persona = self.persona
+        if persona is None:
+            return "—"
+        return persona.get_full_name() or persona.username
 
 
 class DocumentoPersonal(models.Model):

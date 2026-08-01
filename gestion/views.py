@@ -3,7 +3,7 @@ import mimetypes
 import os
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.http import HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -29,7 +29,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
+from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
@@ -1238,6 +1238,25 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         context['fotos_registro'] = self.object.documentos.filter(
             descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
         )
+        # Evidencias que subieron los ayudantes desde su enlace, agrupadas por
+        # persona (la programación de origen es la que las tiene).
+        programacion = getattr(self.object, 'programacion_origen', None)
+        evidencias = []
+        if programacion is not None:
+            for cuadrilla in programacion.cuadrillas.prefetch_related('fotos_ayudantes'):
+                for slot in (1, 2):
+                    persona = cuadrilla.ayudante_de(slot)
+                    fotos = [f for f in cuadrilla.fotos_ayudantes.all() if f.slot == slot]
+                    pedidas = cuadrilla.fotos_pedidas(slot)
+                    if persona is None or not (fotos or pedidas):
+                        continue
+                    subidas = {f.novedad for f in fotos}
+                    evidencias.append({
+                        'persona': persona,
+                        'fotos': fotos,
+                        'faltan': [p['etiqueta'] for p in pedidas if p['codigo'] not in subidas],
+                    })
+        context['evidencias_ayudantes'] = evidencias
         return context
 
     def post(self, request, *args, **kwargs):
@@ -2365,6 +2384,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(self.request, detalle.capitalize())
+        _avisar_correo_ayudantes(self.request, self.object)
         _avisar_carga_pendiente(self.request, self.object, orden)
 
         return HttpResponseRedirect(reverse('gestion:detalle_orden', kwargs={'pk': orden.pk}))
@@ -2532,6 +2552,196 @@ def _enviar_seguridad_social_cliente(orden, programacion):
     return True, detalle
 
 
+# ============================================================
+#  ACCESO DEL AYUDANTE POR TOKEN (sin usuario ni contraseña)
+#  Al programarle un servicio se le envía por correo su hoja de ruta con un
+#  enlace personal. Desde ahí ve lo que necesita y sube las fotos que le
+#  exijan sus novedades (inicia/termina donde el cliente, parqueadero, punto
+#  de encuentro). El enlace vence a los días de DIAS_VIGENCIA_ACCESO.
+# ============================================================
+
+def _datos_servicio_ayudante(cuadrilla, slot):
+    """Todo lo que el ayudante necesita saber de su servicio, en un dict."""
+    programacion = cuadrilla.programacion
+    lugar = programacion.tercero or programacion.sede_cliente
+    conductor = cuadrilla.conductor
+    return {
+        'ayudante': cuadrilla.ayudante_de(slot),
+        'cuadrilla': cuadrilla,
+        'programacion': programacion,
+        'cliente': programacion.cliente,
+        'lugar': lugar.nombre if lugar else '',
+        'direccion': (
+            (programacion.tercero.direccion if programacion.tercero_id else '')
+            or (programacion.sede_cliente.direccion if programacion.sede_cliente_id else '')
+            or programacion.direccion or programacion.cliente.direccion
+        ),
+        'contacto': programacion.nombre_contacto_recibe,
+        'sitio_inicio': programacion.sitio_inicio.nombre if programacion.sitio_inicio_id else '',
+        'conductor': (conductor.get_full_name() or conductor.username) if conductor else '',
+        'placa': cuadrilla.vehiculo.placa if cuadrilla.vehiculo_id else '',
+        'novedades': ProgramacionCuadrilla.novedades_display(
+            cuadrilla.ayudante_novedad if slot == 1 else cuadrilla.ayudante2_novedad
+        ),
+        'fotos_pedidas': cuadrilla.fotos_pedidas(slot),
+        'orden': programacion.orden,
+    }
+
+
+def _enviar_correo_ayudantes(programacion, request):
+    """
+    Le envía a cada ayudante de la programación su hoja de ruta con el enlace
+    personal para subir fotos. Devuelve (enviados, avisos) para informar al
+    asesor; nunca lanza: un fallo de correo no debe tumbar la orden.
+    """
+    enviados, avisos = 0, []
+    for cuadrilla in programacion.cuadrillas.select_related(
+            'ayudante', 'ayudante2', 'conductor', 'vehiculo'):
+        for slot in (1, 2):
+            ayudante = cuadrilla.ayudante_de(slot)
+            if ayudante is None:
+                continue
+            nombre = ayudante.get_full_name() or ayudante.username
+            correo = (ayudante.email or '').strip()
+            if not correo:
+                avisos.append(f"{nombre} no tiene correo registrado: no se le pudo avisar")
+                continue
+
+            datos = _datos_servicio_ayudante(cuadrilla, slot)
+            url = request.build_absolute_uri(reverse(
+                'gestion:acceso_ayudante', kwargs={'token': cuadrilla.token_de(slot)}))
+
+            lineas = [
+                f"Hola {nombre},", "",
+                f"Se te asignó un servicio para el {programacion.fecha.strftime('%d/%m/%Y')}.", "",
+                f"Cliente: {datos['cliente'].nombre}",
+            ]
+            if datos['lugar']:
+                lineas.append(f"Lugar: {datos['lugar']}")
+            if datos['direccion']:
+                lineas.append(f"Dirección: {datos['direccion']}")
+            if programacion.hora_ingreso_bodega:
+                lineas.append(f"Hora de ingreso: {programacion.hora_ingreso_bodega.strftime('%H:%M')}")
+            if datos['sitio_inicio']:
+                lineas.append(f"Sitio de inicio: {datos['sitio_inicio']}")
+            if programacion.hora_servicio:
+                lineas.append(f"Hora del servicio: {programacion.hora_servicio.strftime('%H:%M')}")
+            if datos['conductor']:
+                lineas.append(f"Conductor: {datos['conductor']}")
+            if datos['placa']:
+                lineas.append(f"Vehículo: {datos['placa']}")
+            if datos['contacto']:
+                lineas.append(f"Contacto en el sitio: {datos['contacto']}")
+            if datos['novedades']:
+                lineas += ["", "Tu turno:"] + [f"- {n}" for n in datos['novedades']]
+            if programacion.observaciones_servicio:
+                lineas += ["", "Observaciones del servicio:", programacion.observaciones_servicio]
+            if datos['fotos_pedidas']:
+                lineas += ["", "Debes subir una foto de:"]
+                lineas += [f"- {f['etiqueta']}" for f in datos['fotos_pedidas']]
+                lineas += ["", "Entra aquí para verlo y subir las fotos (no necesitas usuario ni contraseña):"]
+            else:
+                lineas += ["", "Entra aquí para ver los detalles del servicio:"]
+            lineas += [url, "",
+                       f"El enlace es personal y sirve hasta el "
+                       f"{cuadrilla.fecha_limite_acceso.strftime('%d/%m/%Y')}.", "",
+                       "Cordialmente,", "SOLMED SAS"]
+
+            EmailMessage(
+                subject=(f"SOLMED - Servicio del {programacion.fecha.strftime('%d/%m/%Y')} "
+                         f"- {datos['cliente'].nombre}"),
+                body="\n".join(lineas),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[correo],
+            ).send(fail_silently=False)
+            enviados += 1
+    return enviados, avisos
+
+
+def _avisar_correo_ayudantes(request, programacion):
+    """Envía la hoja de ruta a los ayudantes e informa el resultado al asesor."""
+    try:
+        enviados, avisos = _enviar_correo_ayudantes(programacion, request)
+    except Exception as e:
+        messages.warning(request, f"No se pudo enviar el correo a los ayudantes ({e}).")
+        return
+    if enviados:
+        messages.success(
+            request,
+            f"Se envió la hoja de ruta a {enviados} ayudante{'s' if enviados != 1 else ''}."
+        )
+    for aviso in avisos:
+        messages.warning(request, aviso.capitalize())
+
+
+class AccesoAyudanteView(View):
+    """
+    Página PÚBLICA (sin login) a la que entra el ayudante con su enlace: ve su
+    servicio y sube las fotos que le exigen sus novedades. El token identifica
+    al ayudante y la cuadrilla; vence pasados los días de vigencia.
+    """
+    template_name = 'gestion/acceso_ayudante.html'
+
+    def _buscar(self, token):
+        """Devuelve (cuadrilla, slot) según cuál token coincide."""
+        cuadrilla = ProgramacionCuadrilla.objects.filter(token_ayudante=token).first()
+        if cuadrilla is not None:
+            return cuadrilla, 1
+        cuadrilla = get_object_or_404(ProgramacionCuadrilla, token_ayudante2=token)
+        return cuadrilla, 2
+
+    def _contexto(self, cuadrilla, slot):
+        datos = _datos_servicio_ayudante(cuadrilla, slot)
+        fotos = cuadrilla.fotos_ayudantes.filter(slot=slot)
+        por_novedad = {}
+        for foto in fotos:
+            por_novedad.setdefault(foto.novedad, []).append(foto)
+        # Cada foto pedida con las que ya subió.
+        pedidas = [{
+            **pedida,
+            'fotos': por_novedad.get(pedida['codigo'], []),
+        } for pedida in datos['fotos_pedidas']]
+        datos['fotos_pedidas'] = pedidas
+        datos['pendientes'] = [p for p in pedidas if not p['fotos']]
+        datos['vigente'] = cuadrilla.acceso_vigente
+        datos['fecha_limite'] = cuadrilla.fecha_limite_acceso
+        datos['slot'] = slot
+        return datos
+
+    def get(self, request, token):
+        cuadrilla, slot = self._buscar(token)
+        if cuadrilla.ayudante_de(slot) is None:
+            raise Http404("Este enlace ya no corresponde a un ayudante asignado.")
+        return render(request, self.template_name, self._contexto(cuadrilla, slot))
+
+    def post(self, request, token):
+        cuadrilla, slot = self._buscar(token)
+        if cuadrilla.ayudante_de(slot) is None:
+            raise Http404("Este enlace ya no corresponde a un ayudante asignado.")
+
+        if not cuadrilla.acceso_vigente:
+            messages.error(request, "Este enlace ya venció: habla con tu coordinador.")
+            return redirect('gestion:acceso_ayudante', token=token)
+
+        novedad = request.POST.get('novedad', '')
+        codigos = {f['codigo'] for f in cuadrilla.fotos_pedidas(slot)}
+        fotos = request.FILES.getlist('fotos')
+        if novedad not in codigos:
+            messages.error(request, "Esa foto no corresponde a tu turno.")
+        elif not fotos:
+            messages.error(request, "Selecciona o toma la foto antes de enviarla.")
+        else:
+            for foto in fotos:
+                FotoAyudante.objects.create(
+                    cuadrilla=cuadrilla, slot=slot, novedad=novedad, archivo=foto)
+            messages.success(
+                request,
+                f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} enviada"
+                f"{'s' if len(fotos) != 1 else ''}. ¡Gracias!"
+            )
+        return redirect('gestion:acceso_ayudante', token=token)
+
+
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
     """Genera la Orden de Servicio + un recorrido por cuadrilla (solo POST)."""
     def post(self, request, pk):
@@ -2563,6 +2773,7 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
         except Exception as e:
             enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
         (messages.success if enviado else messages.warning)(request, detalle.capitalize())
+        _avisar_correo_ayudantes(request, programacion)
         _avisar_carga_pendiente(request, programacion, orden)
 
         return redirect('gestion:detalle_orden', pk=orden.pk)
