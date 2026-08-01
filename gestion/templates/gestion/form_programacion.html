@@ -367,22 +367,27 @@
     </div>
 
     <style>
+        /* OJO: Django (>=4) renderiza los checkboxes múltiples como
+           <div><label><input> texto</label></div>, NO como <ul><li>. */
+
         /* Novedades que exigen foto del ayudante: se distinguen con cámara y
-           fondo ámbar (el atributo data-foto lo pone el widget NovedadesCheckbox). */
-        .novedades-check li.con-foto label{
+           fondo ámbar (el atributo data-foto lo pone el widget NovedadesCheckbox;
+           la clase con-foto la agrega el JS sobre el div de la opción). */
+        .novedades-check .con-foto label{
             background:var(--warn-tint); border:1px solid var(--warn-line);
             border-radius:var(--r-sm); padding:.15rem .45rem;
             display:flex; align-items:center; gap:.3rem;
         }
-        .novedades-check li.con-foto .icono-foto{ margin-left:auto; color:var(--warn); font-size:.8rem; }
+        .novedades-check .con-foto .icono-foto{ margin-left:auto; color:var(--warn); font-size:.8rem; }
         .novedades-leyenda{ font-size:.75rem; color:var(--ink-3); margin-top:.35rem; }
         .novedades-leyenda i{ color:var(--warn); }
 
         /* Novedades: checkboxes compactos en columnas */
-        .novedades-check ul { list-style:none; padding:0; margin:0;
-            display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:.15rem .8rem; }
-        .novedades-check li { margin:0; }
-        .novedades-check label { font-size:.85rem; font-weight:400; cursor:pointer; }
+        .novedades-check > div{
+            display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+            gap:.25rem .8rem;
+        }
+        .novedades-check label { font-size:.85rem; font-weight:400; cursor:pointer; margin:0; }
         .novedades-check input { margin-right:.4rem; }
     </style>
 
@@ -579,9 +584,10 @@
 // (se inserta como elemento para no depender de codepoints de la tipografía).
 (function () {
     document.querySelectorAll('.novedades-check input[data-foto]').forEach(function (input) {
-        var fila = input.closest('li');
+        // Django renderiza cada opción como <div><label><input> texto</label></div>.
         var etiqueta = input.closest('label');
-        if (!fila || !etiqueta || fila.classList.contains('con-foto')) return;
+        var fila = etiqueta ? etiqueta.parentElement : null;
+        if (!etiqueta || !fila || fila.classList.contains('con-foto')) return;
         fila.classList.add('con-foto');
         etiqueta.title = 'El ayudante deberá subir una foto de esta novedad';
         var icono = document.createElement('i');
