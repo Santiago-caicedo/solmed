@@ -4,100 +4,139 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Encuesta y Firma — Solmed</title>
+    <title>Encuesta y firma — SOLMED</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { background-color: #f4f6f9; padding: 1rem 0 3rem; }
-        .wizard-container { background: white; padding: 1.5rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 760px; margin: auto; }
-        .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
-        .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
-        .form-section-content { padding: 1rem; }
-        .satisfaction-table { width: 100%; }
-        .satisfaction-table td, .satisfaction-table th { vertical-align: middle; text-align: center; }
-        .satisfaction-table td:first-child { text-align: left; }
-        #signature-pad { border: 1px solid #dee2e6; cursor: crosshair; width: 100%; height: 220px; touch-action: none; }
+        :root{
+            --brand:#9CBE30; --brand-600:#5E8C1B; --steel:#215E8C;
+            --ink:#111A24; --ink-2:#51606E; --ink-3:#8A97A5; --line:#DCE1E8;
+        }
+        body{ margin:0; background:#EDF0F4; color:var(--ink);
+              font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif; padding-bottom:3rem; }
+
+        /* Cabecera de marca */
+        .ep-top{ background:linear-gradient(160deg,#16222F,#0A111A); color:#fff; padding:1.2rem 1rem 1.6rem; text-align:center; }
+        .ep-top img{ max-height:44px; background:#fff; border-radius:8px; padding:5px 12px; }
+        .ep-top h1{ font-size:1.25rem; font-weight:700; margin:.7rem 0 .15rem; }
+        .ep-top .sub{ color:#a7b2be; font-size:.88rem; }
+        .ep-wrap{ max-width:640px; margin:-0.8rem auto 0; padding:0 .8rem; }
+
+        .ep-card{ background:#fff; border:1px solid var(--line); border-radius:10px;
+                  box-shadow:0 2px 10px rgba(15,23,35,.06); padding:1rem 1.1rem; margin-bottom:.9rem; }
+        .ep-card h2{ font-size:.72rem; text-transform:uppercase; letter-spacing:.1em;
+                     color:var(--ink-3); font-weight:600; margin:0 0 .8rem; }
+
+        /* Una pregunta por tarjeta. OJO: Django (>=4) renderiza RadioSelect como
+           <div><div><label><input> texto</label></div>…</div>, NO como tabla ni ul. */
+        .pregunta{ border-bottom:1px solid #eef1f5; padding:.85rem 0; }
+        .pregunta:last-child{ border-bottom:0; }
+        .pregunta.error .texto{ color:#B42318; }
+        .pregunta .texto{ font-size:.92rem; font-weight:600; margin-bottom:.55rem; line-height:1.4; }
+        .pregunta .err{ color:#B42318; font-size:.78rem; margin-top:.35rem; }
+
+        .opts > div{ display:flex; flex-wrap:wrap; gap:8px; }
+        .opts > div > div{ flex:1 1 calc(25% - 6px); min-width:118px; }
+        .opts label{
+            display:flex; align-items:center; justify-content:center; width:100%;
+            padding:.55rem .4rem; margin:0; cursor:pointer;
+            border:1.5px solid var(--line); border-radius:8px;
+            background:#F7F9FB; color:var(--ink-2);
+            font-size:.85rem; font-weight:600; text-align:center;
+            transition:background .12s ease,border-color .12s ease,color .12s ease;
+        }
+        .opts input[type=radio]{ position:absolute; opacity:0; width:0; height:0; }
+        .opts label:hover{ border-color:#b9c3ce; }
+        /* Seleccionado: CSS puro con :has(); la clase .on es respaldo por JS. */
+        .opts label:has(input:checked),
+        .opts .on label{ background:var(--steel); border-color:var(--steel); color:#fff; }
+        .opts label:focus-within{ outline:2px solid var(--brand-600); outline-offset:2px; }
+
+        /* Firma */
+        .firma-caja{ border:1.5px dashed #cdd4dd; border-radius:10px; background:#fff; overflow:hidden; }
+        #signature-pad{ display:block; width:100%; height:200px; touch-action:none; cursor:crosshair; }
+        .ep-enviar .btn{ padding:.85rem; font-weight:700; font-size:1.05rem; }
+
+        /* Celular: dos opciones por fila, cómodas al dedo */
+        @media (max-width:520px){
+            .opts > div > div{ flex:1 1 calc(50% - 4px); min-width:0; }
+            .opts label{ padding:.65rem .3rem; }
+        }
     </style>
 </head>
 <body>
-<div class="wizard-container">
-    <div class="text-center mb-4">
-        <img src="{% static 'images/logo-solmed.png' %}" alt="Solmed" style="max-height: 60px;" class="mb-2">
-        <h2 class="mb-0">Encuesta de Satisfacción y Firma</h2>
-        <p class="text-muted">Orden #{{ orden.numero_orden }} — {{ orden.cliente.nombre }}</p>
-    </div>
+
+<div class="ep-top">
+    <img src="{% static 'images/logo-solmed.png' %}" alt="SOLMED">
+    <h1>Encuesta de satisfacción y firma</h1>
+    <div class="sub">Orden #{{ orden.numero_orden }} &middot; {{ orden.cliente.nombre }}</div>
+</div>
+
+<div class="ep-wrap">
 
     {% if messages %}
         {% for message in messages %}
-        <div class="alert alert-danger">{{ message }}</div>
+        <div class="alert alert-danger mt-3">{{ message }}</div>
         {% endfor %}
     {% endif %}
 
     <form method="post" id="encuesta-form">
         {% csrf_token %}
 
-        <div class="form-section">
-            <div class="form-section-title">MIDA SU SATISFACCIÓN</div>
-            <div class="form-section-content table-responsive">
-                <table class="table table-bordered satisfaction-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 40%;"></th>
-                            <th>Deficiente</th>
-                            <th>Regular</th>
-                            <th>Bueno</th>
-                            <th>Excelente</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>{{ form.eval_atencion.label }}</td>{% for radio in form.eval_atencion %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_amabilidad.label }}</td>{% for radio in form.eval_amabilidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_solucion_inquietudes.label }}</td>{% for radio in form.eval_solucion_inquietudes %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_asesoria.label }}</td>{% for radio in form.eval_asesoria %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_puntualidad.label }}</td>{% for radio in form.eval_puntualidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_calidad_servicio.label }}</td>{% for radio in form.eval_calidad_servicio %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_oportunidad.label }}</td>{% for radio in form.eval_oportunidad %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_cumplimiento_condiciones.label }}</td>{% for radio in form.eval_cumplimiento_condiciones %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_solucion_problemas.label }}</td>{% for radio in form.eval_solucion_problemas %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_volveria_contratar.label }}</td>{% for radio in form.eval_volveria_contratar %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                        <tr><td>{{ form.eval_nos_recomendaria.label }}</td>{% for radio in form.eval_nos_recomendaria %}<td>{{ radio.tag }}</td>{% endfor %}</tr>
-                    </tbody>
-                </table>
+        {# ============ LAS 11 PREGUNTAS, UNA TARJETA POR BLOQUE ============ #}
+        <div class="ep-card" style="margin-top:1.2rem;">
+            <h2>Califica nuestro servicio</h2>
+            <p class="text-muted" style="font-size:.85rem; margin-top:-.4rem;">
+                Toca una opción en cada pregunta: <strong>Deficiente</strong>, <strong>Regular</strong>,
+                <strong>Bueno</strong> o <strong>Excelente</strong>.
+            </p>
+
+            {% for campo in form %}
+            <div class="pregunta {% if campo.errors %}error{% endif %}">
+                <div class="texto">{{ campo.label }}</div>
+                <div class="opts">{{ campo }}</div>
+                {% for e in campo.errors %}<div class="err"><i class="bi bi-exclamation-circle me-1"></i>Elige una opción.</div>{% endfor %}
             </div>
+            {% endfor %}
         </div>
 
-        <div class="form-section">
-            <div class="form-section-title">FIRMA DE CONFORMIDAD (CLIENTE)</div>
-            <div class="form-section-content">
-                <div class="mb-3">
-                    <label for="id_nombre_responsable_cliente" class="form-label">Nombre de quien recibe y firma:</label>
-                    <input type="text" name="nombre_responsable_cliente" id="id_nombre_responsable_cliente" class="form-control" required>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label">Firma:</label>
-                    <div class="bg-light">
-                        <canvas id="signature-pad"></canvas>
-                    </div>
-                    <button type="button" id="clear-button" class="btn btn-sm btn-outline-secondary mt-2">
-                        <i class="bi bi-eraser-fill"></i> Limpiar Firma
-                    </button>
-                </div>
+        {# ============ FIRMA DE CONFORMIDAD ============ #}
+        <div class="ep-card">
+            <h2>Firma de conformidad</h2>
+            <div class="mb-3">
+                <label for="id_nombre_responsable_cliente" class="form-label" style="font-weight:600; font-size:.9rem;">
+                    Nombre de quien recibe y firma <span class="text-danger">*</span>
+                </label>
+                <input type="text" name="nombre_responsable_cliente" id="id_nombre_responsable_cliente"
+                       class="form-control form-control-lg" required
+                       value="{{ manifiesto.nombre_responsable_cliente|default:'' }}">
             </div>
+            <label class="form-label" style="font-weight:600; font-size:.9rem;">Firma con el dedo aquí:</label>
+            <div class="firma-caja">
+                <canvas id="signature-pad"></canvas>
+            </div>
+            <button type="button" id="clear-button" class="btn btn-sm btn-outline-secondary mt-2">
+                <i class="bi bi-eraser-fill me-1"></i>Limpiar firma
+            </button>
         </div>
 
         <input type="hidden" name="signature_data" id="signature-data">
 
-        <div class="d-grid mt-4">
-            <button type="submit" class="btn btn-success btn-lg">
-                <i class="bi bi-check2-circle"></i> Enviar y Firmar
+        <div class="d-grid ep-enviar">
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-check2-circle me-1"></i> Enviar y firmar
             </button>
         </div>
+        <p class="text-center text-muted mt-3" style="font-size:.78rem;">
+            SOLMED SAS &middot; Gracias por calificar nuestro servicio.
+        </p>
     </form>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // ---------- Firma (misma lógica de siempre) ----------
         var canvas = document.getElementById('signature-pad');
         var signaturePad = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
 
@@ -117,11 +156,23 @@
 
         document.getElementById('encuesta-form').addEventListener('submit', function (event) {
             if (signaturePad.isEmpty()) {
-                alert("Por favor, provea una firma.");
+                alert("Por favor, dibuja tu firma antes de enviar.");
                 event.preventDefault();
             } else {
                 document.getElementById('signature-data').value = signaturePad.toDataURL('image/png');
             }
+        });
+
+        // ---------- Pintado de la opción elegida (respaldo de :has) ----------
+        document.querySelectorAll('.opts').forEach(function (grupo) {
+            function pintar() {
+                grupo.querySelectorAll('input[type=radio]').forEach(function (radio) {
+                    var opcion = radio.closest('label') ? radio.closest('label').parentElement : null;
+                    if (opcion) opcion.classList.toggle('on', radio.checked);
+                });
+            }
+            grupo.addEventListener('change', pintar);
+            pintar();
         });
     });
 </script>

@@ -373,6 +373,14 @@ class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
             'eval_nos_recomendaria': '11. NOS RECOMENDARÍA',
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # En el modelo las calificaciones permiten NULL, así que el ModelForm
+        # las dejaba opcionales: el cliente podía firmar sin calificar nada.
+        # La encuesta exige responder las 11 preguntas.
+        for campo in self.fields.values():
+            campo.required = True
+
 
 class CrearUsuarioForm(UserCreationForm):
     email = forms.EmailField(
