@@ -1,6 +1,6 @@
 from django import forms
 from django.db.models import Q
-from .models import Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
+from .models import Bascula, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -654,7 +654,7 @@ class ProgramacionForm(forms.ModelForm):
             'cliente', 'sede_cliente', 'tercero', 'direccion', 'correo_seguridad_social',
             'observaciones_servicio',
             'paleada',
-            'bascula',
+            'bascula', 'bascula_sitio',
             'registro_fotografico',
             'responsable_sg',
             'requiere_disposicion_final',
@@ -676,6 +676,7 @@ class ProgramacionForm(forms.ModelForm):
             'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
+            'bascula_sitio': forms.Select(attrs={'class': 'form-select'}),
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
@@ -734,6 +735,13 @@ class ProgramacionForm(forms.ModelForm):
         # llegan como tokens en POST 'adjuntos_correo' (checkboxes que dibuja el
         # JS por fuente) y las vistas los validan/guardan en
         # Programacion.adjuntos_correo. La SS nunca va ahí: se adjunta siempre.
+
+        # Básculas activas (+ la guardada, aunque esté inactiva, al editar).
+        basculas = Q(activo=True)
+        if self.instance.pk and self.instance.bascula_sitio_id:
+            basculas |= Q(pk=self.instance.bascula_sitio_id)
+        self.fields['bascula_sitio'].queryset = Bascula.objects.filter(basculas)
+        self.fields['bascula_sitio'].empty_label = '--- Elige la báscula ---'
 
         # Residuos del catálogo (activos) + el valor ya guardado, para no perderlo
         # al editar si alguien lo desactivó o se escribió a mano antes.
@@ -835,6 +843,14 @@ class ProgramacionForm(forms.ModelForm):
         # servicio se recoja donde un tercero).
         if cliente and not sede and not tercero and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
+
+        # --- Báscula ---
+        # Sí ('PESAN') -> hay que decir en cuál; otra respuesta -> se limpia.
+        if cleaned.get('bascula') == 'PESAN':
+            if not cleaned.get('bascula_sitio'):
+                self.add_error('bascula_sitio', 'Indica en cuál báscula se pesará.')
+        else:
+            cleaned['bascula_sitio'] = None
 
         # --- Disposición final ---
         # SÍ  -> proveedor externo obligatorio (el contenido se dispone).

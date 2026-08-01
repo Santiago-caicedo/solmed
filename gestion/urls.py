@@ -85,6 +85,9 @@ urlpatterns = [
     path('programaciones/<int:pk>/editar/', views.ActualizarProgramacionView.as_view(), name='actualizar_programacion'),
     path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
     path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),
+    # Básculas: popup de la programación (crear/eliminar por AJAX).
+    path('basculas/crear/', views.CrearBasculaView.as_view(), name='crear_bascula'),
+    path('bascula/<int:pk>/eliminar/', views.EliminarBasculaView.as_view(), name='eliminar_bascula'),
 
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),

@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Bascula, Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -174,3 +174,10 @@ class TipoResiduoAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'activo')
     list_filter = ('activo',)
     search_fields = ('nombre',)
+
+
+@admin.register(Bascula)
+class BasculaAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'direccion', 'activo')
+    list_filter = ('activo',)
+    search_fields = ('nombre', 'direccion')

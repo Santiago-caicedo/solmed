@@ -33,7 +33,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Foto
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -2269,6 +2269,12 @@ def _contexto_programacion(context):
     context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
+    # Básculas activas para el popup y el desplegable de "¿Pesan en báscula?".
+    context['basculas'] = [
+        {'id': b.pk, 'nombre': b.nombre, 'direccion': b.direccion}
+        for b in Bascula.objects.filter(activo=True)
+    ]
+
     # Catálogos de documentos adjuntables por fuente (para el acordeón del correo).
     context['docs_vehiculos'] = _catalogo_docs_vehiculos()
     context['docs_proveedores'] = _catalogo_docs_proveedores()
@@ -2720,6 +2726,47 @@ class AccesoAyudanteView(View):
                 f"{'s' if len(fotos) != 1 else ''}. ¡Gracias!"
             )
         return redirect('gestion:acceso_ayudante', token=token)
+
+
+class CrearBasculaView(AsesorRequiredMixin, View):
+    """Crea una báscula desde el popup de la programación (POST, responde JSON)."""
+    def post(self, request):
+        nombre = request.POST.get('nombre', '').strip()
+        direccion = request.POST.get('direccion', '').strip()
+        if not nombre:
+            return JsonResponse({'ok': False, 'error': 'El nombre de la báscula es obligatorio.'}, status=400)
+        bascula = Bascula.objects.filter(nombre__iexact=nombre).first()
+        if bascula is None:
+            bascula = Bascula.objects.create(nombre=nombre, direccion=direccion)
+        else:
+            # Ya existía: se reactiva y, si mandaron dirección, se actualiza.
+            bascula.activo = True
+            if direccion:
+                bascula.direccion = direccion
+            bascula.save()
+        return JsonResponse({'ok': True, 'id': bascula.pk,
+                             'nombre': bascula.nombre, 'direccion': bascula.direccion})
+
+
+class EliminarBasculaView(AsesorRequiredMixin, View):
+    """
+    Elimina una báscula desde el popup (POST, responde JSON). Si ya fue usada
+    por programaciones (PROTECT), no se borra: se desactiva y desaparece del
+    desplegable, conservando el histórico.
+    """
+    def post(self, request, pk):
+        from django.db.models import ProtectedError
+        bascula = get_object_or_404(Bascula, pk=pk)
+        try:
+            bascula.delete()
+            return JsonResponse({'ok': True, 'eliminada': True})
+        except ProtectedError:
+            bascula.activo = False
+            bascula.save(update_fields=['activo'])
+            return JsonResponse({
+                'ok': True, 'eliminada': False,
+                'mensaje': 'Esa báscula ya se usó en programaciones: se ocultó del listado.',
+            })
 
 
 class ConvertirProgramacionView(AsesorRequiredMixin, View):

@@ -968,6 +968,29 @@ class TipoResiduo(models.Model):
         return self.nombre
 
 
+class Bascula(models.Model):
+    """
+    Báscula (empresa/lugar de pesaje) para la programación: cuando "¿Pesan en
+    báscula?" es Sí, se elige en cuál. Catálogo administrable desde el popup
+    del propio formulario (agregar/eliminar); si una báscula ya fue usada por
+    programaciones, en vez de borrarse se desactiva (PROTECT).
+    """
+    nombre = models.CharField(max_length=150, unique=True, verbose_name="Empresa / lugar")
+    direccion = models.CharField(max_length=255, blank=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarla del desplegable sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Báscula"
+        verbose_name_plural = "Básculas"
+
+    def __str__(self):
+        return self.nombre
+
+
 class SitioInicio(models.Model):
     """
     Sitio donde el personal inicia el turno / ingresa antes del servicio
@@ -1127,6 +1150,11 @@ class Programacion(models.Model):
     bascula = models.CharField(
         max_length=20, choices=OrdenServicio.BASCULA_CHOICES, blank=True,
         verbose_name="¿Pesan en báscula?"
+    )
+    # En cuál báscula se pesa (solo cuando la respuesta es Sí/'PESAN').
+    bascula_sitio = models.ForeignKey(
+        Bascula, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='programaciones', verbose_name="Báscula"
     )
     registro_fotografico = models.CharField(
         max_length=2, choices=SI_NO_CHOICES, blank=True,

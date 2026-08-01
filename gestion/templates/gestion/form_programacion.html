@@ -234,6 +234,22 @@
                 <div class="col-md-6">
                     <label for="{{ form.bascula.id_for_label }}" class="form-label">¿Pesan en báscula?</label>
                     {{ form.bascula }}
+                    {# Con "Sí": se elige EN CUÁL báscula (catálogo administrable en popup). #}
+                    <div id="campo-bascula-sitio" class="mt-2 d-none">
+                        <label for="{{ form.bascula_sitio.id_for_label }}" class="form-label small mb-1">¿En cuál báscula?</label>
+                        <div class="d-flex gap-2 align-items-start">
+                            <div class="flex-grow-1">
+                                {{ form.bascula_sitio }}
+                                <small id="bascula-direccion" class="text-muted d-block mt-1"></small>
+                                {% for e in form.bascula_sitio.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            <button type="button" class="btn btn-outline-primary btn-sm text-nowrap"
+                                    data-bs-toggle="modal" data-bs-target="#modal-basculas"
+                                    title="Agregar o eliminar básculas">
+                                <i class="bi bi-gear"></i> Administrar
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-md-6">
                     <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">¿Requiere registro fotográfico?</label>
@@ -548,6 +564,59 @@
         </button>
     </div>
 </form>
+
+{# ============ POPUP: ADMINISTRAR BÁSCULAS (fuera del form principal) ============ #}
+<div class="modal fade" id="modal-basculas" tabindex="-1" aria-labelledby="modal-basculas-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-basculas-titulo"><i class="bi bi-truck-flatbed me-2"></i>Básculas</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="basculas-aviso"></div>
+
+                {# Agregar una báscula #}
+                <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
+                    <div class="fw-semibold small mb-2"><i class="bi bi-plus-circle me-1"></i>Agregar báscula</div>
+                    <div class="row g-2">
+                        <div class="col-md-5">
+                            <input type="text" id="nueva-bascula-nombre" class="form-control form-control-sm"
+                                   placeholder="Empresa / lugar *">
+                        </div>
+                        <div class="col-md-5">
+                            <input type="text" id="nueva-bascula-direccion" class="form-control form-control-sm"
+                                   placeholder="Dirección (opcional)">
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" id="btn-agregar-bascula" class="btn btn-success btn-sm">
+                                <i class="bi bi-check2 me-1"></i>Agregar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {# Listado con eliminación #}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Empresa / lugar</th><th>Dirección</th><th style="width:48px"></th></tr>
+                        </thead>
+                        <tbody id="basculas-tbody"></tbody>
+                    </table>
+                </div>
+                <p class="text-muted small mt-2 mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Si una báscula ya se usó en programaciones no se borra: se oculta del
+                    desplegable y el histórico se conserva.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Listo</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -559,6 +628,7 @@
 {{ vehiculos_cargados|json_script:"vehiculos-cargados-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ docs_adicionales_sel|json_script:"docs-adicionales-sel" }}
+{{ basculas|json_script:"basculas-data" }}
 {{ docs_vehiculos|json_script:"docs-vehiculos-data" }}
 {{ docs_proveedores|json_script:"docs-proveedores-data" }}
 {{ docs_solmed|json_script:"docs-solmed-data" }}
@@ -621,6 +691,138 @@
         icono.className = 'bi bi-camera-fill icono-foto';
         etiqueta.appendChild(icono);
     });
+})();
+</script>
+<script>
+// --- "¿Pesan en báscula?" = Sí -> selector de báscula + popup para administrarlas ---
+// basculas: [{id, nombre, direccion}] (solo activas). El popup crea/elimina por
+// AJAX y sincroniza el desplegable sin recargar la página.
+(function () {
+    // Escapador propio: el esc() global se define en un script posterior.
+    function escB(t) {
+        return String(t == null ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    var basculas = JSON.parse(document.getElementById('basculas-data').textContent);
+    var selPesan = document.getElementById('id_bascula');
+    var campo = document.getElementById('campo-bascula-sitio');
+    var selBascula = document.getElementById('id_bascula_sitio');
+    var direccionEl = document.getElementById('bascula-direccion');
+    if (!selPesan || !campo || !selBascula) return;
+
+    function porId(id) {
+        for (var i = 0; i < basculas.length; i++) {
+            if (String(basculas[i].id) === String(id)) return basculas[i];
+        }
+        return null;
+    }
+
+    // Muestra el selector solo cuando la respuesta es Sí ('PESAN').
+    function alternarCampo() {
+        campo.classList.toggle('d-none', selPesan.value !== 'PESAN');
+    }
+
+    // La dirección de la báscula elegida, como ayuda bajo el desplegable.
+    function pintarDireccion() {
+        if (!direccionEl) return;
+        var b = porId(selBascula.value);
+        direccionEl.textContent = (b && b.direccion) ? ('Dirección: ' + b.direccion) : '';
+    }
+
+    // Reconstruye las opciones del desplegable desde el catálogo en memoria.
+    function poblarSelect(preservar) {
+        var previo = preservar ? selBascula.value : '';
+        // Se conserva la opción guardada aunque ya no esté activa (al editar).
+        var guardadaHTML = '';
+        if (previo && !porId(previo)) {
+            var optPrevia = selBascula.querySelector('option[value="' + previo + '"]');
+            if (optPrevia) guardadaHTML = optPrevia.outerHTML;
+        }
+        selBascula.innerHTML = '<option value="">--- Elige la báscula ---</option>'
+            + guardadaHTML
+            + basculas.map(function (b) {
+                return '<option value="' + b.id + '">' + escB(b.nombre) + '</option>';
+            }).join('');
+        if (previo) selBascula.value = previo;
+        pintarDireccion();
+    }
+
+    // ---------- Popup ----------
+    var tbody = document.getElementById('basculas-tbody');
+    var aviso = document.getElementById('basculas-aviso');
+    var csrf = document.querySelector('form input[name="csrfmiddlewaretoken"]').value;
+
+    function avisar(texto, tipo) {
+        aviso.innerHTML = texto
+            ? '<div class="alert alert-' + (tipo || 'info') + ' py-2 small mb-3">' + escB(texto) + '</div>'
+            : '';
+    }
+
+    function pintarTabla() {
+        tbody.innerHTML = basculas.length
+            ? basculas.map(function (b) {
+                return '<tr><td class="fw-semibold">' + escB(b.nombre) + '</td>'
+                    + '<td class="text-muted small">' + escB(b.direccion || '—') + '</td>'
+                    + '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-borrar-bascula" '
+                    + 'data-id="' + b.id + '" title="Eliminar"><i class="bi bi-trash"></i></button></td></tr>';
+            }).join('')
+            : '<tr><td colspan="3" class="text-center text-muted py-3">No hay básculas registradas.</td></tr>';
+    }
+
+    document.getElementById('btn-agregar-bascula').addEventListener('click', function () {
+        var nombre = document.getElementById('nueva-bascula-nombre').value.trim();
+        var direccion = document.getElementById('nueva-bascula-direccion').value.trim();
+        if (!nombre) { avisar('Escribe el nombre de la báscula.', 'warning'); return; }
+        var datos = new FormData();
+        datos.append('nombre', nombre);
+        datos.append('direccion', direccion);
+        fetch('{% url "gestion:crear_bascula" %}', {
+            method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf },
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.ok) { avisar(data.error || 'No se pudo crear.', 'danger'); return; }
+            // Si ya existía en el catálogo local, se actualiza; si no, se agrega.
+            var existente = porId(data.id);
+            if (existente) { existente.nombre = data.nombre; existente.direccion = data.direccion; }
+            else basculas.push({ id: data.id, nombre: data.nombre, direccion: data.direccion });
+            basculas.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+            document.getElementById('nueva-bascula-nombre').value = '';
+            document.getElementById('nueva-bascula-direccion').value = '';
+            avisar('Báscula «' + data.nombre + '» disponible.', 'success');
+            pintarTabla();
+            poblarSelect(true);
+            selBascula.value = String(data.id);   // queda elegida de una vez
+            pintarDireccion();
+        }).catch(function () { avisar('Error de conexión al crear la báscula.', 'danger'); });
+    });
+
+    tbody.addEventListener('click', function (e) {
+        var boton = e.target.closest('.btn-borrar-bascula');
+        if (!boton) return;
+        var id = boton.getAttribute('data-id');
+        var b = porId(id);
+        if (!window.confirm('¿Eliminar la báscula «' + (b ? b.nombre : '') + '»?')) return;
+        fetch('/app/bascula/' + id + '/eliminar/', {
+            method: 'POST', headers: { 'X-CSRFToken': csrf },
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.ok) { avisar('No se pudo eliminar.', 'danger'); return; }
+            basculas = basculas.filter(function (x) { return String(x.id) !== String(id); });
+            avisar(data.eliminada ? 'Báscula eliminada.' : data.mensaje, data.eliminada ? 'success' : 'warning');
+            if (String(selBascula.value) === String(id)) selBascula.value = '';
+            pintarTabla();
+            poblarSelect(true);
+        }).catch(function () { avisar('Error de conexión al eliminar.', 'danger'); });
+    });
+
+    selPesan.addEventListener('change', alternarCampo);
+    selBascula.addEventListener('change', pintarDireccion);
+    document.getElementById('modal-basculas').addEventListener('show.bs.modal', function () {
+        avisar('');
+        pintarTabla();
+    });
+
+    alternarCampo();
+    pintarDireccion();
 })();
 </script>
 <script>
