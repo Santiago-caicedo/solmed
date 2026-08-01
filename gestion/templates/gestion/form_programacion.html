@@ -186,8 +186,35 @@
                 <div class="col-md-6">
                     <label for="{{ form.transporte_cantidad.id_for_label }}" class="form-label mb-1">Cantidad</label>
                     {{ form.transporte_cantidad }}
+                    {# Aviso vivo de conciliación: cambia según el campo esté vacío o no. #}
+                    <div id="aviso-conciliacion" class="aviso-conciliacion pendiente mt-1">
+                        <i class="bi bi-calculator me-1"></i>
+                        <span>Si la dejas vacía (lo usual), la orden quedará
+                        <strong>Pendiente de conciliación</strong>: deberás registrar la cantidad
+                        durante el mes calendario desde el expediente de la orden.</span>
+                    </div>
+                    <div id="aviso-conciliada" class="aviso-conciliacion lista mt-1 d-none">
+                        <i class="bi bi-check-circle-fill me-1"></i>
+                        <span>Con la cantidad diligenciada, la orden quedará
+                        <strong>Conciliada</strong> desde el inicio.</span>
+                    </div>
                 </div>
             </div>
+            <style>
+                .aviso-conciliacion{
+                    display:flex; align-items:flex-start; gap:.25rem;
+                    font-size:.78rem; border-radius:var(--r-sm);
+                    padding:.4rem .6rem; line-height:1.4;
+                }
+                .aviso-conciliacion.pendiente{
+                    background:var(--warn-tint); border:1px solid var(--warn-line); color:#7a4e05;
+                }
+                .aviso-conciliacion.pendiente i{ color:var(--warn); }
+                .aviso-conciliacion.lista{
+                    background:var(--ok-tint); border:1px solid var(--ok-line); color:#1f5c33;
+                }
+                .aviso-conciliacion.lista i{ color:var(--ok); }
+            </style>
         </div>
     </div>
 
@@ -594,6 +621,24 @@
         icono.className = 'bi bi-camera-fill icono-foto';
         etiqueta.appendChild(icono);
     });
+})();
+</script>
+<script>
+// --- Cantidad del residuo: aviso vivo de conciliación ---
+// Vacía -> la orden quedará PENDIENTE de conciliación (corte del mes);
+// diligenciada -> quedará conciliada desde el inicio.
+(function () {
+    var cantidad = document.getElementById('id_transporte_cantidad');
+    var avisoPendiente = document.getElementById('aviso-conciliacion');
+    var avisoLista = document.getElementById('aviso-conciliada');
+    if (!cantidad || !avisoPendiente || !avisoLista) return;
+    function pintar() {
+        var llena = cantidad.value.trim() !== '';
+        avisoPendiente.classList.toggle('d-none', llena);
+        avisoLista.classList.toggle('d-none', !llena);
+    }
+    cantidad.addEventListener('input', pintar);
+    pintar();
 })();
 </script>
 <script>
