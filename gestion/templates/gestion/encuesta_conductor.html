@@ -25,13 +25,14 @@
 .ec-q .texto{ flex:1 1 260px; min-width:0; font-size:.92rem; color:var(--ink); line-height:1.45; }
 .ec-q .err{ color:var(--err); font-size:.78rem; margin-top:.3rem; }
 
-/* Botones Sí / No: grandes, cómodos con guantes */
+/* Botones Sí / No: grandes, cómodos con guantes.
+   OJO: Django (>=4) renderiza RadioSelect como <div><div><label><input> Sí
+   </label></div>...</div>, NO como <ul><li>. Todo el estilo apunta a esos div. */
 .ec-sino{ flex:0 0 auto; }
-.ec-sino ul{ list-style:none; margin:0; padding:0; display:flex; gap:.5rem; }
-.ec-sino li{ margin:0; }
+.ec-sino > div{ display:flex; gap:.5rem; }          /* contenedor de las opciones */
 .ec-sino label{
     display:flex; align-items:center; justify-content:center; gap:.35rem;
-    min-width:74px; padding:.5rem .9rem; cursor:pointer;
+    min-width:74px; padding:.5rem .9rem; cursor:pointer; margin:0;
     border:1.5px solid var(--line); border-radius:var(--r-sm);
     background:var(--panel-2); color:var(--ink-2);
     font-weight:600; font-size:.88rem;
@@ -39,10 +40,10 @@
 }
 .ec-sino input[type=radio]{ position:absolute; opacity:0; width:0; height:0; }
 .ec-sino label:hover{ border-color:#b9c3ce; }
-.ec-sino input:checked + span,
-.ec-sino li.on label{ }
-.ec-sino li.on label{ background:var(--steel); border-color:var(--steel); color:#fff; }
-.ec-sino input:focus-visible + label,
+/* Estado seleccionado: :has() pinta directo desde el radio marcado (sin JS). */
+.ec-sino label:has(input:checked){ background:var(--steel); border-color:var(--steel); color:#fff; }
+/* Respaldo para navegadores sin :has(): la clase .on la pone el JS. */
+.ec-sino .on label{ background:var(--steel); border-color:var(--steel); color:#fff; }
 .ec-sino label:focus-within{ outline:2px solid var(--brand-600); outline-offset:2px; }
 
 /* Detalle del evento (pregunta 7 = Sí) */
@@ -58,8 +59,8 @@
 @media (max-width:620px){
     .ec-q{ padding:.85rem; }
     .ec-sino{ flex:1 1 100%; }
-    .ec-sino ul{ gap:.6rem; }
-    .ec-sino li{ flex:1 1 0; }
+    .ec-sino > div{ gap:.6rem; }
+    .ec-sino > div > div{ flex:1 1 0; }
     .ec-sino label{ width:100%; min-width:0; padding:.6rem .5rem; }
     .ec-enviar .btn{ width:100%; }
 }
@@ -135,13 +136,14 @@
     if (!form) return;
 
     function pintar(grupo) {
-        grupo.querySelectorAll('li').forEach(function (li) {
-            var radio = li.querySelector('input[type=radio]');
-            li.classList.toggle('on', !!(radio && radio.checked));
+        // Cada opción es <div><label><input></label></div> (Django >=4).
+        grupo.querySelectorAll('input[type=radio]').forEach(function (radio) {
+            var opcion = radio.closest('label') ? radio.closest('label').parentElement : null;
+            if (opcion) opcion.classList.toggle('on', radio.checked);
         });
     }
 
-    form.querySelectorAll('.ec-sino ul').forEach(function (grupo) {
+    form.querySelectorAll('.ec-sino').forEach(function (grupo) {
         // El <label> envuelve al radio, así que basta escuchar el cambio.
         grupo.addEventListener('change', function () { pintar(grupo); });
         pintar(grupo);
