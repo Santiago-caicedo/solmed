@@ -19,6 +19,7 @@ from django.views import View
 from io import BytesIO
 import qrcode
 from weasyprint import HTML
+from django.db import transaction
 from django.db.models import Sum, Count
 import base64
 import datetime
@@ -1126,6 +1127,49 @@ class EncuestaPublicaView(View):
 
 
 
+# ============================================================
+#  BORRADO DE REGISTROS "NUEVOS" (sin uso todavía)
+#  Solo administradores. No se hardcodea qué relaciones bloquean: se intenta
+#  borrar y, si la base lo protege (ProtectedError), se explica qué lo impide.
+#  Así sigue siendo correcto aunque mañana se agreguen relaciones.
+# ============================================================
+
+def _resumen_protegido(error):
+    """'2 órdenes de servicio, 1 programación' a partir de un ProtectedError."""
+    from collections import Counter
+    conteo = Counter(
+        obj._meta.verbose_name for obj in getattr(error, 'protected_objects', [])
+    )
+    if not conteo:
+        return "tiene registros asociados"
+    partes = []
+    for nombre, n in conteo.most_common(4):
+        partes.append(f"{n} {nombre}{'' if n == 1 else 's'}")
+    return ", ".join(partes)
+
+
+def _eliminar_si_no_tiene_uso(request, objeto, etiqueta, destino):
+    """
+    Borra el objeto si nada lo referencia; si está en uso, no borra nada y
+    explica por qué. Devuelve la redirección correspondiente.
+    """
+    from django.db.models import ProtectedError
+    nombre = str(objeto)
+    try:
+        with transaction.atomic():
+            objeto.delete()
+    except ProtectedError as e:
+        messages.error(
+            request,
+            f"No se puede eliminar {etiqueta} «{nombre}»: ya está en uso "
+            f"({_resumen_protegido(e)}). Solo se pueden eliminar registros nuevos, "
+            f"sin movimientos."
+        )
+    else:
+        messages.success(request, f"{etiqueta.capitalize()} «{nombre}» eliminado.")
+    return redirect(destino)
+
+
 # --- Mixin para las vistas de administración de la plataforma ---
 # Superusuario y rol 'Administradores' (usuarios, reportes). El nombre viejo
 # SuperuserRequiredMixin se conserva como alias por compatibilidad.
@@ -1135,6 +1179,46 @@ class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
 
 SuperuserRequiredMixin = AdministradorRequiredMixin
+
+
+class EliminarClienteView(AdministradorRequiredMixin, View):
+    """Elimina un cliente que aún no tiene órdenes ni programaciones (solo POST)."""
+    def post(self, request, pk):
+        cliente = get_object_or_404(Cliente, pk=pk)
+        return _eliminar_si_no_tiene_uso(request, cliente, 'el cliente', 'gestion:lista_clientes')
+
+
+class EliminarVehiculoView(AdministradorRequiredMixin, View):
+    """Elimina un vehículo que aún no se ha usado en recorridos ni cuadrillas."""
+    def post(self, request, pk):
+        vehiculo = get_object_or_404(Vehiculo, pk=pk)
+        return _eliminar_si_no_tiene_uso(request, vehiculo, 'el vehículo', 'gestion:lista_vehiculos')
+
+
+class EliminarDispositorView(AdministradorRequiredMixin, View):
+    """Elimina un proveedor de disposición que aún no se ha usado."""
+    def post(self, request, pk):
+        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
+        return _eliminar_si_no_tiene_uso(
+            request, dispositor, 'el proveedor', 'gestion:lista_dispositores')
+
+
+class EliminarPersonaView(AdministradorRequiredMixin, View):
+    """
+    Elimina a una persona que todavía no ha participado en ningún servicio
+    (ni como conductor, ayudante, asesor o creador de programaciones). Con su
+    expediente y perfil, que son datos suyos. No se puede eliminar a un
+    superusuario ni a uno mismo.
+    """
+    def post(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        if persona.is_superuser:
+            messages.error(request, "No se puede eliminar la cuenta de un superadministrador.")
+            return redirect('gestion:ficha_persona', pk=pk)
+        if persona.pk == request.user.pk:
+            messages.error(request, "No puedes eliminar tu propia cuenta.")
+            return redirect('gestion:ficha_persona', pk=pk)
+        return _eliminar_si_no_tiene_uso(request, persona, 'la persona', 'gestion:lista_personal')
 
 # --- Vistas para Administración de Usuarios ---
 
@@ -2946,8 +3030,10 @@ class ListaPersonalView(AsesorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'usuarios'
 
     def get_queryset(self):
+        # Los superadministradores no son personal operativo: se gestionan en
+        # Sistema > Usuarios, no aquí.
         qs = (
-            User.objects.all()
+            User.objects.exclude(is_superuser=True)
             .select_related('perfil')
             .prefetch_related('groups', 'documentos_personales')
         )

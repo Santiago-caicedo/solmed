@@ -53,6 +53,13 @@
                             <a href="{% url 'gestion:actualizar_dispositor' d.pk %}" class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-pencil-square"></i> Editar
                             </a>
+                {% if es_administrador %}
+                <form method="post" action="{% url 'gestion:eliminar_dispositor' d.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Eliminar este proveedor? Solo se puede si aún no tiene movimientos.');">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
+                </form>
+                {% endif %}
                         </td>
                     </tr>
                     {% empty %}

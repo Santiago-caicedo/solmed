@@ -39,6 +39,7 @@ urlpatterns = [
     path('vehiculos/<int:pk>/', views.VehiculoDetailView.as_view(), name='detalle_vehiculo'),
     path('vehiculos/nuevo/', views.CrearVehiculoView.as_view(), name='crear_vehiculo'),
     path('vehiculos/<int:pk>/editar/', views.ActualizarVehiculoView.as_view(), name='actualizar_vehiculo'),
+    path('vehiculos/<int:pk>/eliminar/', views.EliminarVehiculoView.as_view(), name='eliminar_vehiculo'),
     # --- Filtros y aceites (mantenimiento del vehículo) ---
     path('vehiculos/<int:pk>/filtros-aceites/', views.RegistrarFiltroAceiteView.as_view(), name='registrar_filtro_aceite'),
     path('filtro-aceite/<int:pk>/eliminar/', views.EliminarFiltroAceiteView.as_view(), name='eliminar_filtro_aceite'),
@@ -47,6 +48,8 @@ urlpatterns = [
     path('clientes/', views.ListaClientesView.as_view(), name='lista_clientes'),
     path('clientes/nuevo/', views.CrearClienteView.as_view(), name='crear_cliente'),
     path('clientes/<int:pk>/editar/', views.ActualizarClienteView.as_view(), name='actualizar_cliente'),
+    # Borrado de registros nuevos (sin uso). Solo administradores.
+    path('clientes/<int:pk>/eliminar/', views.EliminarClienteView.as_view(), name='eliminar_cliente'),
 
     path('usuarios/', views.ListaUsuariosView.as_view(), name='lista_usuarios'),
     path('usuarios/nuevo/', views.CrearUsuarioView.as_view(), name='crear_usuario'),
@@ -66,6 +69,7 @@ urlpatterns = [
     path('proveedores/nuevo/', views.CrearDispositorView.as_view(), name='crear_dispositor'),
     path('proveedores/<int:pk>/', views.FichaDispositorView.as_view(), name='ficha_dispositor'),
     path('proveedores/<int:pk>/editar/', views.ActualizarDispositorView.as_view(), name='actualizar_dispositor'),
+    path('proveedores/<int:pk>/eliminar/', views.EliminarDispositorView.as_view(), name='eliminar_dispositor'),
     path('documento-dispositor/<int:pk>/eliminar/', views.EliminarDocumentoDispositorView.as_view(), name='eliminar_documento_dispositor'),
 
     path('dashboard-conductor/', views.DashboardConductorView.as_view(), name='dashboard_conductor'),
@@ -97,6 +101,7 @@ urlpatterns = [
     path('personal/<int:pk>/seguridad-social/', views.HistorialSeguridadSocialView.as_view(), name='historial_seguridad_social'),
     path('personal/<int:pk>/password/', views.CambiarPasswordPersonaView.as_view(), name='cambiar_password_persona'),
     path('personal/<int:pk>/estado/', views.CambiarEstadoPersonaView.as_view(), name='cambiar_estado_persona'),
+    path('personal/<int:pk>/eliminar/', views.EliminarPersonaView.as_view(), name='eliminar_persona'),
     path('documento-personal/<int:pk>/eliminar/', views.EliminarDocumentoPersonalView.as_view(), name='eliminar_documento_personal'),
     path('documento-personal/<int:pk>/vigencia/', views.ActualizarVigenciaDocumentoView.as_view(), name='vigencia_documento_personal'),
 

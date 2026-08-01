@@ -101,6 +101,13 @@
                             <a href="{% url 'gestion:ficha_persona' usuario.pk %}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-folder2-open me-1"></i> Ver ficha
                             </a>
+                            {% if es_administrador and usuario.pk != request.user.pk %}
+                            <form method="post" action="{% url 'gestion:eliminar_persona' usuario.pk %}" class="d-inline"
+                                  onsubmit="return confirm('¿Eliminar a {{ usuario.get_full_name|default:usuario.username }}? Solo se puede si aún no ha participado en ningún servicio.');">
+                                {% csrf_token %}
+                                <button class="btn btn-sm btn-outline-danger" title="Eliminar persona"><i class="bi bi-trash"></i></button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% empty %}
