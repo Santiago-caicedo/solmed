@@ -1446,11 +1446,19 @@ class ProgramacionCuadrilla(models.Model):
     `ayudante_novedad` captura cómo cubre el turno el ayudante ese día (dónde lo
     inicia o lo termina, si retorna a bodega o si apoya una disposición).
     """
+    # Agrupadas por momento del turno: cómo lo inicia, cómo lo termina y apoyos.
     NOVEDAD_CHOICES = [
+        # Inicio del turno
+        ('INICIA_CLIENTE', 'Inicia turno donde el cliente'),
+        ('INICIA_BODEGA', 'Inicia en bodega'),
+        ('INICIA_PARQUEADERO', 'Inicia en parqueadero'),
+        ('PUNTO_ENCUENTRO', 'Punto de encuentro'),
+        # Fin del turno
         ('TERMINA_CLIENTE', 'Termina turno donde el cliente'),
         ('TERMINA_DISPOSICION', 'Termina turno en el sitio de disposición'),
+        ('TERMINA_INGRESO_BOGOTA', 'Termina ingreso a Bogotá'),
         ('RETORNA_BODEGA', 'Retorna a bodega'),
-        ('INICIA_CLIENTE', 'Inicia turno donde el cliente'),
+        # Apoyos
         ('APOYA_DISPOSICION', 'Apoya disposición de:'),
     ]
     # Novedad que requiere indicar de cuál vehículo se apoya la disposición.
