@@ -541,6 +541,19 @@ class Recorrido(models.Model):
         return f"Recorrido del {self.fecha_recorrido} para Orden #{self.orden.numero_orden}"
 
     @property
+    def auxiliares(self):
+        """
+        Nombres de los AUXILIARES del acta: son los ayudantes que asignó el
+        asesor en la programación. El conductor no los escribe ni los edita;
+        se copian al manifiesto al cerrarlo. Devuelve (auxiliar1, auxiliar2).
+        """
+        def nombre(persona):
+            if persona is None:
+                return ''
+            return persona.get_full_name() or persona.username
+        return nombre(self.ayudante), nombre(self.ayudante2)
+
+    @property
     def personas_asignadas(self):
         """Lista [(persona, es_conductor)] del personal del recorrido, para plantillas."""
         personas = []

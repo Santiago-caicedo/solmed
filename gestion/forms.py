@@ -214,20 +214,15 @@ class DocumentoOrdenForm(forms.ModelForm):
 
 # --- Formularios para cada sección del Manifiesto ---
 
-class ManifiestoPaso1Form(forms.ModelForm): # Cabecera e Info del Servicio
+class ManifiestoPaso1Form(forms.ModelForm):
+    """
+    Primer paso del asistente: solo revisión. Los AUXILIARES son los ayudantes
+    que asignó el asesor en la programación, así que el conductor ya no los
+    escribe: se copian del recorrido al cerrar el acta (ver GenerarManifiestoView).
+    """
     class Meta:
         model = Manifiesto
-        fields = [
-            'auxiliar1', 'auxiliar2'
-        ]
-        labels = {
-            'auxiliar1': 'Auxiliar 1',
-            'auxiliar2': 'Auxiliar 2',
-        }
-        widgets = {
-            'auxiliar1': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre Auxiliar 1'}),
-            'auxiliar2': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre Auxiliar 2'}),
-        }
+        fields = []
 
 class ManifiestoPaso2Form(forms.ModelForm): # Succión y Transporte / Sondeo / Lavado / Transporte
     class Meta:

@@ -28,7 +28,7 @@
     </div>
 
     <div class="wizard-progress">
-        <div class="wizard-step active">Paso 1: Datos Generales</div>
+        <div class="wizard-step active">Paso 1: Revisa el servicio</div>
         <div class="wizard-step">Paso 2: Tiempos y Medidas</div>
         <div class="wizard-step">Paso 3: Responsable y Observaciones</div>
     </div>
@@ -42,6 +42,8 @@
             <div><span>Dirección:</span> {{ recorrido.orden.direccion_servicio }}</div>
             <div><span>Vehículo:</span> {{ recorrido.vehiculo.placa }} ({{ recorrido.vehiculo.marca }})</div>
             <div><span>Conductor:</span> {{ recorrido.conductor.get_full_name|default:'N/A' }}</div>
+            <div><span>Auxiliar 1:</span> {{ auxiliar1|default:'—' }}</div>
+            <div><span>Auxiliar 2:</span> {{ auxiliar2|default:'—' }}</div>
         </div>
         {% if instrucciones_resumen %}
         <div class="ref-instr">
@@ -55,23 +57,15 @@
 
     <form method="post">
         {% csrf_token %}
-        <div class="form-section-header">
-            <h3 class="h5 mb-0"><i class="bi bi-pencil-fill me-2"></i>Lo que tú debes llenar</h3>
-        </div>
-
-        <div class="form-group-custom">
-            {{ form.auxiliar1.label_tag }}
-            {{ form.auxiliar1 }}
-            {% if form.auxiliar1.errors %}<div class="text-danger">{{ form.auxiliar1.errors }}</div>{% endif %}
-        </div>
-        <div class="form-group-custom">
-            {{ form.auxiliar2.label_tag }}
-            {{ form.auxiliar2 }}
-            {% if form.auxiliar2.errors %}<div class="text-danger">{{ form.auxiliar2.errors }}</div>{% endif %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-1"></i>
+            Revisa que los datos de arriba coincidan con el servicio. Los <strong>auxiliares</strong>
+            son los ayudantes que asignó el asesor, así que quedan en el acta tal como están.
+            En los siguientes pasos registras los tiempos, los kilómetros y el cierre.
         </div>
 
         <div class="d-flex justify-content-end mt-4">
-            <button type="submit" class="btn btn-primary">Siguiente <i class="bi bi-arrow-right"></i></button>
+            <button type="submit" class="btn btn-primary">Continuar <i class="bi bi-arrow-right"></i></button>
         </div>
     </form>
 </div>

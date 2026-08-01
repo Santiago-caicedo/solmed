@@ -838,7 +838,8 @@ def _acta_para_vista(recorrido):
         # creer a las plantillas que el acta ya existe. El recorrido viaja aparte
         # en el contexto de la plantilla.
         datos = _instrucciones_servicio_de(recorrido)
-        return Manifiesto(**datos), 'PENDIENTE'
+        auxiliar1, auxiliar2 = recorrido.auxiliares
+        return Manifiesto(auxiliar1=auxiliar1, auxiliar2=auxiliar2, **datos), 'PENDIENTE'
     estado = 'FIRMADA' if manifiesto.estado_firma == 'FIRMADO' else 'DILIGENCIADA'
     return manifiesto, estado
 
@@ -929,10 +930,12 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
 
         form = FormClass(initial=manifiesto_data, instance=manifiesto_instance)
 
+        auxiliar1, auxiliar2 = recorrido.auxiliares
         return render(request, template_path, {
             'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
             'manifiesto_instance': manifiesto_instance,
             'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
+            'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
         })
 
     def post(self, request, pk, step='paso1'):
@@ -973,9 +976,16 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         # La primera parte del acta (Succión/Sondeo/Lavado/Transporte) no la llena
         # el conductor: la definió el asesor en la programación. Se copia aquí.
         instrucciones = _instrucciones_servicio_de(recorrido)
+        # Los auxiliares son los ayudantes que asignó el asesor: se copian del
+        # recorrido, el conductor no los edita.
+        auxiliar1, auxiliar2 = recorrido.auxiliares
         Manifiesto.objects.update_or_create(
             recorrido=recorrido,
-            defaults={**instrucciones, **manifiesto_data, 'estado_firma': 'PENDIENTE_FIRMA'},
+            defaults={
+                **instrucciones, **manifiesto_data,
+                'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
+                'estado_firma': 'PENDIENTE_FIRMA',
+            },
         )
         if f'manifiesto_data_{pk}' in request.session:
             del request.session[f'manifiesto_data_{pk}']
