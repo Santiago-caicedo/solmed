@@ -414,39 +414,9 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         context['current_conciliacion'] = self.request.GET.get('conciliacion', '')
         return context
 
-class CrearOrdenView(LoginRequiredMixin, CreateView):
-    """
-    Crea la orden Y agenda su PRIMER recorrido en el mismo formulario.
-    El recorrido usa prefix='rec' para no chocar con el campo 'descripcion'
-    que existe en ambos formularios.
-    """
-    model = OrdenServicio
-    form_class = OrdenServicioForm
-    template_name = 'gestion/form_orden.html'
-    success_url = reverse_lazy('gestion:lista_ordenes')
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.setdefault('form_recorrido', RecorridoForm(prefix='rec'))
-        return context
-
-    def post(self, request, *args, **kwargs):
-        self.object = None
-        form = self.get_form()
-        form_recorrido = RecorridoForm(request.POST, prefix='rec')
-        if form.is_valid() and form_recorrido.is_valid():
-            form.instance.asesor = request.user
-            self.object = form.save()
-            recorrido = form_recorrido.save(commit=False)
-            recorrido.orden = self.object
-            recorrido.save()  # actualiza el estado de la orden (lógica de Recorrido.save)
-            messages.success(request, "Orden creada y primer recorrido agendado.")
-            return HttpResponseRedirect(self.get_success_url())
-        return self.render_to_response(
-            self.get_context_data(form=form, form_recorrido=form_recorrido)
-        )
-
-
+# Las órdenes NO se crean a mano (se eliminó CrearOrdenView): siempre nacen de
+# una programación, que valida personal/documentos y dispara los correos.
+# Aquí solo queda editarlas y añadirles recorridos.
 class ActualizarOrdenView(LoginRequiredMixin, UpdateView):
     """
     Edita los datos de la orden y permite AÑADIR más recorridos (uno a uno).
