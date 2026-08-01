@@ -333,6 +333,7 @@
                         <div class="col-md-7">
                             <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
                             <div class="novedades-check" id="novedades-ay1">{{ cuadrilla_form.ayudante_novedad }}</div>
+                            <div class="novedades-leyenda"><i class="bi bi-camera-fill me-1"></i>Las novedades marcadas con cámara le piden al ayudante subir una foto desde su enlace.</div>
                             {# Placa de la que apoya la disposición: solo si marca "Apoya disposición de:" #}
                             <div class="mt-2 d-none" id="campo-apoya-ay1">
                                 <label for="{{ cuadrilla_form.apoya_disposicion_vehiculo.id_for_label }}" class="form-label small mb-1">Apoya disposición del vehículo</label>
@@ -352,6 +353,7 @@
                         <div class="col-md-7">
                             <label class="form-label">Novedades <span class="text-muted">(marca las que apliquen)</span></label>
                             <div class="novedades-check" id="novedades-ay2">{{ cuadrilla_form.ayudante2_novedad }}</div>
+                            <div class="novedades-leyenda"><i class="bi bi-camera-fill me-1"></i>Las novedades marcadas con cámara le piden al ayudante subir una foto desde su enlace.</div>
                             <div class="mt-2 d-none" id="campo-apoya-ay2">
                                 <label for="{{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo.id_for_label }}" class="form-label small mb-1">Apoya disposición del vehículo</label>
                                 {{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo }}
@@ -365,6 +367,17 @@
     </div>
 
     <style>
+        /* Novedades que exigen foto del ayudante: se distinguen con cámara y
+           fondo ámbar (el atributo data-foto lo pone el widget NovedadesCheckbox). */
+        .novedades-check li.con-foto label{
+            background:var(--warn-tint); border:1px solid var(--warn-line);
+            border-radius:var(--r-sm); padding:.15rem .45rem;
+            display:flex; align-items:center; gap:.3rem;
+        }
+        .novedades-check li.con-foto .icono-foto{ margin-left:auto; color:var(--warn); font-size:.8rem; }
+        .novedades-leyenda{ font-size:.75rem; color:var(--ink-3); margin-top:.35rem; }
+        .novedades-leyenda i{ color:var(--warn); }
+
         /* Novedades: checkboxes compactos en columnas */
         .novedades-check ul { list-style:none; padding:0; margin:0;
             display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:.15rem .8rem; }
@@ -557,6 +570,23 @@
 
         // Si vuelve con error tras escribir uno nuevo, se muestra abierto.
         if (input && input.value.trim() !== '') abrir(true);
+    });
+})();
+</script>
+<script>
+// --- Novedades que exigen foto: se resaltan con un ícono de cámara ---
+// El widget les puso data-foto="1"; aquí se marca la fila y se añade el ícono
+// (se inserta como elemento para no depender de codepoints de la tipografía).
+(function () {
+    document.querySelectorAll('.novedades-check input[data-foto]').forEach(function (input) {
+        var fila = input.closest('li');
+        var etiqueta = input.closest('label');
+        if (!fila || !etiqueta || fila.classList.contains('con-foto')) return;
+        fila.classList.add('con-foto');
+        etiqueta.title = 'El ayudante deberá subir una foto de esta novedad';
+        var icono = document.createElement('i');
+        icono.className = 'bi bi-camera-fill icono-foto';
+        etiqueta.appendChild(icono);
     });
 })();
 </script>

@@ -863,6 +863,19 @@ class ProgramacionForm(forms.ModelForm):
         return cleaned
 
 
+class NovedadesCheckbox(forms.CheckboxSelectMultiple):
+    """
+    Checkboxes de novedades que marcan cuáles le exigen al ayudante subir una
+    FOTO: les pone `data-foto="1"` para que la plantilla las distinga a la vista
+    (ver ProgramacionCuadrilla.NOVEDADES_CON_FOTO).
+    """
+    def create_option(self, name, value, *args, **kwargs):
+        option = super().create_option(name, value, *args, **kwargs)
+        if str(value) in ProgramacionCuadrilla.NOVEDADES_CON_FOTO:
+            option['attrs']['data-foto'] = '1'
+        return option
+
+
 class ProgramacionCuadrillaForm(forms.ModelForm):
     """
     Personal y vehículo del servicio: UNA cuadrilla por programación (una orden =
@@ -873,11 +886,11 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
     """
     ayudante_novedad = forms.MultipleChoiceField(
         choices=ProgramacionCuadrilla.NOVEDAD_CHOICES, required=False,
-        widget=forms.CheckboxSelectMultiple, label="Novedades del ayudante"
+        widget=NovedadesCheckbox, label="Novedades del ayudante"
     )
     ayudante2_novedad = forms.MultipleChoiceField(
         choices=ProgramacionCuadrilla.NOVEDAD_CHOICES, required=False,
-        widget=forms.CheckboxSelectMultiple, label="Novedades del segundo ayudante"
+        widget=NovedadesCheckbox, label="Novedades del segundo ayudante"
     )
 
     class Meta:
