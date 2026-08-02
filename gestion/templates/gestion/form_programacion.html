@@ -38,15 +38,17 @@
                 </div>
                 <div class="col-md-3">
                     <label for="{{ form.sitio_inicio.id_for_label }}" class="form-label">Sitio de inicio</label>
-                    {{ form.sitio_inicio }}
-                    {% for e in form.sitio_inicio.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
-                    <a href="#" id="toggle-nuevo-sitio" class="small d-inline-block mt-1">
-                        <i class="bi bi-plus-circle me-1"></i>Crear nuevo sitio
-                    </a>
-                    <div id="campo-nuevo-sitio" class="mt-1 d-none">
-                        {{ form.nuevo_sitio_inicio }}
-                        <small class="text-muted">Se crea y queda disponible para las próximas programaciones.</small>
-                        {% for e in form.nuevo_sitio_inicio.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    {# Catálogo administrable en popup (igual que las básculas). #}
+                    <div class="d-flex gap-2 align-items-start">
+                        <div class="flex-grow-1">
+                            {{ form.sitio_inicio }}
+                            {% for e in form.sitio_inicio.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm text-nowrap"
+                                data-bs-toggle="modal" data-bs-target="#modal-sitios-inicio"
+                                title="Agregar o eliminar sitios de inicio">
+                            <i class="bi bi-gear"></i> Administrar
+                        </button>
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -172,15 +174,17 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <label for="{{ form.transporte_tipo.id_for_label }}" class="form-label mb-1">Residuo</label>
-                    {{ form.transporte_tipo }}
-                    {% for e in form.transporte_tipo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
-                    <a href="#" id="toggle-nuevo-residuo" class="small d-inline-block mt-1">
-                        <i class="bi bi-plus-circle me-1"></i>Crear nuevo residuo
-                    </a>
-                    <div id="campo-nuevo-residuo" class="mt-1 d-none">
-                        {{ form.nuevo_tipo_residuo }}
-                        <small class="text-muted">Se crea y queda disponible para las próximas programaciones.</small>
-                        {% for e in form.nuevo_tipo_residuo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    {# Catálogo administrable en popup (igual que las básculas). #}
+                    <div class="d-flex gap-2 align-items-start">
+                        <div class="flex-grow-1">
+                            {{ form.transporte_tipo }}
+                            {% for e in form.transporte_tipo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm text-nowrap"
+                                data-bs-toggle="modal" data-bs-target="#modal-residuos"
+                                title="Agregar o eliminar residuos">
+                            <i class="bi bi-gear"></i> Administrar
+                        </button>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -565,7 +569,13 @@
     </div>
 </form>
 
-{# ============ POPUP: ADMINISTRAR BÁSCULAS (fuera del form principal) ============ #}
+{% comment %}
+============ POPUPS DE CATÁLOGOS (fuera del form principal) ============
+Los tres funcionan igual: se agrega arriba, se elimina en el listado y el
+desplegable del formulario se actualiza solo (ver catalogoAdministrable en
+el bloque de scripts). Las clases catalogo-* son las que busca ese JS.
+{% endcomment %}
+
 <div class="modal fade" id="modal-basculas" tabindex="-1" aria-labelledby="modal-basculas-titulo" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
@@ -574,22 +584,22 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-                <div id="basculas-aviso"></div>
+                <div class="catalogo-aviso"></div>
 
                 {# Agregar una báscula #}
                 <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
                     <div class="fw-semibold small mb-2"><i class="bi bi-plus-circle me-1"></i>Agregar báscula</div>
                     <div class="row g-2">
                         <div class="col-md-5">
-                            <input type="text" id="nueva-bascula-nombre" class="form-control form-control-sm"
-                                   placeholder="Empresa / lugar *">
+                            <input type="text" class="form-control form-control-sm catalogo-campo"
+                                   data-campo="nombre" placeholder="Empresa / lugar *">
                         </div>
                         <div class="col-md-5">
-                            <input type="text" id="nueva-bascula-direccion" class="form-control form-control-sm"
-                                   placeholder="Dirección (opcional)">
+                            <input type="text" class="form-control form-control-sm catalogo-campo"
+                                   data-campo="direccion" placeholder="Dirección (opcional)">
                         </div>
                         <div class="col-md-2 d-grid">
-                            <button type="button" id="btn-agregar-bascula" class="btn btn-success btn-sm">
+                            <button type="button" class="btn btn-success btn-sm catalogo-agregar">
                                 <i class="bi bi-check2 me-1"></i>Agregar
                             </button>
                         </div>
@@ -602,12 +612,104 @@
                         <thead class="table-light">
                             <tr><th>Empresa / lugar</th><th>Dirección</th><th style="width:48px"></th></tr>
                         </thead>
-                        <tbody id="basculas-tbody"></tbody>
+                        <tbody class="catalogo-tbody"></tbody>
                     </table>
                 </div>
                 <p class="text-muted small mt-2 mb-0">
                     <i class="bi bi-info-circle me-1"></i>
                     Si una báscula ya se usó en programaciones no se borra: se oculta del
+                    desplegable y el histórico se conserva.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Listo</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-sitios-inicio" tabindex="-1" aria-labelledby="modal-sitios-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-sitios-titulo"><i class="bi bi-geo-alt-fill me-2"></i>Sitios de inicio</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="catalogo-aviso"></div>
+
+                <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
+                    <div class="fw-semibold small mb-2"><i class="bi bi-plus-circle me-1"></i>Agregar sitio de inicio</div>
+                    <div class="row g-2">
+                        <div class="col-md-10">
+                            <input type="text" class="form-control form-control-sm catalogo-campo"
+                                   data-campo="nombre" placeholder="Bodega, parqueadero, sede del cliente… *">
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" class="btn btn-success btn-sm catalogo-agregar">
+                                <i class="bi bi-check2 me-1"></i>Agregar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Sitio de inicio</th><th style="width:48px"></th></tr>
+                        </thead>
+                        <tbody class="catalogo-tbody"></tbody>
+                    </table>
+                </div>
+                <p class="text-muted small mt-2 mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Si un sitio ya se usó en programaciones no se borra: se oculta del
+                    desplegable y el histórico se conserva.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Listo</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modal-residuos" tabindex="-1" aria-labelledby="modal-residuos-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-residuos-titulo"><i class="bi bi-recycle me-2"></i>Residuos</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="catalogo-aviso"></div>
+
+                <div class="border rounded p-3 mb-3" style="background:var(--panel-2);">
+                    <div class="fw-semibold small mb-2"><i class="bi bi-plus-circle me-1"></i>Agregar residuo</div>
+                    <div class="row g-2">
+                        <div class="col-md-10">
+                            <input type="text" class="form-control form-control-sm catalogo-campo"
+                                   data-campo="nombre" placeholder="Nombre del residuo *">
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" class="btn btn-success btn-sm catalogo-agregar">
+                                <i class="bi bi-check2 me-1"></i>Agregar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Residuo</th><th style="width:48px"></th></tr>
+                        </thead>
+                        <tbody class="catalogo-tbody"></tbody>
+                    </table>
+                </div>
+                <p class="text-muted small mt-2 mb-0">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Si un residuo ya se usó en programaciones no se borra: se oculta del
                     desplegable y el histórico se conserva.
                 </p>
             </div>
@@ -629,49 +731,192 @@
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ docs_adicionales_sel|json_script:"docs-adicionales-sel" }}
 {{ basculas|json_script:"basculas-data" }}
+{{ sitios_inicio|json_script:"sitios-inicio-data" }}
+{{ tipos_residuo|json_script:"tipos-residuo-data" }}
 {{ docs_vehiculos|json_script:"docs-vehiculos-data" }}
 {{ docs_proveedores|json_script:"docs-proveedores-data" }}
 {{ docs_solmed|json_script:"docs-solmed-data" }}
 {{ docs_clientes|json_script:"docs-clientes-data" }}
 <script>
-// --- Catálogos con "crear nuevo" (sitio de inicio y residuo) ---
-// El enlace abre un campo de texto; lo escrito ahí manda sobre el desplegable.
-(function () {
-    [
-        { enlace: 'toggle-nuevo-sitio', campo: 'campo-nuevo-sitio',
-          select: 'id_sitio_inicio', crear: 'Crear nuevo sitio' },
-        { enlace: 'toggle-nuevo-residuo', campo: 'campo-nuevo-residuo',
-          select: 'id_transporte_tipo', crear: 'Crear nuevo residuo' },
-    ].forEach(function (cfg) {
-        var enlace = document.getElementById(cfg.enlace);
-        var campo = document.getElementById(cfg.campo);
-        if (!enlace || !campo) return;
-        var input = campo.querySelector('input');
-        var select = document.getElementById(cfg.select);
+// --- Catálogos administrables desde un popup (básculas, sitios de inicio, residuos) ---
+// Los tres se comportan igual: el popup lista lo registrado, permite agregar y
+// eliminar por AJAX, y el desplegable del formulario se sincroniza sin recargar.
+// Si un registro ya se usó en programaciones, el servidor lo oculta en vez de
+// borrarlo (así el histórico no se rompe) y aquí se avisa.
+function catalogoAdministrable(cfg) {
+    var select = document.getElementById(cfg.select);
+    var modal = document.getElementById(cfg.modal);
+    var contenedorDatos = document.getElementById(cfg.datos);
+    if (!select || !modal || !contenedorDatos) return null;
 
-        function abrir(mostrar) {
-            campo.classList.toggle('d-none', !mostrar);
-            enlace.innerHTML = mostrar
-                ? '<i class="bi bi-x-circle me-1"></i>Cancelar (usar la lista)'
-                : '<i class="bi bi-plus-circle me-1"></i>' + cfg.crear;
-            if (mostrar && input) input.focus();
-            if (!mostrar && input) input.value = '';
+    var items = JSON.parse(contenedorDatos.textContent);
+    var tbody = modal.querySelector('.catalogo-tbody');
+    var aviso = modal.querySelector('.catalogo-aviso');
+    var botonAgregar = modal.querySelector('.catalogo-agregar');
+    var entradas = Array.prototype.slice.call(modal.querySelectorAll('.catalogo-campo'));
+    var csrf = document.querySelector('form input[name="csrfmiddlewaretoken"]').value;
+    var columnas = cfg.columnas || ['nombre'];
+
+    // Escapador propio: el esc() global se define en un script posterior.
+    function escapar(t) {
+        return String(t == null ? '' : t)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // El desplegable del residuo guarda el NOMBRE (ver models.TipoResiduo);
+    // los otros dos guardan el id.
+    function valorDe(item) { return cfg.porNombre ? item.nombre : String(item.id); }
+
+    function porValor(valor) {
+        for (var i = 0; i < items.length; i++) {
+            if (valorDe(items[i]) === String(valor)) return items[i];
         }
+        return null;
+    }
 
-        enlace.addEventListener('click', function (e) {
-            e.preventDefault();
-            abrir(campo.classList.contains('d-none'));
+    function avisar(texto, tipo) {
+        aviso.innerHTML = texto
+            ? '<div class="alert alert-' + (tipo || 'info') + ' py-2 small mb-3">' + escapar(texto) + '</div>'
+            : '';
+    }
+
+    function notificarCambio() {
+        if (cfg.alCambiar) cfg.alCambiar(porValor(select.value));
+    }
+
+    // Reconstruye las opciones del desplegable desde el catálogo en memoria.
+    function poblarSelect() {
+        var previo = select.value;
+        // Se conserva la opción guardada aunque ya no esté activa (al editar).
+        var guardadaHTML = '';
+        if (previo && !porValor(previo)) {
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === previo) {
+                    guardadaHTML = select.options[i].outerHTML;
+                    break;
+                }
+            }
+        }
+        select.innerHTML = '<option value="">' + escapar(cfg.vacio) + '</option>'
+            + guardadaHTML
+            + items.map(function (item) {
+                return '<option value="' + escapar(valorDe(item)) + '">'
+                    + escapar(item.nombre) + '</option>';
+            }).join('');
+        if (previo) select.value = previo;
+        notificarCambio();
+    }
+
+    function pintarTabla() {
+        tbody.innerHTML = items.length
+            ? items.map(function (item) {
+                var celdas = columnas.map(function (col, i) {
+                    return i === 0
+                        ? '<td class="fw-semibold">' + escapar(item[col]) + '</td>'
+                        : '<td class="text-muted small">' + escapar(item[col] || '—') + '</td>';
+                }).join('');
+                return '<tr>' + celdas
+                    + '<td class="text-end"><button type="button" data-id="' + item.id + '" '
+                    + 'class="btn btn-sm btn-outline-danger py-0 px-1 catalogo-borrar" '
+                    + 'title="Eliminar"><i class="bi bi-trash"></i></button></td></tr>';
+            }).join('')
+            : '<tr><td colspan="' + (columnas.length + 1) + '" '
+              + 'class="text-center text-muted py-3">' + escapar(cfg.sinRegistros) + '</td></tr>';
+    }
+
+    botonAgregar.addEventListener('click', function () {
+        var datos = new FormData();
+        var nombre = '';
+        entradas.forEach(function (entrada) {
+            var campo = entrada.getAttribute('data-campo');
+            var valor = entrada.value.trim();
+            if (campo === 'nombre') nombre = valor;
+            datos.append(campo, valor);
         });
+        if (!nombre) { avisar(cfg.faltaNombre, 'warning'); return; }
 
-        // Si escribe uno nuevo, ese manda: se atenúa el desplegable.
-        if (input && select) {
-            input.addEventListener('input', function () {
-                select.classList.toggle('opacity-50', input.value.trim() !== '');
-            });
+        fetch(cfg.urlCrear, {
+            method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf },
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.ok) { avisar(data.error || 'No se pudo crear.', 'danger'); return; }
+            // Si ya existía en el catálogo local se actualiza; si no, se agrega.
+            var existente = null;
+            for (var i = 0; i < items.length; i++) {
+                if (String(items[i].id) === String(data.id)) { existente = items[i]; break; }
+            }
+            if (existente) { existente.nombre = data.nombre; existente.direccion = data.direccion; }
+            else items.push({ id: data.id, nombre: data.nombre, direccion: data.direccion });
+            items.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+            entradas.forEach(function (entrada) { entrada.value = ''; });
+            avisar(cfg.creado(data.nombre), 'success');
+            pintarTabla();
+            poblarSelect();
+            // Queda elegido de una vez, que es lo que el asesor venía a hacer.
+            select.value = valorDe(data);
+            notificarCambio();
+        }).catch(function () { avisar('Error de conexión al crear.', 'danger'); });
+    });
+
+    tbody.addEventListener('click', function (e) {
+        var boton = e.target.closest('.catalogo-borrar');
+        if (!boton) return;
+        var id = boton.getAttribute('data-id');
+        var item = null;
+        for (var i = 0; i < items.length; i++) {
+            if (String(items[i].id) === String(id)) { item = items[i]; break; }
         }
+        if (!window.confirm(cfg.confirmar(item ? item.nombre : ''))) return;
 
-        // Si vuelve con error tras escribir uno nuevo, se muestra abierto.
-        if (input && input.value.trim() !== '') abrir(true);
+        fetch(cfg.urlEliminar.replace('/0/', '/' + id + '/'), {
+            method: 'POST', headers: { 'X-CSRFToken': csrf },
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data.ok) { avisar('No se pudo eliminar.', 'danger'); return; }
+            var borrado = item ? valorDe(item) : null;
+            items = items.filter(function (x) { return String(x.id) !== String(id); });
+            avisar(data.eliminada ? cfg.eliminado : data.mensaje,
+                   data.eliminada ? 'success' : 'warning');
+            if (borrado !== null && String(select.value) === borrado) select.value = '';
+            pintarTabla();
+            poblarSelect();
+        }).catch(function () { avisar('Error de conexión al eliminar.', 'danger'); });
+    });
+
+    select.addEventListener('change', notificarCambio);
+    modal.addEventListener('show.bs.modal', function () {
+        avisar('');
+        pintarTabla();
+    });
+    notificarCambio();
+    return { pintarTabla: pintarTabla, poblarSelect: poblarSelect };
+}
+
+// Sitio de inicio y residuo: mismos popups que las básculas (esas se inicializan
+// en su propio bloque, junto al "¿Pesan en báscula?").
+(function () {
+    catalogoAdministrable({
+        datos: 'sitios-inicio-data', select: 'id_sitio_inicio', modal: 'modal-sitios-inicio',
+        urlCrear: '{% url "gestion:crear_sitio_inicio" %}',
+        urlEliminar: '{% url "gestion:eliminar_sitio_inicio" 0 %}',
+        vacio: '--- Elige el sitio ---',
+        sinRegistros: 'No hay sitios de inicio registrados.',
+        faltaNombre: 'Escribe el nombre del sitio de inicio.',
+        creado: function (nombre) { return 'Sitio «' + nombre + '» disponible.'; },
+        eliminado: 'Sitio de inicio eliminado.',
+        confirmar: function (nombre) { return '¿Eliminar el sitio de inicio «' + nombre + '»?'; },
+    });
+
+    catalogoAdministrable({
+        datos: 'tipos-residuo-data', select: 'id_transporte_tipo', modal: 'modal-residuos',
+        urlCrear: '{% url "gestion:crear_tipo_residuo" %}',
+        urlEliminar: '{% url "gestion:eliminar_tipo_residuo" 0 %}',
+        vacio: '--- Elige el residuo ---',
+        sinRegistros: 'No hay residuos registrados.',
+        faltaNombre: 'Escribe el nombre del residuo.',
+        creado: function (nombre) { return 'Residuo «' + nombre + '» disponible.'; },
+        eliminado: 'Residuo eliminado.',
+        confirmar: function (nombre) { return '¿Eliminar el residuo «' + nombre + '»?'; },
+        porNombre: true,   // el campo guarda el nombre, no el id
     });
 })();
 </script>
@@ -694,135 +939,38 @@
 })();
 </script>
 <script>
-// --- "¿Pesan en báscula?" = Sí -> selector de báscula + popup para administrarlas ---
-// basculas: [{id, nombre, direccion}] (solo activas). El popup crea/elimina por
-// AJAX y sincroniza el desplegable sin recargar la página.
+// --- "¿Pesan en báscula?" = Sí -> selector de báscula (mismo popup que los otros catálogos) ---
 (function () {
-    // Escapador propio: el esc() global se define en un script posterior.
-    function escB(t) {
-        return String(t == null ? '' : t)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-    var basculas = JSON.parse(document.getElementById('basculas-data').textContent);
     var selPesan = document.getElementById('id_bascula');
     var campo = document.getElementById('campo-bascula-sitio');
-    var selBascula = document.getElementById('id_bascula_sitio');
     var direccionEl = document.getElementById('bascula-direccion');
-    if (!selPesan || !campo || !selBascula) return;
-
-    function porId(id) {
-        for (var i = 0; i < basculas.length; i++) {
-            if (String(basculas[i].id) === String(id)) return basculas[i];
-        }
-        return null;
-    }
+    if (!selPesan || !campo) return;
 
     // Muestra el selector solo cuando la respuesta es Sí ('PESAN').
     function alternarCampo() {
         campo.classList.toggle('d-none', selPesan.value !== 'PESAN');
     }
-
-    // La dirección de la báscula elegida, como ayuda bajo el desplegable.
-    function pintarDireccion() {
-        if (!direccionEl) return;
-        var b = porId(selBascula.value);
-        direccionEl.textContent = (b && b.direccion) ? ('Dirección: ' + b.direccion) : '';
-    }
-
-    // Reconstruye las opciones del desplegable desde el catálogo en memoria.
-    function poblarSelect(preservar) {
-        var previo = preservar ? selBascula.value : '';
-        // Se conserva la opción guardada aunque ya no esté activa (al editar).
-        var guardadaHTML = '';
-        if (previo && !porId(previo)) {
-            var optPrevia = selBascula.querySelector('option[value="' + previo + '"]');
-            if (optPrevia) guardadaHTML = optPrevia.outerHTML;
-        }
-        selBascula.innerHTML = '<option value="">--- Elige la báscula ---</option>'
-            + guardadaHTML
-            + basculas.map(function (b) {
-                return '<option value="' + b.id + '">' + escB(b.nombre) + '</option>';
-            }).join('');
-        if (previo) selBascula.value = previo;
-        pintarDireccion();
-    }
-
-    // ---------- Popup ----------
-    var tbody = document.getElementById('basculas-tbody');
-    var aviso = document.getElementById('basculas-aviso');
-    var csrf = document.querySelector('form input[name="csrfmiddlewaretoken"]').value;
-
-    function avisar(texto, tipo) {
-        aviso.innerHTML = texto
-            ? '<div class="alert alert-' + (tipo || 'info') + ' py-2 small mb-3">' + escB(texto) + '</div>'
-            : '';
-    }
-
-    function pintarTabla() {
-        tbody.innerHTML = basculas.length
-            ? basculas.map(function (b) {
-                return '<tr><td class="fw-semibold">' + escB(b.nombre) + '</td>'
-                    + '<td class="text-muted small">' + escB(b.direccion || '—') + '</td>'
-                    + '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-borrar-bascula" '
-                    + 'data-id="' + b.id + '" title="Eliminar"><i class="bi bi-trash"></i></button></td></tr>';
-            }).join('')
-            : '<tr><td colspan="3" class="text-center text-muted py-3">No hay básculas registradas.</td></tr>';
-    }
-
-    document.getElementById('btn-agregar-bascula').addEventListener('click', function () {
-        var nombre = document.getElementById('nueva-bascula-nombre').value.trim();
-        var direccion = document.getElementById('nueva-bascula-direccion').value.trim();
-        if (!nombre) { avisar('Escribe el nombre de la báscula.', 'warning'); return; }
-        var datos = new FormData();
-        datos.append('nombre', nombre);
-        datos.append('direccion', direccion);
-        fetch('{% url "gestion:crear_bascula" %}', {
-            method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf },
-        }).then(function (r) { return r.json(); }).then(function (data) {
-            if (!data.ok) { avisar(data.error || 'No se pudo crear.', 'danger'); return; }
-            // Si ya existía en el catálogo local, se actualiza; si no, se agrega.
-            var existente = porId(data.id);
-            if (existente) { existente.nombre = data.nombre; existente.direccion = data.direccion; }
-            else basculas.push({ id: data.id, nombre: data.nombre, direccion: data.direccion });
-            basculas.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
-            document.getElementById('nueva-bascula-nombre').value = '';
-            document.getElementById('nueva-bascula-direccion').value = '';
-            avisar('Báscula «' + data.nombre + '» disponible.', 'success');
-            pintarTabla();
-            poblarSelect(true);
-            selBascula.value = String(data.id);   // queda elegida de una vez
-            pintarDireccion();
-        }).catch(function () { avisar('Error de conexión al crear la báscula.', 'danger'); });
-    });
-
-    tbody.addEventListener('click', function (e) {
-        var boton = e.target.closest('.btn-borrar-bascula');
-        if (!boton) return;
-        var id = boton.getAttribute('data-id');
-        var b = porId(id);
-        if (!window.confirm('¿Eliminar la báscula «' + (b ? b.nombre : '') + '»?')) return;
-        fetch('/app/bascula/' + id + '/eliminar/', {
-            method: 'POST', headers: { 'X-CSRFToken': csrf },
-        }).then(function (r) { return r.json(); }).then(function (data) {
-            if (!data.ok) { avisar('No se pudo eliminar.', 'danger'); return; }
-            basculas = basculas.filter(function (x) { return String(x.id) !== String(id); });
-            avisar(data.eliminada ? 'Báscula eliminada.' : data.mensaje, data.eliminada ? 'success' : 'warning');
-            if (String(selBascula.value) === String(id)) selBascula.value = '';
-            pintarTabla();
-            poblarSelect(true);
-        }).catch(function () { avisar('Error de conexión al eliminar.', 'danger'); });
-    });
-
     selPesan.addEventListener('change', alternarCampo);
-    selBascula.addEventListener('change', pintarDireccion);
-    document.getElementById('modal-basculas').addEventListener('show.bs.modal', function () {
-        avisar('');
-        pintarTabla();
-    });
-
     alternarCampo();
-    pintarDireccion();
+
+    catalogoAdministrable({
+        datos: 'basculas-data', select: 'id_bascula_sitio', modal: 'modal-basculas',
+        urlCrear: '{% url "gestion:crear_bascula" %}',
+        urlEliminar: '{% url "gestion:eliminar_bascula" 0 %}',
+        vacio: '--- Elige la báscula ---',
+        columnas: ['nombre', 'direccion'],
+        sinRegistros: 'No hay básculas registradas.',
+        faltaNombre: 'Escribe el nombre de la báscula.',
+        creado: function (nombre) { return 'Báscula «' + nombre + '» disponible.'; },
+        eliminado: 'Báscula eliminada.',
+        confirmar: function (nombre) { return '¿Eliminar la báscula «' + nombre + '»?'; },
+        // La dirección de la báscula elegida, como ayuda bajo el desplegable.
+        alCambiar: function (bascula) {
+            if (!direccionEl) return;
+            direccionEl.textContent = (bascula && bascula.direccion)
+                ? ('Dirección: ' + bascula.direccion) : '';
+        },
+    });
 })();
 </script>
 <script>

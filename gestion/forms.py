@@ -629,23 +629,9 @@ class ProgramacionForm(forms.ModelForm):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'})
     )
 
-    # Sitio de inicio: además del desplegable, se puede escribir uno NUEVO aquí
-    # mismo; se crea en el catálogo y queda seleccionado (ver clean()).
-    nuevo_sitio_inicio = forms.CharField(
-        required=False, label="Nuevo sitio de inicio",
-        widget=forms.TextInput(attrs={
-            'class': 'form-control', 'placeholder': 'Nombre del nuevo sitio',
-        })
-    )
-
-    # Caracterización del residuo: además del desplegable se puede escribir uno
-    # NUEVO aquí mismo; se crea en el catálogo y queda seleccionado (ver clean()).
-    nuevo_tipo_residuo = forms.CharField(
-        required=False, label="Nuevo residuo",
-        widget=forms.TextInput(attrs={
-            'class': 'form-control form-control-sm', 'placeholder': 'Nombre del nuevo residuo',
-        })
-    )
+    # El sitio de inicio y el residuo salen de catálogos que se agregan y se
+    # eliminan desde el popup "Administrar" del propio formulario (igual que
+    # las básculas), así que aquí solo van sus desplegables.
 
     # Cuando NO hay disposición final: a dónde queda el contenido (trasiegos /
     # dejar carro cargado). Se guarda en el mismo campo dispositor_final.
@@ -814,29 +800,6 @@ class ProgramacionForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-
-        # --- Residuo nuevo: se crea (o reutiliza) y queda seleccionado ---
-        nuevo_residuo = (cleaned.get('nuevo_tipo_residuo') or '').strip()
-        if nuevo_residuo:
-            residuo = TipoResiduo.objects.filter(nombre__iexact=nuevo_residuo).first()
-            if residuo is None:
-                residuo = TipoResiduo.objects.create(nombre=nuevo_residuo)
-            elif not residuo.activo:
-                residuo.activo = True
-                residuo.save(update_fields=['activo'])
-            cleaned['transporte_tipo'] = residuo.nombre
-
-        # --- Sitio de inicio nuevo: se crea (o reutiliza) y queda seleccionado ---
-        nuevo_sitio = (cleaned.get('nuevo_sitio_inicio') or '').strip()
-        if nuevo_sitio:
-            sitio = SitioInicio.objects.filter(nombre__iexact=nuevo_sitio).first()
-            if sitio is None:
-                sitio = SitioInicio.objects.create(nombre=nuevo_sitio)
-            elif not sitio.activo:
-                # Existía pero estaba oculto: se reactiva.
-                sitio.activo = True
-                sitio.save(update_fields=['activo'])
-            cleaned['sitio_inicio'] = sitio
 
         cliente = cleaned.get('cliente')
         sede = cleaned.get('sede_cliente')

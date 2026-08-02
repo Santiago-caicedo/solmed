@@ -89,9 +89,14 @@ urlpatterns = [
     path('programaciones/<int:pk>/editar/', views.ActualizarProgramacionView.as_view(), name='actualizar_programacion'),
     path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
     path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),
-    # Básculas: popup de la programación (crear/eliminar por AJAX).
+    # Catálogos que se administran desde los popups de la programación
+    # (crear/eliminar por AJAX, sin salir del formulario).
     path('basculas/crear/', views.CrearBasculaView.as_view(), name='crear_bascula'),
     path('bascula/<int:pk>/eliminar/', views.EliminarBasculaView.as_view(), name='eliminar_bascula'),
+    path('sitios-inicio/crear/', views.CrearSitioInicioView.as_view(), name='crear_sitio_inicio'),
+    path('sitio-inicio/<int:pk>/eliminar/', views.EliminarSitioInicioView.as_view(), name='eliminar_sitio_inicio'),
+    path('residuos/crear/', views.CrearTipoResiduoView.as_view(), name='crear_tipo_residuo'),
+    path('residuo/<int:pk>/eliminar/', views.EliminarTipoResiduoView.as_view(), name='eliminar_tipo_residuo'),
 
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),

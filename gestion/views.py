@@ -34,7 +34,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Foto
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, OrdenServicio, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -2377,10 +2377,19 @@ def _contexto_programacion(context):
     context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
-    # Básculas activas para el popup y el desplegable de "¿Pesan en báscula?".
+    # Catálogos que se administran desde un popup del propio formulario
+    # (agregar/eliminar sin salir de la programación). Solo los activos.
     context['basculas'] = [
         {'id': b.pk, 'nombre': b.nombre, 'direccion': b.direccion}
         for b in Bascula.objects.filter(activo=True)
+    ]
+    context['sitios_inicio'] = [
+        {'id': s.pk, 'nombre': s.nombre}
+        for s in SitioInicio.objects.filter(activo=True)
+    ]
+    context['tipos_residuo'] = [
+        {'id': t.pk, 'nombre': t.nombre}
+        for t in TipoResiduo.objects.filter(activo=True)
     ]
 
     # Catálogos de documentos adjuntables por fuente (para el acordeón del correo).
@@ -2909,45 +2918,115 @@ class AccesoAyudanteView(View):
         return redirect('gestion:acceso_ayudante', token=token)
 
 
-class CrearBasculaView(AsesorRequiredMixin, View):
-    """Crea una báscula desde el popup de la programación (POST, responde JSON)."""
+class CrearItemCatalogoView(AsesorRequiredMixin, View):
+    """
+    Crea un registro de un catálogo desde el popup de la programación
+    (báscula, sitio de inicio, residuo). Responde JSON para que el JS
+    sincronice el desplegable sin recargar.
+
+    Si el nombre ya existe no se duplica: se reutiliza y, si estaba oculto,
+    se vuelve a mostrar.
+    """
+    modelo = None
+    etiqueta = 'registro'          # cómo se nombra en los mensajes
+    con_direccion = False          # solo las básculas tienen dirección
+
     def post(self, request):
         nombre = request.POST.get('nombre', '').strip()
         direccion = request.POST.get('direccion', '').strip()
         if not nombre:
-            return JsonResponse({'ok': False, 'error': 'El nombre de la báscula es obligatorio.'}, status=400)
-        bascula = Bascula.objects.filter(nombre__iexact=nombre).first()
-        if bascula is None:
-            bascula = Bascula.objects.create(nombre=nombre, direccion=direccion)
+            return JsonResponse(
+                {'ok': False, 'error': f'El nombre {self.etiqueta} es obligatorio.'}, status=400)
+
+        item = self.modelo.objects.filter(nombre__iexact=nombre).first()
+        if item is None:
+            datos = {'nombre': nombre}
+            if self.con_direccion:
+                datos['direccion'] = direccion
+            item = self.modelo.objects.create(**datos)
         else:
             # Ya existía: se reactiva y, si mandaron dirección, se actualiza.
-            bascula.activo = True
-            if direccion:
-                bascula.direccion = direccion
-            bascula.save()
-        return JsonResponse({'ok': True, 'id': bascula.pk,
-                             'nombre': bascula.nombre, 'direccion': bascula.direccion})
+            item.activo = True
+            if self.con_direccion and direccion:
+                item.direccion = direccion
+            item.save()
+        return JsonResponse({'ok': True, 'id': item.pk, 'nombre': item.nombre,
+                             'direccion': getattr(item, 'direccion', '')})
 
 
-class EliminarBasculaView(AsesorRequiredMixin, View):
+class EliminarItemCatalogoView(AsesorRequiredMixin, View):
     """
-    Elimina una báscula desde el popup (POST, responde JSON). Si ya fue usada
-    por programaciones (PROTECT), no se borra: se desactiva y desaparece del
-    desplegable, conservando el histórico.
+    Elimina un registro del catálogo desde el popup (POST, responde JSON). Si
+    ya se usó en programaciones no se borra: se oculta del desplegable y el
+    histórico queda intacto.
     """
+    modelo = None
+    etiqueta = 'registro'
+    articulo = 'Ese'               # concordancia del mensaje: Ese / Esa
+
+    def esta_en_uso(self, item):
+        """
+        Uso que la base de datos no protege sola. Las básculas y los sitios de
+        inicio son llaves foráneas con PROTECT (lo detecta ProtectedError); el
+        residuo se guarda como texto, así que hay que preguntarlo aquí.
+        """
+        return False
+
     def post(self, request, pk):
         from django.db.models import ProtectedError
-        bascula = get_object_or_404(Bascula, pk=pk)
+        item = get_object_or_404(self.modelo, pk=pk)
+        oculto = {
+            'ok': True, 'eliminada': False,
+            'mensaje': f'{self.articulo} {self.etiqueta} ya se usó en '
+                       f'programaciones: se ocultó del listado.',
+        }
+        if self.esta_en_uso(item):
+            item.activo = False
+            item.save(update_fields=['activo'])
+            return JsonResponse(oculto)
         try:
-            bascula.delete()
+            item.delete()
             return JsonResponse({'ok': True, 'eliminada': True})
         except ProtectedError:
-            bascula.activo = False
-            bascula.save(update_fields=['activo'])
-            return JsonResponse({
-                'ok': True, 'eliminada': False,
-                'mensaje': 'Esa báscula ya se usó en programaciones: se ocultó del listado.',
-            })
+            item.activo = False
+            item.save(update_fields=['activo'])
+            return JsonResponse(oculto)
+
+
+class CrearBasculaView(CrearItemCatalogoView):
+    modelo = Bascula
+    etiqueta = 'de la báscula'
+    con_direccion = True
+
+
+class EliminarBasculaView(EliminarItemCatalogoView):
+    modelo = Bascula
+    etiqueta = 'báscula'
+    articulo = 'Esa'
+
+
+class CrearSitioInicioView(CrearItemCatalogoView):
+    modelo = SitioInicio
+    etiqueta = 'del sitio de inicio'
+
+
+class EliminarSitioInicioView(EliminarItemCatalogoView):
+    modelo = SitioInicio
+    etiqueta = 'sitio de inicio'
+
+
+class CrearTipoResiduoView(CrearItemCatalogoView):
+    modelo = TipoResiduo
+    etiqueta = 'del residuo'
+
+
+class EliminarTipoResiduoView(EliminarItemCatalogoView):
+    modelo = TipoResiduo
+    etiqueta = 'residuo'
+
+    def esta_en_uso(self, item):
+        # `Programacion.transporte_tipo` guarda el NOMBRE como texto, no una FK.
+        return Programacion.objects.filter(transporte_tipo__iexact=item.nombre).exists()
 
 
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
