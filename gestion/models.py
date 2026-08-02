@@ -541,6 +541,16 @@ class Recorrido(models.Model):
         return f"Recorrido del {self.fecha_recorrido} para Orden #{self.orden.numero_orden}"
 
     @property
+    def responsable_empresa(self):
+        """
+        Nombre del RESPONSABLE SOLMED del acta: es el conductor asignado. El
+        conductor no lo escribe; se copia al manifiesto al cerrarlo.
+        """
+        if self.conductor is None:
+            return ''
+        return self.conductor.get_full_name() or self.conductor.username
+
+    @property
     def auxiliares(self):
         """
         Nombres de los AUXILIARES del acta: son los ayudantes que asignó el

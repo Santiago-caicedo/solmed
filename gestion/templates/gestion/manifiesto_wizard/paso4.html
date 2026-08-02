@@ -30,19 +30,28 @@
     <form method="post">
         {% csrf_token %}
         
+        {# El responsable es el conductor asignado: se muestra, no se edita. #}
+        <div class="form-section">
+            <div class="form-section-title">RESPONSABLE EMPRESA</div>
+            <div class="form-section-content">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <i class="bi bi-person-badge-fill text-secondary" style="font-size:1.4rem;"></i>
+                    <div>
+                        <div class="fw-bold" style="font-size:1.05rem;">{{ responsable_empresa|default:"—" }}</div>
+                        <div class="text-muted small">
+                            <i class="bi bi-lock-fill me-1"></i>Eres el conductor asignado a este servicio.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="form-section">
             <div class="form-section-title">OBSERVACIONES</div>
             <div class="form-section-content">
                 {{ form.observaciones.label_tag }}
                 {{ form.observaciones }}
-            </div>
-        </div>
-
-        <div class="form-section">
-            <div class="form-section-title">RESPONSABLE EMPRESA</div>
-            <div class="form-section-content">
-                {{ form.nombre_responsable_empresa.label_tag }}
-                {{ form.nombre_responsable_empresa }}
+                <div class="form-text">Opcional. Queda impreso en el acta que firma el cliente.</div>
             </div>
         </div>
 

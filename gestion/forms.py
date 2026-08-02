@@ -321,21 +321,22 @@ class ManifiestoPaso3Form(forms.ModelForm):
             'km_llegada_solmed': 'Llegada Solmed', # NUEVO
         }
 
-class ManifiestoPaso4Form(forms.ModelForm): # Responsable / Firma / Observaciones
+class ManifiestoPaso4Form(forms.ModelForm):
+    """
+    Cierre del acta. El RESPONSABLE EMPRESA es el conductor asignado, así que
+    no se pide: se copia del recorrido al cerrar (ver GenerarManifiestoView).
+    Aquí el conductor solo escribe las observaciones.
+    """
     class Meta:
         model = Manifiesto
-        fields = [
-            'nombre_responsable_empresa',
-            'observaciones',
-        ]
+        fields = ['observaciones']
         widgets = {
-            'nombre_responsable_empresa': forms.TextInput(attrs={'class': 'form-control'}),
-            'observaciones': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'observaciones': forms.Textarea(attrs={
+                'class': 'form-control', 'rows': 4,
+                'placeholder': 'Novedades del servicio, algo que el cliente deba saber…',
+            }),
         }
-        labels = {
-            'nombre_responsable_empresa': 'Nombre del Responsable',
-            'observaciones': 'Observaciones',
-        }
+        labels = {'observaciones': 'Observaciones'}
 
 class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
     class Meta:

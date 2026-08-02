@@ -807,7 +807,10 @@ def _acta_para_vista(recorrido):
         # en el contexto de la plantilla.
         datos = _instrucciones_servicio_de(recorrido)
         auxiliar1, auxiliar2 = recorrido.auxiliares
-        return Manifiesto(auxiliar1=auxiliar1, auxiliar2=auxiliar2, **datos), 'PENDIENTE'
+        return Manifiesto(
+            auxiliar1=auxiliar1, auxiliar2=auxiliar2,
+            nombre_responsable_empresa=recorrido.responsable_empresa, **datos
+        ), 'PENDIENTE'
     estado = 'FIRMADA' if manifiesto.estado_firma == 'FIRMADO' else 'DILIGENCIADA'
     return manifiesto, estado
 
@@ -900,6 +903,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
 
         auxiliar1, auxiliar2 = recorrido.auxiliares
         return render(request, template_path, {
+            'responsable_empresa': recorrido.responsable_empresa,
             'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
             'manifiesto_instance': manifiesto_instance,
             'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
@@ -952,6 +956,8 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             defaults={
                 **instrucciones, **manifiesto_data,
                 'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
+                # El responsable SOLMED es el conductor: tampoco lo escribe él.
+                'nombre_responsable_empresa': recorrido.responsable_empresa,
                 'estado_firma': 'PENDIENTE_FIRMA',
             },
         )
