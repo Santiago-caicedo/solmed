@@ -1127,23 +1127,16 @@ class Programacion(models.Model):
         max_length=255, blank=True,
         help_text="Se arrastra a la orden al convertir. Si se deja vacío se usa la dirección del cliente."
     )
+    # HISTÓRICO: la documentación al cliente ya no se envía desde la
+    # programación sino desde el Centro de correos (modelo EnvioCorreo). Estos
+    # dos campos se conservan solo por las programaciones viejas.
     correo_seguridad_social = models.EmailField(
-        blank=True, verbose_name="Correo del cliente (seguridad social)",
-        help_text="Correo del cliente a donde se comparten los documentos de seguridad social."
+        blank=True, verbose_name="Correo del cliente (histórico)",
+        help_text="Ya no se usa: los correos al cliente salen del Centro de correos."
     )
-    # La seguridad social vigente del personal se adjunta SIEMPRE al correo.
-    # Aquí el asesor puede sumar CUALQUIER documento que ya viva en el sistema,
-    # organizado por fuente. Se guarda como lista de tokens (JSON):
-    #   personal:<doc_id>                       documento del expediente (sin SS)
-    #   vehiculo:<veh_id>:soat|tecno|tarjeta    documentos de la placa asignada
-    #   proveedor:<doc_id>                      expediente del dispositor elegido
-    #   solmed:<doc_id>                         documentación interna de SOLMED
-    #   cliente_fijo:<cli_id>:rut|camara|cedula documentos fijos del cliente
-    #   cliente_amb:<doc_id>                    documento ambiental del cliente
-    # La resolución/validación vive en views._resolver_adjunto_correo.
     adjuntos_correo = models.JSONField(
         default=list, blank=True,
-        verbose_name="Documentos adicionales para el correo (tokens)",
+        verbose_name="Documentos del correo (tokens, histórico)",
     )
     observaciones_servicio = models.TextField(
         blank=True, verbose_name="Observaciones detalladas del servicio a prestar"
@@ -1765,3 +1758,55 @@ class PerfilPersona(models.Model):
 
     def __str__(self):
         return f"Perfil de {self.usuario.get_full_name() or self.usuario.username}"
+
+class EnvioCorreo(models.Model):
+    """
+    Un correo de documentación enviado desde el Centro de correos. El envío ya
+    no depende de la programación: hay clientes que piden la información varios
+    días antes del servicio, cuando la programación todavía no existe.
+
+    Se guarda una copia fiel de lo enviado (destinatarios, asunto, mensaje y la
+    lista de adjuntos como texto) para que el historial no cambie aunque los
+    documentos del sistema se reemplacen después. `adjuntos` conserva los
+    tokens marcados para poder reutilizar el envío como plantilla.
+    """
+    ESTADO_CHOICES = [
+        ('ENVIADO', 'Enviado'),
+        ('FALLIDO', 'Fallido'),
+    ]
+
+    cliente = models.ForeignKey(
+        Cliente, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='envios_correo', verbose_name="Cliente",
+    )
+    destinatarios = models.CharField(
+        max_length=500, verbose_name="Destinatarios",
+        help_text="Uno o varios correos separados por coma.",
+    )
+    asunto = models.CharField(max_length=200, verbose_name="Asunto")
+    mensaje = models.TextField(blank=True, verbose_name="Mensaje")
+    # Tokens de los documentos adjuntados (mismo formato que usaba la
+    # programación; la resolución vive en views._resolver_adjunto_correo).
+    adjuntos = models.JSONField(default=list, blank=True)
+    # Copia en texto de lo que efectivamente se adjuntó: [nombre, ...].
+    adjuntos_detalle = models.JSONField(default=list, blank=True)
+    enviado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
+        related_name='envios_correo', verbose_name="Enviado por",
+    )
+    fecha = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de envío")
+    estado = models.CharField(max_length=10, choices=ESTADO_CHOICES, default='ENVIADO')
+    # Detalle del fallo cuando el servidor de correo rechazó el envío.
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-fecha']
+        verbose_name = "Envío de correo"
+        verbose_name_plural = "Envíos de correo"
+
+    def __str__(self):
+        return f"{self.asunto} → {self.destinatarios} ({self.get_estado_display()})"
+
+    @property
+    def lista_destinatarios(self):
+        return [d.strip() for d in self.destinatarios.split(',') if d.strip()]

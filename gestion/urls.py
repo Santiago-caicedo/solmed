@@ -98,6 +98,11 @@ urlpatterns = [
     path('residuos/crear/', views.CrearTipoResiduoView.as_view(), name='crear_tipo_residuo'),
     path('residuo/<int:pk>/eliminar/', views.EliminarTipoResiduoView.as_view(), name='eliminar_tipo_residuo'),
 
+    # --- Centro de correos (envío de documentación sin depender de la programación) ---
+    path('correos/', views.ListaEnviosCorreoView.as_view(), name='centro_correos'),
+    path('correos/nuevo/', views.CrearEnvioCorreoView.as_view(), name='crear_envio_correo'),
+    path('correos/<int:pk>/', views.DetalleEnvioCorreoView.as_view(), name='detalle_envio_correo'),
+
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),

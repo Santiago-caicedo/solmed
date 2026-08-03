@@ -646,7 +646,7 @@ class ProgramacionForm(forms.ModelForm):
         model = Programacion
         fields = [
             'fecha', 'hora_ingreso_bodega', 'sitio_inicio', 'hora_servicio',
-            'cliente', 'sede_cliente', 'tercero', 'direccion', 'correo_seguridad_social',
+            'cliente', 'sede_cliente', 'tercero', 'direccion',
             'observaciones_servicio',
             'paleada',
             'bascula', 'bascula_sitio',
@@ -668,7 +668,6 @@ class ProgramacionForm(forms.ModelForm):
             'sede_cliente': forms.Select(attrs={'class': 'form-select'}),
             'tercero': forms.Select(attrs={'class': 'form-select'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
-            'correo_seguridad_social': forms.EmailInput(attrs={'class': 'form-control'}),
             'observaciones_servicio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'paleada': forms.Select(attrs={'class': 'form-select'}),
             'bascula_sitio': forms.Select(attrs={'class': 'form-select'}),
@@ -725,11 +724,6 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sede_cliente'].queryset = sedes
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
-
-        # Los documentos adicionales para el correo NO son un campo del form:
-        # llegan como tokens en POST 'adjuntos_correo' (checkboxes que dibuja el
-        # JS por fuente) y las vistas los validan/guardan en
-        # Programacion.adjuntos_correo. La SS nunca va ahí: se adjunta siempre.
 
         # Básculas activas (+ la guardada, aunque esté inactiva, al editar).
         basculas = Q(activo=True)

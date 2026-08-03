@@ -1,0 +1,98 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="mb-0"><i class="bi bi-envelope-open me-2"></i>Detalle del envío</h1>
+    <div class="d-flex gap-2">
+        <a href="{% url 'gestion:crear_envio_correo' %}?copiar={{ envio.pk }}" class="btn btn-primary">
+            <i class="bi bi-arrow-repeat me-1"></i>
+            {% if envio.estado == 'FALLIDO' %}Reintentar este envío{% else %}Usar como plantilla{% endif %}
+        </a>
+        <a href="{% url 'gestion:centro_correos' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Volver al historial
+        </a>
+    </div>
+</div>
+
+{% if envio.estado == 'FALLIDO' %}
+<div class="alert alert-danger">
+    <strong><i class="bi bi-x-octagon-fill me-1"></i> Este envío falló:</strong> el servidor de correo lo rechazó.
+    {% if envio.error %}<div class="small mt-1"><code>{{ envio.error }}</code></div>{% endif %}
+    <div class="small mt-1">Corrige el problema y pulsa <strong>Reintentar este envío</strong>.</div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        {# ---------- El correo tal como se envió ---------- #}
+        <div class="card shadow">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-envelope me-1"></i>Correo enviado</h5></div>
+            <div class="card-body p-0">
+                <div class="px-4 py-3 bg-light border-bottom small">
+                    <div class="mb-1"><span class="text-muted d-inline-block" style="min-width:90px;">Para:</span>
+                        <strong>{{ envio.destinatarios }}</strong></div>
+                    <div><span class="text-muted d-inline-block" style="min-width:90px;">Asunto:</span>
+                        <strong>{{ envio.asunto }}</strong></div>
+                </div>
+                <div class="px-4 py-4">
+                    <div style="white-space:pre-line;">{{ envio.mensaje|default:"(sin mensaje: se envió el texto por defecto)" }}</div>
+
+                    <div class="fw-semibold small mt-4 mb-2">
+                        <i class="bi bi-paperclip me-1"></i>Documentos adjuntos ({{ envio.adjuntos_detalle|length }})
+                    </div>
+                    <ul class="list-group">
+                        {% for adjunto in envio.adjuntos_detalle %}
+                        <li class="list-group-item small">
+                            <i class="bi bi-file-earmark-text text-muted me-1"></i>{{ adjunto }}
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-muted small">Este correo se envió sin documentos adjuntos.</li>
+                        {% endfor %}
+                    </ul>
+
+                    <div class="text-muted small mt-3">
+                        Al final del correo se agregó la firma <strong>Cordialmente, SOLMED SAS</strong>.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        {# ---------- Ficha del registro ---------- #}
+        <div class="card shadow">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-info-circle me-1"></i>Registro</h5></div>
+            <div class="card-body p-3">
+                <table class="table table-sm mb-0 align-middle">
+                    <tr>
+                        <td class="text-muted">Estado</td>
+                        <td>
+                            {% if envio.estado == 'ENVIADO' %}
+                            <span class="badge bg-success"><i class="bi bi-check2"></i> Enviado</span>
+                            {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x-lg"></i> Fallido</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Fecha</td>
+                        <td>{{ envio.fecha|date:"d/m/Y H:i" }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Cliente</td>
+                        <td>{{ envio.cliente.nombre|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Enviado por</td>
+                        <td>{{ envio.enviado_por.get_full_name|default:envio.enviado_por.username|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Adjuntos</td>
+                        <td>{{ envio.adjuntos_detalle|length }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

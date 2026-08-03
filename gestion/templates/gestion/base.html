@@ -417,6 +417,11 @@
                 <i class="bi bi-clipboard-data"></i>Órdenes de servicio
             </a>
         </li>
+        <li>
+            <a href="{% url 'gestion:centro_correos' %}" class="nav-link {% if '/correos' in request.path %}active{% endif %}">
+                <i class="bi bi-envelope-paper"></i>Centro de correos
+            </a>
+        </li>
 
         <li class="nav-section">Gestión</li>
         <li>

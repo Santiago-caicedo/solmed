@@ -1,0 +1,170 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <h1 class="mb-0"><i class="bi bi-envelope-paper me-2"></i>Centro de correos</h1>
+    <a href="{% url 'gestion:crear_envio_correo' %}" class="btn btn-primary">
+        <i class="bi bi-send-fill me-1"></i> Nuevo envío
+    </a>
+</div>
+<p class="text-muted mb-4">
+    Envía la seguridad social y cualquier documento del sistema por correo, sin
+    depender de la programación: sirve para los clientes que piden la información
+    varios días antes del servicio. Todo envío queda registrado aquí.
+</p>
+
+{# ============ ESTADÍSTICAS ============ #}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="card shadow h-100">
+            <div class="card-body py-3 d-flex align-items-center gap-3">
+                <i class="bi bi-calendar-check text-primary" style="font-size:1.6rem;"></i>
+                <div>
+                    <div class="fs-4 fw-bold lh-1">{{ kpi.mes }}</div>
+                    <div class="text-muted small">Envíos este mes</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card shadow h-100">
+            <div class="card-body py-3 d-flex align-items-center gap-3">
+                <i class="bi bi-envelope-check text-success" style="font-size:1.6rem;"></i>
+                <div>
+                    <div class="fs-4 fw-bold lh-1">{{ kpi.total }}</div>
+                    <div class="text-muted small">Envíos en total</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card shadow h-100 {% if kpi.fallidos %}border-danger{% endif %}">
+            <div class="card-body py-3 d-flex align-items-center gap-3">
+                <i class="bi bi-envelope-exclamation {% if kpi.fallidos %}text-danger{% else %}text-muted{% endif %}" style="font-size:1.6rem;"></i>
+                <div>
+                    <div class="fs-4 fw-bold lh-1 {% if kpi.fallidos %}text-danger{% endif %}">{{ kpi.fallidos }}</div>
+                    <div class="text-muted small">Fallidos</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card shadow h-100">
+            <div class="card-body py-3 d-flex align-items-center gap-3">
+                <i class="bi bi-clock-history text-secondary" style="font-size:1.6rem;"></i>
+                <div>
+                    <div class="fw-bold lh-1" style="font-size:1.05rem;">
+                        {% if kpi.ultimo %}{{ kpi.ultimo.fecha|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+                    </div>
+                    <div class="text-muted small">Último envío</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ============ BUSCADOR Y FILTRO ============ #}
+<div class="card shadow mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label for="q" class="form-label small mb-1">Buscar</label>
+                <input type="text" id="q" name="q" value="{{ q }}" class="form-control"
+                       placeholder="Destinatario, asunto o cliente">
+            </div>
+            <div class="col-md-3">
+                <label for="estado" class="form-label small mb-1">Estado</label>
+                <select id="estado" name="estado" class="form-select">
+                    <option value="">Todos</option>
+                    <option value="ENVIADO" {% if estado_sel == 'ENVIADO' %}selected{% endif %}>Enviados</option>
+                    <option value="FALLIDO" {% if estado_sel == 'FALLIDO' %}selected{% endif %}>Fallidos</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary flex-grow-1"><i class="bi bi-search"></i> Filtrar</button>
+                {% if q or estado_sel %}
+                <a href="{% url 'gestion:centro_correos' %}" class="btn btn-outline-secondary" title="Limpiar"><i class="bi bi-x-lg"></i></a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ============ HISTORIAL ============ #}
+<div class="card shadow">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Cliente</th>
+                        <th>Destinatarios</th>
+                        <th>Asunto</th>
+                        <th class="text-center">Adjuntos</th>
+                        <th>Estado</th>
+                        <th>Enviado por</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for envio in envios %}
+                    <tr {% if envio.estado == 'FALLIDO' %}class="table-danger"{% endif %}>
+                        <td class="text-nowrap">
+                            {{ envio.fecha|date:"d/m/Y" }}
+                            <small class="text-muted d-block">{{ envio.fecha|date:"H:i" }}</small>
+                        </td>
+                        <td>{{ envio.cliente.nombre|default:"—" }}</td>
+                        <td style="max-width:220px;">
+                            <span class="d-inline-block text-truncate" style="max-width:100%;" title="{{ envio.destinatarios }}">
+                                {{ envio.destinatarios }}
+                            </span>
+                        </td>
+                        <td style="max-width:260px;">
+                            <span class="d-inline-block text-truncate" style="max-width:100%;" title="{{ envio.asunto }}">
+                                {{ envio.asunto }}
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge {% if envio.adjuntos_detalle %}bg-info text-dark{% else %}bg-secondary{% endif %}"
+                                  title="{{ envio.adjuntos_detalle|join:', ' }}">
+                                <i class="bi bi-paperclip"></i> {{ envio.adjuntos_detalle|length }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if envio.estado == 'ENVIADO' %}
+                            <span class="badge bg-success"><i class="bi bi-check2"></i> Enviado</span>
+                            {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x-lg"></i> Fallido</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ envio.enviado_por.get_full_name|default:envio.enviado_por.username|default:"—" }}</td>
+                        <td class="text-end text-nowrap">
+                            <a href="{% url 'gestion:detalle_envio_correo' envio.pk %}" class="btn btn-sm btn-outline-primary" title="Ver el detalle">
+                                <i class="bi bi-eye"></i> Ver
+                            </a>
+                            <a href="{% url 'gestion:crear_envio_correo' %}?copiar={{ envio.pk }}"
+                               class="btn btn-sm btn-outline-secondary" title="Usar como plantilla para un nuevo envío">
+                                <i class="bi bi-arrow-repeat"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-5">
+                            <i class="bi bi-envelope-open d-block mb-2" style="font-size:2rem;"></i>
+                            {% if q or estado_sel %}
+                                No hay envíos que coincidan con el filtro.
+                            {% else %}
+                                Aún no se ha enviado ningún correo. Pulsa <strong>Nuevo envío</strong> para hacer el primero.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% include 'gestion/partials/_paginacion.html' with etiqueta="envíos" %}
+{% endblock %}

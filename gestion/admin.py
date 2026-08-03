@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Bascula, Cliente, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Bascula, Cliente, EnvioCorreo, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -181,3 +181,11 @@ class BasculaAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'direccion', 'activo')
     list_filter = ('activo',)
     search_fields = ('nombre', 'direccion')
+
+
+@admin.register(EnvioCorreo)
+class EnvioCorreoAdmin(admin.ModelAdmin):
+    list_display = ('fecha', 'cliente', 'destinatarios', 'asunto', 'estado', 'enviado_por')
+    list_filter = ('estado',)
+    search_fields = ('destinatarios', 'asunto', 'cliente__nombre')
+    date_hierarchy = 'fecha'

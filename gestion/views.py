@@ -34,7 +34,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Foto
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, EnvioCorreo, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -1942,16 +1942,6 @@ def _estado_documentos_personal():
             tipo: any(d.tipo == tipo and not d.vencido for d in docs)
             for tipo, _etiqueta in CURSOS_EXIGIBLES
         }
-        # Documentos del expediente que se pueden ADJUNTAR al correo además de la
-        # seguridad social (que va siempre): cédula, licencia, cursos, otros.
-        adjuntables = [{
-            'id': d.pk,
-            'label': (
-                (d.descripcion if d.tipo == 'OTRO' and d.descripcion else tipo_label[d.tipo])
-                + (' (vencido)' if d.vencido else '')
-            ),
-        } for d in docs if d.tipo != 'SEGURIDAD_SOCIAL']
-
         data[u.id] = {
             'nombre': u.get_full_name() or u.username,
             'faltan': faltan,
@@ -1961,7 +1951,6 @@ def _estado_documentos_personal():
             'ss_al_dia': ss_doc is not None,
             'ss_vence': ss_doc.fecha_vencimiento.strftime('%d/%m/%Y') if ss_doc else '',
             'ss_url': ss_doc.archivo.url if ss_doc else '',
-            'docs': adjuntables,
         }
     return data
 
@@ -2003,9 +1992,11 @@ def _tiene_ss_vigente(persona):
 
 
 # ============================================================
-#  ADJUNTOS ADICIONALES DEL CORREO (tokens de Programacion.adjuntos_correo)
-#  Un solo resolutor: valida los tokens contra el contexto de la programación
-#  y entrega (archivo, nombre, línea, origen) para armar el correo.
+#  ADJUNTOS DEL CENTRO DE CORREOS (tokens de EnvioCorreo.adjuntos)
+#  Un solo resolutor: cada token nombra un documento que vive en el sistema
+#  (personal, vehículo, proveedor, SOLMED o cliente) y se resuelve a
+#  (archivo, nombre, línea) para armar el correo. Sin contexto: desde el
+#  centro se puede adjuntar cualquier documento, exista o no programación.
 # ============================================================
 
 # Etiquetas de los documentos de la placa y del cliente (subcampos fijos).
@@ -2021,33 +2012,11 @@ DOCS_CLIENTE_FIJOS = {
 }
 
 
-def _contexto_adjuntos(cliente_id, dispositor_id, personal_ids, vehiculo_id):
-    return {
-        'cliente_id': cliente_id,
-        'dispositor_id': dispositor_id,
-        'personal_ids': set(personal_ids or []),
-        'vehiculo_id': vehiculo_id,
-    }
-
-
-def _contexto_adjuntos_de(programacion):
-    """Contexto de resolución a partir de una programación guardada."""
-    personal, vehiculo_id = set(), None
-    for c in programacion.cuadrillas.all():
-        for pid in (c.conductor_id, c.ayudante_id, c.ayudante2_id):
-            if pid:
-                personal.add(pid)
-        vehiculo_id = c.vehiculo_id or vehiculo_id
-    return _contexto_adjuntos(
-        programacion.cliente_id, programacion.dispositor_final_id, personal, vehiculo_id
-    )
-
-
-def _resolver_adjunto_correo(token, ctx):
+def _resolver_adjunto_correo(token):
     """
-    Resuelve un token a {'archivo', 'nombre', 'linea'} si es válido EN ESTE
-    contexto (personal/vehículo asignados, proveedor y cliente elegidos) y el
-    archivo existe. Devuelve None si no aplica: eso invalida el guardado.
+    Resuelve un token a {'archivo', 'nombre', 'linea'} si el documento existe.
+    Devuelve None si el token no existe o su archivo fue eliminado: el envío
+    avisa en vez de mandar un correo incompleto.
     """
     partes = str(token).split(':')
     tipo = partes[0] if partes else ''
@@ -2058,20 +2027,20 @@ def _resolver_adjunto_correo(token, ctx):
 
     if tipo == 'personal' and len(partes) == 2 and partes[1].isdigit():
         doc = (DocumentoPersonal.objects.select_related('usuario')
-               .filter(pk=partes[1]).exclude(tipo='SEGURIDAD_SOCIAL').first())
-        if not doc or doc.usuario_id not in ctx['personal_ids'] or not doc.archivo:
+               .filter(pk=partes[1]).first())
+        if not doc or not doc.archivo:
             return None
         persona = doc.usuario.get_full_name() or doc.usuario.username
         etiqueta = (doc.descripcion if doc.tipo == 'OTRO' and doc.descripcion
                     else doc.get_tipo_display())
+        if doc.tipo == 'SEGURIDAD_SOCIAL' and doc.fecha_vencimiento:
+            etiqueta += f" (vigente hasta {doc.fecha_vencimiento.strftime('%d/%m/%Y')})"
         return {'archivo': doc.archivo,
                 'nombre': _nombre(doc.archivo.name, f"{etiqueta} - {persona}"),
                 'linea': f"- {persona}: {etiqueta}"}
 
     if tipo == 'vehiculo' and len(partes) == 3 and partes[2] in DOCS_VEHICULO:
-        if not partes[1].isdigit() or int(partes[1]) != (ctx['vehiculo_id'] or 0):
-            return None
-        vehiculo = Vehiculo.objects.filter(pk=partes[1]).first()
+        vehiculo = Vehiculo.objects.filter(pk=partes[1]).first() if partes[1].isdigit() else None
         campo, etiqueta = DOCS_VEHICULO[partes[2]]
         archivo = getattr(vehiculo, campo, None) if vehiculo else None
         if not archivo:
@@ -2083,7 +2052,7 @@ def _resolver_adjunto_correo(token, ctx):
     if tipo == 'proveedor' and len(partes) == 2 and partes[1].isdigit():
         doc = (DocumentoDispositor.objects.select_related('dispositor')
                .filter(pk=partes[1]).first())
-        if not doc or doc.dispositor_id != (ctx['dispositor_id'] or 0) or not doc.archivo:
+        if not doc or not doc.archivo:
             return None
         return {'archivo': doc.archivo,
                 'nombre': _nombre(doc.archivo.name,
@@ -2101,9 +2070,7 @@ def _resolver_adjunto_correo(token, ctx):
                 'linea': f"- SOLMED: {etiqueta}"}
 
     if tipo == 'cliente_fijo' and len(partes) == 3 and partes[2] in DOCS_CLIENTE_FIJOS:
-        if not partes[1].isdigit() or int(partes[1]) != (ctx['cliente_id'] or 0):
-            return None
-        cliente = Cliente.objects.filter(pk=partes[1]).first()
+        cliente = Cliente.objects.filter(pk=partes[1]).first() if partes[1].isdigit() else None
         campo, etiqueta = DOCS_CLIENTE_FIJOS[partes[2]]
         archivo = getattr(cliente, campo, None) if cliente else None
         if not archivo:
@@ -2115,45 +2082,24 @@ def _resolver_adjunto_correo(token, ctx):
     if tipo == 'cliente_amb' and len(partes) == 2 and partes[1].isdigit():
         doc = (DocumentoAmbientalCliente.objects.select_related('cliente')
                .filter(pk=partes[1]).first())
-        if not doc or doc.cliente_id != (ctx['cliente_id'] or 0) or not doc.archivo:
+        if not doc or not doc.archivo:
             return None
         etiqueta = doc.descripcion or os.path.basename(doc.archivo.name)
         return {'archivo': doc.archivo,
                 'nombre': _nombre(doc.archivo.name, f"{etiqueta} - {doc.cliente.nombre}"),
                 'linea': f"- Cliente {doc.cliente.nombre}: {etiqueta} (ambiental)"}
 
+    if tipo == 'cliente_correo' and len(partes) == 2 and partes[1].isdigit():
+        doc = (DocumentoCorreoCliente.objects.select_related('cliente')
+               .filter(pk=partes[1]).first())
+        if not doc or not doc.archivo:
+            return None
+        etiqueta = doc.descripcion or os.path.basename(doc.archivo.name)
+        return {'archivo': doc.archivo,
+                'nombre': _nombre(doc.archivo.name, f"{etiqueta} - {doc.cliente.nombre}"),
+                'linea': f"- Cliente {doc.cliente.nombre}: {etiqueta}"}
+
     return None
-
-
-def _validar_adjuntos_correo(form, cuadrilla_form, tokens):
-    """
-    Todos los tokens deben resolver contra lo elegido en el formulario (personal
-    y placa de la cuadrilla, proveedor y cliente actuales). Devuelve True si ok.
-    """
-    if not tokens:
-        return True
-    cliente = form.cleaned_data.get('cliente')
-    dispositor = form.cleaned_data.get('dispositor_final')
-    personal = {
-        p.pk for campo in ('conductor', 'ayudante', 'ayudante2')
-        if (p := cuadrilla_form.cleaned_data.get(campo)) is not None
-    }
-    vehiculo = cuadrilla_form.cleaned_data.get('vehiculo')
-    ctx = _contexto_adjuntos(
-        cliente.pk if cliente else None,
-        dispositor.pk if dispositor else None,
-        personal,
-        vehiculo.pk if vehiculo else None,
-    )
-    if all(_resolver_adjunto_correo(t, ctx) for t in tokens):
-        return True
-    form.add_error(
-        None,
-        'Alguno de los documentos adicionales marcados ya no aplica (cambiaste el '
-        'personal, la placa, el proveedor o el cliente). Revisa la selección de '
-        'documentos para el correo.'
-    )
-    return False
 
 
 def _validar_ss_cuadrilla(form, cuadrilla_form):
@@ -2222,18 +2168,6 @@ def _terceros_por_cliente():
     return data
 
 
-def _docs_correo_por_cliente():
-    """
-    Mapa {id_cliente: [nombre_documento, ...]} de los documentos del cliente que
-    se adjuntan al correo de la orden, para mostrarlos en la vista previa.
-    """
-    data = {}
-    for doc in DocumentoCorreoCliente.objects.select_related('cliente'):
-        nombre = doc.descripcion or os.path.basename(doc.archivo.name)
-        data.setdefault(str(doc.cliente_id), []).append(nombre)
-    return data
-
-
 def _vehiculos_cargados():
     """
     Mapa {id_vehiculo: detalle} de los camiones con carga PENDIENTE de
@@ -2244,35 +2178,6 @@ def _vehiculos_cargados():
         for pk, detalle in Vehiculo.objects.filter(cargado=True)
                                             .values_list('pk', 'cargado_detalle')
     }
-
-
-def _catalogo_docs_vehiculos():
-    """{id_vehiculo: [{token, label}]} de los documentos presentes de cada placa."""
-    data = {}
-    for v in Vehiculo.objects.all():
-        docs = []
-        for sub, (campo, etiqueta) in DOCS_VEHICULO.items():
-            archivo = getattr(v, campo)
-            if not archivo:
-                continue
-            vence = getattr(v, f"fecha_vencimiento_{'soat' if sub == 'soat' else 'tecnomecanica'}", None) \
-                if sub in ('soat', 'tecno') else None
-            label = etiqueta + (f" (vence {vence.strftime('%d/%m/%Y')})" if vence else '')
-            docs.append({'token': f'vehiculo:{v.pk}:{sub}', 'label': label})
-        if docs:
-            data[str(v.pk)] = docs
-    return data
-
-
-def _catalogo_docs_proveedores():
-    """{id_dispositor: [{token, label}]} del expediente de cada proveedor."""
-    data = {}
-    for doc in DocumentoDispositor.objects.select_related('dispositor').order_by('tipo', '-fecha_subida'):
-        data.setdefault(str(doc.dispositor_id), []).append({
-            'token': f'proveedor:{doc.pk}',
-            'label': doc.get_tipo_display() + (f" — {doc.descripcion}" if doc.descripcion else ''),
-        })
-    return data
 
 
 def _catalogo_docs_solmed():
@@ -2286,23 +2191,308 @@ def _catalogo_docs_solmed():
     } for d in DocumentoInterno.objects.all()]
 
 
-def _catalogo_docs_clientes():
-    """{id_cliente: [{token, label}]} de los fijos + ambientales de cada cliente."""
-    data = {}
-    campos = list(DOCS_CLIENTE_FIJOS.items())
-    for c in Cliente.objects.all():
+def _catalogo_centro_correos():
+    """
+    TODOS los documentos adjuntables del sistema, agrupados por fuente, para
+    pintar el acordeón del Centro de correos (se renderiza en el servidor: aquí
+    no hay contexto de programación que filtrar). Cada documento es
+    {'token', 'label'}; cada grupo lleva su encabezado.
+    """
+    tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
+
+    # --- Personal activo, incluida su seguridad social vigente ---
+    personal = []
+    usuarios = (
+        User.objects.filter(groups__isnull=False, is_superuser=False)
+        .exclude(perfil__retirado=True).distinct()
+        .prefetch_related('groups', 'documentos_personales')
+        .order_by('first_name', 'last_name', 'username')
+    )
+    for u in usuarios:
+        docs_u = list(u.documentos_personales.all())
         docs = []
-        for sub, (campo, etiqueta) in campos:
-            if getattr(c, campo):
-                docs.append({'token': f'cliente_fijo:{c.pk}:{sub}', 'label': etiqueta})
+        ss = _ss_vigente(docs_u)
+        if ss is not None:
+            docs.append({
+                'token': f'personal:{ss.pk}',
+                'label': f"Seguridad social (vigente hasta "
+                         f"{ss.fecha_vencimiento.strftime('%d/%m/%Y')})",
+            })
+        for d in docs_u:
+            if d.tipo == 'SEGURIDAD_SOCIAL':
+                continue
+            etiqueta = (d.descripcion if d.tipo == 'OTRO' and d.descripcion
+                        else tipo_label[d.tipo])
+            docs.append({'token': f'personal:{d.pk}',
+                         'label': etiqueta + (' (vencido)' if d.vencido else '')})
         if docs:
-            data[str(c.pk)] = docs
+            personal.append({
+                'nombre': u.get_full_name() or u.username,
+                'detalle': ', '.join(u.groups.values_list('name', flat=True)),
+                'docs': docs,
+            })
+
+    # --- Vehículos (SOAT, tecnomecánica, tarjeta de propiedad) ---
+    vehiculos = []
+    for v in Vehiculo.objects.order_by('placa'):
+        docs = []
+        for sub, (campo, etiqueta) in DOCS_VEHICULO.items():
+            if not getattr(v, campo):
+                continue
+            vence = (v.fecha_vencimiento_soat if sub == 'soat'
+                     else v.fecha_vencimiento_tecnomecanica if sub == 'tecno' else None)
+            docs.append({
+                'token': f'vehiculo:{v.pk}:{sub}',
+                'label': etiqueta + (f" (vence {vence.strftime('%d/%m/%Y')})" if vence else ''),
+            })
+        if docs:
+            vehiculos.append({'nombre': v.placa,
+                              'detalle': f"{v.marca} {v.modelo}".strip(),
+                              'docs': docs})
+
+    # --- Proveedores (expediente de cada dispositor) ---
+    por_dispositor = {}
+    for doc in (DocumentoDispositor.objects.select_related('dispositor')
+                .order_by('tipo', '-fecha_subida')):
+        por_dispositor.setdefault(doc.dispositor, []).append({
+            'token': f'proveedor:{doc.pk}',
+            'label': doc.get_tipo_display()
+                     + (f" — {doc.descripcion}" if doc.descripcion else ''),
+        })
+    proveedores = [
+        {'nombre': disp.nombre, 'detalle': disp.get_tipo_display(), 'docs': docs}
+        for disp, docs in sorted(por_dispositor.items(), key=lambda par: par[0].nombre)
+    ]
+
+    # --- Clientes (fijos + ambientales + los que piden en cada correo) ---
+    ambientales, de_correo = {}, {}
     for doc in DocumentoAmbientalCliente.objects.all():
-        data.setdefault(str(doc.cliente_id), []).append({
+        ambientales.setdefault(doc.cliente_id, []).append({
             'token': f'cliente_amb:{doc.pk}',
             'label': (doc.descripcion or os.path.basename(doc.archivo.name)) + ' (ambiental)',
         })
-    return data
+    for doc in DocumentoCorreoCliente.objects.all():
+        de_correo.setdefault(doc.cliente_id, []).append({
+            'token': f'cliente_correo:{doc.pk}',
+            'label': doc.descripcion or os.path.basename(doc.archivo.name),
+        })
+    clientes = []
+    for c in Cliente.objects.order_by('nombre'):
+        docs = [{'token': f'cliente_fijo:{c.pk}:{sub}', 'label': etiqueta}
+                for sub, (campo, etiqueta) in DOCS_CLIENTE_FIJOS.items()
+                if getattr(c, campo)]
+        docs += de_correo.get(c.pk, []) + ambientales.get(c.pk, [])
+        if docs:
+            clientes.append({'id': c.pk, 'nombre': c.nombre, 'detalle': '', 'docs': docs})
+
+    return {
+        'personal': personal,
+        'vehiculos': vehiculos,
+        'proveedores': proveedores,
+        'solmed': _catalogo_docs_solmed(),
+        'clientes': clientes,
+    }
+
+
+# ============================================================
+#  CENTRO DE CORREOS
+#  Envío de documentación por correo SIN depender de la programación: hay
+#  clientes que piden la información varios días antes del servicio. El asesor
+#  arma el correo (destinatarios, asunto, mensaje y cualquier documento del
+#  sistema) y todo queda registrado en un historial consultable.
+# ============================================================
+
+# Texto con el que se abre el mensaje si el asesor no escribe nada.
+MENSAJE_ENVIO_POR_DEFECTO = (
+    "Buen día,\n\n"
+    "Adjuntamos la documentación solicitada para la prestación del servicio."
+)
+
+
+def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente):
+    """
+    Construye el correo (texto plano + versión HTML de marca) con los adjuntos
+    ya resueltos. Devuelve el EmailMultiAlternatives listo para .send().
+    """
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    lineas = [r['linea'] for r in resueltos]
+    cuerpo = (mensaje or MENSAJE_ENVIO_POR_DEFECTO)
+    if lineas:
+        cuerpo += "\n\nDocumentos adjuntos:\n" + "\n".join(lineas)
+    cuerpo += "\n\nCordialmente,\nSOLMED SAS"
+
+    html = render_to_string('gestion/correo_envio.html', {
+        'mensaje': mensaje or MENSAJE_ENVIO_POR_DEFECTO,
+        'adjuntos': [l[2:] if l.startswith('- ') else l for l in lineas],
+        'cliente': cliente,
+    })
+    correo = EmailMultiAlternatives(
+        subject=asunto, body=cuerpo,
+        from_email=settings.DEFAULT_FROM_EMAIL, to=destinatarios,
+    )
+    correo.attach_alternative(html, 'text/html')
+    for r in resueltos:
+        with r['archivo'].open('rb') as fh:
+            contenido = fh.read()
+        tipo = mimetypes.guess_type(r['nombre'])[0] or 'application/octet-stream'
+        correo.attach(r['nombre'], contenido, tipo)
+    return correo
+
+
+class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    """Historial del Centro de correos, con buscador, filtro y estadísticas."""
+    model = EnvioCorreo
+    template_name = 'gestion/centro_correos.html'
+    context_object_name = 'envios'
+
+    def get_queryset(self):
+        qs = EnvioCorreo.objects.select_related('cliente', 'enviado_por')
+        q = self.request.GET.get('q', '').strip()
+        estado = self.request.GET.get('estado', '')
+        if q:
+            qs = qs.filter(
+                Q(destinatarios__icontains=q) | Q(asunto__icontains=q)
+                | Q(cliente__nombre__icontains=q)
+            )
+        if estado in ('ENVIADO', 'FALLIDO'):
+            qs = qs.filter(estado=estado)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        inicio_mes = timezone.localdate().replace(day=1)
+        todos = EnvioCorreo.objects.all()
+        context['kpi'] = {
+            'total': todos.count(),
+            'mes': todos.filter(fecha__date__gte=inicio_mes).count(),
+            'fallidos': todos.filter(estado='FALLIDO').count(),
+            'ultimo': todos.first(),   # ordering = ['-fecha']
+        }
+        context['q'] = self.request.GET.get('q', '').strip()
+        context['estado_sel'] = self.request.GET.get('estado', '')
+        return context
+
+
+class CrearEnvioCorreoView(AsesorRequiredMixin, View):
+    """
+    Redacción y envío de un correo de documentación. GET pinta el formulario
+    (con ?copiar=<id> se precarga desde un envío anterior, para reenviar o
+    usarlo de plantilla); POST valida, envía y registra el resultado.
+    """
+    template_name = 'gestion/form_envio_correo.html'
+
+    def _render(self, request, datos, seleccionados, errores=None):
+        clientes = list(Cliente.objects.order_by('nombre'))
+        return render(request, self.template_name, {
+            'catalogo': _catalogo_centro_correos(),
+            'clientes': clientes,
+            'correos_clientes': {str(c.pk): c.email for c in clientes if c.email},
+            'datos': datos,
+            'seleccionados': set(map(str, seleccionados)),
+            'errores': errores or [],
+        })
+
+    def get(self, request):
+        datos = {
+            'cliente': '',
+            'destinatarios': '',
+            'asunto': 'SOLMED - Documentación del servicio',
+            'mensaje': MENSAJE_ENVIO_POR_DEFECTO,
+        }
+        seleccionados = []
+        base = EnvioCorreo.objects.filter(pk=request.GET.get('copiar') or 0).first()
+        if base is not None:
+            datos = {
+                'cliente': str(base.cliente_id or ''),
+                'destinatarios': base.destinatarios,
+                'asunto': base.asunto,
+                'mensaje': base.mensaje or MENSAJE_ENVIO_POR_DEFECTO,
+            }
+            seleccionados = base.adjuntos or []
+        return self._render(request, datos, seleccionados)
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+
+        datos = {
+            'cliente': request.POST.get('cliente', '').strip(),
+            'destinatarios': request.POST.get('destinatarios', '').strip(),
+            'asunto': request.POST.get('asunto', '').strip(),
+            'mensaje': request.POST.get('mensaje', '').strip(),
+        }
+        tokens = request.POST.getlist('adjuntos')
+        cliente = (Cliente.objects.filter(pk=datos['cliente']).first()
+                   if datos['cliente'].isdigit() else None)
+
+        # --- Validación ---
+        errores = []
+        correos = [c.strip() for c in datos['destinatarios'].replace(';', ',').split(',')
+                   if c.strip()]
+        if not correos:
+            errores.append("Escribe al menos un correo destinatario.")
+        for c in correos:
+            try:
+                validate_email(c)
+            except ValidationError:
+                errores.append(f"«{c}» no es un correo válido.")
+        if len(', '.join(correos)) > 500:
+            errores.append("Son demasiados destinatarios para un solo envío.")
+        if not datos['asunto']:
+            errores.append("Escribe el asunto del correo.")
+        resueltos = []
+        for t in tokens:
+            r = _resolver_adjunto_correo(t)
+            if r is None:
+                errores.append("Uno de los documentos marcados ya no existe en el "
+                               "sistema. Revisa la selección y vuelve a intentarlo.")
+                break
+            resueltos.append(r)
+        if errores:
+            return self._render(request, datos, tokens, errores)
+
+        # --- Envío y registro (el fallo del servidor también queda en el historial) ---
+        registro = EnvioCorreo(
+            cliente=cliente,
+            destinatarios=', '.join(correos),
+            asunto=datos['asunto'],
+            mensaje=datos['mensaje'],
+            adjuntos=tokens,
+            adjuntos_detalle=[r['linea'][2:] if r['linea'].startswith('- ') else r['linea']
+                              for r in resueltos],
+            enviado_por=request.user,
+        )
+        try:
+            _armar_correo_envio(correos, datos['asunto'], datos['mensaje'],
+                                resueltos, cliente).send(fail_silently=False)
+        except Exception as e:
+            registro.estado = 'FALLIDO'
+            registro.error = str(e)
+            registro.save()
+            messages.error(
+                request,
+                f"El servidor de correo rechazó el envío ({e}). Quedó registrado "
+                "como fallido: corrígelo y reenvíalo desde el detalle."
+            )
+            return redirect('gestion:detalle_envio_correo', pk=registro.pk)
+
+        registro.save()
+        n = len(resueltos)
+        messages.success(
+            request,
+            f"Correo enviado a {registro.destinatarios} con {n} "
+            f"documento{'s' if n != 1 else ''} adjunto{'s' if n != 1 else ''}."
+        )
+        return redirect('gestion:detalle_envio_correo', pk=registro.pk)
+
+
+class DetalleEnvioCorreoView(AsesorRequiredMixin, DetailView):
+    """Copia fiel de un envío del historial (lo que se mandó y a quién)."""
+    model = EnvioCorreo
+    template_name = 'gestion/detalle_envio_correo.html'
+    context_object_name = 'envio'
 
 
 def _disposicion_meta():
@@ -2374,7 +2564,6 @@ def _contexto_programacion(context):
     context['direcciones_clientes'] = _direcciones_clientes()
     context['sedes_por_cliente'] = _sedes_por_cliente()
     context['terceros_por_cliente'] = _terceros_por_cliente()
-    context['docs_correo_por_cliente'] = _docs_correo_por_cliente()
     context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
     # Catálogos que se administran desde un popup del propio formulario
@@ -2392,25 +2581,9 @@ def _contexto_programacion(context):
         for t in TipoResiduo.objects.filter(activo=True)
     ]
 
-    # Catálogos de documentos adjuntables por fuente (para el acordeón del correo).
-    context['docs_vehiculos'] = _catalogo_docs_vehiculos()
-    context['docs_proveedores'] = _catalogo_docs_proveedores()
-    context['docs_solmed'] = _catalogo_docs_solmed()
-    context['docs_clientes'] = _catalogo_docs_clientes()
-
-    # Tokens ya seleccionados (para que el JS los marque al re-renderizar el
-    # formulario con errores o al editar una programación guardada).
-    form = context.get('form')
-    seleccionados = []
-    if form is not None:
-        if form.is_bound:
-            seleccionados = form.data.getlist('adjuntos_correo')
-        elif form.instance.pk:
-            seleccionados = list(form.instance.adjuntos_correo or [])
-    context['docs_adicionales_sel'] = seleccionados
-
     # Instrucciones del servicio: pares (casilla, cantidad) para renderizar la
     # primera parte del acta (Succión y Sondeo) en dos columnas alineadas.
+    form = context.get('form')
     if form is not None:
         context['instrucciones_succion'] = [
             (form['succ_canecas'], form['succ_canecas_cant']),
@@ -2451,11 +2624,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
                 self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
         cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
         ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
-        adjuntos = self.request.POST.getlist('adjuntos_correo')
-        docs_ok = _validar_adjuntos_correo(form, cuadrilla_form, adjuntos)
-        if docs_ok:
-            form.instance.adjuntos_correo = adjuntos
-        if not (cursos_ok and ss_ok and docs_ok):
+        if not (cursos_ok and ss_ok):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
@@ -2470,8 +2639,8 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
         cuadrilla.programacion = self.object
         cuadrilla.save()
 
-        # Se genera la orden inmediatamente (no queda en borrador) y se envía la
-        # seguridad social al cliente.
+        # Se genera la orden inmediatamente (no queda en borrador). La
+        # documentación al cliente se envía desde el Centro de correos.
         try:
             orden = self.object.convertir_en_orden(self.request.user)
         except ValueError as e:
@@ -2482,11 +2651,6 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
             self.request,
             f"Programación creada y Orden #{orden.numero_orden} generada."
         )
-        try:
-            enviado, detalle = _enviar_seguridad_social_cliente(orden, self.object)
-        except Exception as e:
-            enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
-        (messages.success if enviado else messages.warning)(self.request, detalle.capitalize())
         _avisar_correos_programacion(self.request, self.object)
         _avisar_carga_pendiente(self.request, self.object, orden)
 
@@ -2528,11 +2692,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
                 self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
         cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
         ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
-        adjuntos = self.request.POST.getlist('adjuntos_correo')
-        docs_ok = _validar_adjuntos_correo(form, cuadrilla_form, adjuntos)
-        if docs_ok:
-            form.instance.adjuntos_correo = adjuntos
-        if not (cursos_ok and ss_ok and docs_ok):
+        if not (cursos_ok and ss_ok):
             messages.error(
                 self.request,
                 "No se guardó: revisa la documentación del personal asignado "
@@ -2546,113 +2706,6 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
         cuadrilla.save()
         messages.success(self.request, "Programación actualizada.")
         return HttpResponseRedirect(self.get_success_url())
-
-
-def _personal_de_la_orden(orden):
-    """Conductores y ayudantes (sin repetir) de todos los recorridos de la orden."""
-    personas = {}
-    for recorrido in orden.recorridos.select_related('conductor', 'ayudante', 'ayudante2'):
-        for persona, rol in ((recorrido.conductor, 'Conductor'),
-                             (recorrido.ayudante, 'Ayudante'),
-                             (recorrido.ayudante2, 'Ayudante')):
-            if persona and persona.pk not in personas:
-                personas[persona.pk] = (persona, rol)
-    return list(personas.values())
-
-
-def _enviar_seguridad_social_cliente(orden, programacion):
-    """
-    Envía al cliente, por correo, la seguridad social vigente del personal de la
-    orden. Los archivos se leen del storage con .open() (funciona igual en S3 que
-    en local, a diferencia de .path). El asunto lleva el número de orden y SOLMED.
-
-    Devuelve (enviado: bool, detalle: str) para informar al usuario.
-    """
-    destinatario = (programacion.correo_seguridad_social or '').strip()
-    if not destinatario:
-        return False, "no se envió el correo de seguridad social: la programación no tiene correo del cliente."
-
-    personal = _personal_de_la_orden(orden)
-    if not personal:
-        return False, "no se envió el correo: la orden no tiene personal asignado."
-
-    adjuntos = []          # (nombre_archivo, contenido, tipo)
-    lineas = []            # cuerpo del correo
-    sin_ss = []            # personas sin SS vigente
-    for persona, rol in personal:
-        nombre = persona.get_full_name() or persona.username
-        doc = _ss_vigente(list(persona.documentos_personales.all()))
-        if not doc:
-            sin_ss.append(f"{nombre} ({rol})")
-            lineas.append(f"- {nombre} ({rol}): SIN seguridad social vigente")
-            continue
-        # Lectura segura tanto en S3 como en disco local.
-        with doc.archivo.open('rb') as fh:
-            contenido = fh.read()
-        base = os.path.basename(doc.archivo.name)
-        ext = os.path.splitext(base)[1] or '.pdf'
-        nombre_limpio = nombre.replace(' ', '_')
-        tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
-        adjuntos.append((f"SS_{nombre_limpio}{ext}", contenido, tipo))
-        lineas.append(f"- {nombre} ({rol}) — vigente hasta {doc.fecha_vencimiento.strftime('%d/%m/%Y')}")
-
-    # Documentos ADICIONALES que el asesor marcó en la programación (personal,
-    # vehículo, proveedor, SOLMED, cliente). La SS ya va siempre. Los tokens que
-    # dejaron de aplicar (p. ej. se reemplazó un documento) se omiten sin romper.
-    lineas_adicionales = []
-    ctx_adjuntos = _contexto_adjuntos_de(programacion)
-    for token in (programacion.adjuntos_correo or []):
-        resuelto = _resolver_adjunto_correo(token, ctx_adjuntos)
-        if resuelto is None:
-            continue
-        with resuelto['archivo'].open('rb') as fh:
-            contenido = fh.read()
-        tipo = mimetypes.guess_type(resuelto['nombre'])[0] or 'application/octet-stream'
-        adjuntos.append((resuelto['nombre'], contenido, tipo))
-        lineas_adicionales.append(resuelto['linea'])
-
-    # Documentos del cliente que se adjuntan a TODA orden suya (además de la SS).
-    lineas_cliente = []
-    if orden.cliente_id:
-        for doc in orden.cliente.documentos_correo.all():
-            with doc.archivo.open('rb') as fh:
-                contenido = fh.read()
-            base = os.path.basename(doc.archivo.name)
-            tipo = mimetypes.guess_type(base)[0] or 'application/octet-stream'
-            adjuntos.append((base, contenido, tipo))
-            lineas_cliente.append(f"- {doc.descripcion or base}")
-
-    # El asunto anuncia lo que va: si además de la SS se adjuntaron documentos
-    # de otras fuentes, se nombra también la documentación.
-    tema = "Seguridad social y documentación" if lineas_adicionales else "Seguridad social"
-    asunto = f"SOLMED - {tema} - Orden de servicio #{orden.numero_orden}"
-    cuerpo = (
-        f"Buen día,\n\n"
-        f"Adjuntamos la seguridad social vigente del personal que participa "
-        f"en la orden de servicio SOLMED #{orden.numero_orden}"
-        f"{' para ' + orden.cliente.nombre if orden.cliente_id else ''}:\n\n"
-        + "\n".join(lineas)
-    )
-    if lineas_adicionales:
-        cuerpo += "\n\nDocumentos adicionales:\n" + "\n".join(lineas_adicionales)
-    if lineas_cliente:
-        cuerpo += "\n\nDocumentos del cliente:\n" + "\n".join(lineas_cliente)
-    cuerpo += "\n\nCordialmente,\nSOLMED SAS"
-
-    correo = EmailMessage(
-        subject=asunto,
-        body=cuerpo,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[destinatario],
-    )
-    for nombre_archivo, contenido, tipo in adjuntos:
-        correo.attach(nombre_archivo, contenido, tipo)
-    correo.send(fail_silently=False)
-
-    detalle = f"correo de seguridad social enviado a {destinatario} ({len(adjuntos)} documento(s) adjunto(s))"
-    if sin_ss:
-        detalle += f". OJO: sin seguridad social vigente: {', '.join(sin_ss)}"
-    return True, detalle
 
 
 # ============================================================
@@ -3053,13 +3106,8 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
             f"({orden.recorridos.count()} recorrido(s)). Completa el valor y los documentos que falten."
         )
 
-        # Se envía la seguridad social al cliente. Un fallo del correo NO revierte
-        # la orden (ya está creada): solo se informa para reintentar.
-        try:
-            enviado, detalle = _enviar_seguridad_social_cliente(orden, programacion)
-        except Exception as e:
-            enviado, detalle = False, f"no se pudo enviar el correo de seguridad social ({e})."
-        (messages.success if enviado else messages.warning)(request, detalle.capitalize())
+        # La documentación al cliente se envía desde el Centro de correos; aquí
+        # solo se notifica al personal (conductor y ayudantes).
         _avisar_correos_programacion(request, programacion)
         _avisar_carga_pendiente(request, programacion, orden)
 
