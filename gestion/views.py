@@ -2252,6 +2252,23 @@ def _docs_de_cliente(c):
 #  sistema) y todo queda registrado en un historial consultable.
 # ============================================================
 
+# Peso máximo práctico de los adjuntos de UN correo. Los servidores de correo
+# suelen aceptar mensajes de hasta ~25 MB, y los adjuntos viajan en base64
+# (~33% más pesados): 18 MB de archivos reales ≈ 24 MB de mensaje. Pasarse casi
+# garantiza el rechazo (también en el buzón del destinatario, p. ej. Gmail).
+PESO_MAX_ADJUNTOS = 18 * 1024 * 1024
+# Desde aquí el medidor del redactor pasa a ámbar: "se está llenando".
+PESO_AVISO_ADJUNTOS = 15 * 1024 * 1024
+
+
+def _peso_adjunto(resuelto):
+    """Bytes del archivo de un token resuelto (0 si el storage no lo informa)."""
+    try:
+        return resuelto['archivo'].size
+    except Exception:
+        return 0
+
+
 # Texto con el que se abre el mensaje si el asesor no escribe nada.
 MENSAJE_ENVIO_POR_DEFECTO = (
     "Buen día,\n\n"
@@ -2485,7 +2502,8 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             if r is not None:
                 linea = r['linea']
                 seleccion.append({'token': t,
-                                  'label': linea[2:] if linea.startswith('- ') else linea})
+                                  'label': linea[2:] if linea.startswith('- ') else linea,
+                                  'peso': _peso_adjunto(r)})
         return render(request, self.template_name, {
             # El catálogo documental NO viaja con la página: el buscador
             # (BuscarDocsCorreoView) lo consulta al escribir o al explorar
@@ -2553,6 +2571,16 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
                                "sistema. Revisa la selección y vuelve a intentarlo.")
                 break
             resueltos.append(r)
+        # Con demasiado peso el servidor (o el buzón del cliente) lo va a
+        # rechazar: mejor frenar aquí con una explicación que registrar un fallo.
+        if not errores:
+            peso_total = sum(_peso_adjunto(r) for r in resueltos)
+            if peso_total > PESO_MAX_ADJUNTOS:
+                errores.append(
+                    f"Los documentos marcados pesan ≈ {peso_total / (1024 * 1024):.1f} MB "
+                    f"y el correo casi seguro será rechazado (límite práctico: "
+                    f"{PESO_MAX_ADJUNTOS // (1024 * 1024)} MB). Divide el envío en dos correos."
+                )
         if errores:
             return self._render(request, datos, tokens, errores)
 
@@ -2589,6 +2617,23 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             f"documento{'s' if n != 1 else ''} adjunto{'s' if n != 1 else ''}."
         )
         return redirect('gestion:detalle_envio_correo', pk=registro.pk)
+
+
+class PesoAdjuntosCorreoView(AsesorRequiredMixin, View):
+    """
+    Peso en bytes de cada token pedido (?t=<token>&t=<token>…), para el medidor
+    del redactor. Se consulta solo lo que está en la canasta (el JS lo cachea
+    por token): así el buscador no paga el costo de preguntar tamaños al
+    storage, que en producción (S3) es una petición por archivo.
+    """
+    def get(self, request):
+        pesos = {}
+        for t in request.GET.getlist('t')[:80]:
+            r = _resolver_adjunto_correo(t)
+            if r is not None:
+                pesos[t] = _peso_adjunto(r)
+        return JsonResponse({'pesos': pesos,
+                             'aviso': PESO_AVISO_ADJUNTOS, 'maximo': PESO_MAX_ADJUNTOS})
 
 
 class DetalleEnvioCorreoView(AsesorRequiredMixin, DetailView):

@@ -236,7 +236,7 @@
                     {% endcomment %}
                     <div id="canasta" style="max-height:300px; overflow-y:auto;">
                         {% for a in seleccion %}
-                        <div class="chip-adjunto" data-token="{{ a.token }}">
+                        <div class="chip-adjunto" data-token="{{ a.token }}" data-peso="{{ a.peso }}">
                             <i class="bi bi-paperclip"></i>
                             <span>{{ a.label }}</span>
                             <input type="hidden" name="adjuntos" value="{{ a.token }}">
@@ -244,8 +244,20 @@
                         </div>
                         {% endfor %}
                     </div>
-                    <div class="text-muted small mb-3 {% if seleccion %}d-none{% endif %}" id="canasta-vacia">
+                    <div class="text-muted small mb-2 {% if seleccion %}d-none{% endif %}" id="canasta-vacia">
                         Aún no has marcado documentos. Puedes enviar sin adjuntos.
+                    </div>
+
+                    {# Medidor de peso: avisa ANTES de que el servidor rechace el correo. #}
+                    <div id="medidor-peso" class="mb-3 d-none">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span class="text-muted">Peso estimado</span>
+                            <strong id="peso-texto">0 MB</strong>
+                        </div>
+                        <div class="progress" style="height:6px;">
+                            <div id="peso-barra" class="progress-bar bg-success" style="width:0%;"></div>
+                        </div>
+                        <div id="peso-aviso" class="small mt-1 d-none"></div>
                     </div>
 
                     <button type="submit" class="btn btn-success w-100" id="btn-enviar">
@@ -281,6 +293,17 @@
     var zona = document.getElementById('zona-tarjetas');
     var canasta = document.getElementById('canasta');
     var URL_BUSCAR = '{% url "gestion:buscar_docs_correo" %}';
+    var URL_PESO = '{% url "gestion:peso_adjuntos_correo" %}';
+
+    // Peso conocido de cada token (bytes). Se consulta al servidor SOLO lo que
+    // entra a la canasta y no se conoce aún; los chips ya renderizados traen el
+    // suyo en data-peso. Umbrales por defecto = los del servidor.
+    var pesosCache = {};
+    var PESO_AVISO = 15 * 1024 * 1024;
+    var PESO_MAX = 18 * 1024 * 1024;
+    canasta.querySelectorAll('.chip-adjunto[data-peso]').forEach(function (chip) {
+        pesosCache[chip.getAttribute('data-token')] = parseInt(chip.getAttribute('data-peso'), 10) || 0;
+    });
 
     function esc(t) {
         return String(t == null ? '' : t)
@@ -303,6 +326,7 @@
             + '<button type="button" class="quitar" title="Quitar del correo"><i class="bi bi-x-lg"></i></button>';
         canasta.appendChild(chip);
         pintarResumen();
+        actualizarPesos();
     }
 
     function quitarDeCanasta(token) {
@@ -313,6 +337,70 @@
             if (chk.getAttribute('data-token') === token) chk.checked = false;
         });
         pintarResumen();
+        pintarPeso();
+    }
+
+    // ---------- Medidor de peso ----------
+    function fmtMB(bytes) {
+        return (bytes / 1048576).toFixed(1).replace('.', ',') + ' MB';
+    }
+
+    function pintarPeso() {
+        var medidor = document.getElementById('medidor-peso');
+        var tokens = Array.prototype.map.call(
+            canasta.querySelectorAll('.chip-adjunto'),
+            function (chip) { return chip.getAttribute('data-token'); });
+        medidor.classList.toggle('d-none', tokens.length === 0);
+        if (!tokens.length) return;
+
+        var total = 0, pendientes = 0;
+        tokens.forEach(function (t) {
+            if (t in pesosCache) total += pesosCache[t];
+            else pendientes++;
+        });
+
+        document.getElementById('peso-texto').textContent =
+            fmtMB(total) + ' de ' + fmtMB(PESO_MAX) + (pendientes ? ' (calculando…)' : '');
+
+        var barra = document.getElementById('peso-barra');
+        barra.style.width = Math.min(100, Math.round(total * 100 / PESO_MAX)) + '%';
+        barra.classList.toggle('bg-success', total < PESO_AVISO);
+        barra.classList.toggle('bg-warning', total >= PESO_AVISO && total <= PESO_MAX);
+        barra.classList.toggle('bg-danger', total > PESO_MAX);
+
+        var aviso = document.getElementById('peso-aviso');
+        if (total > PESO_MAX) {
+            aviso.className = 'small mt-1 text-danger fw-semibold';
+            aviso.innerHTML = '<i class="bi bi-x-octagon-fill me-1"></i>Con este peso el correo '
+                + 'casi seguro será rechazado: divide el envío en dos.';
+        } else if (total >= PESO_AVISO) {
+            aviso.className = 'small mt-1 text-warning-emphasis';
+            aviso.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>El correo se '
+                + 'está llenando: si necesitas más documentos, considera dividir el envío.';
+        } else {
+            aviso.className = 'small mt-1 d-none';
+            aviso.innerHTML = '';
+        }
+    }
+
+    // Pide al servidor los pesos que aún no conoce y repinta el medidor.
+    function actualizarPesos() {
+        var faltan = Array.prototype.map.call(
+            canasta.querySelectorAll('.chip-adjunto'),
+            function (chip) { return chip.getAttribute('data-token'); }
+        ).filter(function (t) { return !(t in pesosCache); });
+        pintarPeso();
+        if (!faltan.length) return;
+        var params = faltan.map(function (t) { return 't=' + encodeURIComponent(t); }).join('&');
+        fetch(URL_PESO + '?' + params)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                Object.assign(pesosCache, data.pesos);
+                if (data.aviso) PESO_AVISO = data.aviso;
+                if (data.maximo) PESO_MAX = data.maximo;
+                pintarPeso();
+            })
+            .catch(function () { /* sin red, el medidor queda en "calculando" */ });
     }
 
     // ---------- Resumen en vivo ----------
@@ -595,6 +683,7 @@
     // Y con cliente preseleccionado, se fija su tarjeta de una vez.
     if (selCliente.value) alElegirCliente();
     pintarResumen();
+    actualizarPesos();
 })();
 </script>
 {% endblock %}
