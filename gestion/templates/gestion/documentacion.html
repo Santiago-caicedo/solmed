@@ -4,7 +4,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h1 class="mb-1"><i class="bi bi-folder-fill me-2"></i>Documentación de SOLMED</h1>
-        <div class="text-muted">Documentos internos de la empresa, a la mano para las áreas.</div>
+        <div class="text-muted">
+            Documentos internos de la empresa, a la mano para las áreas. De cada uno hay
+            <strong>una sola versión vigente</strong>: cargar otro reemplaza al anterior.
+        </div>
     </div>
 </div>
 
@@ -12,6 +15,64 @@
 <datalist id="entidades-bancarias">
     {% for e in entidades_bancarias %}<option value="{{ e }}">{% endfor %}
 </datalist>
+
+{% comment %}
+Documentación ADICIONAL: documentos con nombre libre (tipo OTRO). Uno por
+nombre: cargar otro con el mismo nombre lo reemplaza.
+{% endcomment %}
+<div class="card shadow mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-file-earmark-plus me-1"></i>Documentación adicional</h5>
+        {% if adicionales %}
+        <span class="badge bg-success">{{ adicionales|length }} documento{{ adicionales|length|pluralize }}</span>
+        {% else %}
+        <span class="badge bg-secondary">Sin documentos</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Cualquier otro documento de la empresa: ponle nombre y carga el archivo. Si
+            cargas otro con el <strong>mismo nombre</strong>, reemplaza al que estaba
+            (no se acumulan versiones).
+        </p>
+
+        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end mb-3">
+            {% csrf_token %}
+            <input type="hidden" name="tipo" value="OTRO">
+            <div class="col-md-5">
+                <label class="form-label small mb-1">Nombre del documento</label>
+                <input type="text" name="descripcion" class="form-control form-control-sm"
+                       placeholder="Ej: Certificado ARL, Póliza todo riesgo…" required>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label small mb-1">Archivo</label>
+                <input type="file" name="archivo" class="form-control form-control-sm" required>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
+            </div>
+        </form>
+
+        {% if adicionales %}
+        <ul class="list-group">
+            {% for d in adicionales %}
+            <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span class="text-truncate">
+                    <i class="bi bi-file-earmark-text me-1 text-muted"></i>
+                    <a href="{{ d.archivo.url }}" target="_blank">{{ d.descripcion }}</a>
+                    <small class="text-muted ms-2">{{ d.fecha_subida|date:"d/m/Y" }}</small>
+                </span>
+                <form method="post" action="{% url 'gestion:eliminar_documento_interno' d.pk %}"
+                      onsubmit="return confirm('¿Eliminar «{{ d.descripcion }}»?');">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
 
 <div class="row">
     {% for s in secciones %}
@@ -56,7 +117,7 @@
                     <input type="hidden" name="tipo" value="{{ s.tipo }}">
                     <div class="col-12">
                         <label class="form-label small mb-1">
-                            {% if s.docs and not s.multiple %}Reemplazar / añadir archivo{% else %}Archivo{% endif %}
+                            {% if s.docs %}Reemplazar archivo{% else %}Archivo{% endif %}
                         </label>
                         <input type="file" name="archivo" class="form-control form-control-sm" required>
                     </div>
@@ -74,6 +135,15 @@
                     {% endif %}
                     <div class="{% if s.es_bancaria or s.con_fecha %}col-md-6{% else %}col-12{% endif %} text-end">
                         <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
+                    </div>
+                    <div class="col-12">
+                        <small class="text-muted">
+                            {% if s.es_bancaria %}
+                            Una certificación por banco/cuenta: cargar otra de la misma cuenta la reemplaza.
+                            {% else %}
+                            Al cargar un archivo nuevo, el anterior se reemplaza.
+                            {% endif %}
+                        </small>
                     </div>
                 </form>
             </div>

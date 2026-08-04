@@ -2064,7 +2064,10 @@ def _resolver_adjunto_correo(token):
         doc = DocumentoInterno.objects.filter(pk=partes[1]).first()
         if not doc or not doc.archivo:
             return None
-        etiqueta = doc.get_tipo_display() + (f" {doc.entidad}" if doc.entidad else '')
+        if doc.tipo == DocumentoInterno.TIPO_ADICIONAL and doc.descripcion:
+            etiqueta = doc.descripcion
+        else:
+            etiqueta = doc.get_tipo_display() + (f" {doc.entidad}" if doc.entidad else '')
         return {'archivo': doc.archivo,
                 'nombre': _nombre(doc.archivo.name, f"{etiqueta} - SOLMED"),
                 'linea': f"- SOLMED: {etiqueta}"}
@@ -2183,12 +2186,15 @@ def _vehiculos_cargados():
 def _catalogo_docs_solmed():
     """[{token, label}] de la documentación interna de SOLMED."""
     from .models import DocumentoInterno
-    return [{
-        'token': f'solmed:{d.pk}',
-        'label': d.get_tipo_display()
-                 + (f" — {d.entidad}" if d.entidad else '')
-                 + (f" ({d.fecha.strftime('%d/%m/%Y')})" if d.fecha else ''),
-    } for d in DocumentoInterno.objects.all()]
+    def etiqueta(d):
+        # La documentación adicional se nombra por su nombre libre.
+        if d.tipo == DocumentoInterno.TIPO_ADICIONAL and d.descripcion:
+            base = d.descripcion
+        else:
+            base = d.get_tipo_display() + (f" — {d.entidad}" if d.entidad else '')
+        return base + (f" ({d.fecha.strftime('%d/%m/%Y')})" if d.fecha else '')
+    return [{'token': f'solmed:{d.pk}', 'label': etiqueta(d)}
+            for d in DocumentoInterno.objects.all()]
 
 
 def _docs_de_persona(usuario, docs=None):
@@ -3748,9 +3754,12 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
         por_tipo = {}
         for d in docs:
             por_tipo.setdefault(d.tipo, []).append(d)
-        # Una tarjeta por tipo, en el orden de las opciones del modelo.
+        # Una tarjeta por tipo fijo, en el orden de las opciones del modelo. La
+        # documentación ADICIONAL (nombre libre) va en su propia sección arriba.
         secciones = []
         for tipo, label in DocumentoInterno.TIPO_CHOICES:
+            if tipo == DocumentoInterno.TIPO_ADICIONAL:
+                continue
             secciones.append({
                 'tipo': tipo,
                 'label': label,
@@ -3759,8 +3768,11 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
                 'es_bancaria': tipo == DocumentoInterno.TIPO_MULTIPLE,
                 'multiple': tipo == DocumentoInterno.TIPO_MULTIPLE,
             })
+        adicionales = sorted(por_tipo.get(DocumentoInterno.TIPO_ADICIONAL, []),
+                             key=lambda d: d.descripcion.lower())
         return {
             'secciones': secciones,
+            'adicionales': adicionales,
             'entidades_bancarias': DocumentoInterno.ENTIDADES_BANCARIAS,
         }
 
@@ -3769,15 +3781,35 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
 
     def post(self, request):
         from .forms import DocumentoInternoForm
+        from .models import DocumentoInterno
         form = DocumentoInternoForm(request.POST, request.FILES)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Documento cargado.")
-        else:
+        if not form.is_valid():
             errores = "; ".join(
                 f"{form.fields.get(c).label or c}: {e[0]}" for c, e in form.errors.items()
             )
             messages.error(request, f"No se pudo cargar el documento. {errores}")
+            return redirect('gestion:documentacion')
+
+        # De cada documento hay UNO vigente: el nuevo REEMPLAZA al anterior.
+        # La certificación bancaria reemplaza por cuenta/banco y la
+        # documentación adicional por su nombre; el resto, por el tipo.
+        nuevo = form.save(commit=False)
+        if nuevo.tipo == DocumentoInterno.TIPO_MULTIPLE:
+            anteriores = DocumentoInterno.objects.filter(
+                tipo=nuevo.tipo, entidad__iexact=(nuevo.entidad or '').strip())
+        elif nuevo.tipo == DocumentoInterno.TIPO_ADICIONAL:
+            anteriores = DocumentoInterno.objects.filter(
+                tipo=nuevo.tipo, descripcion__iexact=(nuevo.descripcion or '').strip())
+        else:
+            anteriores = DocumentoInterno.objects.filter(tipo=nuevo.tipo)
+        reemplazados = anteriores.count()
+        anteriores.delete()
+        nuevo.save()
+        messages.success(
+            request,
+            "Documento cargado: reemplazó al que estaba." if reemplazados
+            else "Documento cargado."
+        )
         return redirect('gestion:documentacion')
 
 

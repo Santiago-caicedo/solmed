@@ -1163,4 +1163,9 @@ class DocumentoInternoForm(forms.ModelForm):
         # Certificación bancaria: la entidad/cuenta es obligatoria.
         if tipo == DocumentoInterno.TIPO_MULTIPLE and not cleaned.get('entidad'):
             self.add_error('entidad', 'Indica el banco o la cuenta.')
+        # Documentación adicional: el nombre es la llave del reemplazo.
+        if tipo == DocumentoInterno.TIPO_ADICIONAL:
+            cleaned['descripcion'] = (cleaned.get('descripcion') or '').strip()
+            if not cleaned['descripcion']:
+                self.add_error('descripcion', 'Ponle nombre al documento.')
         return cleaned

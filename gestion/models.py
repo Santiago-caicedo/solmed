@@ -102,9 +102,13 @@ class DocumentoInterno(models.Model):
     """
     Documentación INTERNA de SOLMED (la propia empresa), a la mano para las áreas:
     RUT, cámara de comercio, cédulas de representantes, estados financieros,
-    certificaciones bancarias, RIT, certificados de Contraloría y Procuraduría.
-    Algunos llevan fecha (RUT, cámara). La certificación bancaria puede tener
-    varias (una por cuenta/banco), distinguidas por `entidad`.
+    certificaciones bancarias, RIT, certificados de Contraloría y Procuraduría,
+    más la documentación ADICIONAL con nombre libre (tipo OTRO).
+
+    De cada documento hay UNO solo vigente: cargar otro del mismo tipo lo
+    REEMPLAZA (no se acumulan). La certificación bancaria reemplaza por
+    cuenta/banco (`entidad`) y la adicional por su nombre (`descripcion`).
+    Algunos llevan fecha (RUT, cámara).
     """
     TIPO_CHOICES = [
         ('RUT', 'RUT completo'),
@@ -117,11 +121,14 @@ class DocumentoInterno(models.Model):
         ('RIT', 'RIT'),
         ('CERT_CONTRALORIA', 'Certificado de la Contraloría'),
         ('CERT_PROCURADURIA', 'Certificado de la Procuraduría'),
+        ('OTRO', 'Documentación adicional'),
     ]
     # Tipos que llevan fecha del documento (para que las áreas la conozcan).
     TIPOS_CON_FECHA = ('RUT', 'RUT_PRIMERA_PAGINA', 'CAMARA_COMERCIO')
     # Tipo que admite varios (una certificación por cuenta/banco).
     TIPO_MULTIPLE = 'CERTIFICACION_BANCARIA'
+    # Documentación adicional: nombre libre en `descripcion`; una por nombre.
+    TIPO_ADICIONAL = 'OTRO'
     # Cuentas/bancos sugeridos para la certificación bancaria.
     ENTIDADES_BANCARIAS = [
         'Bancolombia', 'Occidente', 'Nequi Gustavo', 'Cuenta de ahorros Bancolombia',
@@ -143,7 +150,14 @@ class DocumentoInterno(models.Model):
         verbose_name_plural = "Documentos internos de SOLMED"
 
     def __str__(self):
+        if self.tipo == self.TIPO_ADICIONAL and self.descripcion:
+            return self.descripcion
         return f"{self.get_tipo_display()}{' - ' + self.entidad if self.entidad else ''}"
+
+    @property
+    def nombre_visible(self):
+        """Cómo se nombra en las listas y en los correos."""
+        return str(self)
 
 
 class Sede(models.Model):
