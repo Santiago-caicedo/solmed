@@ -59,6 +59,17 @@
     }
     .btn-mas-resultados:hover{ background:#eef2f6; }
 
+    /* ---- Explorador de categoría (lista incrustada, no flotante) ---- */
+    #explorador{
+        border:1px solid #DCE1E8; border-radius:var(--r-md);
+        background:var(--panel); overflow:hidden;
+    }
+    .explorador-cabecera{
+        display:flex; justify-content:space-between; align-items:center;
+        padding:.5rem .9rem; background:var(--panel-2); border-bottom:1px solid #E9EDF2;
+    }
+    #explorador-lista{ max-height:360px; overflow-y:auto; }
+
     /* ---- Tarjetas de entidad fijadas ---- */
     .tarjeta-entidad{
         border:1px solid #DCE1E8; border-radius:var(--r-md); margin-bottom:.75rem;
@@ -212,6 +223,15 @@
                         <strong>resumen</strong> aunque cierres la tarjeta.
                     </p>
 
+                    {# Explorador de categoría: la lista completa INCRUSTADA en la página. #}
+                    <div id="explorador" class="d-none mb-3">
+                        <div class="explorador-cabecera">
+                            <span class="small fw-semibold" id="explorador-titulo"></span>
+                            <span class="text-muted" style="font-size:.72rem;" id="explorador-conteo"></span>
+                        </div>
+                        <div id="explorador-lista"></div>
+                    </div>
+
                     {# Zona de trabajo: tarjetas de las entidades consultadas #}
                     <div id="zona-tarjetas">
                         <div class="zona-trabajo-vacia" id="zona-vacia">
@@ -327,6 +347,8 @@
     var caja = buscador.closest('.buscador-caja');
     var panel = document.getElementById('panel-resultados');
     var zona = document.getElementById('zona-tarjetas');
+    var explorador = document.getElementById('explorador');
+    var exploradorLista = document.getElementById('explorador-lista');
     var canasta = document.getElementById('canasta');
     var URL_BUSCAR = '{% url "gestion:buscar_docs_correo" %}';
     var URL_PESO = '{% url "gestion:peso_adjuntos_correo" %}';
@@ -519,7 +541,7 @@
         return '<button type="button" class="resultado-item' + (nDocs ? '' : ' sin-docs')
             + (fijado ? ' fijado' : '') + '"'
             + " data-item='" + esc(JSON.stringify(item)).replace(/'/g, '&#39;') + "'"
-            + ' data-icono="' + esc(icono) + '">'
+            + ' data-clave="' + esc(item.clave) + '" data-icono="' + esc(icono) + '">'
             + '<span class="icono"><i class="bi bi-' + (fijado ? 'check-lg' : esc(icono)) + '"></i></span>'
             + '<span class="flex-grow-1"><span class="d-block small fw-semibold">' + esc(item.nombre) + '</span>'
             + (item.detalle ? '<span class="d-block text-muted" style="font-size:.72rem;">' + esc(item.detalle) + '</span>' : '')
@@ -531,11 +553,10 @@
     }
 
     function pintarResultados(data, q) {
+        if (fuenteActiva) { pintarExplorador(data, q); return; }
         if (!data.grupos.length || data.grupos.every(function (g) { return !g.items.length; })) {
-            panel.innerHTML = '<div class="p-3 text-muted small">'
-                + (q ? 'Sin resultados para «' + esc(q) + '». Prueba con el nombre, la cédula, la placa o el NIT.'
-                     : 'No hay registros en esta categoría todavía.')
-                + '</div>';
+            panel.innerHTML = '<div class="p-3 text-muted small">Sin resultados para «'
+                + esc(q) + '». Prueba con el nombre, la cédula, la placa o el NIT.</div>';
             panel.classList.add('abierto');
             return;
         }
@@ -545,17 +566,47 @@
             grupo.items.forEach(function (item) { html += itemHTML(item, grupo.icono); });
             var faltan = data.mas[grupo.fuente] || 0;
             if (faltan > 0) {
-                html += fuenteActiva
-                    // Explorando la categoría: la lista sigue, se pide la otra página.
-                    ? '<button type="button" class="btn-mas-resultados" data-desde="' + data.siguiente + '">'
-                      + '<i class="bi bi-chevron-down me-1"></i>Mostrar más (' + faltan + ' restantes)</button>'
-                    // Búsqueda global: mejor afinar que paginar.
-                    : '<div class="px-3 pb-2 text-muted" style="font-size:.72rem;">…y ' + faltan
-                      + ' más en ' + esc(grupo.fuente) + ': afina la búsqueda.</div>';
+                // Búsqueda global: mejor afinar que paginar.
+                html += '<div class="px-3 pb-2 text-muted" style="font-size:.72rem;">…y ' + faltan
+                    + ' más en ' + esc(grupo.fuente) + ': afina la búsqueda.</div>';
             }
         });
         panel.innerHTML = html;
         panel.classList.add('abierto');
+    }
+
+    function conteoExplorador() {
+        var mostrando = exploradorLista.querySelectorAll('.resultado-item').length;
+        var boton = exploradorLista.querySelector('.btn-mas-resultados');
+        var faltan = boton ? (parseInt(boton.getAttribute('data-faltan'), 10) || 0) : 0;
+        document.getElementById('explorador-conteo').textContent = mostrando
+            ? 'mostrando ' + mostrando + ' de ' + (mostrando + faltan)
+            : '';
+    }
+
+    // La categoría elegida se lista INCRUSTADA en la página (no en el popup):
+    // queda a la vista mientras se fijan varias entidades, y el buscador la filtra.
+    function pintarExplorador(data, q) {
+        cerrarResultados();   // el popup es solo de la búsqueda global
+        explorador.classList.remove('d-none');
+        var grupo = data.grupos[0];
+        if (!grupo || !grupo.items.length) {
+            exploradorLista.innerHTML = '<div class="p-3 text-muted small">'
+                + (q ? 'Sin resultados para «' + esc(q) + '» en esta categoría.'
+                     : 'No hay registros en esta categoría todavía.')
+                + '</div>';
+            conteoExplorador();
+            return;
+        }
+        var html = grupo.items.map(function (item) { return itemHTML(item, grupo.icono); }).join('');
+        var faltan = data.mas[grupo.fuente] || 0;
+        if (faltan > 0) {
+            html += '<button type="button" class="btn-mas-resultados" data-desde="' + data.siguiente
+                + '" data-faltan="' + faltan + '">'
+                + '<i class="bi bi-chevron-down me-1"></i>Mostrar más (' + faltan + ' restantes)</button>';
+        }
+        exploradorLista.innerHTML = html;
+        conteoExplorador();
     }
 
     function urlBusqueda(q, desde) {
@@ -595,11 +646,13 @@
                 var faltan = grupo ? (data.mas[grupo.fuente] || 0) : 0;
                 if (faltan > 0) {
                     boton.setAttribute('data-desde', data.siguiente);
+                    boton.setAttribute('data-faltan', faltan);
                     boton.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Mostrar más (' + faltan + ' restantes)';
                     boton.disabled = false;
                 } else {
                     boton.remove();
                 }
+                conteoExplorador();
             })
             .catch(function () { boton.disabled = false; });
     }
@@ -619,7 +672,9 @@
         if (!caja.contains(e.target) && !e.target.closest('#chips-fuentes')) cerrarResultados();
     });
     buscador.addEventListener('focus', function () {
-        if (puedeBuscar(buscador.value.trim())) buscar(buscador.value.trim());
+        // Solo el popup de la búsqueda global se reabre al volver al campo;
+        // el explorador de categoría ya está a la vista en la página.
+        if (!fuenteActiva && buscador.value.trim().length >= 2) buscar(buscador.value.trim());
     });
 
     // Chips de categoría: eligen la fuente y abren su lista completa de una vez.
@@ -638,19 +693,30 @@
             ? 'Buscar en ' + chip.getAttribute('data-nombre') + '…'
             : 'Busca por persona, cédula, placa, proveedor o cliente…';
         var q = buscador.value.trim();
-        if (puedeBuscar(q)) { buscar(q); buscador.focus(); }
-        else cerrarResultados();
+        if (fuenteActiva) {
+            cerrarResultados();
+            document.getElementById('explorador-titulo').innerHTML =
+                '<i class="bi bi-funnel me-1"></i>' + esc(chip.getAttribute('data-nombre'));
+            exploradorLista.innerHTML = '<div class="p-3 text-muted small">Cargando…</div>';
+            explorador.classList.remove('d-none');
+            buscar(q);
+            buscador.focus();
+        } else {
+            explorador.classList.add('d-none');
+            if (q.length >= 2) { buscar(q); buscador.focus(); }
+            else cerrarResultados();
+        }
     });
 
-    panel.addEventListener('click', function (e) {
+    function alClicEnResultados(e) {
         var mas = e.target.closest('.btn-mas-resultados');
         if (mas) { cargarMas(mas); return; }
         var boton = e.target.closest('.resultado-item');
         if (!boton) return;
         fijarEntidad(JSON.parse(boton.getAttribute('data-item')), boton.getAttribute('data-icono'));
         if (fuenteActiva) {
-            // Explorando una categoría se suelen fijar varios: el panel sigue
-            // abierto y el elegido queda marcado.
+            // Explorando una categoría se suelen fijar varios: la lista sigue
+            // a la vista y el elegido queda marcado.
             boton.classList.add('fijado');
             boton.querySelector('.icono').innerHTML = '<i class="bi bi-check-lg"></i>';
         } else {
@@ -658,7 +724,9 @@
             buscador.value = '';
             buscador.focus();
         }
-    });
+    }
+    panel.addEventListener('click', alClicEnResultados);
+    exploradorLista.addEventListener('click', alClicEnResultados);
 
     // ---------- Cliente elegido: destinatario + su tarjeta de documentos ----------
     var autollenado = '';   // lo que llenó el sistema, para no pisar lo escrito a mano
@@ -698,9 +766,18 @@
         if (quitar) quitarDeCanasta(quitar.closest('.chip-adjunto').getAttribute('data-token'));
         var cerrar = e.target.closest('.cerrar-tarjeta');
         if (cerrar) {
+            var clave = cerrar.closest('.tarjeta-entidad').getAttribute('data-clave');
             cerrar.closest('.tarjeta-entidad').remove();
             if (!zona.querySelector('.tarjeta-entidad')) {
                 document.getElementById('zona-vacia').classList.remove('d-none');
+            }
+            // Su fila del explorador (si está a la vista) vuelve a su estado normal.
+            var fila = exploradorLista.querySelector(
+                '.resultado-item[data-clave="' + CSS.escape(clave) + '"]');
+            if (fila) {
+                fila.classList.remove('fijado');
+                fila.querySelector('.icono').innerHTML =
+                    '<i class="bi bi-' + fila.getAttribute('data-icono') + '"></i>';
             }
         }
     });
