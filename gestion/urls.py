@@ -101,6 +101,7 @@ urlpatterns = [
     # --- Centro de correos (envío de documentación sin depender de la programación) ---
     path('correos/', views.ListaEnviosCorreoView.as_view(), name='centro_correos'),
     path('correos/nuevo/', views.CrearEnvioCorreoView.as_view(), name='crear_envio_correo'),
+    path('correos/buscar/', views.BuscarDocsCorreoView.as_view(), name='buscar_docs_correo'),
     path('correos/<int:pk>/', views.DetalleEnvioCorreoView.as_view(), name='detalle_envio_correo'),
 
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---

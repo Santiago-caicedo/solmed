@@ -1,6 +1,88 @@
 {% extends "gestion/base.html" %}
 
 {% block content %}
+<style>
+    /* ---- Buscador de documentos (redactor del Centro de correos) ---- */
+    .buscador-caja{ position:relative; }
+    .buscador-caja .form-control{ padding-left:2.4rem; }
+    .buscador-caja > .bi-search{
+        position:absolute; left:.9rem; top:50%; transform:translateY(-50%);
+        color:#8A97A5; pointer-events:none;
+    }
+    .buscador-caja .spinner-border{
+        position:absolute; right:.9rem; top:50%; transform:translateY(-50%);
+        width:1rem; height:1rem; display:none;
+    }
+    .buscador-caja.cargando .spinner-border{ display:block; }
+
+    .panel-resultados{
+        position:absolute; z-index:1050; left:0; right:0; top:calc(100% + 4px);
+        background:var(--panel); border:1px solid #DCE1E8; border-radius:var(--r-md);
+        box-shadow:0 12px 32px rgba(17,26,36,.14); max-height:340px; overflow-y:auto;
+        display:none;
+    }
+    .panel-resultados.abierto{ display:block; }
+    .resultado-fuente{
+        font-size:.68rem; letter-spacing:.08em; text-transform:uppercase;
+        color:#8A97A5; font-weight:700; padding:.55rem .9rem .25rem;
+        border-top:1px solid #EFF2F6;
+    }
+    .resultado-fuente:first-child{ border-top:0; }
+    .resultado-item{
+        display:flex; align-items:center; gap:.65rem; width:100%;
+        padding:.45rem .9rem; border:0; background:none; text-align:left; cursor:pointer;
+    }
+    .resultado-item:hover, .resultado-item:focus{ background:var(--panel-2); }
+    .resultado-item .icono{
+        width:30px; height:30px; border-radius:var(--r-sm); flex-shrink:0;
+        display:flex; align-items:center; justify-content:center;
+        background:var(--brand-tint); color:var(--brand-600); font-size:.95rem;
+    }
+    .resultado-item.sin-docs .icono{ background:var(--panel-2); color:#8A97A5; }
+
+    /* ---- Tarjetas de entidad fijadas ---- */
+    .tarjeta-entidad{
+        border:1px solid #DCE1E8; border-radius:var(--r-md); margin-bottom:.75rem;
+        background:var(--panel); overflow:hidden;
+    }
+    .tarjeta-entidad.destello{ animation:destello-borde 1.2s ease; }
+    @keyframes destello-borde{
+        0%{ box-shadow:0 0 0 3px rgba(156,190,48,.55); }
+        100%{ box-shadow:0 0 0 3px rgba(156,190,48,0); }
+    }
+    .tarjeta-entidad .cabecera{
+        display:flex; align-items:center; gap:.65rem;
+        padding:.55rem .8rem; background:var(--panel-2); border-bottom:1px solid #E9EDF2;
+    }
+    .tarjeta-entidad .cabecera .icono{
+        width:30px; height:30px; border-radius:var(--r-sm); flex-shrink:0;
+        display:flex; align-items:center; justify-content:center;
+        background:var(--brand-tint); color:var(--brand-600);
+    }
+    .tarjeta-entidad .cuerpo{ padding:.7rem .9rem; }
+
+    .zona-trabajo-vacia{
+        border:1.5px dashed #C9D2DC; border-radius:var(--r-md);
+        padding:1.4rem 1rem; text-align:center; color:#8A97A5;
+    }
+
+    /* ---- Canasta de adjuntos (resumen) ---- */
+    .chip-adjunto{
+        display:flex; align-items:flex-start; gap:.45rem;
+        border:1px solid var(--ok-line); background:var(--ok-tint);
+        border-radius:var(--r-sm); padding:.35rem .5rem; margin-bottom:.4rem;
+        font-size:.8rem; line-height:1.3;
+    }
+    .chip-adjunto.nuevo{ animation:chip-entra .25s ease; }
+    @keyframes chip-entra{ from{ opacity:0; transform:translateY(-3px);} to{ opacity:1; transform:none;} }
+    .chip-adjunto .bi-paperclip{ color:var(--ok); margin-top:.1rem; }
+    .chip-adjunto .quitar{
+        border:0; background:none; color:#8A97A5; padding:0 .1rem; margin-left:auto;
+        line-height:1; cursor:pointer; flex-shrink:0;
+    }
+    .chip-adjunto .quitar:hover{ color:var(--danger, #b02a37); }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h1 class="mb-0"><i class="bi bi-send me-2"></i>Nuevo envío de correo</h1>
     <a href="{% url 'gestion:centro_correos' %}" class="btn btn-outline-secondary">
@@ -36,7 +118,7 @@
                                 <option value="{{ c.pk }}" {% if datos.cliente == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.nombre }}</option>
                                 {% endfor %}
                             </select>
-                            <div class="form-text">Asociarlo llena el destinatario, resalta sus documentos y ordena el historial.</div>
+                            <div class="form-text">Asociarlo llena el destinatario y trae sus documentos abajo.</div>
                         </div>
                         <div class="col-md-7">
                             <label for="inp-destinatarios" class="form-label">Destinatarios <span class="text-danger">*</span></label>
@@ -60,181 +142,57 @@
                 </div>
             </div>
 
-            {# ---------- Documentos a adjuntar ---------- #}
+            {# ---------- Documentos a adjuntar (búsqueda bajo demanda) ---------- #}
             <div class="card shadow mb-4">
                 <div class="card-header d-flex align-items-center justify-content-between">
                     <h5 class="mb-0"><i class="bi bi-paperclip me-1"></i>Documentos a adjuntar</h5>
                     <span class="badge bg-secondary" id="contador-total">0 documentos</span>
                 </div>
                 <div class="card-body p-4">
+
+                    {# El buscador es la puerta de entrada: nada se lista de antemano. #}
+                    <div class="buscador-caja mb-2">
+                        <i class="bi bi-search"></i>
+                        <input type="text" id="buscador-docs" class="form-control form-control-lg"
+                               placeholder="Busca por persona, cédula, placa, proveedor o cliente…"
+                               autocomplete="off">
+                        <span class="spinner-border text-secondary" role="status"></span>
+                        <div class="panel-resultados" id="panel-resultados"></div>
+                    </div>
                     <p class="text-muted small mb-3">
-                        Puedes adjuntar <strong>cualquier documento que ya viva en el sistema</strong>, organizado
-                        por fuente: ábrela y marca lo que va en el correo. La seguridad social vigente de cada
-                        persona aparece en <strong>Personal</strong>.
+                        Escribe al menos 2 letras. Al elegir un resultado, sus documentos aparecen
+                        abajo para marcarlos; lo marcado queda en el <strong>resumen</strong> aunque
+                        cierres la tarjeta.
                     </p>
 
-                    <div class="accordion" id="acordeon-envio">
-                        {# ---- Personal ---- #}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#env-personal">
-                                    <i class="bi bi-person-badge me-2"></i>Personal
-                                    <span class="badge bg-secondary ms-2 env-contador">0</span>
-                                </button>
-                            </h2>
-                            <div id="env-personal" class="accordion-collapse collapse" data-bs-parent="#acordeon-envio">
-                                <div class="accordion-body py-3">
-                                    {% if catalogo.personal %}
-                                    <input type="text" class="form-control form-control-sm mb-3 buscador-docs"
-                                           placeholder="Buscar persona…">
-                                    {% for g in catalogo.personal %}
-                                    <div class="grupo-docs mb-2" data-buscar="{{ g.nombre|lower }} {{ g.detalle|lower }}">
-                                        <div class="small fw-semibold mb-1">{{ g.nombre }}
-                                            <span class="text-muted fw-normal">({{ g.detalle }})</span></div>
-                                        {% for d in g.docs %}
-                                        <div class="form-check">
-                                            <input class="form-check-input chk-adjunto" type="checkbox" name="adjuntos"
-                                                   value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                                   data-etiqueta="{{ g.nombre }}: {{ d.label }}"
-                                                   {% if d.token in seleccionados %}checked{% endif %}>
-                                            <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endfor %}
-                                    {% else %}
-                                    <span class="text-muted small">El personal activo no tiene documentos cargados en su expediente.</span>
-                                    {% endif %}
-                                </div>
-                            </div>
+                    {# Zona de trabajo: tarjetas de las entidades consultadas #}
+                    <div id="zona-tarjetas">
+                        <div class="zona-trabajo-vacia" id="zona-vacia">
+                            <i class="bi bi-folder2-open d-block mb-1" style="font-size:1.5rem;"></i>
+                            Aún no has consultado a nadie.<br>
+                            <span class="small">Busca arriba una persona, una placa, un proveedor o un cliente.</span>
                         </div>
+                    </div>
 
-                        {# ---- Vehículos ---- #}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#env-vehiculos">
-                                    <i class="bi bi-truck me-2"></i>Vehículos
-                                    <span class="badge bg-secondary ms-2 env-contador">0</span>
-                                </button>
-                            </h2>
-                            <div id="env-vehiculos" class="accordion-collapse collapse" data-bs-parent="#acordeon-envio">
-                                <div class="accordion-body py-3">
-                                    {% if catalogo.vehiculos %}
-                                    <input type="text" class="form-control form-control-sm mb-3 buscador-docs"
-                                           placeholder="Buscar placa…">
-                                    {% for g in catalogo.vehiculos %}
-                                    <div class="grupo-docs mb-2" data-buscar="{{ g.nombre|lower }} {{ g.detalle|lower }}">
-                                        <div class="small fw-semibold mb-1">{{ g.nombre }}
-                                            <span class="text-muted fw-normal">({{ g.detalle }})</span></div>
-                                        {% for d in g.docs %}
-                                        <div class="form-check">
-                                            <input class="form-check-input chk-adjunto" type="checkbox" name="adjuntos"
-                                                   value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                                   data-etiqueta="Vehículo {{ g.nombre }}: {{ d.label }}"
-                                                   {% if d.token in seleccionados %}checked{% endif %}>
-                                            <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endfor %}
-                                    {% else %}
-                                    <span class="text-muted small">Ningún vehículo tiene documentos cargados (SOAT, tecnomecánica, tarjeta).</span>
-                                    {% endif %}
+                    {# SOLMED: documentación propia, corta y fija — siempre a la mano #}
+                    <div class="mt-3">
+                        <button class="btn btn-outline-secondary btn-sm" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#docs-solmed-caja">
+                            <i class="bi bi-building me-1"></i>Documentación de SOLMED
+                            <span class="badge bg-light text-dark ms-1">{{ solmed_docs|length }}</span>
+                        </button>
+                        <div class="collapse mt-2" id="docs-solmed-caja">
+                            <div class="border rounded p-3" style="background:var(--panel-2);">
+                                {% for d in solmed_docs %}
+                                <div class="form-check">
+                                    <input class="form-check-input chk-adjunto" type="checkbox"
+                                           value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
+                                           data-token="{{ d.token }}" data-etiqueta="SOLMED: {{ d.label }}">
+                                    <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
                                 </div>
-                            </div>
-                        </div>
-
-                        {# ---- Proveedores ---- #}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#env-proveedores">
-                                    <i class="bi bi-recycle me-2"></i>Proveedores
-                                    <span class="badge bg-secondary ms-2 env-contador">0</span>
-                                </button>
-                            </h2>
-                            <div id="env-proveedores" class="accordion-collapse collapse" data-bs-parent="#acordeon-envio">
-                                <div class="accordion-body py-3">
-                                    {% if catalogo.proveedores %}
-                                    <input type="text" class="form-control form-control-sm mb-3 buscador-docs"
-                                           placeholder="Buscar proveedor…">
-                                    {% for g in catalogo.proveedores %}
-                                    <div class="grupo-docs mb-2" data-buscar="{{ g.nombre|lower }}">
-                                        <div class="small fw-semibold mb-1">{{ g.nombre }}
-                                            <span class="text-muted fw-normal">({{ g.detalle }})</span></div>
-                                        {% for d in g.docs %}
-                                        <div class="form-check">
-                                            <input class="form-check-input chk-adjunto" type="checkbox" name="adjuntos"
-                                                   value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                                   data-etiqueta="{{ g.nombre }}: {{ d.label }}"
-                                                   {% if d.token in seleccionados %}checked{% endif %}>
-                                            <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endfor %}
-                                    {% else %}
-                                    <span class="text-muted small">Los proveedores no tienen documentos en su expediente.</span>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-
-                        {# ---- SOLMED ---- #}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#env-solmed">
-                                    <i class="bi bi-building me-2"></i>Documentación de SOLMED
-                                    <span class="badge bg-secondary ms-2 env-contador">0</span>
-                                </button>
-                            </h2>
-                            <div id="env-solmed" class="accordion-collapse collapse" data-bs-parent="#acordeon-envio">
-                                <div class="accordion-body py-3">
-                                    {% for d in catalogo.solmed %}
-                                    <div class="form-check">
-                                        <input class="form-check-input chk-adjunto" type="checkbox" name="adjuntos"
-                                               value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                               data-etiqueta="SOLMED: {{ d.label }}"
-                                               {% if d.token in seleccionados %}checked{% endif %}>
-                                        <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                    </div>
-                                    {% empty %}
-                                    <span class="text-muted small">No hay documentación interna cargada (panel Documentación).</span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-
-                        {# ---- Clientes ---- #}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#env-clientes">
-                                    <i class="bi bi-buildings me-2"></i>Documentos de clientes
-                                    <span class="badge bg-secondary ms-2 env-contador">0</span>
-                                </button>
-                            </h2>
-                            <div id="env-clientes" class="accordion-collapse collapse" data-bs-parent="#acordeon-envio">
-                                <div class="accordion-body py-3">
-                                    {% if catalogo.clientes %}
-                                    <input type="text" class="form-control form-control-sm mb-3 buscador-docs"
-                                           placeholder="Buscar cliente…">
-                                    {% for g in catalogo.clientes %}
-                                    <div class="grupo-docs mb-2 rounded" data-buscar="{{ g.nombre|lower }}" data-cliente="{{ g.id }}">
-                                        <div class="small fw-semibold mb-1">{{ g.nombre }}</div>
-                                        {% for d in g.docs %}
-                                        <div class="form-check">
-                                            <input class="form-check-input chk-adjunto" type="checkbox" name="adjuntos"
-                                                   value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                                   data-etiqueta="{{ g.nombre }}: {{ d.label }}"
-                                                   {% if d.token in seleccionados %}checked{% endif %}>
-                                            <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                        </div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endfor %}
-                                    {% else %}
-                                    <span class="text-muted small">Los clientes no tienen documentos cargados en su ficha.</span>
-                                    {% endif %}
-                                </div>
+                                {% empty %}
+                                <span class="text-muted small">No hay documentación interna cargada (panel Documentación).</span>
+                                {% endfor %}
                             </div>
                         </div>
                     </div>
@@ -258,10 +216,23 @@
                     <div class="fw-semibold small mb-2">
                         <i class="bi bi-paperclip me-1"></i>Adjuntos <span id="res-n" class="text-muted fw-normal">(0)</span>
                     </div>
-                    <ul class="list-group list-group-flush mb-3" id="res-adjuntos"
-                        style="max-height:300px; overflow-y:auto;">
-                        <li class="list-group-item text-muted small px-0 py-1">Aún no has marcado documentos.</li>
-                    </ul>
+
+                    {# La CANASTA: la única fuente de verdad de lo que se adjunta.
+                       Cada chip lleva su input oculto name="adjuntos". #}
+                    <div id="canasta" style="max-height:300px; overflow-y:auto;">
+                        {% for a in seleccion %}
+                        <div class="chip-adjunto" data-token="{{ a.token }}">
+                            <i class="bi bi-paperclip"></i>
+                            <span>{{ a.label }}</span>
+                            <input type="hidden" name="adjuntos" value="{{ a.token }}">
+                            <button type="button" class="quitar" title="Quitar del correo"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="text-muted small mb-3 {% if seleccion %}d-none{% endif %}" id="canasta-vacia">
+                        Aún no has marcado documentos. Puedes enviar sin adjuntos.
+                    </div>
+
                     <button type="submit" class="btn btn-success w-100" id="btn-enviar">
                         <i class="bi bi-send-fill me-1"></i> Enviar correo
                     </button>
@@ -278,16 +249,55 @@
 {% block scripts %}
 {{ correos_clientes|json_script:"correos-clientes-data" }}
 <script>
-// --- Centro de correos: resumen en vivo, contadores, buscadores y cliente ---
+// ================== Centro de correos: redactor ==================
+// El catálogo documental NO viene en la página: el buscador consulta al
+// servidor (/app/correos/buscar/) mientras se escribe y cada resultado se
+// "fija" como tarjeta con SOLO sus documentos. Lo marcado vive en la
+// CANASTA del resumen (inputs ocultos name="adjuntos"): la tarjeta se puede
+// cerrar sin perder la selección.
 (function () {
     var correosClientes = JSON.parse(document.getElementById('correos-clientes-data').textContent);
     var selCliente = document.getElementById('sel-cliente');
     var inpDest = document.getElementById('inp-destinatarios');
     var inpAsunto = document.getElementById('inp-asunto');
+    var buscador = document.getElementById('buscador-docs');
+    var caja = buscador.closest('.buscador-caja');
+    var panel = document.getElementById('panel-resultados');
+    var zona = document.getElementById('zona-tarjetas');
+    var canasta = document.getElementById('canasta');
+    var URL_BUSCAR = '{% url "gestion:buscar_docs_correo" %}';
 
     function esc(t) {
         return String(t == null ? '' : t)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // ---------- Canasta (fuente de verdad) ----------
+    function enCanasta(token) {
+        return !!canasta.querySelector('.chip-adjunto[data-token="' + CSS.escape(token) + '"]');
+    }
+
+    function agregarACanasta(token, etiqueta) {
+        if (enCanasta(token)) return;
+        var chip = document.createElement('div');
+        chip.className = 'chip-adjunto nuevo';
+        chip.setAttribute('data-token', token);
+        chip.innerHTML = '<i class="bi bi-paperclip"></i><span>' + esc(etiqueta) + '</span>'
+            + '<input type="hidden" name="adjuntos" value="' + esc(token) + '">'
+            + '<button type="button" class="quitar" title="Quitar del correo"><i class="bi bi-x-lg"></i></button>';
+        canasta.appendChild(chip);
+        pintarResumen();
+    }
+
+    function quitarDeCanasta(token) {
+        var chip = canasta.querySelector('.chip-adjunto[data-token="' + CSS.escape(token) + '"]');
+        if (chip) chip.remove();
+        // Si su casilla sigue visible en alguna tarjeta, se desmarca.
+        document.querySelectorAll('.chk-adjunto').forEach(function (chk) {
+            if (chk.getAttribute('data-token') === token) chk.checked = false;
+        });
+        pintarResumen();
     }
 
     // ---------- Resumen en vivo ----------
@@ -296,37 +306,143 @@
         var dest = inpDest.value.trim();
         para.textContent = dest || '— escribe el destinatario —';
         para.classList.toggle('text-danger', !dest);
-
         document.getElementById('res-asunto').textContent = inpAsunto.value.trim() || '—';
 
-        var marcados = Array.prototype.slice.call(
-            document.querySelectorAll('.chk-adjunto:checked'));
-        var lista = document.getElementById('res-adjuntos');
-        lista.innerHTML = marcados.length
-            ? marcados.map(function (chk) {
-                return '<li class="list-group-item small px-0 py-1">'
-                    + '<i class="bi bi-file-earmark-text text-muted me-1"></i>'
-                    + esc(chk.getAttribute('data-etiqueta')) + '</li>';
-            }).join('')
-            : '<li class="list-group-item text-muted small px-0 py-1">Aún no has marcado documentos.</li>';
-        document.getElementById('res-n').textContent = '(' + marcados.length + ')';
-
+        var n = canasta.querySelectorAll('.chip-adjunto').length;
+        document.getElementById('res-n').textContent = '(' + n + ')';
+        document.getElementById('canasta-vacia').classList.toggle('d-none', n > 0);
         var total = document.getElementById('contador-total');
-        total.textContent = marcados.length + ' documento' + (marcados.length === 1 ? '' : 's');
-        total.classList.toggle('bg-success', marcados.length > 0);
-        total.classList.toggle('bg-secondary', marcados.length === 0);
-
-        // Contador por fuente en el encabezado de cada sección del acordeón.
-        document.querySelectorAll('#acordeon-envio .accordion-item').forEach(function (item) {
-            var n = item.querySelectorAll('.chk-adjunto:checked').length;
-            var badge = item.querySelector('.env-contador');
-            badge.textContent = n;
-            badge.classList.toggle('bg-success', n > 0);
-            badge.classList.toggle('bg-secondary', n === 0);
-        });
+        total.textContent = n + ' documento' + (n === 1 ? '' : 's');
+        total.classList.toggle('bg-success', n > 0);
+        total.classList.toggle('bg-secondary', n === 0);
     }
 
-    // ---------- Cliente elegido: destinatario y resaltado de sus documentos ----------
+    // ---------- Tarjetas de entidad ----------
+    function checkboxHTML(doc, etiquetaEntidad) {
+        var marcado = enCanasta(doc.token) ? ' checked' : '';
+        var id = 'chk-' + doc.token.replace(/[^a-z0-9]/gi, '-');
+        return '<div class="form-check">'
+            + '<input class="form-check-input chk-adjunto" type="checkbox" id="' + id + '"'
+            + ' data-token="' + esc(doc.token) + '"'
+            + ' data-etiqueta="' + esc(etiquetaEntidad + ': ' + doc.label) + '"' + marcado + '>'
+            + '<label class="form-check-label small" for="' + id + '">' + esc(doc.label) + '</label>'
+            + '</div>';
+    }
+
+    function fijarEntidad(item, icono) {
+        var previa = zona.querySelector('.tarjeta-entidad[data-clave="' + CSS.escape(item.clave) + '"]');
+        if (previa) {   // ya estaba: se resalta en vez de duplicarse
+            previa.classList.remove('destello');
+            void previa.offsetWidth;
+            previa.classList.add('destello');
+            previa.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            return;
+        }
+        var docs = item.docs.length
+            ? item.docs.map(function (d) { return checkboxHTML(d, item.nombre); }).join('')
+            : '<span class="text-muted small">Sin documentos cargados en el sistema.</span>';
+        var tarjeta = document.createElement('div');
+        tarjeta.className = 'tarjeta-entidad destello';
+        tarjeta.setAttribute('data-clave', item.clave);
+        tarjeta.innerHTML =
+            '<div class="cabecera">'
+            + '<span class="icono"><i class="bi bi-' + icono + '"></i></span>'
+            + '<div class="flex-grow-1"><div class="fw-semibold small">' + esc(item.nombre) + '</div>'
+            + (item.detalle ? '<div class="text-muted" style="font-size:.72rem;">' + esc(item.detalle) + '</div>' : '')
+            + '</div>'
+            + '<button type="button" class="btn-close cerrar-tarjeta" title="Cerrar (lo marcado se conserva)"></button>'
+            + '</div>'
+            + '<div class="cuerpo">' + docs + '</div>';
+        document.getElementById('zona-vacia').classList.add('d-none');
+        zona.prepend(tarjeta);
+    }
+
+    // ---------- Buscador (con espera y cancelación) ----------
+    var temporizador = null;
+    var solicitud = null;
+
+    function cerrarResultados() {
+        panel.classList.remove('abierto');
+        panel.innerHTML = '';
+    }
+
+    function pintarResultados(data, q) {
+        if (!data.grupos.length) {
+            panel.innerHTML = '<div class="p-3 text-muted small">Sin resultados para «'
+                + esc(q) + '». Prueba con el nombre, la cédula, la placa o el NIT.</div>';
+            panel.classList.add('abierto');
+            return;
+        }
+        var html = '';
+        data.grupos.forEach(function (grupo) {
+            html += '<div class="resultado-fuente">' + esc(grupo.fuente) + '</div>';
+            grupo.items.forEach(function (item) {
+                var nDocs = item.docs.length;
+                html += '<button type="button" class="resultado-item' + (nDocs ? '' : ' sin-docs') + '"'
+                    + " data-item='" + esc(JSON.stringify(item)).replace(/'/g, '&#39;') + "'"
+                    + ' data-icono="' + esc(grupo.icono) + '">'
+                    + '<span class="icono"><i class="bi bi-' + esc(grupo.icono) + '"></i></span>'
+                    + '<span class="flex-grow-1"><span class="d-block small fw-semibold">' + esc(item.nombre) + '</span>'
+                    + (item.detalle ? '<span class="d-block text-muted" style="font-size:.72rem;">' + esc(item.detalle) + '</span>' : '')
+                    + '</span>'
+                    + (nDocs
+                        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">' + nDocs + ' doc' + (nDocs === 1 ? '' : 's') + '</span>'
+                        : '<span class="badge bg-light text-muted border">sin documentos</span>')
+                    + '</button>';
+            });
+            if (data.mas[grupo.fuente]) {
+                html += '<div class="px-3 pb-2 text-muted" style="font-size:.72rem;">…y '
+                    + data.mas[grupo.fuente] + ' más en ' + esc(grupo.fuente)
+                    + ': afina la búsqueda.</div>';
+            }
+        });
+        panel.innerHTML = html;
+        panel.classList.add('abierto');
+    }
+
+    function buscar(q) {
+        if (solicitud) solicitud.abort();
+        solicitud = new AbortController();
+        caja.classList.add('cargando');
+        fetch(URL_BUSCAR + '?q=' + encodeURIComponent(q), { signal: solicitud.signal })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                caja.classList.remove('cargando');
+                pintarResultados(data, q);
+            })
+            .catch(function (e) {
+                if (e.name !== 'AbortError') caja.classList.remove('cargando');
+            });
+    }
+
+    buscador.addEventListener('input', function () {
+        clearTimeout(temporizador);
+        var q = buscador.value.trim();
+        if (q.length < 2) { cerrarResultados(); caja.classList.remove('cargando'); return; }
+        temporizador = setTimeout(function () { buscar(q); }, 250);
+    });
+    // Enter en el buscador no debe enviar el formulario.
+    buscador.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') e.preventDefault();
+    });
+    // Clic fuera cierra los resultados; volver al campo los reabre.
+    document.addEventListener('click', function (e) {
+        if (!caja.contains(e.target)) cerrarResultados();
+    });
+    buscador.addEventListener('focus', function () {
+        if (buscador.value.trim().length >= 2) buscar(buscador.value.trim());
+    });
+
+    panel.addEventListener('click', function (e) {
+        var boton = e.target.closest('.resultado-item');
+        if (!boton) return;
+        fijarEntidad(JSON.parse(boton.getAttribute('data-item')), boton.getAttribute('data-icono'));
+        cerrarResultados();
+        buscador.value = '';
+        buscador.focus();
+    });
+
+    // ---------- Cliente elegido: destinatario + su tarjeta de documentos ----------
     var autollenado = '';   // lo que llenó el sistema, para no pisar lo escrito a mano
     function alElegirCliente() {
         var id = selCliente.value;
@@ -335,32 +451,37 @@
             inpDest.value = correo;
             autollenado = correo;
         }
-        // Resalta el grupo del cliente en la sección "Documentos de clientes".
-        document.querySelectorAll('#env-clientes .grupo-docs').forEach(function (g) {
-            var esElegido = id && g.getAttribute('data-cliente') === id;
-            g.classList.toggle('border', esElegido);
-            g.classList.toggle('border-success', esElegido);
-            g.classList.toggle('p-2', esElegido);
-            g.classList.toggle('bg-success-subtle', esElegido);
-        });
         pintarResumen();
+        if (!id) return;
+        fetch(URL_BUSCAR + '?cliente=' + encodeURIComponent(id))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.grupos.length && data.grupos[0].items.length) {
+                    fijarEntidad(data.grupos[0].items[0], data.grupos[0].icono);
+                }
+            })
+            .catch(function () { /* sin red no se fija la tarjeta; se puede buscar luego */ });
     }
-
-    // ---------- Buscadores dentro de cada sección ----------
-    document.querySelectorAll('.buscador-docs').forEach(function (buscador) {
-        buscador.addEventListener('input', function () {
-            var texto = buscador.value.trim().toLowerCase();
-            buscador.closest('.accordion-body').querySelectorAll('.grupo-docs').forEach(function (g) {
-                g.classList.toggle('d-none',
-                    texto !== '' && g.getAttribute('data-buscar').indexOf(texto) === -1);
-            });
-        });
-    });
 
     // ---------- Eventos ----------
     document.addEventListener('change', function (e) {
-        if (e.target.matches('.chk-adjunto')) pintarResumen();
+        if (e.target.matches('.chk-adjunto')) {
+            var token = e.target.getAttribute('data-token');
+            if (e.target.checked) agregarACanasta(token, e.target.getAttribute('data-etiqueta'));
+            else quitarDeCanasta(token);
+        }
         if (e.target === selCliente) alElegirCliente();
+    });
+    document.addEventListener('click', function (e) {
+        var quitar = e.target.closest('.chip-adjunto .quitar');
+        if (quitar) quitarDeCanasta(quitar.closest('.chip-adjunto').getAttribute('data-token'));
+        var cerrar = e.target.closest('.cerrar-tarjeta');
+        if (cerrar) {
+            cerrar.closest('.tarjeta-entidad').remove();
+            if (!zona.querySelector('.tarjeta-entidad')) {
+                document.getElementById('zona-vacia').classList.remove('d-none');
+            }
+        }
     });
     inpDest.addEventListener('input', pintarResumen);
     inpAsunto.addEventListener('input', pintarResumen);
@@ -372,7 +493,13 @@
         boton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Enviando…';
     });
 
-    alElegirCliente();
+    // Al cargar con selección previa (plantilla o error): las casillas visibles
+    // (SOLMED) se sincronizan con la canasta.
+    document.querySelectorAll('.chk-adjunto').forEach(function (chk) {
+        chk.checked = enCanasta(chk.getAttribute('data-token'));
+    });
+    // Y con cliente preseleccionado, se fija su tarjeta de una vez.
+    if (selCliente.value) alElegirCliente();
     pintarResumen();
 })();
 </script>

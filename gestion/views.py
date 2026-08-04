@@ -2191,107 +2191,57 @@ def _catalogo_docs_solmed():
     } for d in DocumentoInterno.objects.all()]
 
 
-def _catalogo_centro_correos():
-    """
-    TODOS los documentos adjuntables del sistema, agrupados por fuente, para
-    pintar el acordeón del Centro de correos (se renderiza en el servidor: aquí
-    no hay contexto de programación que filtrar). Cada documento es
-    {'token', 'label'}; cada grupo lleva su encabezado.
-    """
+def _docs_de_persona(usuario, docs=None):
+    """[{token, label}] del expediente de una persona, con su SS vigente primero."""
     tipo_label = dict(DocumentoPersonal.TIPO_CHOICES)
-
-    # --- Personal activo, incluida su seguridad social vigente ---
-    personal = []
-    usuarios = (
-        User.objects.filter(groups__isnull=False, is_superuser=False)
-        .exclude(perfil__retirado=True).distinct()
-        .prefetch_related('groups', 'documentos_personales')
-        .order_by('first_name', 'last_name', 'username')
-    )
-    for u in usuarios:
-        docs_u = list(u.documentos_personales.all())
-        docs = []
-        ss = _ss_vigente(docs_u)
-        if ss is not None:
-            docs.append({
-                'token': f'personal:{ss.pk}',
-                'label': f"Seguridad social (vigente hasta "
-                         f"{ss.fecha_vencimiento.strftime('%d/%m/%Y')})",
-            })
-        for d in docs_u:
-            if d.tipo == 'SEGURIDAD_SOCIAL':
-                continue
-            etiqueta = (d.descripcion if d.tipo == 'OTRO' and d.descripcion
-                        else tipo_label[d.tipo])
-            docs.append({'token': f'personal:{d.pk}',
-                         'label': etiqueta + (' (vencido)' if d.vencido else '')})
-        if docs:
-            personal.append({
-                'nombre': u.get_full_name() or u.username,
-                'detalle': ', '.join(u.groups.values_list('name', flat=True)),
-                'docs': docs,
-            })
-
-    # --- Vehículos (SOAT, tecnomecánica, tarjeta de propiedad) ---
-    vehiculos = []
-    for v in Vehiculo.objects.order_by('placa'):
-        docs = []
-        for sub, (campo, etiqueta) in DOCS_VEHICULO.items():
-            if not getattr(v, campo):
-                continue
-            vence = (v.fecha_vencimiento_soat if sub == 'soat'
-                     else v.fecha_vencimiento_tecnomecanica if sub == 'tecno' else None)
-            docs.append({
-                'token': f'vehiculo:{v.pk}:{sub}',
-                'label': etiqueta + (f" (vence {vence.strftime('%d/%m/%Y')})" if vence else ''),
-            })
-        if docs:
-            vehiculos.append({'nombre': v.placa,
-                              'detalle': f"{v.marca} {v.modelo}".strip(),
-                              'docs': docs})
-
-    # --- Proveedores (expediente de cada dispositor) ---
-    por_dispositor = {}
-    for doc in (DocumentoDispositor.objects.select_related('dispositor')
-                .order_by('tipo', '-fecha_subida')):
-        por_dispositor.setdefault(doc.dispositor, []).append({
-            'token': f'proveedor:{doc.pk}',
-            'label': doc.get_tipo_display()
-                     + (f" — {doc.descripcion}" if doc.descripcion else ''),
+    if docs is None:
+        docs = list(usuario.documentos_personales.all())
+    out = []
+    ss = _ss_vigente(docs)
+    if ss is not None:
+        out.append({
+            'token': f'personal:{ss.pk}',
+            'label': f"Seguridad social (vigente hasta "
+                     f"{ss.fecha_vencimiento.strftime('%d/%m/%Y')})",
         })
-    proveedores = [
-        {'nombre': disp.nombre, 'detalle': disp.get_tipo_display(), 'docs': docs}
-        for disp, docs in sorted(por_dispositor.items(), key=lambda par: par[0].nombre)
-    ]
+    for d in docs:
+        if d.tipo == 'SEGURIDAD_SOCIAL':
+            continue
+        etiqueta = (d.descripcion if d.tipo == 'OTRO' and d.descripcion
+                    else tipo_label[d.tipo])
+        out.append({'token': f'personal:{d.pk}',
+                    'label': etiqueta + (' (vencido)' if d.vencido else '')})
+    return out
 
-    # --- Clientes (fijos + ambientales + los que piden en cada correo) ---
-    ambientales, de_correo = {}, {}
-    for doc in DocumentoAmbientalCliente.objects.all():
-        ambientales.setdefault(doc.cliente_id, []).append({
-            'token': f'cliente_amb:{doc.pk}',
-            'label': (doc.descripcion or os.path.basename(doc.archivo.name)) + ' (ambiental)',
-        })
-    for doc in DocumentoCorreoCliente.objects.all():
-        de_correo.setdefault(doc.cliente_id, []).append({
-            'token': f'cliente_correo:{doc.pk}',
-            'label': doc.descripcion or os.path.basename(doc.archivo.name),
-        })
-    clientes = []
-    for c in Cliente.objects.order_by('nombre'):
-        docs = [{'token': f'cliente_fijo:{c.pk}:{sub}', 'label': etiqueta}
-                for sub, (campo, etiqueta) in DOCS_CLIENTE_FIJOS.items()
-                if getattr(c, campo)]
-        docs += de_correo.get(c.pk, []) + ambientales.get(c.pk, [])
-        if docs:
-            clientes.append({'id': c.pk, 'nombre': c.nombre, 'detalle': '', 'docs': docs})
 
-    return {
-        'personal': personal,
-        'vehiculos': vehiculos,
-        'proveedores': proveedores,
-        'solmed': _catalogo_docs_solmed(),
-        'clientes': clientes,
-    }
+def _docs_de_vehiculo(v):
+    """[{token, label}] de los documentos presentes de una placa."""
+    out = []
+    for sub, (campo, etiqueta) in DOCS_VEHICULO.items():
+        if not getattr(v, campo):
+            continue
+        vence = (v.fecha_vencimiento_soat if sub == 'soat'
+                 else v.fecha_vencimiento_tecnomecanica if sub == 'tecno' else None)
+        out.append({
+            'token': f'vehiculo:{v.pk}:{sub}',
+            'label': etiqueta + (f" (vence {vence.strftime('%d/%m/%Y')})" if vence else ''),
+        })
+    return out
+
+
+def _docs_de_cliente(c):
+    """[{token, label}] de un cliente: fijos + de cada correo + ambientales."""
+    out = [{'token': f'cliente_fijo:{c.pk}:{sub}', 'label': etiqueta}
+           for sub, (campo, etiqueta) in DOCS_CLIENTE_FIJOS.items()
+           if getattr(c, campo)]
+    for doc in c.documentos_correo.all():
+        out.append({'token': f'cliente_correo:{doc.pk}',
+                    'label': doc.descripcion or os.path.basename(doc.archivo.name)})
+    for doc in c.documentos_ambientales.all():
+        out.append({'token': f'cliente_amb:{doc.pk}',
+                    'label': (doc.descripcion or os.path.basename(doc.archivo.name))
+                             + ' (ambiental)'})
+    return out
 
 
 # ============================================================
@@ -2341,6 +2291,106 @@ def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente):
     return correo
 
 
+class BuscarDocsCorreoView(AsesorRequiredMixin, View):
+    """
+    Buscador del redactor del Centro de correos. El catálogo documental NO se
+    manda entero al navegador (con cientos de personas sería impagable): se
+    consulta aquí a medida que el asesor escribe y solo viajan las entidades
+    que coinciden, cada una con sus documentos listos para marcar.
+
+      ?q=<texto>      busca por persona (nombre/cédula), placa, proveedor o cliente
+      ?cliente=<id>   trae SOLO ese cliente (para fijarlo al elegirlo arriba)
+
+    Devuelve {'grupos': [{fuente, icono, items: [{clave, nombre, detalle,
+    docs: [{token, label}]}]}], 'mas': {fuente: cuántos quedaron por fuera}}.
+    """
+    LIMITE = 6   # resultados por fuente; si hay más, se pide afinar la búsqueda
+
+    def get(self, request):
+        q = request.GET.get('q', '').strip()
+        cliente_id = request.GET.get('cliente', '').strip()
+        grupos, mas = [], {}
+
+        def agregar(fuente, icono, items, faltan=0):
+            if items:
+                grupos.append({'fuente': fuente, 'icono': icono, 'items': items})
+            if faltan > 0:
+                mas[fuente] = faltan
+
+        # --- Un cliente puntual (al elegirlo en "Datos del correo") ---
+        if cliente_id.isdigit():
+            c = (Cliente.objects.filter(pk=cliente_id)
+                 .prefetch_related('documentos_correo', 'documentos_ambientales').first())
+            if c is not None:
+                agregar('Clientes', 'buildings', [{
+                    'clave': f'cliente-{c.pk}', 'nombre': c.nombre,
+                    'detalle': c.identificacion, 'docs': _docs_de_cliente(c),
+                }])
+            return JsonResponse({'grupos': grupos, 'mas': mas})
+
+        if len(q) < 2:
+            return JsonResponse({'grupos': grupos, 'mas': mas})
+
+        # --- Personal (nombre, usuario o cédula) ---
+        personas = (
+            User.objects.filter(groups__isnull=False, is_superuser=False)
+            .exclude(perfil__retirado=True)
+            .filter(Q(first_name__icontains=q) | Q(last_name__icontains=q)
+                    | Q(username__icontains=q)
+                    | Q(perfil__numero_documento__icontains=q))
+            .distinct()
+            .prefetch_related('groups', 'documentos_personales')
+            .order_by('first_name', 'last_name')
+        )
+        total = personas.count()
+        agregar('Personal', 'person-badge', [{
+            'clave': f'personal-{u.pk}',
+            'nombre': u.get_full_name() or u.username,
+            'detalle': ', '.join(u.groups.values_list('name', flat=True)),
+            'docs': _docs_de_persona(u),
+        } for u in personas[:self.LIMITE]], total - self.LIMITE)
+
+        # --- Vehículos (placa, marca o modelo) ---
+        vehiculos = (Vehiculo.objects
+                     .filter(Q(placa__icontains=q) | Q(marca__icontains=q)
+                             | Q(modelo__icontains=q))
+                     .order_by('placa'))
+        total = vehiculos.count()
+        agregar('Vehículos', 'truck', [{
+            'clave': f'vehiculo-{v.pk}', 'nombre': v.placa,
+            'detalle': f"{v.marca} {v.modelo}".strip(),
+            'docs': _docs_de_vehiculo(v),
+        } for v in vehiculos[:self.LIMITE]], total - self.LIMITE)
+
+        # --- Proveedores (expediente del dispositor) ---
+        from .models import Dispositor
+        proveedores = (Dispositor.objects.filter(nombre__icontains=q)
+                       .prefetch_related('documentos').order_by('nombre'))
+        total = proveedores.count()
+        agregar('Proveedores', 'recycle', [{
+            'clave': f'proveedor-{d.pk}', 'nombre': d.nombre,
+            'detalle': d.get_tipo_display(),
+            'docs': [{'token': f'proveedor:{doc.pk}',
+                      'label': doc.get_tipo_display()
+                               + (f" — {doc.descripcion}" if doc.descripcion else '')}
+                     for doc in d.documentos.all()],
+        } for d in proveedores[:self.LIMITE]], total - self.LIMITE)
+
+        # --- Clientes (nombre, sigla o NIT) ---
+        clientes = (Cliente.objects
+                    .filter(Q(nombre__icontains=q) | Q(sigla__icontains=q)
+                            | Q(identificacion__icontains=q))
+                    .prefetch_related('documentos_correo', 'documentos_ambientales')
+                    .order_by('nombre'))
+        total = clientes.count()
+        agregar('Clientes', 'buildings', [{
+            'clave': f'cliente-{c.pk}', 'nombre': c.nombre,
+            'detalle': c.identificacion, 'docs': _docs_de_cliente(c),
+        } for c in clientes[:self.LIMITE]], total - self.LIMITE)
+
+        return JsonResponse({'grupos': grupos, 'mas': mas})
+
+
 class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
     """Historial del Centro de correos, con buscador, filtro y estadísticas."""
     model = EnvioCorreo
@@ -2385,12 +2435,24 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
 
     def _render(self, request, datos, seleccionados, errores=None):
         clientes = list(Cliente.objects.order_by('nombre'))
+        # La canasta de adjuntos se arma en el servidor con etiqueta legible;
+        # los tokens que ya no resuelven simplemente no vuelven a la canasta.
+        seleccion = []
+        for t in seleccionados:
+            r = _resolver_adjunto_correo(t)
+            if r is not None:
+                linea = r['linea']
+                seleccion.append({'token': t,
+                                  'label': linea[2:] if linea.startswith('- ') else linea})
         return render(request, self.template_name, {
-            'catalogo': _catalogo_centro_correos(),
+            # El catálogo documental NO viaja completo: el buscador
+            # (BuscarDocsCorreoView) lo consulta a medida que se escribe.
+            # SOLMED sí va en línea: es la documentación propia, corta y fija.
+            'solmed_docs': _catalogo_docs_solmed(),
             'clientes': clientes,
             'correos_clientes': {str(c.pk): c.email for c in clientes if c.email},
             'datos': datos,
-            'seleccionados': set(map(str, seleccionados)),
+            'seleccion': seleccion,
             'errores': errores or [],
         })
 
