@@ -143,7 +143,10 @@ USE_TZ = True
 
 USE_L10N = True
 
-USE_THOUSAND_SEPARATOR = True
+# Sin separador de miles automático: pintaba los números de orden como
+# "#22.207" (son identificadores, no cantidades). El dinero conserva su
+# separador porque las plantillas usan |intcomma explícito.
+USE_THOUSAND_SEPARATOR = False
 
 # Static & Media files — almacenamiento híbrido (local en desarrollo, AWS S3 en producción).
 # https://docs.djangoproject.com/en/5.2/howto/static-files/

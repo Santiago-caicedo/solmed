@@ -410,6 +410,11 @@ class OrdenServicio(models.Model):
 
     
 
+    # El consecutivo de las órdenes arranca en este número (pedido del usuario:
+    # empatar con el consecutivo que la empresa ya llevaba). Las órdenes nuevas
+    # toman max(última + 1, este valor); ver save().
+    NUMERO_INICIAL = 22207
+
     # --- Detalles Generales de la Orden ---
     numero_orden = models.AutoField(primary_key=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
@@ -431,6 +436,17 @@ class OrdenServicio(models.Model):
         verbose_name="Conciliación (Transporte - Cantidad)"
     )
     fecha_conciliacion = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de conciliación")
+
+    def save(self, *args, **kwargs):
+        # Numeración explícita: la siguiente orden es max(última + 1,
+        # NUMERO_INICIAL). Así el consecutivo arranca en 22207 sin depender de
+        # la secuencia de la base de datos (funciona igual en Postgres y en
+        # sqlite, y también si se crean órdenes desde el admin).
+        if self.numero_orden is None:
+            from django.db.models import Max
+            ultimo = OrdenServicio.objects.aggregate(m=Max('numero_orden'))['m'] or 0
+            self.numero_orden = max(ultimo + 1, self.NUMERO_INICIAL)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Orden #{self.numero_orden} - {self.cliente.nombre}"
