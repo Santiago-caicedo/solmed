@@ -15,6 +15,17 @@
     }
     .buscador-caja.cargando .spinner-border{ display:block; }
 
+    .chip-fuente{
+        border:1px solid #C9D2DC; background:var(--panel); color:#51606E;
+        border-radius:999px; padding:.28rem .8rem; font-size:.8rem; font-weight:600;
+        cursor:pointer; transition:all .12s ease;
+    }
+    .chip-fuente:hover{ border-color:var(--brand-600); color:var(--brand-700); }
+    .chip-fuente.activa{
+        background:var(--brand-tint); border-color:var(--brand-600);
+        color:var(--brand-700);
+    }
+
     .panel-resultados{
         position:absolute; z-index:1050; left:0; right:0; top:calc(100% + 4px);
         background:var(--panel); border:1px solid #DCE1E8; border-radius:var(--r-md);
@@ -39,6 +50,14 @@
         background:var(--brand-tint); color:var(--brand-600); font-size:.95rem;
     }
     .resultado-item.sin-docs .icono{ background:var(--panel-2); color:#8A97A5; }
+    .resultado-item.fijado{ background:var(--ok-tint); }
+    .resultado-item.fijado .icono{ background:var(--ok-tint); color:var(--ok); }
+    .btn-mas-resultados{
+        display:block; width:100%; border:0; background:var(--panel-2);
+        color:var(--steel); font-size:.8rem; font-weight:600; padding:.55rem;
+        cursor:pointer; border-top:1px solid #E9EDF2;
+    }
+    .btn-mas-resultados:hover{ background:#eef2f6; }
 
     /* ---- Tarjetas de entidad fijadas ---- */
     .tarjeta-entidad{
@@ -159,10 +178,26 @@
                         <span class="spinner-border text-secondary" role="status"></span>
                         <div class="panel-resultados" id="panel-resultados"></div>
                     </div>
+                    {# Categorías: exploran su lista completa; el buscador filtra dentro. #}
+                    <div class="d-flex flex-wrap gap-2 mb-2" id="chips-fuentes">
+                        <button type="button" class="chip-fuente activa" data-fuente=""
+                                data-nombre="todo">Todo</button>
+                        <button type="button" class="chip-fuente" data-fuente="personal"
+                                data-nombre="Personal"><i class="bi bi-person-badge me-1"></i>Personal</button>
+                        <button type="button" class="chip-fuente" data-fuente="vehiculos"
+                                data-nombre="Vehículos"><i class="bi bi-truck me-1"></i>Vehículos</button>
+                        <button type="button" class="chip-fuente" data-fuente="proveedores"
+                                data-nombre="Proveedores"><i class="bi bi-recycle me-1"></i>Proveedores</button>
+                        <button type="button" class="chip-fuente" data-fuente="clientes"
+                                data-nombre="Clientes"><i class="bi bi-buildings me-1"></i>Clientes</button>
+                        <button type="button" class="chip-fuente" data-fuente="solmed"
+                                data-nombre="SOLMED"><i class="bi bi-building me-1"></i>SOLMED</button>
+                    </div>
                     <p class="text-muted small mb-3">
-                        Escribe al menos 2 letras. Al elegir un resultado, sus documentos aparecen
-                        abajo para marcarlos; lo marcado queda en el <strong>resumen</strong> aunque
-                        cierres la tarjeta.
+                        Escribe al menos 2 letras para buscar en todo, o <strong>elige una categoría</strong>
+                        para ver su lista completa (el buscador filtra dentro de ella). Al elegir un
+                        resultado, sus documentos aparecen abajo para marcarlos; lo marcado queda en el
+                        <strong>resumen</strong> aunque cierres la tarjeta.
                     </p>
 
                     {# Zona de trabajo: tarjetas de las entidades consultadas #}
@@ -174,28 +209,6 @@
                         </div>
                     </div>
 
-                    {# SOLMED: documentación propia, corta y fija — siempre a la mano #}
-                    <div class="mt-3">
-                        <button class="btn btn-outline-secondary btn-sm" type="button"
-                                data-bs-toggle="collapse" data-bs-target="#docs-solmed-caja">
-                            <i class="bi bi-building me-1"></i>Documentación de SOLMED
-                            <span class="badge bg-light text-dark ms-1">{{ solmed_docs|length }}</span>
-                        </button>
-                        <div class="collapse mt-2" id="docs-solmed-caja">
-                            <div class="border rounded p-3" style="background:var(--panel-2);">
-                                {% for d in solmed_docs %}
-                                <div class="form-check">
-                                    <input class="form-check-input chk-adjunto" type="checkbox"
-                                           value="{{ d.token }}" id="adj-{{ d.token|slugify }}"
-                                           data-token="{{ d.token }}" data-etiqueta="SOLMED: {{ d.label }}">
-                                    <label class="form-check-label small" for="adj-{{ d.token|slugify }}">{{ d.label }}</label>
-                                </div>
-                                {% empty %}
-                                <span class="text-muted small">No hay documentación interna cargada (panel Documentación).</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -358,53 +371,79 @@
     }
 
     // ---------- Buscador (con espera y cancelación) ----------
+    // fuenteActiva = '' busca en todo (mínimo 2 letras, pocos por fuente);
+    // con una categoría elegida explora su lista completa y el texto filtra
+    // solo dentro de ella (paginado con "Mostrar más").
     var temporizador = null;
     var solicitud = null;
+    var fuenteActiva = '';
 
     function cerrarResultados() {
         panel.classList.remove('abierto');
         panel.innerHTML = '';
     }
 
+    function puedeBuscar(q) {
+        return fuenteActiva !== '' || q.length >= 2;
+    }
+
+    function itemHTML(item, icono) {
+        var nDocs = item.docs.length;
+        var fijado = !!zona.querySelector('.tarjeta-entidad[data-clave="' + CSS.escape(item.clave) + '"]');
+        return '<button type="button" class="resultado-item' + (nDocs ? '' : ' sin-docs')
+            + (fijado ? ' fijado' : '') + '"'
+            + " data-item='" + esc(JSON.stringify(item)).replace(/'/g, '&#39;') + "'"
+            + ' data-icono="' + esc(icono) + '">'
+            + '<span class="icono"><i class="bi bi-' + (fijado ? 'check-lg' : esc(icono)) + '"></i></span>'
+            + '<span class="flex-grow-1"><span class="d-block small fw-semibold">' + esc(item.nombre) + '</span>'
+            + (item.detalle ? '<span class="d-block text-muted" style="font-size:.72rem;">' + esc(item.detalle) + '</span>' : '')
+            + '</span>'
+            + (nDocs
+                ? '<span class="badge bg-success-subtle text-success border border-success-subtle">' + nDocs + ' doc' + (nDocs === 1 ? '' : 's') + '</span>'
+                : '<span class="badge bg-light text-muted border">sin documentos</span>')
+            + '</button>';
+    }
+
     function pintarResultados(data, q) {
-        if (!data.grupos.length) {
-            panel.innerHTML = '<div class="p-3 text-muted small">Sin resultados para «'
-                + esc(q) + '». Prueba con el nombre, la cédula, la placa o el NIT.</div>';
+        if (!data.grupos.length || data.grupos.every(function (g) { return !g.items.length; })) {
+            panel.innerHTML = '<div class="p-3 text-muted small">'
+                + (q ? 'Sin resultados para «' + esc(q) + '». Prueba con el nombre, la cédula, la placa o el NIT.'
+                     : 'No hay registros en esta categoría todavía.')
+                + '</div>';
             panel.classList.add('abierto');
             return;
         }
         var html = '';
         data.grupos.forEach(function (grupo) {
             html += '<div class="resultado-fuente">' + esc(grupo.fuente) + '</div>';
-            grupo.items.forEach(function (item) {
-                var nDocs = item.docs.length;
-                html += '<button type="button" class="resultado-item' + (nDocs ? '' : ' sin-docs') + '"'
-                    + " data-item='" + esc(JSON.stringify(item)).replace(/'/g, '&#39;') + "'"
-                    + ' data-icono="' + esc(grupo.icono) + '">'
-                    + '<span class="icono"><i class="bi bi-' + esc(grupo.icono) + '"></i></span>'
-                    + '<span class="flex-grow-1"><span class="d-block small fw-semibold">' + esc(item.nombre) + '</span>'
-                    + (item.detalle ? '<span class="d-block text-muted" style="font-size:.72rem;">' + esc(item.detalle) + '</span>' : '')
-                    + '</span>'
-                    + (nDocs
-                        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">' + nDocs + ' doc' + (nDocs === 1 ? '' : 's') + '</span>'
-                        : '<span class="badge bg-light text-muted border">sin documentos</span>')
-                    + '</button>';
-            });
-            if (data.mas[grupo.fuente]) {
-                html += '<div class="px-3 pb-2 text-muted" style="font-size:.72rem;">…y '
-                    + data.mas[grupo.fuente] + ' más en ' + esc(grupo.fuente)
-                    + ': afina la búsqueda.</div>';
+            grupo.items.forEach(function (item) { html += itemHTML(item, grupo.icono); });
+            var faltan = data.mas[grupo.fuente] || 0;
+            if (faltan > 0) {
+                html += fuenteActiva
+                    // Explorando la categoría: la lista sigue, se pide la otra página.
+                    ? '<button type="button" class="btn-mas-resultados" data-desde="' + data.siguiente + '">'
+                      + '<i class="bi bi-chevron-down me-1"></i>Mostrar más (' + faltan + ' restantes)</button>'
+                    // Búsqueda global: mejor afinar que paginar.
+                    : '<div class="px-3 pb-2 text-muted" style="font-size:.72rem;">…y ' + faltan
+                      + ' más en ' + esc(grupo.fuente) + ': afina la búsqueda.</div>';
             }
         });
         panel.innerHTML = html;
         panel.classList.add('abierto');
     }
 
+    function urlBusqueda(q, desde) {
+        var url = URL_BUSCAR + '?q=' + encodeURIComponent(q);
+        if (fuenteActiva) url += '&fuente=' + encodeURIComponent(fuenteActiva);
+        if (desde) url += '&desde=' + desde;
+        return url;
+    }
+
     function buscar(q) {
         if (solicitud) solicitud.abort();
         solicitud = new AbortController();
         caja.classList.add('cargando');
-        fetch(URL_BUSCAR + '?q=' + encodeURIComponent(q), { signal: solicitud.signal })
+        fetch(urlBusqueda(q, 0), { signal: solicitud.signal })
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 caja.classList.remove('cargando');
@@ -415,10 +454,34 @@
             });
     }
 
+    // Página siguiente de la categoría: se agrega debajo, sin recargar la lista.
+    function cargarMas(boton) {
+        var q = buscador.value.trim();
+        boton.disabled = true;
+        fetch(urlBusqueda(q, boton.getAttribute('data-desde')))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var grupo = data.grupos[0];
+                var html = grupo ? grupo.items.map(function (item) {
+                    return itemHTML(item, grupo.icono);
+                }).join('') : '';
+                boton.insertAdjacentHTML('beforebegin', html);
+                var faltan = grupo ? (data.mas[grupo.fuente] || 0) : 0;
+                if (faltan > 0) {
+                    boton.setAttribute('data-desde', data.siguiente);
+                    boton.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Mostrar más (' + faltan + ' restantes)';
+                    boton.disabled = false;
+                } else {
+                    boton.remove();
+                }
+            })
+            .catch(function () { boton.disabled = false; });
+    }
+
     buscador.addEventListener('input', function () {
         clearTimeout(temporizador);
         var q = buscador.value.trim();
-        if (q.length < 2) { cerrarResultados(); caja.classList.remove('cargando'); return; }
+        if (!puedeBuscar(q)) { cerrarResultados(); caja.classList.remove('cargando'); return; }
         temporizador = setTimeout(function () { buscar(q); }, 250);
     });
     // Enter en el buscador no debe enviar el formulario.
@@ -427,19 +490,48 @@
     });
     // Clic fuera cierra los resultados; volver al campo los reabre.
     document.addEventListener('click', function (e) {
-        if (!caja.contains(e.target)) cerrarResultados();
+        if (!caja.contains(e.target) && !e.target.closest('#chips-fuentes')) cerrarResultados();
     });
     buscador.addEventListener('focus', function () {
-        if (buscador.value.trim().length >= 2) buscar(buscador.value.trim());
+        if (puedeBuscar(buscador.value.trim())) buscar(buscador.value.trim());
+    });
+
+    // Chips de categoría: eligen la fuente y abren su lista completa de una vez.
+    document.getElementById('chips-fuentes').addEventListener('click', function (e) {
+        var chip = e.target.closest('.chip-fuente');
+        if (!chip) return;
+        // Volver a pulsar la categoría activa la apaga (regresa a "Todo").
+        if (chip.classList.contains('activa') && chip.getAttribute('data-fuente') !== '') {
+            chip = document.querySelector('#chips-fuentes .chip-fuente[data-fuente=""]');
+        }
+        document.querySelectorAll('#chips-fuentes .chip-fuente').forEach(function (c) {
+            c.classList.toggle('activa', c === chip);
+        });
+        fuenteActiva = chip.getAttribute('data-fuente');
+        buscador.placeholder = fuenteActiva
+            ? 'Buscar en ' + chip.getAttribute('data-nombre') + '…'
+            : 'Busca por persona, cédula, placa, proveedor o cliente…';
+        var q = buscador.value.trim();
+        if (puedeBuscar(q)) { buscar(q); buscador.focus(); }
+        else cerrarResultados();
     });
 
     panel.addEventListener('click', function (e) {
+        var mas = e.target.closest('.btn-mas-resultados');
+        if (mas) { cargarMas(mas); return; }
         var boton = e.target.closest('.resultado-item');
         if (!boton) return;
         fijarEntidad(JSON.parse(boton.getAttribute('data-item')), boton.getAttribute('data-icono'));
-        cerrarResultados();
-        buscador.value = '';
-        buscador.focus();
+        if (fuenteActiva) {
+            // Explorando una categoría se suelen fijar varios: el panel sigue
+            // abierto y el elegido queda marcado.
+            boton.classList.add('fijado');
+            boton.querySelector('.icono').innerHTML = '<i class="bi bi-check-lg"></i>';
+        } else {
+            cerrarResultados();
+            buscador.value = '';
+            buscador.focus();
+        }
     });
 
     // ---------- Cliente elegido: destinatario + su tarjeta de documentos ----------
