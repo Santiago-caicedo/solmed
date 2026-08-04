@@ -36,6 +36,11 @@
                 <span class="badge {% if vehiculo.estado == 'OPERATIVO' %}bg-success{% elif vehiculo.estado == 'MANTENIMIENTO' %}bg-warning text-dark{% else %}bg-dark{% endif %}">
                     {{ vehiculo.get_estado_display }}
                 </span>
+                {% if vehiculo.cargado %}
+                <span class="badge bg-danger ms-1" title="{{ vehiculo.cargado_detalle }}">
+                    <i class="bi bi-exclamation-octagon"></i> CARGADO
+                </span>
+                {% endif %}
             </td>
             <td>
                 <a href="{% url 'gestion:detalle_vehiculo' vehiculo.pk %}" class="btn btn-sm btn-outline-primary">

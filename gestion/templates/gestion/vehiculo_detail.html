@@ -13,6 +13,17 @@
 
 {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
 
+{% if vehiculo.cargado %}
+<div class="alert alert-danger d-flex align-items-center gap-2">
+    <i class="bi bi-exclamation-octagon-fill fs-4"></i>
+    <div>
+        <strong>Este camión está CARGADO, pendiente de disposición final.</strong>
+        <div class="small">{{ vehiculo.cargado_detalle }} — regístralo en la tarjeta
+        <strong>Carga de residuo</strong> cuando se disponga.</div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-lg-8">
 
@@ -194,6 +205,96 @@
     </div>
 
     <div class="col-lg-4">
+        {% comment %}
+        Carga de residuo: estado actual, marcado manual (asesores) e historial.
+        El flujo normal la actualiza solo al generar órdenes; esto cubre lo que
+        pasa por fuera (disposición sin orden, correcciones).
+        {% endcomment %}
+        <div class="card shadow mb-4 {% if vehiculo.cargado %}border-danger{% endif %}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-droplet-fill me-1"></i>Carga de residuo</h5>
+                {% if vehiculo.cargado %}
+                <span class="badge bg-danger"><i class="bi bi-exclamation-octagon"></i> CARGADO</span>
+                {% else %}
+                <span class="badge bg-success">Sin carga</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if vehiculo.cargado %}
+                <p class="small mb-2">{{ vehiculo.cargado_detalle }}</p>
+                {% else %}
+                <p class="text-muted small mb-2">Sin carga pendiente de disposición.</p>
+                {% endif %}
+
+                {% if es_asesor %}
+                {% if vehiculo.cargado %}
+                <button class="btn btn-success btn-sm w-100" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#form-carga">
+                    <i class="bi bi-check2-circle me-1"></i>Marcar como descargado / dispuesto
+                </button>
+                {% else %}
+                <button class="btn btn-outline-danger btn-sm w-100" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#form-carga">
+                    <i class="bi bi-exclamation-octagon me-1"></i>Marcar como cargado
+                </button>
+                {% endif %}
+                <div class="collapse mt-2" id="form-carga">
+                    <form method="post" action="{% url 'gestion:marcar_carga_vehiculo' vehiculo.pk %}"
+                          class="border rounded p-2" style="background:var(--panel-2);">
+                        {% csrf_token %}
+                        {% if vehiculo.cargado %}
+                        <input type="hidden" name="accion" value="DESCARGA">
+                        <label class="form-label small mb-1">¿A dónde se dispuso el contenido? *</label>
+                        <input type="text" name="nota" class="form-control form-control-sm mb-2" required
+                               placeholder="Ej: se llevó al relleno el 04/08, vale N° 123">
+                        <label class="form-label small mb-1">Proveedor de disposición <span class="text-muted">(opcional)</span></label>
+                        <select name="dispositor" class="form-select form-select-sm mb-2">
+                            <option value="">--- Sin proveedor / otro ---</option>
+                            {% for p in proveedores_disposicion %}
+                            <option value="{{ p.pk }}">{{ p.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-success btn-sm w-100"
+                                onclick="return confirm('¿Confirmas que el contenido de {{ vehiculo.placa }} ya se dispuso?');">
+                            <i class="bi bi-check2 me-1"></i>Registrar descarga
+                        </button>
+                        {% else %}
+                        <input type="hidden" name="accion" value="CARGA">
+                        <label class="form-label small mb-1">¿De dónde viene la carga? *</label>
+                        <input type="text" name="nota" class="form-control form-control-sm mb-2" required
+                               placeholder="Ej: quedó cargado del servicio de ayer">
+                        <button class="btn btn-danger btn-sm w-100"
+                                onclick="return confirm('¿Marcar {{ vehiculo.placa }} como CARGADO pendiente de disposición?');">
+                            <i class="bi bi-check2 me-1"></i>Registrar carga
+                        </button>
+                        {% endif %}
+                    </form>
+                </div>
+                {% endif %}
+
+                {% if movimientos_carga %}
+                <div class="fw-semibold small mt-3 mb-1"><i class="bi bi-clock-history me-1"></i>Historial</div>
+                <ul class="list-group list-group-flush">
+                    {% for m in movimientos_carga %}
+                    <li class="list-group-item px-0 py-2">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <span class="badge {% if m.accion == 'CARGA' %}bg-danger{% else %}bg-success{% endif %}">
+                                {{ m.get_accion_display }}
+                            </span>
+                            <small class="text-muted text-nowrap">{{ m.fecha|date:"d/m/Y H:i" }}</small>
+                        </div>
+                        <div class="small mt-1">{{ m.nota }}</div>
+                        <div class="text-muted" style="font-size:.72rem;">
+                            {% if m.dispositor %}Proveedor: {{ m.dispositor.nombre }} · {% endif %}
+                            {% if m.registrado_por %}{{ m.registrado_por.get_full_name|default:m.registrado_por.username }}{% else %}Sistema{% endif %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0">Datos del Vehículo</h5></div>
             <ul class="list-group list-group-flush">

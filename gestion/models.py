@@ -1448,10 +1448,10 @@ class Programacion(models.Model):
             self.estado = 'CONVERTIDA'
             self.save()
             # Actualiza el estado de carga de los camiones según la disposición.
-            self._actualizar_carga_vehiculos(orden, [c.vehiculo for c in cuadrillas])
+            self._actualizar_carga_vehiculos(orden, [c.vehiculo for c in cuadrillas], usuario)
         return orden
 
-    def _actualizar_carga_vehiculos(self, orden, vehiculos):
+    def _actualizar_carga_vehiculos(self, orden, vehiculos, usuario=None):
         """
         Lleva el rastro de la carga pendiente de disposición:
           - Disposición SÍ (proveedor): los camiones del servicio quedan vacíos.
@@ -1462,14 +1462,32 @@ class Programacion(models.Model):
             a los tanques de SOLMED; queda registrado en la programación para
             estadística).
         Si la pregunta quedó sin responder, no se toca nada.
+        Cada cambio deja su registro en el historial (MovimientoCargaVehiculo).
         """
         detalle = f"Orden #{orden.numero_orden} del {self.fecha.strftime('%d/%m/%Y')}"
+
+        def cargar(v, nota):
+            v.cargado = True
+            v.cargado_detalle = nota
+            v.save(update_fields=['cargado', 'cargado_detalle'])
+            MovimientoCargaVehiculo.objects.create(
+                vehiculo=v, accion='CARGA', nota=nota, registrado_por=usuario)
+
+        def descargar(v, nota, dispositor=None):
+            if not v.cargado:
+                return
+            v.cargado = False
+            v.cargado_detalle = ''
+            v.save(update_fields=['cargado', 'cargado_detalle'])
+            MovimientoCargaVehiculo.objects.create(
+                vehiculo=v, accion='DESCARGA', nota=nota,
+                dispositor=dispositor, registrado_por=usuario)
+
         if self.requiere_disposicion_final == 'SI':
             for v in vehiculos:
-                if v.cargado:
-                    v.cargado = False
-                    v.cargado_detalle = ''
-                    v.save(update_fields=['cargado', 'cargado_detalle'])
+                descargar(v, f"{detalle}: se dispuso con {self.dispositor_final.nombre}"
+                          if self.dispositor_final_id else f"{detalle}: disposición final",
+                          self.dispositor_final if self.dispositor_final_id else None)
             return
         if self.requiere_disposicion_final != 'NO' or not self.dispositor_final_id:
             return
@@ -1477,25 +1495,16 @@ class Programacion(models.Model):
         destino = self.dispositor_final.nombre
         if destino == Dispositor.DEJAR_CARRO_CARGADO:
             for v in vehiculos:
-                v.cargado = True
-                v.cargado_detalle = f"{detalle}: quedó cargado (sin disposición)"
-                v.save(update_fields=['cargado', 'cargado_detalle'])
+                cargar(v, f"{detalle}: quedó cargado (sin disposición)")
         elif destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id:
             destino_v = self.trasiego_vehiculo
-            destino_v.cargado = True
-            destino_v.cargado_detalle = f"{detalle}: recibió trasiego (sin disposición)"
-            destino_v.save(update_fields=['cargado', 'cargado_detalle'])
+            cargar(destino_v, f"{detalle}: recibió trasiego (sin disposición)")
             for v in vehiculos:
-                if v.pk != destino_v.pk and v.cargado:
-                    v.cargado = False
-                    v.cargado_detalle = ''
-                    v.save(update_fields=['cargado', 'cargado_detalle'])
+                if v.pk != destino_v.pk:
+                    descargar(v, f"{detalle}: trasegó su contenido a {destino_v.placa}")
         elif destino in Dispositor.TANQUES:
             for v in vehiculos:
-                if v.cargado:
-                    v.cargado = False
-                    v.cargado_detalle = ''
-                    v.save(update_fields=['cargado', 'cargado_detalle'])
+                descargar(v, f"{detalle}: contenido a {destino.title()} (tanques SOLMED)")
 
 
 class ProgramacionCuadrilla(models.Model):
@@ -1824,3 +1833,43 @@ class EnvioCorreo(models.Model):
     @property
     def lista_destinatarios(self):
         return [d.strip() for d in self.destinatarios.split(',') if d.strip()]
+
+
+class MovimientoCargaVehiculo(models.Model):
+    """
+    Historial de cargas y descargas de residuo de un camión. Cada cambio del
+    estado `Vehiculo.cargado` deja un registro: los automáticos (al generar la
+    orden, según la disposición final) y los manuales (botón en el expediente
+    del vehículo, con nota obligatoria de a dónde se dispuso o por qué).
+    """
+    ACCION_CHOICES = [
+        ('CARGA', 'Carga'),
+        ('DESCARGA', 'Descarga'),
+    ]
+
+    vehiculo = models.ForeignKey(
+        'Vehiculo', on_delete=models.CASCADE, related_name='movimientos_carga',
+    )
+    accion = models.CharField(max_length=10, choices=ACCION_CHOICES)
+    nota = models.CharField(
+        max_length=255,
+        help_text="De dónde viene la carga o a dónde se dispuso.",
+    )
+    # Proveedor donde se dispuso el contenido (cuando aplica).
+    dispositor = models.ForeignKey(
+        'Dispositor', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='descargas_registradas', verbose_name="Proveedor de disposición",
+    )
+    registrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movimientos_carga_registrados',
+    )
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha']
+        verbose_name = "Movimiento de carga del vehículo"
+        verbose_name_plural = "Movimientos de carga de los vehículos"
+
+    def __str__(self):
+        return f"{self.get_accion_display()} {self.vehiculo.placa}: {self.nota}"

@@ -40,6 +40,7 @@ urlpatterns = [
     path('vehiculos/nuevo/', views.CrearVehiculoView.as_view(), name='crear_vehiculo'),
     path('vehiculos/<int:pk>/editar/', views.ActualizarVehiculoView.as_view(), name='actualizar_vehiculo'),
     path('vehiculos/<int:pk>/eliminar/', views.EliminarVehiculoView.as_view(), name='eliminar_vehiculo'),
+    path('vehiculos/<int:pk>/carga/', views.MarcarCargaVehiculoView.as_view(), name='marcar_carga_vehiculo'),
     # --- Filtros y aceites (mantenimiento del vehículo) ---
     path('vehiculos/<int:pk>/filtros-aceites/', views.RegistrarFiltroAceiteView.as_view(), name='registrar_filtro_aceite'),
     path('filtro-aceite/<int:pk>/eliminar/', views.EliminarFiltroAceiteView.as_view(), name='eliminar_filtro_aceite'),

@@ -601,6 +601,61 @@ class ActualizarClienteView(ClienteFormMixin, NoConductorRequiredMixin, UpdateVi
 
 
 
+class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
+    """
+    Marca a mano la CARGA o la DESCARGA (disposición) de un camión, desde su
+    expediente. Complementa el flujo automático de las órdenes: sirve cuando el
+    residuo se dispone por fuera de una orden o el estado quedó mal. La nota es
+    obligatoria y todo queda en el historial (MovimientoCargaVehiculo).
+    """
+    def post(self, request, pk):
+        from .models import Dispositor, MovimientoCargaVehiculo
+        vehiculo = get_object_or_404(Vehiculo, pk=pk)
+        accion = request.POST.get('accion', '')
+        nota = request.POST.get('nota', '').strip()
+        destino = redirect('gestion:detalle_vehiculo', pk=pk)
+
+        if accion not in ('CARGA', 'DESCARGA'):
+            messages.error(request, "Acción no válida.")
+            return destino
+        if not nota:
+            messages.error(
+                request,
+                "Escribe la nota: a dónde se dispuso el contenido (o de dónde "
+                "viene la carga). Es la trazabilidad del residuo."
+            )
+            return destino
+        if accion == 'DESCARGA' and not vehiculo.cargado:
+            messages.info(request, f"El camión {vehiculo.placa} no está marcado como cargado.")
+            return destino
+        if accion == 'CARGA' and vehiculo.cargado:
+            messages.info(
+                request,
+                f"El camión {vehiculo.placa} ya está marcado como cargado "
+                f"({vehiculo.cargado_detalle})."
+            )
+            return destino
+
+        dispositor = None
+        if accion == 'DESCARGA':
+            dispositor = Dispositor.objects.filter(
+                pk=request.POST.get('dispositor') or 0, tipo='PROVEEDOR').first()
+            vehiculo.cargado = False
+            vehiculo.cargado_detalle = ''
+            mensaje = f"Camión {vehiculo.placa} marcado como descargado."
+        else:
+            vehiculo.cargado = True
+            vehiculo.cargado_detalle = f"Carga manual: {nota}"
+            mensaje = f"Camión {vehiculo.placa} marcado como CARGADO, pendiente de disposición."
+        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=vehiculo, accion=accion, nota=nota,
+            dispositor=dispositor, registrado_por=request.user,
+        )
+        messages.success(request, mensaje)
+        return destino
+
+
 class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
     model = Vehiculo
     template_name = 'gestion/vehiculo_detail.html'
@@ -622,6 +677,14 @@ class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
             vehiculo=vehiculo,
             fecha_recorrido=fecha_seleccionada
         ).order_by('orden__fecha_creacion')
+
+        # --- Carga de residuo: historial y proveedores para la descarga manual ---
+        from .models import Dispositor
+        context['movimientos_carga'] = (
+            vehiculo.movimientos_carga.select_related('dispositor', 'registrado_por')[:12]
+        )
+        context['proveedores_disposicion'] = Dispositor.objects.filter(
+            tipo='PROVEEDOR', activo=True).order_by('nombre')
 
         # --- LÓGICA CORREGIDA PARA HISTORIAL Y MÉTRICAS ---
         # Ahora el historial se basa en los recorridos completados, no en las órdenes.
