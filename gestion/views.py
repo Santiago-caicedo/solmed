@@ -2504,10 +2504,14 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
                 seleccion.append({'token': t,
                                   'label': linea[2:] if linea.startswith('- ') else linea,
                                   'peso': _peso_adjunto(r)})
+        # Una caja por destinatario (siempre al menos una vacía para escribir).
+        destinatarios_lista = [d.strip() for d in datos['destinatarios'].split(',')
+                               if d.strip()] or ['']
         return render(request, self.template_name, {
             # El catálogo documental NO viaja con la página: el buscador
             # (BuscarDocsCorreoView) lo consulta al escribir o al explorar
             # una categoría, incluida la documentación de SOLMED.
+            'destinatarios_lista': destinatarios_lista,
             'clientes': clientes,
             'correos_clientes': {str(c.pk): c.email for c in clientes if c.email},
             'datos': datos,
@@ -2540,7 +2544,10 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
 
         datos = {
             'cliente': request.POST.get('cliente', '').strip(),
-            'destinatarios': request.POST.get('destinatarios', '').strip(),
+            # Una caja por correo (name="destinatarios" repetido); las vacías
+            # se ignoran. Se une con coma: todo lo demás sigue igual.
+            'destinatarios': ', '.join(
+                v.strip() for v in request.POST.getlist('destinatarios') if v.strip()),
             'asunto': request.POST.get('asunto', '').strip(),
             'mensaje': request.POST.get('mensaje', '').strip(),
         }

@@ -140,10 +140,22 @@
                             <div class="form-text">Asociarlo llena el destinatario y trae sus documentos abajo.</div>
                         </div>
                         <div class="col-md-7">
-                            <label for="inp-destinatarios" class="form-label">Destinatarios <span class="text-danger">*</span></label>
-                            <input type="text" id="inp-destinatarios" name="destinatarios" class="form-control"
-                                   value="{{ datos.destinatarios }}" placeholder="correo@cliente.com, otro@cliente.com">
-                            <div class="form-text">Varios correos se separan con coma.</div>
+                            <label class="form-label" for="destinatario-0">Destinatarios <span class="text-danger">*</span></label>
+                            {# Una caja por correo; el botón de abajo agrega otra. #}
+                            <div id="lista-destinatarios">
+                                {% for d in destinatarios_lista %}
+                                <div class="destinatario-fila d-flex gap-2 mb-2">
+                                    <input type="email" name="destinatarios" class="form-control"
+                                           id="destinatario-{{ forloop.counter0 }}"
+                                           value="{{ d }}" placeholder="correo@cliente.com">
+                                    <button type="button" class="btn btn-outline-secondary quitar-destinatario"
+                                            title="Quitar este correo"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <button type="button" id="btn-agregar-destinatario" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-plus-circle me-1"></i>Agregar otro correo
+                            </button>
                         </div>
                         <div class="col-12">
                             <label for="inp-asunto" class="form-label">Asunto <span class="text-danger">*</span></label>
@@ -285,8 +297,32 @@
 (function () {
     var correosClientes = JSON.parse(document.getElementById('correos-clientes-data').textContent);
     var selCliente = document.getElementById('sel-cliente');
-    var inpDest = document.getElementById('inp-destinatarios');
+    var listaDest = document.getElementById('lista-destinatarios');
     var inpAsunto = document.getElementById('inp-asunto');
+
+    // ---------- Destinatarios: una caja por correo ----------
+    function camposDestinatarios() {
+        return Array.prototype.slice.call(
+            listaDest.querySelectorAll('input[name="destinatarios"]'));
+    }
+
+    function textoDestinatarios() {
+        return camposDestinatarios()
+            .map(function (c) { return c.value.trim(); })
+            .filter(Boolean).join(', ');
+    }
+
+    function agregarCajaDestinatario(valor) {
+        var fila = document.createElement('div');
+        fila.className = 'destinatario-fila d-flex gap-2 mb-2';
+        fila.innerHTML = '<input type="email" name="destinatarios" class="form-control"'
+            + ' placeholder="correo@cliente.com">'
+            + '<button type="button" class="btn btn-outline-secondary quitar-destinatario"'
+            + ' title="Quitar este correo"><i class="bi bi-x-lg"></i></button>';
+        fila.querySelector('input').value = valor || '';
+        listaDest.appendChild(fila);
+        return fila.querySelector('input');
+    }
     var buscador = document.getElementById('buscador-docs');
     var caja = buscador.closest('.buscador-caja');
     var panel = document.getElementById('panel-resultados');
@@ -406,7 +442,7 @@
     // ---------- Resumen en vivo ----------
     function pintarResumen() {
         var para = document.getElementById('res-para');
-        var dest = inpDest.value.trim();
+        var dest = textoDestinatarios();
         para.textContent = dest || '— escribe el destinatario —';
         para.classList.toggle('text-danger', !dest);
         document.getElementById('res-asunto').textContent = inpAsunto.value.trim() || '—';
@@ -629,9 +665,12 @@
     function alElegirCliente() {
         var id = selCliente.value;
         var correo = (id && correosClientes[id]) || '';
-        if (correo && (inpDest.value.trim() === '' || inpDest.value.trim() === autollenado)) {
-            inpDest.value = correo;
-            autollenado = correo;
+        if (correo) {
+            var campos = camposDestinatarios();
+            var destino = campos.filter(function (c) {
+                return c.value.trim() === '' || c.value.trim() === autollenado;
+            })[0];
+            if (destino) { destino.value = correo; autollenado = correo; }
         }
         pintarResumen();
         if (!id) return;
@@ -665,7 +704,18 @@
             }
         }
     });
-    inpDest.addEventListener('input', pintarResumen);
+    document.getElementById('btn-agregar-destinatario').addEventListener('click', function () {
+        agregarCajaDestinatario('').focus();
+    });
+    listaDest.addEventListener('click', function (e) {
+        var boton = e.target.closest('.quitar-destinatario');
+        if (!boton) return;
+        boton.closest('.destinatario-fila').remove();
+        // Siempre queda al menos una caja para escribir.
+        if (!camposDestinatarios().length) agregarCajaDestinatario('');
+        pintarResumen();
+    });
+    listaDest.addEventListener('input', pintarResumen);
     inpAsunto.addEventListener('input', pintarResumen);
 
     // Evita el doble envío (correos repetidos al cliente).
