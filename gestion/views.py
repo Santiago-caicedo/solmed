@@ -441,37 +441,14 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
 # Aquí solo queda editarlas y añadirles recorridos.
 class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
     """
-    Edita los datos de la orden y permite AÑADIR más recorridos (uno a uno).
+    Edita los datos de la orden. Los recorridos NO se agregan aquí: cada orden
+    nace de su programación con los que le corresponden (se pueden corregir o
+    quitar uno a uno, pero no añadir nuevos).
     """
     model = OrdenServicio
     form_class = OrdenServicioForm
     template_name = 'gestion/form_orden.html'
     success_url = reverse_lazy('gestion:lista_ordenes')
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.setdefault('form_recorrido', RecorridoForm(prefix='rec'))
-        return context
-
-    def post(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        # Acción: añadir un recorrido a la orden existente.
-        if 'submit_recorrido' in request.POST:
-            form_recorrido = RecorridoForm(request.POST, prefix='rec')
-            if form_recorrido.is_valid():
-                recorrido = form_recorrido.save(commit=False)
-                recorrido.orden = self.object
-                recorrido.save()
-                messages.success(request, "Recorrido añadido a la orden.")
-                return HttpResponseRedirect(reverse('gestion:actualizar_orden', kwargs={'pk': self.object.pk}))
-            # Recorrido inválido: re-render con el formulario de la orden SIN enlazar
-            # (mostrando los datos actuales), solo con los errores del recorrido.
-            form = self.form_class(instance=self.object)
-            return self.render_to_response(
-                self.get_context_data(form=form, form_recorrido=form_recorrido)
-            )
-        # Acción: guardar los cambios de la orden.
-        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         self.object = form.save()
@@ -1361,9 +1338,8 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Añadimos el formulario para añadir nuevos recorridos
-        context['form_recorrido'] = RecorridoForm()
-        # Mantenemos el formulario para subir documentos
+        # Formulario para subir documentos (los recorridos vienen de la
+        # programación: aquí no se añaden).
         context['form_documento'] = DocumentoOrdenForm()
         # Vehículos operativos con documentos vencidos/por vencer (aviso al asignar).
         context['vehiculos_con_alerta'] = [
@@ -1412,19 +1388,8 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
 
     def post(self, request, *args, **kwargs):
         orden = self.get_object()
-        
-        # Identificamos qué formulario se está enviando
-        if 'submit_recorrido' in request.POST:
-            form = RecorridoForm(request.POST)
-            if form.is_valid():
-                recorrido = form.save(commit=False)
-                recorrido.orden = orden
-                recorrido.save() # Al guardar, el método save() del modelo actualizará la orden
-                messages.success(request, 'Recorrido añadido exitosamente.')
-            else:
-                messages.error(request, 'Error al añadir el recorrido.')
-        
-        elif 'submit_documento' in request.POST:
+
+        if 'submit_documento' in request.POST:
             form = DocumentoOrdenForm(request.POST, request.FILES)
             if form.is_valid():
                 documento = form.save(commit=False)
@@ -1477,6 +1442,16 @@ class EliminarRecorridoView(NoConductorRequiredMixin, View):
     def post(self, request, pk):
         recorrido = get_object_or_404(Recorrido, pk=pk)
         orden = recorrido.orden
+        # Como los recorridos ya no se pueden añadir, quitar el último dejaría
+        # la orden vacía y sin forma de arreglarla desde la app.
+        if orden.recorridos.count() <= 1:
+            messages.error(
+                request,
+                "No puedes quitar el único recorrido de la orden: quedaría vacía y "
+                "los recorridos ya no se añaden a mano. Corrígelo con «Editar "
+                "recorrido», o cancela la orden."
+            )
+            return redirect('gestion:detalle_orden', pk=orden.pk)
         recorrido.delete()
         _recalcular_estado_orden(orden)
         messages.success(request, "Recorrido eliminado de la orden.")
