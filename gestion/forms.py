@@ -710,17 +710,14 @@ class ProgramacionForm(forms.ModelForm):
         for campo in self.CAMPOS_SWITCH:
             self.initial[campo] = getattr(self.instance, campo, '') == 'SI'
 
-        # Sede: solo las sedes activas del cliente. El JS filtra en vivo por
-        # cliente; aquí el queryset abarca todas las activas para que valide bien
-        # la que se envíe (o solo las del cliente ya elegido, al editar).
+        # Sede: solo las sedes activas del cliente elegido. OJO con el orden: en
+        # un POST manda el cliente DEL FORMULARIO (al editar se puede cambiar de
+        # cliente, y filtrar por el guardado rechazaba la sede nueva como si no
+        # se hubiera elegido); sin POST, el del borrador que se edita.
         sedes = Sede.objects.filter(activa=True).select_related('cliente')
-        if self.instance.pk and self.instance.cliente_id:
-            sedes = sedes.filter(cliente_id=self.instance.cliente_id)
-        elif 'cliente' in self.data:
-            try:
-                sedes = sedes.filter(cliente_id=int(self.data.get('cliente')))
-            except (TypeError, ValueError):
-                pass
+        cliente_actual = self._cliente_en_juego()
+        if cliente_actual:
+            sedes = sedes.filter(cliente_id=cliente_actual)
         self.fields['sede_cliente'].queryset = sedes
         self.fields['sede_cliente'].empty_label = '--- Sin sede específica ---'
         self.fields['sede_cliente'].label = 'Sede'
@@ -750,17 +747,10 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['sitio_inicio'].queryset = SitioInicio.objects.filter(sitios)
         self.fields['sitio_inicio'].empty_label = '--- Elige el sitio ---'
 
-        # Tercero: misma lógica que la sede. El JS filtra en vivo por cliente;
-        # aquí el queryset abarca todos los activos para que valide el enviado
-        # (o solo los del cliente ya elegido, al editar).
+        # Tercero: misma lógica (y mismo orden) que la sede.
         terceros = Tercero.objects.filter(activo=True).select_related('cliente')
-        if self.instance.pk and self.instance.cliente_id:
-            terceros = terceros.filter(cliente_id=self.instance.cliente_id)
-        elif 'cliente' in self.data:
-            try:
-                terceros = terceros.filter(cliente_id=int(self.data.get('cliente')))
-            except (TypeError, ValueError):
-                pass
+        if cliente_actual:
+            terceros = terceros.filter(cliente_id=cliente_actual)
         self.fields['tercero'].queryset = terceros
         self.fields['tercero'].empty_label = '--- Sin tercero ---'
         self.fields['tercero'].label = 'Tercero'
@@ -782,6 +772,21 @@ class ProgramacionForm(forms.ModelForm):
                 widget.attrs.setdefault('class', 'form-control form-control-sm')
                 if campo.endswith('_cant'):
                     widget.attrs.setdefault('placeholder', 'Ton/M³ · H/ML · Cant.')
+
+    def _cliente_en_juego(self):
+        """
+        El cliente que rige los desplegables dependientes (sede y tercero): el
+        del POST si lo hay (puede cambiarse al editar), si no el ya guardado.
+        None = sin filtro (la pertenencia igual la valida clean()).
+        """
+        if self.data:
+            try:
+                return int(self.data.get('cliente'))
+            except (TypeError, ValueError):
+                return None
+        if self.instance.pk:
+            return self.instance.cliente_id
+        return None
 
     def _switch_a_si_no(self, campo):
         return 'SI' if self.cleaned_data.get(campo) else 'NO'
