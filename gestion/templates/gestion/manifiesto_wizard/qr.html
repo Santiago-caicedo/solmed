@@ -8,10 +8,20 @@
 </style>
 
 <div class="qr-container">
-    <h1 class="mb-1">Firma del Cliente</h1>
+    <h1 class="mb-1">Encuesta y firma del cliente</h1>
     <p class="text-muted">Acta de servicio de la Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }}</p>
 
     <hr>
+
+    {% if not acta_diligenciada %}
+    <div class="alert alert-warning text-start">
+        <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>El conductor aún no ha llenado el acta.</strong>
+        <div class="small mt-1">
+            Puedes compartir el enlace desde ya, pero si el cliente firma ahora el acta quedará
+            <strong>sin los tiempos ni los kilómetros</strong>. Lo ideal es enviarlo cuando el servicio termine.
+        </div>
+    </div>
+    {% endif %}
 
     {# --- Estado: esperando al cliente --- #}
     <div id="estado-espera">
@@ -25,11 +35,30 @@
             <span>Esperando que el cliente complete y firme…</span>
         </div>
 
-        <div class="mt-4">
-            <p class="text-muted small mb-2">¿El cliente no puede escanear el código?</p>
-            <a href="{{ url_publica }}" class="btn btn-outline-secondary btn-sm" target="_blank">
-                <i class="bi bi-phone"></i> Llenar en este dispositivo
-            </a>
+        {# Enlace copiable: para enviárselo al cliente por WhatsApp o correo. #}
+        <div class="mt-4 text-start">
+            <label for="enlace-encuesta" class="form-label small fw-semibold">
+                <i class="bi bi-link-45deg me-1"></i>Enlace de la encuesta (para enviárselo al cliente)
+            </label>
+            <div class="input-group input-group-sm">
+                <input type="text" id="enlace-encuesta" class="form-control" readonly
+                       value="{{ url_publica }}" onclick="this.select();">
+                <button type="button" class="btn btn-outline-primary" id="btn-copiar-enlace">
+                    <i class="bi bi-clipboard me-1"></i>Copiar
+                </button>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-2">
+                <a href="https://wa.me/?text={{ url_publica|urlencode }}" target="_blank" rel="noopener"
+                   class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-whatsapp me-1"></i>Enviar por WhatsApp
+                </a>
+                <a href="{{ url_publica }}" class="btn btn-outline-secondary btn-sm" target="_blank">
+                    <i class="bi bi-phone me-1"></i>Llenar en este dispositivo
+                </a>
+            </div>
+            <div class="form-text">
+                El enlace es de un solo uso: deja de servir cuando el cliente firma.
+            </div>
         </div>
     </div>
 
@@ -40,14 +69,47 @@
             <h3 class="mt-2">¡Acta firmada!</h3>
             <p class="text-muted">El cliente completó la encuesta y firmó correctamente.</p>
         </div>
-        {# El conductor NO descarga el acta: solo confirma que quedó firmada. #}
+        {% comment %}
+        El conductor NO descarga el acta: solo confirma que quedó firmada. El
+        asesor, en cambio, vuelve al expediente de la orden.
+        {% endcomment %}
+        {% if es_asesor_viendo %}
+        <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="btn btn-primary">
+            <i class="bi bi-clipboard-check me-1"></i>Volver a la orden
+        </a>
+        {% else %}
         <a href="{% url 'gestion:dashboard_redirect' %}" class="btn btn-primary">
             <i class="bi bi-box-arrow-right"></i> Volver al inicio
         </a>
+        {% endif %}
     </div>
 </div>
 
 <script>
+    // Copiar el enlace al portapapeles (con respaldo para navegadores viejos).
+    (function () {
+        var boton = document.getElementById('btn-copiar-enlace');
+        var campo = document.getElementById('enlace-encuesta');
+        if (!boton || !campo) return;
+        boton.addEventListener('click', function () {
+            var listo = function () {
+                boton.innerHTML = '<i class="bi bi-check2 me-1"></i>Copiado';
+                boton.classList.replace('btn-outline-primary', 'btn-success');
+                setTimeout(function () {
+                    boton.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copiar';
+                    boton.classList.replace('btn-success', 'btn-outline-primary');
+                }, 2000);
+            };
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(campo.value).then(listo, function () {
+                    campo.select(); document.execCommand('copy'); listo();
+                });
+            } else {
+                campo.select(); document.execCommand('copy'); listo();
+            }
+        });
+    })();
+
     (function () {
         var estadoUrl = "{% url 'gestion:manifiesto_estado' recorrido.pk %}";
         var intervalo = setInterval(function () {

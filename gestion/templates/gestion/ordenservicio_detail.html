@@ -119,10 +119,19 @@
                                 <span class="rc-doc-label">Acta de servicio</span>
                                 {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                                     <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
-                                {% elif recorrido.manifiesto %}
-                                    <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-qr-code me-1"></i>Ver QR / Firma</a>
                                 {% else %}
-                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pen-fill me-1"></i>Llenar</a>
+                                    {% comment %}
+                                    El QR y el enlace se pueden generar aunque el conductor no
+                                    haya llenado el acta: el asesor se lo envía al cliente. La
+                                    pantalla avisa si aún faltan los datos del conductor.
+                                    {% endcomment %}
+                                    <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm"
+                                       title="Código QR y enlace para que el cliente responda la encuesta y firme">
+                                        <i class="bi bi-qr-code me-1"></i>QR y enlace del cliente
+                                    </a>
+                                    {% if not recorrido.manifiesto %}
+                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-pen-fill me-1"></i>Llenar</a>
+                                    {% endif %}
                                 {% endif %}
                             </div>
                             <div class="rc-doc">

@@ -1006,8 +1006,28 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         return redirect('gestion:manifiesto_qr', pk=pk)
 
 
+def _acta_lista_para_firmar(manifiesto):
+    """
+    ¿El conductor ya diligenció lo suyo? Se mira lo que él llena en el
+    asistente (tiempos y kilómetros): si está vacío y el cliente firma, el
+    acta queda sin esos datos. Sirve para advertirlo, no para bloquear.
+    """
+    campos = ('tiempo_inicio_operativo', 'tiempo_final_operativo',
+              'km_salida_solmed', 'km_llegada_solmed')
+    return any(getattr(manifiesto, campo, None) not in (None, '') for campo in campos)
+
+
 class ManifiestoQRView(LoginRequiredMixin, View):
-    """Muestra al conductor el QR para que el cliente firme desde su dispositivo."""
+    """
+    QR y enlace público para que el cliente responda la encuesta y firme.
+    Lo usa el conductor al cerrar el acta y también el asesor desde el
+    expediente de la orden (para enviárselo al cliente por su cuenta).
+
+    Si el acta todavía no existe, se crea aquí con lo que definió el asesor en
+    la programación: así el enlace se puede generar y compartir aunque el
+    conductor no haya llegado al último paso. Lo que él llena después se
+    actualiza sobre la misma acta.
+    """
     template_name = 'gestion/manifiesto_wizard/qr.html'
 
     def get(self, request, pk):
@@ -1019,8 +1039,14 @@ class ManifiestoQRView(LoginRequiredMixin, View):
         try:
             manifiesto = recorrido.manifiesto
         except Manifiesto.DoesNotExist:
-            messages.error(request, "Primero debes llenar los datos del acta de servicio.")
-            return redirect('gestion:firmar_manifiesto_step', pk=pk, step='paso1')
+            auxiliar1, auxiliar2 = recorrido.auxiliares
+            manifiesto = Manifiesto.objects.create(
+                recorrido=recorrido,
+                **_instrucciones_servicio_de(recorrido),
+                auxiliar1=auxiliar1, auxiliar2=auxiliar2,
+                nombre_responsable_empresa=recorrido.responsable_empresa,
+                estado_firma='PENDIENTE_FIRMA',
+            )
 
         url_publica = request.build_absolute_uri(
             reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico})
@@ -1030,6 +1056,9 @@ class ManifiestoQRView(LoginRequiredMixin, View):
             'manifiesto': manifiesto,
             'url_publica': url_publica,
             'qr_b64': _qr_data_uri(url_publica),
+            'acta_diligenciada': _acta_lista_para_firmar(manifiesto),
+            # El conductor cierra su flujo aquí; el asesor vuelve a la orden.
+            'es_asesor_viendo': recorrido.conductor_id != request.user.id,
         })
 
 
