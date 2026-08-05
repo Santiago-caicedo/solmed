@@ -169,6 +169,18 @@
                             </button>
                         </div>
                         <div class="col-12">
+                            <label for="inp-responder-a" class="form-label">
+                                Responder a <span class="text-muted fw-normal">(opcional)</span>
+                            </label>
+                            <input type="text" id="inp-responder-a" name="responder_a" class="form-control"
+                                   value="{{ datos.responder_a }}" placeholder="comercial@solmed.com">
+                            <div class="form-text">
+                                A dónde llegan las respuestas del cliente. El correo sale igual desde la
+                                cuenta del sistema.{% if reply_to_defecto %} Por defecto:
+                                <strong>{{ reply_to_defecto }}</strong>.{% endif %}
+                            </div>
+                        </div>
+                        <div class="col-12">
                             <label for="inp-asunto" class="form-label">Asunto <span class="text-danger">*</span></label>
                             <input type="text" id="inp-asunto" name="asunto" class="form-control"
                                    value="{{ datos.asunto }}" maxlength="200">

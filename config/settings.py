@@ -249,6 +249,15 @@ EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False') == 'True'
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@localhost')
 EMAIL_TIMEOUT = 20
 
+# A dónde llegan las RESPUESTAS de quien recibe el correo. El mensaje sigue
+# saliendo de DEFAULT_FROM_EMAIL (la cuenta del sistema), pero al pulsar
+# "Responder" el correo se dirige aquí: así las respuestas de los clientes caen
+# en una bandeja atendida. Admite varias direcciones separadas por coma.
+# Vacío = las respuestas van a la cuenta del sistema (comportamiento anterior).
+EMAIL_REPLY_TO = [
+    c.strip() for c in os.getenv('EMAIL_REPLY_TO', '').split(',') if c.strip()
+]
+
 if EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:

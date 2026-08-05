@@ -57,6 +57,8 @@ class Command(BaseCommand):
             ),
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[destinatario],
+            # Mismo Reply-To que los correos reales: sirve para comprobarlo.
+            reply_to=list(getattr(settings, 'EMAIL_REPLY_TO', []) or []),
         )
 
         if adjunto:

@@ -2050,6 +2050,20 @@ DOCS_CLIENTE_FIJOS = {
 }
 
 
+def _lista_correos(texto):
+    """Parte un texto de correos separados por coma o punto y coma."""
+    return [c.strip() for c in str(texto or '').replace(';', ',').split(',') if c.strip()]
+
+
+def _reply_to():
+    """
+    Direcciones a las que se dirige la RESPUESTA de los correos que NO se
+    redactan a mano (notificaciones al personal): el valor global del .env.
+    Lista vacía = el correo responde a la cuenta del sistema, como antes.
+    """
+    return list(getattr(settings, 'EMAIL_REPLY_TO', []) or [])
+
+
 def _resolver_adjunto_correo(token):
     """
     Resuelve un token a {'archivo', 'nombre', 'linea'} si el documento existe.
@@ -2320,7 +2334,8 @@ MENSAJE_ENVIO_POR_DEFECTO = (
 )
 
 
-def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente):
+def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente,
+                        responder_a=None):
     """
     Construye el correo (texto plano + versión HTML de marca) con los adjuntos
     ya resueltos. Devuelve el EmailMultiAlternatives listo para .send().
@@ -2342,6 +2357,7 @@ def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente):
     correo = EmailMultiAlternatives(
         subject=asunto, body=cuerpo,
         from_email=settings.DEFAULT_FROM_EMAIL, to=destinatarios,
+        reply_to=_lista_correos(responder_a),
     )
     correo.attach_alternative(html, 'text/html')
     for r in resueltos:
@@ -2556,6 +2572,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             # (BuscarDocsCorreoView) lo consulta al escribir o al explorar
             # una categoría, incluida la documentación de SOLMED.
             'destinatarios_lista': destinatarios_lista,
+            'reply_to_defecto': ', '.join(getattr(settings, 'EMAIL_REPLY_TO', []) or []),
             'clientes': clientes,
             'correos_clientes': {str(c.pk): c.email for c in clientes if c.email},
             'datos': datos,
@@ -2564,11 +2581,13 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
         })
 
     def get(self, request):
+        por_defecto = ', '.join(getattr(settings, 'EMAIL_REPLY_TO', []) or [])
         datos = {
             'cliente': '',
             'destinatarios': '',
             'asunto': 'SOLMED - Documentación del servicio',
             'mensaje': MENSAJE_ENVIO_POR_DEFECTO,
+            'responder_a': por_defecto,
         }
         seleccionados = []
         base = EnvioCorreo.objects.filter(pk=request.GET.get('copiar') or 0).first()
@@ -2578,6 +2597,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
                 'destinatarios': base.destinatarios,
                 'asunto': base.asunto,
                 'mensaje': base.mensaje or MENSAJE_ENVIO_POR_DEFECTO,
+                'responder_a': base.responder_a or por_defecto,
             }
             seleccionados = base.adjuntos or []
         return self._render(request, datos, seleccionados)
@@ -2594,6 +2614,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
                 v.strip() for v in request.POST.getlist('destinatarios') if v.strip()),
             'asunto': request.POST.get('asunto', '').strip(),
             'mensaje': request.POST.get('mensaje', '').strip(),
+            'responder_a': request.POST.get('responder_a', '').strip(),
         }
         tokens = request.POST.getlist('adjuntos')
         cliente = (Cliente.objects.filter(pk=datos['cliente']).first()
@@ -2614,6 +2635,11 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             errores.append("Son demasiados destinatarios para un solo envío.")
         if not datos['asunto']:
             errores.append("Escribe el asunto del correo.")
+        for c in _lista_correos(datos['responder_a']):
+            try:
+                validate_email(c)
+            except ValidationError:
+                errores.append(f"«{c}» no es un correo válido para las respuestas.")
         resueltos = []
         for t in tokens:
             r = _resolver_adjunto_correo(t)
@@ -2644,11 +2670,13 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             adjuntos=tokens,
             adjuntos_detalle=[r['linea'][2:] if r['linea'].startswith('- ') else r['linea']
                               for r in resueltos],
+            responder_a=datos['responder_a'],
             enviado_por=request.user,
         )
         try:
             _armar_correo_envio(correos, datos['asunto'], datos['mensaje'],
-                                resueltos, cliente).send(fail_silently=False)
+                                resueltos, cliente,
+                                datos['responder_a']).send(fail_silently=False)
         except Exception as e:
             registro.estado = 'FALLIDO'
             registro.error = str(e)
@@ -2977,6 +3005,7 @@ def _enviar_correo_servicio(ctx, correo):
         body="\n".join(_lineas_correo_servicio(ctx)),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[correo],
+        reply_to=_reply_to(),
     )
     mensaje.attach_alternative(
         get_template('gestion/correo_programacion.html').render(ctx), 'text/html')

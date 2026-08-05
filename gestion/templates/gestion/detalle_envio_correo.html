@@ -31,8 +31,12 @@
                 <div class="px-4 py-3 bg-light border-bottom small">
                     <div class="mb-1"><span class="text-muted d-inline-block" style="min-width:90px;">Para:</span>
                         <strong>{{ envio.destinatarios }}</strong></div>
-                    <div><span class="text-muted d-inline-block" style="min-width:90px;">Asunto:</span>
+                    <div class="mb-1"><span class="text-muted d-inline-block" style="min-width:90px;">Asunto:</span>
                         <strong>{{ envio.asunto }}</strong></div>
+                    {% if envio.responder_a %}
+                    <div><span class="text-muted d-inline-block" style="min-width:90px;">Responder a:</span>
+                        <strong>{{ envio.responder_a }}</strong></div>
+                    {% endif %}
                 </div>
                 <div class="px-4 py-4">
                     <div style="white-space:pre-line;">{{ envio.mensaje|default:"(sin mensaje: se envió el texto por defecto)" }}</div>

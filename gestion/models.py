@@ -1834,6 +1834,12 @@ class EnvioCorreo(models.Model):
     )
     asunto = models.CharField(max_length=200, verbose_name="Asunto")
     mensaje = models.TextField(blank=True, verbose_name="Mensaje")
+    # A dónde se dirigieron las RESPUESTAS del cliente (encabezado Reply-To).
+    # Vacío = a la cuenta del sistema / al valor global de settings.
+    responder_a = models.CharField(
+        max_length=500, blank=True, verbose_name="Responder a",
+        help_text="Correo al que llegan las respuestas de quien lo recibe.",
+    )
     # Tokens de los documentos adjuntados (mismo formato que usaba la
     # programación; la resolución vive en views._resolver_adjunto_correo).
     adjuntos = models.JSONField(default=list, blank=True)
