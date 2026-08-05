@@ -48,7 +48,14 @@
                 <tbody>
                     {% for p in programaciones %}
                     <tr>
-                        <td><strong>#{{ p.pk }}</strong></td>
+                        {% comment %}
+                        El número de la programación ES el de su orden (un solo
+                        consecutivo). Los borradores aún no tienen número.
+                        {% endcomment %}
+                        <td>
+                            {% if p.numero %}<strong>#{{ p.numero }}</strong>
+                            {% else %}<span class="badge bg-light text-muted border">Borrador</span>{% endif %}
+                        </td>
                         <td>{{ p.cliente.nombre }}{% if p.sede %} <span class="text-muted">/ {{ p.sede }}</span>{% endif %}</td>
                         <td>{{ p.fecha|date:"d/m/Y" }}</td>
                         <td>{% if p.hora_servicio %}{{ p.hora_servicio|time:"H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}</td>

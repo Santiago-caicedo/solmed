@@ -1315,8 +1315,18 @@ class Programacion(models.Model):
         'transporte_tipo', 'transporte_cantidad',
     )
 
+    @property
+    def numero(self):
+        """
+        La programación se identifica con el número de SU orden (pedido del
+        usuario: un solo consecutivo para ambas). Un borrador aún no tiene
+        número: lo toma al generar la orden.
+        """
+        return self.orden_id
+
     def __str__(self):
-        return f"Programación #{self.pk} - {self.cliente.nombre} ({self.fecha})"
+        numero = f"#{self.orden_id}" if self.orden_id else f"(borrador {self.pk})"
+        return f"Programación {numero} - {self.cliente.nombre} ({self.fecha})"
 
     def instrucciones_acta(self):
         """Valores de la primera parte del acta, listos para copiar al Manifiesto."""
@@ -1647,7 +1657,7 @@ class ProgramacionCuadrilla(models.Model):
 
     def __str__(self):
         placa = self.vehiculo.placa if self.vehiculo else 'sin placa'
-        return f"Cuadrilla ({placa}) - Programación #{self.programacion_id}"
+        return f"Cuadrilla ({placa}) - {self.programacion}"
 
 
 class FotoAyudante(models.Model):

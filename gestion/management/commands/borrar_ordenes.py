@@ -126,4 +126,7 @@ class Command(BaseCommand):
                 'Para borrarlos también, usa --borrar-archivos.'
             ))
 
-        self.stdout.write(self.style.SUCCESS('Listo: órdenes y programaciones eliminadas.'))
+        from gestion.models import OrdenServicio as _Orden
+        self.stdout.write(self.style.SUCCESS(
+            'Listo: órdenes y programaciones eliminadas. La numeración vuelve a '
+            f'arrancar en el #{_Orden.NUMERO_INICIAL}.'))

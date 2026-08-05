@@ -3,7 +3,11 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="mb-0">
-        {% if object %}Editar Programación #{{ object.pk }}{% else %}Nueva Programación{% endif %}
+        {% comment %}
+        Solo se editan borradores (las convertidas redirigen a su orden), así
+        que aquí todavía no hay número: lo toma al generar la orden.
+        {% endcomment %}
+        {% if object %}Editar programación{% if object.numero %} #{{ object.numero }}{% else %} (borrador){% endif %}{% else %}Nueva Programación{% endif %}
     </h1>
     <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Volver
