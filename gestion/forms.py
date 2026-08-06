@@ -321,6 +321,46 @@ class ManifiestoPaso3Form(forms.ModelForm):
             'km_llegada_solmed': 'Llegada Solmed', # NUEVO
         }
 
+class NovedadOperacionalForm(forms.Form):
+    """
+    Una fila del bloque NOVEDADES OPERACIONALES: la casilla, su observación y
+    sus horas. Es un Form suelto (no ModelForm) porque las filas son fijas: se
+    dibujan las 12 del formato y solo se guardan las marcadas.
+    """
+    marcada = forms.BooleanField(
+        required=False, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
+    observacion = forms.CharField(
+        required=False, max_length=255,
+        widget=forms.TextInput(attrs={'class': 'form-control form-control-sm',
+                                      'placeholder': 'Observaciones'}))
+    hora_inicio = forms.TimeField(
+        required=False, input_formats=['%H:%M'],
+        widget=forms.TimeInput(attrs={'class': 'form-control form-control-sm',
+                                      'type': 'time'}, format='%H:%M'))
+    hora_final = forms.TimeField(
+        required=False, input_formats=['%H:%M'],
+        widget=forms.TimeInput(attrs={'class': 'form-control form-control-sm',
+                                      'type': 'time'}, format='%H:%M'))
+
+    def tiene_datos(self):
+        """¿Vale la pena guardarla? (marcada o con algo escrito)"""
+        d = self.cleaned_data
+        return bool(d.get('marcada') or d.get('observacion')
+                    or d.get('hora_inicio') or d.get('hora_final'))
+
+
+class MedidaACPMForm(forms.Form):
+    """Una casilla del bloque CONTROL DE ACPM: la medida y su foto."""
+    medida = forms.CharField(
+        required=False, max_length=50,
+        widget=forms.TextInput(attrs={'class': 'form-control form-control-sm',
+                                      'placeholder': 'Medida'}))
+    foto = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm',
+                                               'accept': 'image/*'}))
+
+
 class ManifiestoPaso4Form(forms.ModelForm):
     """
     Cierre del acta. El RESPONSABLE EMPRESA es el conductor asignado, así que
@@ -336,7 +376,7 @@ class ManifiestoPaso4Form(forms.ModelForm):
                 'placeholder': 'Novedades del servicio, algo que el cliente deba saber…',
             }),
         }
-        labels = {'observaciones': 'Observaciones'}
+        labels = {'observaciones': 'Observaciones del día'}
 
 class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
     class Meta:

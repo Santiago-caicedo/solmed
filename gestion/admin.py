@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Bascula, Cliente, EnvioCorreo, MovimientoCargaVehiculo, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Bascula, Cliente, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -71,8 +71,21 @@ class DocumentoOrdenAdmin(admin.ModelAdmin):
 
 
 
+class NovedadOperacionalInline(admin.TabularInline):
+    """Novedades operacionales que reportó el conductor en su hoja."""
+    model = NovedadOperacional
+    extra = 0
+
+
+class MedidaACPMInline(admin.TabularInline):
+    """Control de ACPM de la hoja del conductor."""
+    model = MedidaACPM
+    extra = 0
+
+
 @admin.register(Manifiesto)
 class ManifiestoAdmin(admin.ModelAdmin):
+    inlines = [NovedadOperacionalInline, MedidaACPMInline]
     list_display = (
         'id', 
         'recorrido', 
@@ -197,3 +210,4 @@ class MovimientoCargaVehiculoAdmin(admin.ModelAdmin):
     list_filter = ('accion',)
     search_fields = ('vehiculo__placa', 'nota')
     date_hierarchy = 'fecha'
+

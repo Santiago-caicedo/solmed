@@ -34,7 +34,7 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Foto
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, EnvioCorreo, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -883,6 +883,76 @@ class ActaFormatoView(NoConductorRequiredMixin, View):
         })
 
 
+def _formularios_novedades(manifiesto, data=None):
+    """
+    Las 12 filas de NOVEDADES OPERACIONALES del formato, con lo ya guardado.
+    Devuelve [(tipo, etiqueta, form)] en el orden de la hoja.
+    """
+    from .forms import NovedadOperacionalForm
+    guardadas = {}
+    if manifiesto is not None:
+        guardadas = {n.tipo: n for n in manifiesto.novedades_operacionales.all()}
+    filas = []
+    for tipo, etiqueta in NovedadOperacional.TIPO_CHOICES:
+        n = guardadas.get(tipo)
+        inicial = {
+            'marcada': n is not None,
+            'observacion': n.observacion if n else '',
+            'hora_inicio': n.hora_inicio if n else None,
+            'hora_final': n.hora_final if n else None,
+        }
+        filas.append((tipo, etiqueta,
+                      NovedadOperacionalForm(data, prefix=f'nov-{tipo}', initial=inicial)))
+    return filas
+
+
+def _formularios_acpm(manifiesto, data=None, files=None):
+    """Las 3 casillas de CONTROL DE ACPM, con lo ya guardado."""
+    from .forms import MedidaACPMForm
+    guardadas = {}
+    if manifiesto is not None:
+        guardadas = {m.tipo: m for m in manifiesto.medidas_acpm.all()}
+    filas = []
+    for tipo, etiqueta in MedidaACPM.TIPO_CHOICES:
+        m = guardadas.get(tipo)
+        filas.append((tipo, etiqueta, m,
+                      MedidaACPMForm(data, files, prefix=f'acpm-{tipo}',
+                                     initial={'medida': m.medida if m else ''})))
+    return filas
+
+
+def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm):
+    """
+    Escribe lo marcado en la hoja: las novedades sin datos se borran (el
+    conductor pudo desmarcarlas) y las fotos de ACPM solo se reemplazan si
+    subió una nueva.
+    """
+    for tipo, _etiqueta, form in filas_novedades:
+        if form.tiene_datos():
+            NovedadOperacional.objects.update_or_create(
+                manifiesto=manifiesto, tipo=tipo,
+                defaults={
+                    'observacion': form.cleaned_data['observacion'],
+                    'hora_inicio': form.cleaned_data['hora_inicio'],
+                    'hora_final': form.cleaned_data['hora_final'],
+                },
+            )
+        else:
+            NovedadOperacional.objects.filter(manifiesto=manifiesto, tipo=tipo).delete()
+
+    for tipo, _etiqueta, _previa, form in filas_acpm:
+        medida = form.cleaned_data['medida']
+        foto = form.cleaned_data['foto']
+        if not medida and not foto:
+            continue
+        registro, _creada = MedidaACPM.objects.get_or_create(
+            manifiesto=manifiesto, tipo=tipo)
+        registro.medida = medida
+        if foto:
+            registro.foto = foto
+        registro.save()
+
+
 # ============================================================
 #  NOTA DE NOMENCLATURA: en el back se llama "Manifiesto" (modelo, estas
 #  vistas y URLs manifiesto_*); en el front se muestra como "ACTA DE SERVICIO".
@@ -942,13 +1012,28 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         form = FormClass(initial=manifiesto_data, instance=manifiesto_instance)
 
         auxiliar1, auxiliar2 = recorrido.auxiliares
-        return render(request, template_path, {
+        contexto = {
             'responsable_empresa': recorrido.responsable_empresa,
             'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
             'manifiesto_instance': manifiesto_instance,
             'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
             'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
-        })
+        }
+        if step == 'paso3':
+            contexto.update(self._contexto_hoja(recorrido, manifiesto_instance))
+        return render(request, template_path, contexto)
+
+    def _contexto_hoja(self, recorrido, manifiesto, data=None, files=None):
+        """Bloques del formato que acompañan a tiempos y kilómetros."""
+        programacion = _programacion_de(recorrido)
+        izquierda, derecha = (programacion.resumen_checklist() if programacion
+                              else ([], []))
+        return {
+            'checklist_izq': izquierda,
+            'checklist_der': derecha,
+            'filas_novedades': _formularios_novedades(manifiesto, data),
+            'filas_acpm': _formularios_acpm(manifiesto, data, files),
+        }
 
     def post(self, request, pk, step='paso1'):
         recorrido = get_object_or_404(Recorrido, pk=pk)
@@ -964,12 +1049,43 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
 
         form = FormClass(request.POST, instance=manifiesto_instance)
-        if not form.is_valid():
+        # El paso de tiempos trae además las novedades operacionales y el ACPM.
+        extra = {}
+        if step == 'paso3':
+            extra = self._contexto_hoja(recorrido, manifiesto_instance,
+                                        request.POST, request.FILES)
+        subformularios_ok = all(
+            f.is_valid() for _t, _e, f in extra.get('filas_novedades', [])
+        ) and all(f.is_valid() for _t, _e, _p, f in extra.get('filas_acpm', []))
+
+        if not form.is_valid() or not subformularios_ok:
             messages.error(request, "Por favor, corrija los errores en el formulario.")
             return render(request, self.TEMPLATES[step], {
                 'recorrido': recorrido, 'form': form, 'current_step': step, 'pk': pk,
                 'instrucciones_resumen': _resumen_instrucciones_de(recorrido),
+                **extra,
             })
+
+        if step == 'paso3':
+            # Las novedades y el ACPM cuelgan del acta (y las fotos no caben en
+            # la sesión): se persiste el acta ya mismo y se guardan de una vez.
+            # Los pasos siguientes actualizan esta misma acta.
+            if manifiesto_instance is None:
+                auxiliar1, auxiliar2 = recorrido.auxiliares
+                manifiesto_instance = Manifiesto.objects.create(
+                    recorrido=recorrido,
+                    **_instrucciones_servicio_de(recorrido),
+                    auxiliar1=auxiliar1, auxiliar2=auxiliar2,
+                    nombre_responsable_empresa=recorrido.responsable_empresa,
+                    estado_firma='PENDIENTE_FIRMA',
+                )
+            # Los tiempos y kilómetros se escriben ya sobre esa acta (no solo
+            # en la sesión): así lo guardado coincide con lo que se ve al volver.
+            for campo, valor in form.cleaned_data.items():
+                setattr(manifiesto_instance, campo, valor)
+            manifiesto_instance.save()
+            _guardar_novedades_y_acpm(
+                manifiesto_instance, extra['filas_novedades'], extra['filas_acpm'])
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
         cleaned_data = form.cleaned_data
@@ -1387,6 +1503,21 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                     if docs_alerta:
                         personal_con_alerta.append({'persona': persona, 'documentos': docs_alerta})
         context['personal_con_alerta'] = personal_con_alerta
+        # Novedades operacionales y control de ACPM que reportó el conductor:
+        # es control interno (no va en el acta que firma el cliente), así que se
+        # consulta desde aquí.
+        hojas = []
+        for recorrido in self.object.recorridos.all().order_by('fecha_recorrido'):
+            manifiesto = getattr(recorrido, 'manifiesto', None)
+            if manifiesto is None:
+                continue
+            novedades = list(manifiesto.novedades_operacionales.all())
+            medidas = list(manifiesto.medidas_acpm.all())
+            if novedades or medidas:
+                hojas.append({'recorrido': recorrido, 'novedades': novedades,
+                              'medidas': medidas})
+        context['hojas_conductor'] = hojas
+
         # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
         context['actas_formato'] = _actas_formato(
             self.object.recorridos.all().order_by('fecha_recorrido'))

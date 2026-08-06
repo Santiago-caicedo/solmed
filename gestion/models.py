@@ -1335,6 +1335,51 @@ class Programacion(models.Model):
         """Valores de la primera parte del acta, listos para copiar al Manifiesto."""
         return {campo: getattr(self, campo) for campo in self.CAMPOS_INSTRUCCIONES_ACTA}
 
+    def resumen_checklist(self):
+        """
+        El bloque superior de la hoja del conductor, tal como el formato:
+        PALEADA / BÁSCULA / SE REALIZA DISPOSICIÓN a la izquierda y
+        SE REQUIERE SISO / REGISTRO FOTOGRÁFICO / AYUDANTE CON CURSOS a la
+        derecha. Devuelve (izquierda, derecha), cada una [(etiqueta, valor)].
+        """
+        def si_no(valor, texto_si='SÍ'):
+            return texto_si if valor == 'SI' else 'NO'
+
+        bascula = 'NO'
+        if self.bascula == 'PESAN':
+            bascula = 'SÍ — SUBIR FOTO'
+            if self.bascula_sitio_id:
+                bascula += f' ({self.bascula_sitio.nombre})'
+        elif self.bascula == 'PESO_CLIENTE':
+            bascula = 'BÁSCULA DEL CLIENTE'
+
+        if self.requiere_disposicion_final == 'SI':
+            disposicion = (self.dispositor_final.nombre if self.dispositor_final_id
+                           else 'SÍ')
+        elif self.requiere_disposicion_final == 'NO':
+            disposicion = (self.dispositor_final.nombre if self.dispositor_final_id
+                           else 'NO')
+        else:
+            disposicion = '—'
+
+        cursos = [etiqueta for campo, etiqueta in (
+            ('exige_curso_alturas', 'Alturas'),
+            ('exige_curso_confinados', 'Espacios confinados'),
+        ) if getattr(self, campo) == 'SI']
+
+        izquierda = [
+            ('PALEADA', self.get_paleada_display() if self.paleada else 'NO'),
+            ('BÁSCULA', bascula),
+            ('SE REALIZA DISPOSICIÓN', disposicion),
+        ]
+        derecha = [
+            ('SE REQUIERE SISO', si_no(self.responsable_sg)),
+            ('REGISTRO FOTOGRÁFICO',
+             'SÍ — SUBIR FOTOS' if self.registro_fotografico == 'SI' else 'NO'),
+            ('AYUDANTE CON CURSOS', ', '.join(cursos) if cursos else 'NO'),
+        ]
+        return izquierda, derecha
+
     def resumen_instrucciones(self):
         """
         Lista legible de lo que el asesor instruyó (para mostrárselo fijo al
@@ -1912,3 +1957,75 @@ class MovimientoCargaVehiculo(models.Model):
 
     def __str__(self):
         return f"{self.get_accion_display()} {self.vehiculo.placa}: {self.nota}"
+
+
+class NovedadOperacional(models.Model):
+    """
+    Fila del bloque NOVEDADES OPERACIONALES de la hoja del conductor: lo que
+    pasó durante la jornada (varada, stand-by, tanqueo…). Solo se guardan las
+    que el conductor marca, cada una con su observación y sus horas.
+    """
+    TIPO_CHOICES = [
+        ('HOROMETRO', 'Horómetro'),
+        ('MONTALLANTAS', 'Montallantas'),
+        ('STANDBY', 'Stand by'),
+        ('VARADA', 'Varada'),
+        ('TANQUEO_EXTERNO', 'Tanqueo externo'),
+        ('CAMBIO_CONDUCTOR', 'Cambio de conductor'),
+        ('COMPRA_REPUESTO', 'Compra de repuesto'),
+        ('DEMORA_DISPOSITOR', 'Demora en la recepción del dispositor'),
+        ('DEMORA_CLIENTE', 'Demora en la atención del cliente'),
+        ('RETEN_POLICIA', 'Retén de policía'),
+        ('INMOVILIZACION', 'Inmovilización'),
+        ('APOYO', 'Apoyo a…'),
+    ]
+
+    manifiesto = models.ForeignKey(
+        Manifiesto, on_delete=models.CASCADE, related_name='novedades_operacionales'
+    )
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    observacion = models.CharField(max_length=255, blank=True, verbose_name="Observaciones")
+    hora_inicio = models.TimeField(null=True, blank=True, verbose_name="Hora inicio")
+    hora_final = models.TimeField(null=True, blank=True, verbose_name="Hora final")
+
+    class Meta:
+        # Una fila por tipo y acta: el formulario las reescribe al guardar.
+        unique_together = [('manifiesto', 'tipo')]
+        ordering = ['tipo']
+        verbose_name = "Novedad operacional"
+        verbose_name_plural = "Novedades operacionales"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} — acta del recorrido {self.manifiesto.recorrido_id}"
+
+
+class MedidaACPM(models.Model):
+    """
+    Fila del bloque CONTROL DE ACPM: la medida inicial del tanque y hasta dos
+    tanqueadas, cada una con su foto de soporte (el medidor o la factura).
+    """
+    INICIAL = 'INICIAL'
+    TIPO_CHOICES = [
+        (INICIAL, 'Medida inicial'),
+        ('TANQUEADA_1', 'Medida tanqueada 1'),
+        ('TANQUEADA_2', 'Medida tanqueada 2'),
+    ]
+
+    manifiesto = models.ForeignKey(
+        Manifiesto, on_delete=models.CASCADE, related_name='medidas_acpm'
+    )
+    tipo = models.CharField(max_length=15, choices=TIPO_CHOICES)
+    medida = models.CharField(
+        max_length=50, blank=True, verbose_name="Medida",
+        help_text="Lo que marca el medidor o los galones tanqueados.",
+    )
+    foto = models.ImageField(upload_to='acpm_fotos/', null=True, blank=True)
+
+    class Meta:
+        unique_together = [('manifiesto', 'tipo')]
+        ordering = ['tipo']
+        verbose_name = "Medida de ACPM"
+        verbose_name_plural = "Control de ACPM"
+
+    def __str__(self):
+        return f"{self.get_tipo_display()}: {self.medida or '—'}"

@@ -158,6 +158,62 @@
             </div>
         </div>
 
+        {% if hojas_conductor %}
+        {% comment %}
+        Lo que reportó el conductor en su hoja: novedades operacionales y
+        control de ACPM. Es interno de SOLMED, no va en el acta del cliente.
+        {% endcomment %}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-journal-text me-1"></i>Hoja del conductor</h5></div>
+            <div class="card-body">
+                {% for hoja in hojas_conductor %}
+                <div class="{% if not forloop.last %}border-bottom pb-3 mb-3{% endif %}">
+                    <div class="fw-semibold small mb-2">
+                        <i class="bi bi-calendar3 me-1"></i>{{ hoja.recorrido.fecha_recorrido|date:"d/m/Y" }}
+                        {% if hoja.recorrido.vehiculo %}<span class="mx-1">·</span><i class="bi bi-truck me-1"></i>{{ hoja.recorrido.vehiculo.placa }}{% endif %}
+                    </div>
+
+                    {% if hoja.novedades %}
+                    <div class="table-responsive mb-2">
+                        <table class="table table-sm mb-0" style="font-size:.85rem;">
+                            <thead><tr><th>Novedad operacional</th><th>Observación</th><th>Inicio</th><th>Final</th></tr></thead>
+                            <tbody>
+                                {% for n in hoja.novedades %}
+                                <tr>
+                                    <td class="fw-semibold">{{ n.get_tipo_display }}</td>
+                                    <td>{{ n.observacion|default:"—" }}</td>
+                                    <td>{% if n.hora_inicio %}{{ n.hora_inicio|time:"H:i" }}{% else %}—{% endif %}</td>
+                                    <td>{% if n.hora_final %}{{ n.hora_final|time:"H:i" }}{% else %}—{% endif %}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+
+                    {% if hoja.medidas %}
+                    <div class="fw-semibold small mb-1"><i class="bi bi-fuel-pump me-1"></i>Control de ACPM</div>
+                    <div class="d-flex flex-wrap gap-3">
+                        {% for m in hoja.medidas %}
+                        <div class="small">
+                            <span class="text-muted">{{ m.get_tipo_display }}:</span>
+                            <strong>{{ m.medida|default:"—" }}</strong>
+                            {% if m.foto %}
+                            <a href="{{ m.foto.url }}" target="_blank" class="d-block mt-1">
+                                <img src="{{ m.foto.url }}" alt="{{ m.get_tipo_display }}"
+                                     style="width:90px; height:70px; object-fit:cover; border-radius:4px; border:1px solid #dee2e6;">
+                            </a>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if evidencias_ayudantes %}
         {# Fotos que subieron los ayudantes desde su enlace personal #}
         <div class="card shadow mb-4">
