@@ -2758,6 +2758,7 @@ def _disposicion_meta():
     return {
         'dejar_cargado': nombres.get(Dispositor.DEJAR_CARRO_CARGADO),
         'trasiego_placa': nombres.get(Dispositor.TRASIEGO_PLACA),
+        'sin_disposicion': nombres.get(Dispositor.SIN_DISPOSICION),
     }
 
 
@@ -2791,6 +2792,7 @@ def _avisar_carga_pendiente(request, programacion, orden):
             f"OJO: el contenido quedó en {destino.title()} (tanques SOLMED), "
             f"pendiente de disposición final."
         )
+    # Dispositor.SIN_DISPOSICION no deja nada pendiente: no hay nada que avisar.
 
 
 class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):

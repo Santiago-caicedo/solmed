@@ -811,6 +811,9 @@ class Dispositor(models.Model):
     DEJAR_CARRO_CARGADO = 'DEJAR CARRO CARGADO'
     TRASIEGO_PLACA = 'TRASIEGO A ------ PLACA'
     TANQUES = ('TRASIEGO TANQUE AUXILIAR', 'TRASIEGO TANQUE SUBTERRANEO')
+    # El servicio pasa sin disposición y SIN dejar nada pendiente: el camión no
+    # queda cargado y no hay contenido que rastrear (p. ej. sondeo o lavado).
+    SIN_DISPOSICION = 'NO HAY DISPOSICIÓN'
 
     def __str__(self):
         return self.nombre
@@ -1531,6 +1534,10 @@ class Programacion(models.Model):
         elif destino in Dispositor.TANQUES:
             for v in vehiculos:
                 descargar(v, f"{detalle}: contenido a {destino.title()} (tanques SOLMED)")
+        elif destino == Dispositor.SIN_DISPOSICION:
+            # El servicio no deja nada pendiente: si el camión venía cargado de
+            # antes, ese pendiente sigue siendo suyo (no se toca).
+            pass
 
 
 class ProgramacionCuadrilla(models.Model):

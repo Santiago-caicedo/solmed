@@ -640,6 +640,8 @@ class ProgramacionForm(forms.ModelForm):
         label="¿Dónde queda el contenido?",
         widget=forms.Select(attrs={'class': 'form-select'}),
         empty_label='--- Elige el destino ---',
+        help_text="Si el servicio pasa sin dejar contenido (p. ej. sondeo o "
+                  "lavado), elige «NO HAY DISPOSICIÓN».",
     )
 
     class Meta:
@@ -836,8 +838,10 @@ class ProgramacionForm(forms.ModelForm):
         elif requiere == 'NO':
             destino = cleaned.get('destino_sin_disposicion')
             if not destino:
-                self.add_error('destino_sin_disposicion',
-                               'Indica dónde queda el contenido (trasiego o carro cargado).')
+                self.add_error(
+                    'destino_sin_disposicion',
+                    'Indica dónde queda el contenido. Si el servicio pasa sin dejar nada '
+                    'pendiente, elige «NO HAY DISPOSICIÓN».')
             cleaned['dispositor_final'] = destino
             if destino and destino.nombre == Dispositor.TRASIEGO_PLACA:
                 if not cleaned.get('trasiego_vehiculo'):
