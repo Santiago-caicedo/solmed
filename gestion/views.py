@@ -2999,6 +2999,20 @@ def _datos_servicio_ayudante(cuadrilla, slot):
         ),
         'fotos_pedidas': cuadrilla.fotos_pedidas(slot),
         'orden': programacion.orden,
+        # Lo ÚNICO que se le muestra al ayudante (además de sus fotos): a qué
+        # hora y a dónde llega. La hora de ingreso manda sobre la del servicio,
+        # y el sitio de inicio sobre el lugar del cliente: es donde empieza él.
+        'hora_ayudante': (programacion.hora_ingreso_bodega
+                          or programacion.hora_servicio),
+        # Dónde llega: el sitio de inicio manda; si no, la sede o el tercero; y
+        # como último recurso la dirección del servicio. Nunca el nombre del
+        # cliente: eso es a quién se le presta, no a dónde va él.
+        'lugar_ayudante': (
+            (programacion.sitio_inicio.nombre if programacion.sitio_inicio_id else '')
+            or (lugar.nombre if lugar else '')
+            or programacion.direccion
+            or programacion.cliente.direccion
+        ),
     }
 
 
@@ -3011,10 +3025,12 @@ def _lineas_correo_servicio(ctx):
     ]
     for etiqueta, valor in ctx['detalles']:
         lineas.append(f"{etiqueta}: {valor}")
-    if ctx['novedades']:
-        lineas += ["", "Tu turno:"] + [f"- {n}" for n in ctx['novedades']]
-    if p.observaciones_servicio:
-        lineas += ["", "Observaciones del servicio:", p.observaciones_servicio]
+    # El ayudante solo recibe su hora, su lugar y sus fotos.
+    if ctx['rol'] != 'ayudante':
+        if ctx['novedades']:
+            lineas += ["", "Tu turno:"] + [f"- {n}" for n in ctx['novedades']]
+        if p.observaciones_servicio:
+            lineas += ["", "Observaciones del servicio:", p.observaciones_servicio]
     if ctx['fotos_pedidas']:
         lineas += ["", "Debes subir una foto de:"]
         lineas += [f"- {f['etiqueta']}" for f in ctx['fotos_pedidas']]
@@ -3110,9 +3126,15 @@ def _enviar_correos_programacion(programacion, request):
             if ayudante is None:
                 continue
             datos = _datos_servicio_ayudante(cuadrilla, slot)
+            # Al ayudante NO se le manda la operación completa: solo lo suyo.
+            filas_ayudante = []
+            if datos['hora_ayudante']:
+                filas_ayudante.append(('Hora', datos['hora_ayudante'].strftime('%H:%M')))
+            if datos['lugar_ayudante']:
+                filas_ayudante.append(('Lugar', datos['lugar_ayudante']))
             destinatarios.append((ayudante, {
                 'rol': 'ayudante',
-                'detalles': detalles(False, datos),
+                'detalles': filas_ayudante,
                 'novedades': datos['novedades'],
                 'fotos_pedidas': datos['fotos_pedidas'],
                 'url': request.build_absolute_uri(reverse(

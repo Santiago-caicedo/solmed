@@ -22,8 +22,20 @@ body{ font-family:'IBM Plex Sans',system-ui,sans-serif; background:#EDF0F4; colo
 .dato:last-child{ border-bottom:0; }
 .dato .et{ flex:0 0 108px; color:var(--ink-2); font-size:.85rem; }
 .dato .va{ font-weight:600; min-width:0; }
-.nov{ display:flex; align-items:flex-start; gap:.5rem; padding:.35rem 0; font-size:.95rem; }
-.nov i{ color:var(--brand-600); margin-top:.15rem; }
+/* Hora y lugar: lo único que necesita saber, en grande */
+.clave{ display:grid; grid-template-columns:1fr; gap:.9rem; }
+@media (min-width:480px){ .clave{ grid-template-columns:1fr 1fr; } }
+.clave-item{ display:flex; align-items:center; gap:.75rem; }
+.clave-item > i{
+    width:44px; height:44px; flex-shrink:0; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    background:#eef4dd; color:var(--brand-600); font-size:1.3rem;
+}
+.clave-item .et{ display:block; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); font-weight:600; }
+.clave-item .va{ display:block; font-size:1.25rem; font-weight:700; line-height:1.2; }
+/* Botones de foto: cámara y galería */
+.foto-acciones{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+.foto-acciones .btn{ padding:.7rem .4rem; font-weight:600; font-size:.92rem; }
 /* Fotos pedidas */
 .foto{ border:1px solid var(--line); border-radius:8px; padding:.85rem; margin-bottom:.7rem; background:#fbfcfd; }
 .foto.lista{ border-color:#bfe0c9; background:#e7f2eb; }
@@ -65,35 +77,29 @@ body{ font-family:'IBM Plex Sans',system-ui,sans-serif; background:#EDF0F4; colo
     </div>
     {% endif %}
 
-    {# ---------- Datos del servicio ---------- #}
+    {% comment %}
+    Al ayudante SOLO se le muestra lo suyo: a qué hora, a dónde llega y las
+    fotos que debe enviar. El resto de la operación (cliente, conductor,
+    placa, observaciones) no le corresponde.
+    {% endcomment %}
     <div class="ay-card">
-        <h2>Tu servicio</h2>
-        <div class="dato"><span class="et">Cliente</span><span class="va">{{ cliente.nombre }}</span></div>
-        {% if lugar %}<div class="dato"><span class="et">Lugar</span><span class="va">{{ lugar }}</span></div>{% endif %}
-        {% if direccion %}<div class="dato"><span class="et">Dirección</span><span class="va">{{ direccion }}</span></div>{% endif %}
-        {% if programacion.hora_ingreso_bodega %}<div class="dato"><span class="et">Hora de ingreso</span><span class="va">{{ programacion.hora_ingreso_bodega|time:"H:i" }}</span></div>{% endif %}
-        {% if sitio_inicio %}<div class="dato"><span class="et">Sitio de inicio</span><span class="va">{{ sitio_inicio }}</span></div>{% endif %}
-        {% if programacion.hora_servicio %}<div class="dato"><span class="et">Hora del servicio</span><span class="va">{{ programacion.hora_servicio|time:"H:i" }}</span></div>{% endif %}
-        {% if conductor %}<div class="dato"><span class="et">Conductor</span><span class="va">{{ conductor }}</span></div>{% endif %}
-        {% if placa %}<div class="dato"><span class="et">Vehículo</span><span class="va">{{ placa }}</span></div>{% endif %}
-        {% if contacto %}<div class="dato"><span class="et">Contacto</span><span class="va">{{ contacto }}</span></div>{% endif %}
+        <div class="clave">
+            <div class="clave-item">
+                <i class="bi bi-clock-fill"></i>
+                <div>
+                    <span class="et">Hora</span>
+                    <span class="va">{% if hora_ayudante %}{{ hora_ayudante|time:"H:i" }}{% else %}Por confirmar{% endif %}</span>
+                </div>
+            </div>
+            <div class="clave-item">
+                <i class="bi bi-geo-alt-fill"></i>
+                <div>
+                    <span class="et">Lugar</span>
+                    <span class="va">{{ lugar_ayudante|default:"Por confirmar" }}</span>
+                </div>
+            </div>
+        </div>
     </div>
-
-    {% if novedades %}
-    <div class="ay-card">
-        <h2>Tu turno</h2>
-        {% for n in novedades %}
-        <div class="nov"><i class="bi bi-check-circle-fill"></i><span>{{ n }}</span></div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if programacion.observaciones_servicio %}
-    <div class="ay-card">
-        <h2>Observaciones del servicio</h2>
-        <div style="font-size:.95rem; white-space:pre-line;">{{ programacion.observaciones_servicio }}</div>
-    </div>
-    {% endif %}
 
     {# ---------- Fotos que debe subir ---------- #}
     {% if fotos_pedidas %}
@@ -127,14 +133,26 @@ body{ font-family:'IBM Plex Sans',system-ui,sans-serif; background:#EDF0F4; colo
             {% endif %}
 
             {% if vigente %}
-            <form method="post" enctype="multipart/form-data">
+            {% comment %}
+            Dos entradas de archivo con el mismo name: la de cámara lleva
+            `capture` (abre la cámara del celular) y la otra no (abre la
+            galería). Al elegir la foto, el formulario se envía solo.
+            {% endcomment %}
+            <form method="post" enctype="multipart/form-data" class="form-foto">
                 {% csrf_token %}
                 <input type="hidden" name="novedad" value="{{ f.codigo }}">
-                <input type="file" name="fotos" accept="image/*" capture="environment" multiple required
-                       class="form-control form-control-sm">
-                <button class="btn btn-success btn-sm">
-                    <i class="bi bi-upload me-1"></i>{% if f.fotos %}Añadir otra foto{% else %}Enviar foto{% endif %}
-                </button>
+                <input type="file" name="fotos" accept="image/*" capture="environment"
+                       multiple hidden class="entrada-foto">
+                <input type="file" name="fotos" accept="image/*"
+                       multiple hidden class="entrada-foto">
+                <div class="foto-acciones">
+                    <button type="button" class="btn btn-success" data-abrir="0">
+                        <i class="bi bi-camera-fill me-1"></i>Tomar foto
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" data-abrir="1">
+                        <i class="bi bi-images me-1"></i>Galería
+                    </button>
+                </div>
             </form>
             {% endif %}
         </div>
@@ -147,6 +165,32 @@ body{ font-family:'IBM Plex Sans',system-ui,sans-serif; background:#EDF0F4; colo
         Si algo no cuadra, avísale a tu coordinador.
     </div>
 </div>
+
+<script>
+// Cada tarjeta tiene dos entradas de archivo: [0] cámara (con capture) y
+// [1] galería. El botón abre la suya y, al elegir la foto, se envía sola.
+(function () {
+    document.querySelectorAll('.form-foto').forEach(function (form) {
+        var entradas = form.querySelectorAll('.entrada-foto');
+        form.querySelectorAll('[data-abrir]').forEach(function (boton) {
+            boton.addEventListener('click', function () {
+                entradas[boton.getAttribute('data-abrir')].click();
+            });
+        });
+        entradas.forEach(function (entrada) {
+            entrada.addEventListener('change', function () {
+                if (!entrada.files.length) return;
+                form.querySelectorAll('[data-abrir]').forEach(function (b) {
+                    b.disabled = true;
+                });
+                form.querySelector('[data-abrir="0"]').innerHTML =
+                    '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+                form.submit();
+            });
+        });
+    });
+})();
+</script>
 
 </body>
 </html>

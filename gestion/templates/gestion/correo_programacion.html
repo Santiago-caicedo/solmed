@@ -49,7 +49,7 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
                     {% if rol == 'conductor' %}
                         Se te asignó un servicio como <strong>conductor</strong>. Estos son los datos:
                     {% else %}
-                        Se te asignó un servicio como <strong>ayudante</strong>. Estos son los datos:
+                        Se te asignó un servicio como <strong>ayudante</strong>. Esto es lo tuyo:
                     {% endif %}
                 </div>
             </td>
@@ -75,7 +75,7 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
         </tr>
 
         {# ============ NOVEDADES DEL TURNO (ayudante) ============ #}
-        {% if novedades %}
+        {% if novedades and rol != 'ayudante' %}
         <tr>
             <td style="padding:16px 28px 4px;">
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-bottom:8px;">
@@ -122,7 +122,7 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
         {% endif %}
 
         {# ============ OBSERVACIONES ============ #}
-        {% if programacion.observaciones_servicio %}
+        {% if programacion.observaciones_servicio and rol != 'ayudante' %}
         <tr>
             <td style="padding:16px 28px 4px;">
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#8A97A5; text-transform:uppercase; letter-spacing:1px; font-weight:bold; padding-bottom:8px;">
