@@ -28,8 +28,8 @@ urlpatterns = [
     path('recorrido/<int:pk>/encuesta-conductor/', views.EncuestaConductorView.as_view(), name='encuesta_conductor'),
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
-    # Demostración "así lo ve el conductor" (enlace firmado, vence solo).
-    path('orden-conductor-demo/<str:token>/', views.DemoOrdenConductorView.as_view(), name='demo_orden_conductor'),
+    # Demostración "así lo ve el conductor" con DATOS DE EJEMPLO (nada real).
+    path('demo/orden-conductor/', views.DemoOrdenConductorView.as_view(), name='demo_orden_conductor'),
 
     # --- Acceso del ayudante por token (sin usuario ni contraseña) ---
     # Ve su servicio y sube las fotos que le exigen sus novedades.

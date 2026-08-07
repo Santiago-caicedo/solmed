@@ -1518,10 +1518,6 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                               'medidas': medidas})
         context['hojas_conductor'] = hojas
 
-        # Enlace de demostración "así lo ve el conductor" (para gerencia; vence solo).
-        context['demo_conductor_url'] = reverse(
-            'gestion:demo_orden_conductor',
-            kwargs={'token': DemoOrdenConductorView.token_para(self.object.pk)})
 
         # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
         context['actas_formato'] = _actas_formato(
@@ -1939,49 +1935,43 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
 
 class DemoOrdenConductorView(View):
     """
-    Vista de DEMOSTRACIÓN de la orden tal como la ve el conductor, para
-    mostrársela a gerencia sin crear usuarios: se abre con un enlace firmado
-    (sin login) que vence solo a los días de DIAS_VIGENCIA. Es de solo
-    lectura: no acepta POST y los botones van desactivados.
+    DEMOSTRACIÓN con datos de EJEMPLO (nada real): la pantalla de la orden tal
+    como la ve el conductor, para mostrársela a gerencia. Es pública porque no
+    toca la base de datos: todos los objetos se arman en memoria, fijos.
+    Solo lectura: sin POST y con los botones desactivados.
     """
-    DIAS_VIGENCIA = 7
-    SAL = 'demo-orden-conductor'
-
-    @classmethod
-    def token_para(cls, orden_pk):
-        from django.core import signing
-        return signing.dumps(orden_pk, salt=cls.SAL)
-
-    def get(self, request, token):
-        from django.core import signing
-        try:
-            orden_pk = signing.loads(
-                token, salt=self.SAL, max_age=self.DIAS_VIGENCIA * 24 * 3600)
-        except signing.SignatureExpired:
-            return HttpResponse(
-                "Este enlace de demostración ya venció. Pide uno nuevo desde "
-                "el expediente de la orden.", status=410)
-        except signing.BadSignature:
-            raise Http404("Enlace de demostración no válido.")
-
-        orden = get_object_or_404(OrdenServicio, pk=orden_pk)
-        recorridos = orden.recorridos.select_related('vehiculo').order_by('-fecha_recorrido')
-        actas_formato = _actas_formato(recorridos)
-        fotos_registro = orden.documentos.filter(
-            descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO)
-        tareas = _tareas_servicio_conductor(orden, actas_formato, fotos_registro)
-        hechas = sum(1 for t in tareas if t['hecha'])
+    def get(self, request):
+        hoy = timezone.localdate()
+        conductor = User(first_name='Carlos', last_name='Ejemplo')
+        ayudante = User(first_name='Andrés', last_name='Modelo')
+        vehiculo = Vehiculo(pk=0, placa='WHB 123', marca='Hino', modelo='FC9J',
+                            capacidad='8 m³')
+        orden = OrdenServicio(
+            pk=0, numero_orden=22207,
+            direccion_servicio='Cra 69A No. 24 Sur - 17, Bogotá',
+            descripcion=('Succión y transporte de lodos de los pozos sépticos. '
+                         'Anunciarse en portería con el supervisor de turno.'),
+            bascula='PESAN', registro_fotografico='SI',
+        )
+        recorrido = Recorrido(pk=0, orden=orden, vehiculo=vehiculo,
+                              conductor=conductor, ayudante=ayudante,
+                              fecha_recorrido=hoy)
+        # El acta en vista previa, con las instrucciones que definiría el asesor.
+        acta = Manifiesto(
+            succ_pozos_septicos=True, succ_pozos_septicos_cant='6 M³',
+            succ_trampas_grasa=True, succ_trampas_grasa_cant='1',
+            transporte_tipo='Lodos', transporte_cantidad='6 M³',
+        )
+        actas_formato = [{'recorrido': recorrido, 'acta': acta, 'estado': 'PENDIENTE'}]
+        tareas = _tareas_servicio_conductor(orden, actas_formato, [])
         return render(request, 'gestion/orden_conductor_detail.html', {
             'orden': orden,
-            'mis_recorridos': recorridos,
+            'mis_recorridos': [recorrido],
             'actas_formato': actas_formato,
-            'fotos_registro': fotos_registro,
+            'fotos_registro': [],
             'tareas': tareas,
-            'progreso': {
-                'hechas': hechas, 'total': len(tareas),
-                'pct': int(hechas * 100 / len(tareas)) if tareas else 0,
-                'faltan': [t['titulo_corto'] for t in tareas if not t['hecha']],
-            },
+            'progreso': {'hechas': 0, 'total': len(tareas), 'pct': 0,
+                         'faltan': [t['titulo_corto'] for t in tareas]},
             'es_demo': True,
         })
 
