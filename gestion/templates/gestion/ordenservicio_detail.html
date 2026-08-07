@@ -15,9 +15,20 @@
             </span>
         {% endif %}
     </div>
-    <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
-        <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
-    </a>
+    <div class="d-flex gap-2 flex-wrap">
+        {% comment %}
+        Enlace de demostración: abre la orden TAL CUAL la ve el conductor
+        (sin login, botones desactivados). Para mostrársela a gerencia:
+        se comparte la URL y vence sola a los días.
+        {% endcomment %}
+        <a href="{{ demo_conductor_url }}" target="_blank" class="btn btn-outline-secondary"
+           title="Abre la vista del conductor en una pestaña nueva; el enlace se puede compartir y vence solo">
+            <i class="bi bi-phone me-1"></i> Ver como el conductor
+        </a>
+        <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
+            <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
+        </a>
+    </div>
 </div>
 
 {% if personal_con_alerta %}
