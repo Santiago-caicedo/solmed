@@ -89,7 +89,7 @@ muestra el QR para la firma del cliente.
                     <span class="s">{% if item.estado != 'PENDIENTE' %}Datos del servicio registrados{% else %}Auxiliares, tiempos, kilómetros y responsable{% endif %}</span>
                 </span>
                 {% if item.estado == 'PENDIENTE' %}
-                <a href="{% url 'gestion:firmar_manifiesto_step' item.recorrido.pk 'paso1' %}" class="btn btn-sm btn-success">
+                <a href="{% url 'gestion:firmar_manifiesto_step' item.recorrido.pk 'paso3' %}" class="btn btn-sm btn-success">
                     <i class="bi bi-pen-fill me-1"></i>Diligenciar
                 </a>
                 {% endif %}

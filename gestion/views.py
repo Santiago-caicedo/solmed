@@ -33,7 +33,7 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso1Form, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
@@ -960,22 +960,22 @@ def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm):
 # ============================================================
 class GenerarManifiestoView(LoginRequiredMixin, View):
     """
-    Wizard que llena EL CONDUCTOR: solo los datos operativos (paso1, paso3, paso4).
+    Wizard que llena EL CONDUCTOR: solo los datos operativos (paso3 y paso4).
     La primera parte del acta (Succión/Sondeo/Lavado/Transporte) NO la llena el
     conductor: son las instrucciones que definió el asesor en la programación y se
     copian al acta al cerrarla. Al terminar se persiste el manifiesto (acta de
     servicio) y se redirige al QR; la encuesta de satisfacción y la firma las
     completa el cliente en su propio dispositivo (EncuestaPublicaView).
     """
-    # Paso 2 (Succión/Sondeo/Lavado/Transporte) YA NO lo llena el conductor: son
-    # las "Instrucciones del servicio" que define el asesor en la programación y
-    # se copian al acta al cerrarla (ver post()). Por eso no está en el asistente.
+    # El asistente son DOS pasos. Los que faltan no los llena el conductor:
+    #  - Las instrucciones (Succión/Sondeo/Lavado/Transporte) las define el
+    #    asesor en la programación y se copian al acta al cerrarla (ver post()).
+    #  - El paso de repaso de la orden se quitó: el conductor ya viene de la
+    #    orden y el checklist del asesor sale en la propia hoja (paso3).
     FORMS = [
-        ("paso1", ManifiestoPaso1Form),
         ("paso3", ManifiestoPaso3Form), ("paso4", ManifiestoPaso4Form),
     ]
     TEMPLATES = {
-        "paso1": 'gestion/manifiesto_wizard/paso1.html',
         "paso3": 'gestion/manifiesto_wizard/paso3.html',
         "paso4": 'gestion/manifiesto_wizard/paso4.html',
     }
@@ -995,7 +995,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
                 return redirect('gestion:dashboard_redirect')
         return super().dispatch(request, *args, **kwargs)
 
-    def get(self, request, pk, step='paso1'):
+    def get(self, request, pk, step='paso3'):
         recorrido = get_object_or_404(Recorrido, pk=pk)
         manifiesto_data = request.session.get(f'manifiesto_data_{pk}', {})
         try:
@@ -1035,7 +1035,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             'filas_acpm': _formularios_acpm(manifiesto, data, files),
         }
 
-    def post(self, request, pk, step='paso1'):
+    def post(self, request, pk, step='paso3'):
         recorrido = get_object_or_404(Recorrido, pk=pk)
         manifiesto_data = request.session.get(f'manifiesto_data_{pk}', {})
         try:
