@@ -57,11 +57,23 @@
     padding:.28rem .55rem;
 }
 
-/* Info del servicio, después de las tareas */
-.oc-info-titulo{
-    font-size:.72rem; text-transform:uppercase; letter-spacing:.1em;
-    color:var(--ink-3); font-weight:700; margin:1.4rem 0 .6rem;
+/* Caja de información de la orden (abre el documento en ventana emergente) */
+.oc-info-btn{
+    display:flex; align-items:center; gap:.85rem; width:100%; text-align:left;
+    background:var(--steel-tint); border:1px solid #cfe0ec; border-radius:var(--r-md);
+    box-shadow:0 1px 2px rgba(15,23,35,.05); padding:.95rem 1rem; margin-bottom:1rem;
+    cursor:pointer;
 }
+.oc-info-btn:hover{ border-color:var(--steel); }
+.oc-info-btn .ico{
+    width:42px; height:42px; flex-shrink:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.15rem; background:var(--steel); color:#fff;
+}
+.oc-info-btn .tx{ flex:1; min-width:0; }
+.oc-info-btn .tx .t{ font-weight:700; font-size:.95rem; color:var(--ink); }
+.oc-info-btn .tx .s{ font-size:.8rem; color:var(--ink-2); margin-top:.1rem; }
+.oc-info-btn > .bi-chevron-right{ color:var(--steel); font-size:1.1rem; }
 
 /* Móvil: botones a lo ancho, cómodos al dedo */
 @media (max-width:600px){
@@ -83,6 +95,21 @@
 {% for r in mis_recorridos %}
 {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=r.vehiculo %}
 {% endfor %}
+
+{% comment %}
+De primero, la caja de información: dice explícitamente que al dar clic se
+abre TODA la información de la orden (el documento) en una ventana emergente.
+{% endcomment %}
+{% if actas_formato %}
+<button type="button" class="oc-info-btn" data-bs-toggle="modal" data-bs-target="#modal-info-orden">
+    <span class="ico"><i class="bi bi-info-lg"></i></span>
+    <span class="tx">
+        <span class="t d-block">Información de la orden</span>
+        <span class="s d-block">Da clic aquí para ver toda la información del servicio.</span>
+    </span>
+    <i class="bi bi-chevron-right"></i>
+</button>
+{% endif %}
 
 {% comment %}
 La barra de progreso: cuántas tareas van y qué falta, en palabras simples.
@@ -171,14 +198,33 @@ Con todo listo, se celebra: el servicio quedó cerrado.
 {% endfor %}
 
 {% comment %}
-La información del servicio (lo que definió el asesor), estilo documento,
-después de las tareas: primero lo que hay que HACER, luego lo que hay que SABER.
+La información del servicio (lo que definió el asesor), estilo documento, en
+una ventana emergente: la pantalla queda solo para las tareas y la caja de
+arriba la abre cuando el conductor la necesite.
 {% endcomment %}
 {% if actas_formato %}
-<div class="oc-info-titulo"><i class="bi bi-info-circle me-1"></i>Información del servicio</div>
-{% for item in actas_formato %}
-{% include 'gestion/partials/_info_servicio_documento.html' with orden=orden recorrido=item.recorrido manifiesto=item.acta %}
-{% endfor %}
+<div class="modal fade" id="modal-info-orden" tabindex="-1" aria-labelledby="modal-info-orden-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-info-orden-titulo">
+                    <i class="bi bi-info-circle me-1"></i>Información del servicio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                {% for item in actas_formato %}
+                {% include 'gestion/partials/_info_servicio_documento.html' with orden=orden recorrido=item.recorrido manifiesto=item.acta %}
+                {% endfor %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary w-100" data-bs-dismiss="modal">
+                    <i class="bi bi-x-lg me-1"></i>Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endif %}
 
 <script>
