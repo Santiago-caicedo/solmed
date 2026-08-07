@@ -3303,8 +3303,7 @@ def _enviar_correo_servicio(ctx, correo):
     from django.core.mail import EmailMultiAlternatives
     p = ctx['programacion']
     mensaje = EmailMultiAlternatives(
-        subject=(f"SOLMED - Servicio del {p.fecha.strftime('%d/%m/%Y')} "
-                 f"- {ctx['cliente_nombre']}"),
+        subject=f"SOLMED - Servicio del {p.fecha.strftime('%d/%m/%Y')}",
         body="\n".join(_lineas_correo_servicio(ctx)),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[correo],
@@ -3330,9 +3329,9 @@ def _enviar_correos_programacion(programacion, request):
         base = _datos_servicio_ayudante(cuadrilla, 1)
 
         def detalles(rol_conductor, datos):
-            filas = [('Cliente', datos['cliente'].nombre)]
-            if datos['lugar']:
-                filas.append(('Lugar', datos['lugar']))
+            # Sin el nombre del cliente ni el de su sede (decisión de gerencia:
+            # al personal solo le llega lo necesario para prestar el servicio).
+            filas = []
             if datos['direccion']:
                 filas.append(('Dirección', datos['direccion']))
             if programacion.hora_ingreso_bodega:
@@ -3415,7 +3414,6 @@ def _enviar_correos_programacion(programacion, request):
                 'nombre': nombre,
                 'primer_nombre': (persona.first_name or nombre).split(' ')[0],
                 'programacion': programacion,
-                'cliente_nombre': base['cliente'].nombre,
                 **extra,
             }
             _enviar_correo_servicio(ctx, correo)

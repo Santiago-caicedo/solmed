@@ -34,15 +34,14 @@
 
         <!-- ================= DATOS GENERALES ================= -->
         <div class="section">
+            {% comment %}
+            Sin datos del cliente (nombre, NIT, teléfono): decisión de gerencia.
+            El conductor solo ve lo que necesita para prestar el servicio.
+            {% endcomment %}
             <table class="grid">
                 <tr>
                     <td style="width: 38%;"><span class="lbl">Fecha:</span> {{ recorrido.fecha_recorrido|date:"d-m-Y" }}</td>
-                    <td style="width: 62%;" colspan="2"><span class="lbl">Empresa:</span> {{ orden.cliente.nombre }}</td>
-                </tr>
-                <tr>
-                    <td><span class="lbl">Dirección:</span> {{ orden.direccion_servicio }}</td>
-                    <td style="width: 31%;"><span class="lbl">Tel.:</span> {{ orden.cliente.telefono }}</td>
-                    <td style="width: 31%;"><span class="lbl">Nit:</span> {{ orden.cliente.identificacion }}</td>
+                    <td style="width: 62%;" colspan="2"><span class="lbl">Dirección del servicio:</span> {{ orden.direccion_servicio }}</td>
                 </tr>
                 <tr>
                     <td><span class="lbl">Equipo:</span> {{ recorrido.vehiculo.modelo }}</td>

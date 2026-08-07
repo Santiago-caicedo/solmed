@@ -81,10 +81,13 @@
 }
 </style>
 
-{# Encabezado: a dónde llegó y a qué. #}
+{% comment %}
+Encabezado sin el nombre del cliente (decisión de gerencia): al conductor le
+importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
+{% endcomment %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
-        <h1 class="mb-0">{{ orden.cliente.nombre }}</h1>
+        <h1 class="mb-0">Tu servicio · {{ mis_recorridos.0.fecha_recorrido|date:"d/m/Y" }}</h1>
         <span class="text-muted"><i class="bi bi-geo-alt-fill me-1"></i>{{ orden.direccion_servicio }}</span>
     </div>
     <a href="{% url 'gestion:dashboard_conductor' %}" class="btn btn-outline-secondary">
