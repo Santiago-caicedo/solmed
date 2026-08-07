@@ -1863,7 +1863,121 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
         context['fotos_registro'] = self.object.documentos.filter(
             descripcion__startswith=self.ETIQUETA_FOTO
         )
+        # La lista de tareas del servicio y su avance (la pantalla del
+        # conductor es una lista de chequeo, no un trámite).
+        context['tareas'] = self._tareas_servicio(
+            self.object, context['actas_formato'], context['fotos_registro'])
+        hechas = sum(1 for t in context['tareas'] if t['hecha'])
+        total = len(context['tareas'])
+        context['progreso'] = {
+            'hechas': hechas, 'total': total,
+            'pct': int(hechas * 100 / total) if total else 0,
+            'faltan': [t['titulo_corto'] for t in context['tareas'] if not t['hecha']],
+        }
         return context
+
+    def _tareas_servicio(self, orden, actas_formato, fotos_registro):
+        """
+        Las tareas del conductor para cerrar el servicio, en lenguaje simple y
+        en el orden natural del día. Todas se pueden hacer cuando él quiera;
+        solo la encuesta de cierre espera a la firma del cliente (firmarla
+        marca el recorrido COMPLETADO, no puede ir antes).
+        """
+        varios = len(actas_formato) > 1
+        tareas = []
+
+        def fecha_de(item):
+            # Con un solo recorrido no hace falta repetir la fecha en cada tarea.
+            return (' · ' + item['recorrido'].fecha_recorrido.strftime('%d/%m/%Y')
+                    if varios else '')
+
+        for item in actas_formato:
+            rec, estado = item['recorrido'], item['estado']
+            tareas.append({
+                'titulo': 'Llena los datos del servicio' + fecha_de(item),
+                'titulo_corto': 'los datos del servicio',
+                'detalle': ('Datos registrados. Puedes corregirlos hasta que el cliente firme.'
+                            if estado == 'DILIGENCIADA' else
+                            'Datos registrados y firmados.' if estado == 'FIRMADA' else
+                            'Tiempos, kilómetros, novedades del día y ACPM.'),
+                'icono': 'bi-pen-fill',
+                'hecha': estado != 'PENDIENTE',
+                'habilitada': True,
+                'url': (None if estado == 'FIRMADA' else
+                        reverse('gestion:firmar_manifiesto_step',
+                                kwargs={'pk': rec.pk, 'step': 'paso3'})),
+                'boton': 'Corregir' if estado == 'DILIGENCIADA' else 'Llenar',
+                'formulario': None,
+            })
+
+        if orden.requiere_bascula:
+            tareas.append({
+                'titulo': 'Sube el tiquete de báscula',
+                'titulo_corto': 'el tiquete de báscula',
+                'detalle': ('Tiquete cargado. Puedes reemplazarlo si quedó mal.'
+                            if orden.bascula_adjunto else
+                            'Tómale una foto al tiquete del pesaje.'),
+                'icono': 'bi-speedometer2',
+                'hecha': bool(orden.bascula_adjunto),
+                'habilitada': True,
+                'url': None,
+                'boton': '',
+                'formulario': 'bascula',
+            })
+
+        if orden.requiere_registro_fotografico:
+            con_fotos = bool(orden.registro_fotografico_adjunto) or bool(fotos_registro)
+            tareas.append({
+                'titulo': 'Sube las fotos del servicio',
+                'titulo_corto': 'las fotos del servicio',
+                'detalle': ('Fotos cargadas. Puedes añadir más si hace falta.'
+                            if con_fotos else
+                            'El registro fotográfico del trabajo realizado.'),
+                'icono': 'bi-camera-fill',
+                'hecha': con_fotos,
+                'habilitada': True,
+                'url': None,
+                'boton': '',
+                'formulario': 'fotos',
+            })
+
+        for item in actas_formato:
+            rec, estado = item['recorrido'], item['estado']
+            tareas.append({
+                'titulo': 'Pídele la firma al cliente' + fecha_de(item),
+                'titulo_corto': 'la firma del cliente',
+                'detalle': ('El cliente ya respondió su encuesta y firmó.'
+                            if estado == 'FIRMADA' else
+                            'Muéstrale el QR: él responde su encuesta y firma desde su celular.'),
+                'icono': 'bi-qr-code',
+                'hecha': estado == 'FIRMADA',
+                'habilitada': True,
+                'url': (None if estado == 'FIRMADA' else
+                        reverse('gestion:manifiesto_qr', kwargs={'pk': rec.pk})),
+                'boton': 'Mostrar QR',
+                'formulario': None,
+            })
+
+        for item in actas_formato:
+            rec, estado = item['recorrido'], item['estado']
+            con_encuesta = bool(getattr(rec, 'encuesta_conductor', None))
+            tareas.append({
+                'titulo': 'Responde tu encuesta de cierre' + fecha_de(item),
+                'titulo_corto': 'tu encuesta de cierre',
+                'detalle': ('¡Listo! Con esto el servicio quedó completado.'
+                            if con_encuesta else
+                            'Siete preguntas rápidas sobre tu jornada.'
+                            if estado == 'FIRMADA' else
+                            'Se habilita cuando el cliente firme.'),
+                'icono': 'bi-clipboard-check',
+                'hecha': con_encuesta,
+                'habilitada': estado == 'FIRMADA',
+                'url': (reverse('gestion:encuesta_conductor', kwargs={'pk': rec.pk})
+                        if estado == 'FIRMADA' and not con_encuesta else None),
+                'boton': 'Responder',
+                'formulario': None,
+            })
+        return tareas
 
     def post(self, request, *args, **kwargs):
         """Carga de soportes: tiquete de báscula y fotos del registro fotográfico."""
