@@ -1789,14 +1789,25 @@ class MisRecorridosView(ConductorRequiredMixin, PaginadoMixin, ListView):
     paginate_by = 10
 
     def get_queryset(self):
-        # Filtramos para mostrar solo los recorridos del usuario logueado
-        # que no estén completados, ordenados por fecha.
+        # Solo los recorridos del conductor que siguen pendientes, por fecha.
+        # Se traen de una vez la orden, el cliente, la placa y el estado del
+        # acta: la tarjeta los muestra todos (si no, una consulta por fila).
         hoy = timezone.localdate()
-        return Recorrido.objects.filter(
-            conductor=self.request.user,
-            fecha_recorrido__gte=hoy,
-            estado__in=['PROGRAMADO', 'EN_CURSO']
-        ).order_by('fecha_recorrido')
+        return (
+            Recorrido.objects.filter(
+                conductor=self.request.user,
+                fecha_recorrido__gte=hoy,
+                estado__in=['PROGRAMADO', 'EN_CURSO'],
+            )
+            .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
+                            'vehiculo', 'manifiesto', 'encuesta_conductor')
+            .order_by('fecha_recorrido')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['hoy'] = timezone.localdate()   # para destacar los de hoy
+        return context
 
 
 # --- HISTORIAL DEL CONDUCTOR ---

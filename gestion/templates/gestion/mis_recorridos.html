@@ -1,63 +1,141 @@
 {% extends "gestion/base.html" %}
 
 {% block content %}
-<div class="mb-4">
-    <h1 class="mb-0">Mis Recorridos Asignados</h1>
-    <p class="lead text-muted">Aquí encontrarás tus próximos servicios programados.</p>
+<style>
+/* ============ Mis recorridos (solo esta vista, prefijo mr-) ============ */
+.mr-head{ margin-bottom:1.1rem; }
+.mr-head .fecha{ font-family:var(--mono); font-size:.74rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); }
+
+.mr-card{
+    background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--steel);
+    border-radius:var(--r-md); box-shadow:0 1px 2px rgba(15,23,35,.05);
+    margin-bottom:.9rem; overflow:hidden;
+}
+.mr-card.hoy{ border-left-color:var(--warn); }
+.mr-card.firmada{ border-left-color:var(--ok); }
+
+/* Cabecera: el día en bloque + cliente */
+.mr-top{ display:flex; gap:.9rem; padding:.9rem 1.1rem .7rem; }
+.mr-dia{
+    flex-shrink:0; width:58px; text-align:center;
+    background:var(--panel-2); border:1px solid var(--line-2); border-radius:var(--r-sm);
+    padding:.35rem 0; font-family:var(--mono); line-height:1.15;
+}
+.mr-dia .d{ font-size:1.25rem; font-weight:700; color:var(--ink); display:block; }
+.mr-dia .m{ font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.mr-info{ min-width:0; flex:1; }
+.mr-cliente{ font-size:1.05rem; font-weight:700; color:var(--ink); margin:0; line-height:1.3; }
+.mr-dir{ color:var(--ink-2); font-size:.86rem; margin:.15rem 0 0; }
+.mr-orden{ font-family:var(--mono); font-size:.72rem; color:var(--ink-3); }
+
+.mr-chips{ display:flex; flex-wrap:wrap; gap:.4rem; padding:0 1.1rem .2rem; }
+.mr-chip{
+    display:inline-flex; align-items:center; gap:.35rem;
+    font-family:var(--mono); font-size:.72rem; font-weight:600; color:var(--ink-2);
+    background:var(--panel-2); border:1px solid var(--line-2); border-radius:var(--r-xs);
+    padding:.22rem .5rem;
+}
+.mr-chip i{ color:var(--ink-3); }
+.mr-chip.hoy{ background:var(--warn-tint); border-color:var(--warn-line); color:#7a4e05; }
+.mr-chip.hoy i{ color:var(--warn); }
+
+/* Avance del servicio: acta -> firma -> encuesta */
+.mr-pasos{ display:flex; gap:.35rem; padding:.7rem 1.1rem 0; flex-wrap:wrap; }
+.mr-paso{
+    flex:1 1 0; min-width:92px; text-align:center;
+    font-size:.7rem; font-weight:600; color:var(--ink-3);
+    border-top:3px solid var(--line); padding-top:.35rem;
+}
+.mr-paso i{ display:block; font-size:.95rem; margin-bottom:.1rem; }
+.mr-paso.hecho{ color:var(--ok); border-top-color:var(--ok); }
+.mr-paso.actual{ color:var(--warn); border-top-color:var(--warn); }
+
+.mr-pie{ padding:.85rem 1.1rem 1rem; }
+.mr-pie .btn{ padding:.55rem 1.2rem; }
+
+.mr-vacio{
+    border:1.5px dashed var(--line); border-radius:var(--r-md);
+    padding:2.2rem 1rem; text-align:center; color:var(--ink-3); background:var(--panel);
+}
+
+@media (max-width:600px){
+    .mr-pie .btn{ width:100%; }
+    .mr-top{ padding:.8rem .9rem .6rem; }
+    .mr-chips, .mr-pasos, .mr-pie{ padding-left:.9rem; padding-right:.9rem; }
+}
+</style>
+
+<div class="mr-head">
+    <div class="fecha">{{ "now"|date:"l j \d\e F \d\e Y"|capfirst }}</div>
+    <h1 class="mb-0">Mis recorridos</h1>
+    <p class="text-muted mb-0">Tus próximos servicios programados.</p>
 </div>
 
-{% if recorridos %}
-    {% for recorrido in recorridos %}
-    <div class="card shadow mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
-                <i class="bi bi-calendar-event me-2"></i>
-                {{ recorrido.fecha_recorrido|date:"l, d \d\e F, Y" }}
-            </h5>
-            <span class="badge {% if recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %} fs-6">{{ recorrido.get_estado_display }}</span>
+{% for recorrido in recorridos %}
+{% with manifiesto=recorrido.manifiesto %}
+<div class="mr-card {% if manifiesto.estado_firma == 'FIRMADO' %}firmada{% elif recorrido.fecha_recorrido == hoy %}hoy{% endif %}">
+
+    <div class="mr-top">
+        <div class="mr-dia">
+            <span class="d">{{ recorrido.fecha_recorrido|date:"d" }}</span>
+            <span class="m">{{ recorrido.fecha_recorrido|date:"M" }}</span>
         </div>
-        <div class="card-body">
-            <h6 class="card-title">
-                <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}">Orden #{{ recorrido.orden.numero_orden }}</a>
-                - {{ recorrido.orden.cliente.nombre }}
-            </h6>
-            <ul class="list-unstyled">
-                <li><i class="bi bi-geo-alt-fill me-2"></i><strong>Dirección:</strong> {{ recorrido.orden.direccion_servicio }}</li>
-                <li><i class="bi bi-truck me-2"></i><strong>Vehículo:</strong> {{ recorrido.vehiculo.placa }}</li>
-                {% if recorrido.descripcion %}
-                    <li><i class="bi bi-info-circle-fill me-2"></i><strong>Nota:</strong> {{ recorrido.descripcion }}</li>
-                {% endif %}
-            </ul>
-
-            {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
-
-            <hr>
-
-            {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                <span class="badge bg-success align-middle"><i class="bi bi-check-circle me-1"></i>Acta firmada por el cliente</span>
-                {% if not recorrido.encuesta_conductor %}
-                <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning ms-2">
-                    <i class="bi bi-clipboard-check"></i> Encuesta de cierre (pendiente)
-                </a>
-                {% endif %}
-            {% elif recorrido.manifiesto %}
-                <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-primary">
-                    <i class="bi bi-qr-code"></i> Ver QR para firma del cliente
-                </a>
-            {% else %}
-                <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso1' %}" class="btn btn-success">
-                    <i class="bi bi-pen-fill"></i> Llenar o continuar Acta de servicio
-                </a>
-            {% endif %}
+        <div class="mr-info">
+            <h2 class="mr-cliente">{{ recorrido.orden.cliente.nombre }}</h2>
+            <p class="mr-dir"><i class="bi bi-geo-alt me-1"></i>{{ recorrido.orden.direccion_servicio }}</p>
+            <span class="mr-orden">Orden #{{ recorrido.orden.numero_orden }}</span>
         </div>
     </div>
-    {% endfor %}
-    {% include 'gestion/partials/_paginacion.html' with etiqueta="recorridos" %}
-{% else %}
-    <div class="alert alert-success text-center">
-        <h4 class="alert-heading">¡Todo al día!</h4>
-        <p>No tienes recorridos pendientes asignados.</p>
-    </div>
-{% endif %}
 
+    <div class="mr-chips">
+        {% if recorrido.fecha_recorrido == hoy %}
+        <span class="mr-chip hoy"><i class="bi bi-star-fill"></i>Hoy</span>
+        {% endif %}
+        {% if recorrido.vehiculo %}
+        <span class="mr-chip"><i class="bi bi-truck"></i>{{ recorrido.vehiculo.placa }}</span>
+        {% endif %}
+        {% if recorrido.orden.programacion_origen.hora_servicio %}
+        <span class="mr-chip"><i class="bi bi-clock"></i>{{ recorrido.orden.programacion_origen.hora_servicio|time:"H:i" }}</span>
+        {% endif %}
+        <span class="mr-chip"><i class="bi bi-flag"></i>{{ recorrido.get_estado_display }}</span>
+    </div>
+
+    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
+
+    {% comment %}
+    Avance del servicio, para saber de un vistazo en qué va cada uno.
+    Los pasos se hacen DENTRO de la orden: aquí solo se informa.
+    {% endcomment %}
+    <div class="mr-pasos">
+        <div class="mr-paso {% if manifiesto %}hecho{% else %}actual{% endif %}">
+            <i class="bi {% if manifiesto %}bi-check-circle-fill{% else %}bi-pencil-square{% endif %}"></i>Acta
+        </div>
+        <div class="mr-paso {% if manifiesto.estado_firma == 'FIRMADO' %}hecho{% elif manifiesto %}actual{% endif %}">
+            <i class="bi {% if manifiesto.estado_firma == 'FIRMADO' %}bi-check-circle-fill{% else %}bi-pen{% endif %}"></i>Firma
+        </div>
+        <div class="mr-paso {% if recorrido.encuesta_conductor %}hecho{% elif manifiesto.estado_firma == 'FIRMADO' %}actual{% endif %}">
+            <i class="bi {% if recorrido.encuesta_conductor %}bi-check-circle-fill{% else %}bi-clipboard-check{% endif %}"></i>Encuesta
+        </div>
+    </div>
+
+    {% comment %}
+    Un solo botón: todo se hace desde la orden, que es donde está el paso a
+    paso del servicio (llenar el acta, el QR y la encuesta de cierre).
+    {% endcomment %}
+    <div class="mr-pie">
+        <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}" class="btn btn-primary">
+            <i class="bi bi-box-arrow-in-right me-1"></i>Ver orden
+        </a>
+    </div>
+</div>
+{% endwith %}
+{% empty %}
+<div class="mr-vacio">
+    <i class="bi bi-calendar-check d-block mb-2" style="font-size:2rem;"></i>
+    <strong class="d-block text-body">¡Todo al día!</strong>
+    No tienes recorridos pendientes asignados.
+</div>
+{% endfor %}
+
+{% include 'gestion/partials/_paginacion.html' with etiqueta="recorridos" %}
 {% endblock %}
