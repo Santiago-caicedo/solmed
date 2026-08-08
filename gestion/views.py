@@ -1489,6 +1489,52 @@ class ActualizarUsuarioView(AdministradorRequiredMixin, SuccessMessageMixin, Upd
         return response
 
 
+ETIQUETA_FOTO_REGISTRO = 'Registro fotográfico'
+
+
+def _cargar_soporte_orden(request, orden):
+    """
+    Guarda el soporte que venga en el POST (tiquete de báscula o fotos del
+    registro fotográfico). Lo usan el conductor desde su vista y el asesor
+    desde el expediente, para que gestión pueda completar lo que falte.
+    Devuelve True si el POST era de un soporte (haya salido bien o mal).
+    """
+    if 'submit_bascula' in request.POST and orden.requiere_bascula:
+        archivo = request.FILES.get('bascula_adjunto')
+        if archivo:
+            orden.bascula_adjunto = archivo
+            orden.save(update_fields=['bascula_adjunto'])
+            messages.success(request, "Soporte de báscula cargado.")
+        else:
+            messages.error(request, "Selecciona la foto o el archivo del tiquete de báscula.")
+        return True
+
+    if 'submit_fotos' in request.POST and orden.requiere_registro_fotografico:
+        fotos = request.FILES.getlist('fotos')
+        if fotos:
+            # La primera foto llena el soporte de la orden (si está vacío);
+            # el resto queda como documentos etiquetados con quién los cargó.
+            for foto in fotos:
+                if not orden.registro_fotografico_adjunto:
+                    orden.registro_fotografico_adjunto = foto
+                    orden.save(update_fields=['registro_fotografico_adjunto'])
+                else:
+                    DocumentoOrden.objects.create(
+                        orden=orden, archivo=foto,
+                        descripcion=f"{ETIQUETA_FOTO_REGISTRO} "
+                                    f"({request.user.get_full_name() or request.user.username})",
+                    )
+            messages.success(
+                request,
+                f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} del registro "
+                f"fotográfico cargada{'s' if len(fotos) != 1 else ''}."
+            )
+        else:
+            messages.error(request, "Selecciona al menos una foto del servicio.")
+        return True
+    return False
+
+
 class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
     model = OrdenServicio
     template_name = 'gestion/ordenservicio_detail.html'
@@ -1572,6 +1618,11 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         orden = self.get_object()
 
+        # Soportes pendientes (báscula / fotos): el asesor puede completarlos
+        # si el conductor no lo ha hecho.
+        if _cargar_soporte_orden(request, orden):
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
         if 'submit_documento' in request.POST:
             form = DocumentoOrdenForm(request.POST, request.FILES)
             if form.is_valid():
@@ -1581,7 +1632,7 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                 messages.success(request, 'Documento adjuntado exitosamente.')
             else:
                 messages.error(request, 'Error al adjuntar el documento.')
-            
+
         return redirect('gestion:detalle_orden', pk=orden.pk)
 
 
@@ -2229,42 +2280,9 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         """Carga de soportes: tiquete de báscula y fotos del registro fotográfico."""
         self.object = self.get_object()   # 404 si la orden no es suya
-        orden = self.object
-
-        if 'submit_bascula' in request.POST and orden.requiere_bascula:
-            archivo = request.FILES.get('bascula_adjunto')
-            if archivo:
-                orden.bascula_adjunto = archivo
-                orden.save(update_fields=['bascula_adjunto'])
-                messages.success(request, "Soporte de báscula cargado.")
-            else:
-                messages.error(request, "Selecciona la foto o el archivo del tiquete de báscula.")
-
-        elif 'submit_fotos' in request.POST and orden.requiere_registro_fotografico:
-            fotos = request.FILES.getlist('fotos')
-            if fotos:
-                # La primera foto llena el soporte de la orden (si está vacío);
-                # el resto queda como documentos etiquetados, que la gestión ve
-                # en el expediente de la orden.
-                for foto in fotos:
-                    if not orden.registro_fotografico_adjunto:
-                        orden.registro_fotografico_adjunto = foto
-                        orden.save(update_fields=['registro_fotografico_adjunto'])
-                    else:
-                        DocumentoOrden.objects.create(
-                            orden=orden, archivo=foto,
-                            descripcion=f"{self.ETIQUETA_FOTO} ({request.user.get_full_name() or request.user.username})",
-                        )
-                messages.success(
-                    request,
-                    f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} del registro fotográfico cargada{'s' if len(fotos) != 1 else ''}."
-                )
-            else:
-                messages.error(request, "Selecciona al menos una foto del servicio.")
-        else:
+        if not _cargar_soporte_orden(request, self.object):
             messages.error(request, "Esta orden no tiene ese soporte habilitado.")
-
-        return redirect('gestion:detalle_orden_conductor', pk=orden.pk)
+        return redirect('gestion:detalle_orden_conductor', pk=self.object.pk)
 
 
 # --- NUEVA VISTA: TABLERO DE PLANIFICACIÓN ---

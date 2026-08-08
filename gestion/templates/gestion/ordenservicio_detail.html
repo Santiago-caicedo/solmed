@@ -129,9 +129,14 @@
                                        title="Código QR y enlace para que el cliente responda la encuesta y firme">
                                         <i class="bi bi-qr-code me-1"></i>QR y enlace del cliente
                                     </a>
-                                    {% if not recorrido.manifiesto %}
-                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso3' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-pen-fill me-1"></i>Llenar</a>
-                                    {% endif %}
+                                    {% comment %}
+                                    Mientras el cliente no firme, el asesor puede llenar o
+                                    completar los datos que el conductor deje pendientes.
+                                    {% endcomment %}
+                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso3' %}" class="btn btn-outline-secondary btn-sm"
+                                       title="Llenar o completar tiempos, kilómetros, novedades y ACPM">
+                                        <i class="bi bi-pen-fill me-1"></i>{% if recorrido.manifiesto %}Completar datos{% else %}Llenar{% endif %}
+                                    </a>
                                 {% endif %}
                             </div>
                             <div class="rc-doc">
@@ -395,6 +400,19 @@
                             <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
                         {% endif %}
                     {% endif %}</p>
+                {% if orden.requiere_bascula and not orden.bascula_adjunto %}
+                {% comment %}
+                El conductor no lo ha subido: el asesor puede completarlo desde aquí.
+                {% endcomment %}
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center mb-2">
+                    {% csrf_token %}
+                    <input type="file" name="bascula_adjunto" accept="image/*,application/pdf"
+                           class="form-control form-control-sm" style="max-width:280px;" required>
+                    <button name="submit_bascula" value="1" class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-upload me-1"></i>Cargar tiquete
+                    </button>
+                </form>
+                {% endif %}
                 <p class="mb-0"><strong>Registro fotográfico:</strong> {{ orden.get_registro_fotografico_display|default:"—" }}
                     {% if orden.requiere_registro_fotografico %}
                         {% if orden.registro_fotografico_adjunto %}
@@ -407,6 +425,16 @@
                             <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
                         {% endif %}
                     {% endif %}</p>
+                {% if orden.requiere_registro_fotografico and not orden.registro_fotografico_adjunto %}
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center mb-2">
+                    {% csrf_token %}
+                    <input type="file" name="fotos" accept="image/*" multiple
+                           class="form-control form-control-sm" style="max-width:280px;" required>
+                    <button name="submit_fotos" value="1" class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-upload me-1"></i>Cargar fotos
+                    </button>
+                </form>
+                {% endif %}
                 <hr>
                 <p class="mb-0"><strong>Descripción:</strong><br>{{ orden.descripcion|linebreaks }}</p>
             </div>
