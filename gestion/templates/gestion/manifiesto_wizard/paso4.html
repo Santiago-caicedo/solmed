@@ -23,7 +23,6 @@
     <div class="wizard-progress">
         <div class="wizard-step completed">Paso 1: Datos del servicio</div>
         <div class="wizard-step active">Paso 2: Cierre</div>
-        <div class="wizard-step">Firma cliente (QR)</div>
     </div>
 
     {% if es_demo %}
@@ -63,7 +62,7 @@
 
         <div class="d-flex justify-content-between mt-4">
             <a href="{% if es_demo %}{% url 'gestion:demo_conductor_datos' %}{% else %}{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}{% endif %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
-            <button type="submit" class="btn btn-success"><i class="bi bi-qr-code"></i> Generar QR para firma del cliente</button>
+            <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Guardar y volver a la orden</button>
         </div>
     </form>
 </div>

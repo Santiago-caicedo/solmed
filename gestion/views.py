@@ -1136,7 +1136,12 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         )
         if f'manifiesto_data_{pk}' in request.session:
             del request.session[f'manifiesto_data_{pk}']
-        return redirect('gestion:manifiesto_qr', pk=pk)
+        # De vuelta a la orden: las tareas son independientes y el QR del
+        # cliente es otra tarea de la lista (puede ir antes o después).
+        messages.success(request, "Datos del servicio guardados.")
+        if recorrido.conductor_id == request.user.id:
+            return redirect('gestion:detalle_orden_conductor', pk=recorrido.orden_id)
+        return redirect('gestion:detalle_orden', pk=recorrido.orden_id)
 
 
 def _acta_lista_para_firmar(manifiesto):
