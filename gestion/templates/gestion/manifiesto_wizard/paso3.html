@@ -2,50 +2,106 @@
 
 {% block content %}
 <style>
-    /* Estilos del Wizard (asegúrate de que estén aquí o en un CSS base) */
-    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
-    .wizard-header { text-align: center; margin-bottom: 2rem; }
-    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
-    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
-    .wizard-step.active { border-color: #007bff; color: #007bff; }
-    .wizard-step.completed { border-color: #28a745; color: #28a745; }
-    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
-    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
-    .form-section-content { padding: 1rem; }
+/* ============ Hoja del conductor (paso 1) — móvil primero ============ */
+.hoja-wrap{ max-width:760px; margin:auto; }
+.hoja-head{ margin-bottom:1rem; }
+.hoja-head h1{ font-size:1.25rem; font-weight:700; margin:0; }
+.hoja-head .sub{ color:var(--ink-3); font-size:.85rem; }
+.hoja-pasos{ display:flex; gap:.35rem; margin:.6rem 0 1rem; }
+.hoja-paso{
+    flex:1 1 0; text-align:center; font-size:.72rem; font-weight:700;
+    color:var(--ink-3); border-top:3px solid var(--line); padding-top:.35rem;
+}
+.hoja-paso.activo{ color:var(--brand-700); border-top-color:var(--brand); }
 
-    /* Bloque superior: lo que definió el asesor (solo lectura) */
-    .checklist { display:grid; grid-template-columns:1fr; gap:.15rem 1.5rem; }
-    @media (min-width:768px){ .checklist{ grid-template-columns:1fr 1fr; } }
-    .checklist .fila { display:flex; gap:.6rem; padding:.25rem 0; font-size:.85rem; }
-    .checklist .et { flex:0 0 46%; color:#51606E; text-transform:uppercase; font-size:.75rem; letter-spacing:.03em; padding-top:.1rem; }
-    .checklist .va { font-weight:700; }
+/* Secciones como tarjetas con encabezado de ícono */
+.seccion{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
+    box-shadow:0 1px 2px rgba(15,23,35,.05); margin-bottom:1rem; overflow:hidden;
+}
+.seccion > .cab{
+    display:flex; align-items:center; gap:.6rem;
+    padding:.75rem .95rem; border-bottom:1px solid var(--line-2); background:var(--panel-2);
+}
+.seccion > .cab i{ color:var(--brand-600); font-size:1.05rem; }
+.seccion > .cab .t{ font-weight:700; font-size:.92rem; color:var(--ink); }
+.seccion > .cab .s{ font-size:.75rem; color:var(--ink-3); margin-left:auto; text-align:right; }
+.seccion > .cuerpo{ padding:.9rem .95rem; }
 
-    /* Novedades operacionales: la tabla del formato */
-    .tabla-novedades { font-size:.85rem; }
-    .tabla-novedades th { background:#f8f9fa; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; text-align:center; }
-    .tabla-novedades td { vertical-align:middle; }
-    .tabla-novedades td.chk { width:42px; text-align:center; }
-    .tabla-novedades td.nom { font-weight:600; white-space:nowrap; }
-    .tabla-novedades .form-control { min-width:110px; }
-    .tabla-novedades tr.marcada { background:#f3f8e8; }
+/* Campos cómodos al dedo: 16px evita el zoom de iOS */
+.hoja-wrap .form-control{ font-size:16px; padding:.55rem .7rem; }
+.campo label{
+    display:block; font-size:.74rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:.04em; color:var(--ink-2); margin-bottom:.25rem;
+}
+.grilla-2{ display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
 
-    /* Control de ACPM */
-    .acpm { display:grid; grid-template-columns:1fr; gap:.8rem; }
-    @media (min-width:768px){ .acpm{ grid-template-columns:repeat(3,1fr); } }
-    .acpm .casilla { border:1px solid #dee2e6; border-radius:6px; padding:.7rem; background:#fbfcfd; }
-    .acpm .casilla h6 { font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; color:#51606E; font-weight:700; margin-bottom:.5rem; }
-    .acpm .previa img { width:100%; max-height:110px; object-fit:cover; border-radius:4px; margin-top:.4rem; }
+/* Checklist del asesor (solo lectura) */
+.checklist{ display:grid; grid-template-columns:1fr; gap:.1rem 1.4rem; }
+@media (min-width:576px){ .checklist{ grid-template-columns:1fr 1fr; } }
+.checklist .fila{ display:flex; gap:.6rem; padding:.22rem 0; font-size:.85rem; }
+.checklist .et{ flex:0 0 46%; color:var(--ink-3); text-transform:uppercase; font-size:.72rem; letter-spacing:.03em; padding-top:.15rem; }
+.checklist .va{ font-weight:700; }
+
+/* ---- Novedades: lista táctil con revelado progresivo ---- */
+.nv-lista{ display:grid; grid-template-columns:1fr; gap:.55rem; }
+@media (min-width:768px){ .nv-lista{ grid-template-columns:1fr 1fr; } }
+.nv-item{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); overflow:hidden; }
+.nv-item .oculto{ display:none; }
+.nv-tile{
+    display:flex; align-items:center; gap:.7rem; width:100%;
+    background:none; border:0; text-align:left; cursor:pointer;
+    padding:.7rem .8rem; min-height:52px;
+}
+.nv-tile .ico{
+    width:38px; height:38px; flex-shrink:0; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--panel-2); color:var(--ink-3); font-size:1.1rem;
+}
+.nv-tile .tx{ flex:1; min-width:0; font-weight:600; font-size:.92rem; color:var(--ink); line-height:1.25; }
+.nv-tile .estado{
+    width:26px; height:26px; flex-shrink:0; border-radius:50%;
+    border:2px solid var(--line); display:flex; align-items:center; justify-content:center;
+    color:transparent; font-size:.85rem;
+}
+.nv-item.on{ border-color:var(--brand-600); box-shadow:0 0 0 1px var(--brand-600); }
+.nv-item.on .nv-tile{ background:var(--brand-tint); }
+.nv-item.on .nv-tile .ico{ background:var(--brand-600); color:#fff; }
+.nv-item.on .nv-tile .estado{ background:var(--brand-600); border-color:var(--brand-600); color:#fff; }
+.nv-det{ display:none; padding:.75rem .8rem .85rem; border-top:1px dashed var(--line); }
+.nv-item.on .nv-det{ display:block; }
+.nv-det .campo + .campo, .nv-det .grilla-2{ margin-top:.6rem; }
+.nv-resumen{
+    font-size:.8rem; color:var(--ink-2); background:var(--panel-2);
+    border:1px solid var(--line-2); border-radius:var(--r-sm);
+    padding:.5rem .7rem; margin-bottom:.7rem;
+}
+.nv-resumen b{ color:var(--brand-700); }
+
+/* ---- Control de ACPM ---- */
+.acpm{ display:grid; grid-template-columns:1fr; gap:.7rem; }
+@media (min-width:768px){ .acpm{ grid-template-columns:repeat(3,1fr); } }
+.acpm .casilla{ border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .8rem; background:var(--panel-2); }
+.acpm .casilla h6{ font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-2); font-weight:700; margin-bottom:.5rem; }
+.acpm .previa img{ width:100%; max-height:120px; object-fit:cover; border-radius:6px; margin-top:.45rem; border:1px solid var(--line); }
+
+/* Botonera: en móvil, Siguiente grande y a lo ancho */
+.hoja-acciones{ display:flex; gap:.6rem; justify-content:space-between; margin:1.1rem 0 2rem; }
+.hoja-acciones .btn{ padding:.65rem 1.3rem; font-weight:600; }
+@media (max-width:600px){
+    .hoja-acciones{ flex-direction:column-reverse; }
+    .hoja-acciones .btn{ width:100%; padding:.8rem; }
+}
 </style>
 
-<div class="wizard-container">
-    <div class="wizard-header">
-        <h1>Acta de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
-        <p class="text-muted">Completa la información paso a paso (Paso 1 de 2)</p>
-    </div>
-
-    <div class="wizard-progress">
-        <div class="wizard-step active">Paso 1: Datos del servicio</div>
-        <div class="wizard-step">Paso 2: Cierre</div>
+<div class="hoja-wrap">
+    <div class="hoja-head">
+        <h1>Datos del servicio</h1>
+        <div class="sub">Orden #{{ recorrido.orden.numero_orden }} · {{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
+        <div class="hoja-pasos">
+            <div class="hoja-paso activo">Paso 1 · Datos del servicio</div>
+            <div class="hoja-paso">Paso 2 · Cierre</div>
+        </div>
     </div>
 
     {% if es_demo %}
@@ -63,8 +119,9 @@
         no lo edita. Es el bloque superior del formato en papel.
         {% endcomment %}
         {% if checklist_izq or checklist_der %}
-        <div class="form-section">
-            <div class="form-section-content">
+        <div class="seccion">
+            <div class="cab"><i class="bi bi-clipboard-check"></i><span class="t">Lo que definió el asesor</span></div>
+            <div class="cuerpo">
                 <div class="checklist">
                     {% for etiqueta, valor in checklist_izq %}
                     <div class="fila"><span class="et">{{ etiqueta }}</span><span class="va">{{ valor }}</span></div>
@@ -77,64 +134,74 @@
         </div>
         {% endif %}
 
-        <div class="form-section">
-            <div class="form-section-title">TIEMPOS</div>
-            <div class="form-section-content">
-                <div class="row g-3">
-                    <div class="col-md-6">{{ form.tiempo_inicio_operativo.label_tag }} {{ form.tiempo_inicio_operativo }}</div>
-                    <div class="col-md-6">{{ form.tiempo_final_operativo.label_tag }} {{ form.tiempo_final_operativo }}</div>
-                    <div class="col-md-6">{{ form.tiempo_llegada_disposicion.label_tag }} {{ form.tiempo_llegada_disposicion }}</div>
-                    <div class="col-md-6">{{ form.tiempo_salida_disposicion.label_tag }} {{ form.tiempo_salida_disposicion }}</div>
+        <div class="seccion">
+            <div class="cab"><i class="bi bi-clock"></i><span class="t">Tiempos</span></div>
+            <div class="cuerpo">
+                <div class="grilla-2">
+                    <div class="campo"><label>Inicio operativo</label>{{ form.tiempo_inicio_operativo }}</div>
+                    <div class="campo"><label>Final operativo</label>{{ form.tiempo_final_operativo }}</div>
+                    <div class="campo"><label>Llegada a disposición</label>{{ form.tiempo_llegada_disposicion }}</div>
+                    <div class="campo"><label>Salida de disposición</label>{{ form.tiempo_salida_disposicion }}</div>
                 </div>
             </div>
         </div>
 
-        <div class="form-section">
-            <div class="form-section-title">KILÓMETROS</div>
-            <div class="form-section-content">
-                <div class="row g-3">
-                    <div class="col-md-3">{{ form.km_salida_solmed.label_tag }} {{ form.km_salida_solmed }}</div>
-                    <div class="col-md-3">{{ form.km_llegada_empresa.label_tag }} {{ form.km_llegada_empresa }}</div>
-                    <div class="col-md-3">{{ form.km_llegada_disposicion.label_tag }} {{ form.km_llegada_disposicion }}</div>
-                    <div class="col-md-3">{{ form.km_llegada_solmed.label_tag }} {{ form.km_llegada_solmed }}</div>
+        <div class="seccion">
+            <div class="cab"><i class="bi bi-signpost-2"></i><span class="t">Kilómetros</span><span class="s">lo que marca el tablero</span></div>
+            <div class="cuerpo">
+                <div class="grilla-2">
+                    <div class="campo"><label>Salida de SolMed</label>{{ form.km_salida_solmed }}</div>
+                    <div class="campo"><label>Llegada a la empresa</label>{{ form.km_llegada_empresa }}</div>
+                    <div class="campo"><label>Llegada a disposición</label>{{ form.km_llegada_disposicion }}</div>
+                    <div class="campo"><label>Llegada a SolMed</label>{{ form.km_llegada_solmed }}</div>
                 </div>
             </div>
         </div>
 
-        <div class="form-section">
-            <div class="form-section-title">NOVEDADES OPERACIONALES</div>
-            <div class="form-section-content">
-                <p class="text-muted small">Marca solo lo que ocurrió; anota la observación y las horas si aplica.</p>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered tabla-novedades align-middle mb-0">
-                        <thead>
-                            <tr>
-                                <th style="width:42px"></th>
-                                <th class="text-start">Novedad</th>
-                                <th>Observaciones</th>
-                                <th style="width:120px">Hora inicio</th>
-                                <th style="width:120px">Hora final</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for tipo, etiqueta, f in filas_novedades %}
-                            <tr class="fila-novedad{% if f.marcada.value %} marcada{% endif %}">
-                                <td class="chk">{{ f.marcada }}</td>
-                                <td class="nom">{{ etiqueta }}</td>
-                                <td>{{ f.observacion }}</td>
-                                <td>{{ f.hora_inicio }}</td>
-                                <td>{{ f.hora_final }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        {% comment %}
+        NOVEDADES OPERACIONALES: en vez de la tabla del formato (imposible en
+        el celular), una lista táctil. Cada novedad es una tarjeta grande:
+        tocarla la marca y despliega sus campos; destocarla la limpia. El
+        checkbox real del formulario queda oculto y el botón lo maneja.
+        {% endcomment %}
+        <div class="seccion">
+            <div class="cab">
+                <i class="bi bi-flag"></i><span class="t">Novedades operacionales</span>
+                <span class="s" id="nv-contador"></span>
+            </div>
+            <div class="cuerpo">
+                <div class="nv-resumen">
+                    ¿Pasó algo en la jornada? <b>Toca lo que aplique</b> y cuéntanos.
+                    Si no pasó nada, sigue de largo.
+                </div>
+                <div class="nv-lista">
+                    {% for tipo, etiqueta, icono, f in filas_novedades %}
+                    <div class="nv-item{% if f.marcada.value %} on{% endif %}">
+                        <span class="oculto">{{ f.marcada }}</span>
+                        <button type="button" class="nv-tile">
+                            <span class="ico"><i class="bi {{ icono }}"></i></span>
+                            <span class="tx">{{ etiqueta }}</span>
+                            <span class="estado"><i class="bi bi-check-lg"></i></span>
+                        </button>
+                        <div class="nv-det">
+                            <div class="campo">
+                                <label>¿Qué pasó?</label>
+                                {{ f.observacion }}
+                            </div>
+                            <div class="grilla-2">
+                                <div class="campo"><label>Hora inicio</label>{{ f.hora_inicio }}</div>
+                                <div class="campo"><label>Hora final</label>{{ f.hora_final }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
 
-        <div class="form-section">
-            <div class="form-section-title">CONTROL DE ACPM</div>
-            <div class="form-section-content">
+        <div class="seccion">
+            <div class="cab"><i class="bi bi-fuel-pump"></i><span class="t">Control de ACPM</span></div>
+            <div class="cuerpo">
                 <div class="acpm">
                     {% for tipo, etiqueta, previa, f in filas_acpm %}
                     <div class="casilla">
@@ -155,23 +222,46 @@
             </div>
         </div>
 
-        <div class="d-flex justify-content-between mt-4">
-            <a href="{% if es_demo %}{% url 'gestion:demo_orden_conductor' %}{% else %}{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}{% endif %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Volver a la orden</a>
-            <button type="submit" class="btn btn-primary">Siguiente <i class="bi bi-arrow-right"></i></button>
+        <div class="hoja-acciones">
+            <a href="{% if es_demo %}{% url 'gestion:demo_orden_conductor' %}{% else %}{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}{% endif %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver a la orden</a>
+            <button type="submit" class="btn btn-success">Siguiente <i class="bi bi-arrow-right ms-1"></i></button>
         </div>
     </form>
 </div>
 
 <script>
-// La fila marcada se resalta, para ver de un vistazo qué se reportó.
+// Cada novedad es una tarjeta: tocarla marca el checkbox oculto y despliega
+// sus campos; volver a tocarla la desmarca y LIMPIA lo escrito (así el
+// servidor la borra). El contador de la cabecera dice cuántas van marcadas.
 (function () {
-    document.querySelectorAll('.fila-novedad').forEach(function (fila) {
-        var chk = fila.querySelector('input[type=checkbox]');
-        if (!chk) return;
-        chk.addEventListener('change', function () {
-            fila.classList.toggle('marcada', chk.checked);
+    var items = document.querySelectorAll('.nv-item');
+    var contador = document.getElementById('nv-contador');
+
+    function actualizarContador() {
+        var n = document.querySelectorAll('.nv-item.on').length;
+        contador.textContent = n ? n + ' marcada' + (n === 1 ? '' : 's') : 'ninguna marcada';
+    }
+
+    items.forEach(function (item) {
+        var chk = item.querySelector('input[type=checkbox]');
+        var boton = item.querySelector('.nv-tile');
+        if (!chk || !boton) return;
+        boton.addEventListener('click', function () {
+            chk.checked = !chk.checked;
+            item.classList.toggle('on', chk.checked);
+            if (chk.checked) {
+                // Directo a contar qué pasó, sin un toque más.
+                var obs = item.querySelector('.nv-det input[type=text]');
+                if (obs) obs.focus();
+            } else {
+                item.querySelectorAll('.nv-det input').forEach(function (campo) {
+                    campo.value = '';
+                });
+            }
+            actualizarContador();
         });
     });
+    actualizarContador();
 })();
 </script>
 {% endblock %}

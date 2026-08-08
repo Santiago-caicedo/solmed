@@ -883,10 +883,27 @@ class ActaFormatoView(NoConductorRequiredMixin, View):
         })
 
 
+# Ícono de cada novedad operacional (para las tarjetas táctiles de la hoja).
+NOVEDAD_ICONOS = {
+    'HOROMETRO': 'bi-speedometer',
+    'MONTALLANTAS': 'bi-tools',
+    'STANDBY': 'bi-pause-circle',
+    'VARADA': 'bi-cone-striped',
+    'TANQUEO_EXTERNO': 'bi-fuel-pump',
+    'CAMBIO_CONDUCTOR': 'bi-people',
+    'COMPRA_REPUESTO': 'bi-bag',
+    'DEMORA_DISPOSITOR': 'bi-hourglass-split',
+    'DEMORA_CLIENTE': 'bi-hourglass',
+    'RETEN_POLICIA': 'bi-shield-check',
+    'INMOVILIZACION': 'bi-sign-stop',
+    'APOYO': 'bi-life-preserver',
+}
+
+
 def _formularios_novedades(manifiesto, data=None):
     """
     Las 12 filas de NOVEDADES OPERACIONALES del formato, con lo ya guardado.
-    Devuelve [(tipo, etiqueta, form)] en el orden de la hoja.
+    Devuelve [(tipo, etiqueta, icono, form)] en el orden de la hoja.
     """
     from .forms import NovedadOperacionalForm
     guardadas = {}
@@ -901,7 +918,7 @@ def _formularios_novedades(manifiesto, data=None):
             'hora_inicio': n.hora_inicio if n else None,
             'hora_final': n.hora_final if n else None,
         }
-        filas.append((tipo, etiqueta,
+        filas.append((tipo, etiqueta, NOVEDAD_ICONOS.get(tipo, 'bi-flag'),
                       NovedadOperacionalForm(data, prefix=f'nov-{tipo}', initial=inicial)))
     return filas
 
@@ -927,7 +944,7 @@ def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm):
     conductor pudo desmarcarlas) y las fotos de ACPM solo se reemplazan si
     subió una nueva.
     """
-    for tipo, _etiqueta, form in filas_novedades:
+    for tipo, _etiqueta, _icono, form in filas_novedades:
         if form.tiene_datos():
             NovedadOperacional.objects.update_or_create(
                 manifiesto=manifiesto, tipo=tipo,
@@ -1055,7 +1072,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             extra = self._contexto_hoja(recorrido, manifiesto_instance,
                                         request.POST, request.FILES)
         subformularios_ok = all(
-            f.is_valid() for _t, _e, f in extra.get('filas_novedades', [])
+            f.is_valid() for _t, _e, _i, f in extra.get('filas_novedades', [])
         ) and all(f.is_valid() for _t, _e, _p, f in extra.get('filas_acpm', []))
 
         if not form.is_valid() or not subformularios_ok:
