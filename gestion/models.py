@@ -685,8 +685,6 @@ class Manifiesto(models.Model):
     tiempo_final_operativo = models.TimeField(null=True, blank=True, verbose_name="H. Final Operativo")
     tiempo_llegada_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Llegada sitio Disposición") 
     tiempo_salida_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Salida sitio Disposición") 
-    horometro_inicio = models.TimeField(null=True, blank=True, verbose_name="H. Inicio (Horómetro)")
-    horometro_final = models.TimeField(null=True, blank=True, verbose_name="H. Final (Horómetro)")
     km_salida_solmed = models.IntegerField(null=True, blank=True, verbose_name="Salida SolMed (Km)")
     km_llegada_empresa = models.IntegerField(null=True, blank=True, verbose_name="Llegada Empresa (Km)")
     km_llegada_disposicion = models.IntegerField(null=True, blank=True, verbose_name="Llegada Sitio Disposición (Km)")

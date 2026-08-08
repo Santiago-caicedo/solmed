@@ -165,7 +165,6 @@ class Command(BaseCommand):
                 transporte_tipo='Lodos orgánicos', transporte_cantidad='8 m³',
                 tiempo_inicio_operativo=datetime.time(4, 15), tiempo_final_operativo=datetime.time(7, 20),
                 tiempo_llegada_disposicion=datetime.time(10, 46),
-                horometro_inicio=datetime.time(4, 15), horometro_final=datetime.time(7, 20),
                 km_salida_solmed=300, km_llegada_empresa=415, km_llegada_disposicion=1046, km_llegada_solmed=1135,
                 evals=[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
                 observaciones='Mantenimiento general + tanques sótano. Descarga #1 - descarga #3 - '
@@ -180,7 +179,6 @@ class Command(BaseCommand):
                 transporte_tipo='Aguas residuales', transporte_cantidad='10 m³',
                 tiempo_inicio_operativo=datetime.time(6, 0), tiempo_final_operativo=datetime.time(9, 30),
                 tiempo_llegada_disposicion=datetime.time(11, 15),
-                horometro_inicio=datetime.time(6, 0), horometro_final=datetime.time(9, 30),
                 km_salida_solmed=120, km_llegada_empresa=180, km_llegada_disposicion=430, km_llegada_solmed=560,
                 evals=[4, 4, 3, 4, 3, 4, 4, 3, 4, 4, 4],
                 observaciones='Succión de pozo séptico y sondeo de red de aguas negras. '
@@ -196,7 +194,6 @@ class Command(BaseCommand):
                 transporte_tipo='RESPEL', transporte_cantidad='4 m³',
                 tiempo_inicio_operativo=datetime.time(5, 30), tiempo_final_operativo=datetime.time(8, 45),
                 tiempo_llegada_disposicion=datetime.time(10, 0),
-                horometro_inicio=datetime.time(5, 30), horometro_final=datetime.time(8, 45),
                 km_salida_solmed=210, km_llegada_empresa=260, km_llegada_disposicion=520, km_llegada_solmed=640,
                 evals=[3, 4, 4, 4, 4, 4, 3, 4, 4, 4, 3],
                 observaciones='Lavado correctivo de tubería y succión de trampa de grasa. '

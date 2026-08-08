@@ -283,7 +283,6 @@ class ManifiestoPaso3Form(forms.ModelForm):
         fields = [
             'tiempo_inicio_operativo', 'tiempo_final_operativo',
             'tiempo_llegada_disposicion', 'tiempo_salida_disposicion',
-            'horometro_inicio', 'horometro_final',
             'km_salida_solmed', 'km_llegada_empresa', 'km_llegada_disposicion',
             'km_llegada_solmed'
         ]
@@ -294,10 +293,6 @@ class ManifiestoPaso3Form(forms.ModelForm):
             'tiempo_llegada_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
             'tiempo_salida_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
             
-            # --- Campos de Horómetro (AHORA TIPO TIME) ---
-            'horometro_inicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # CAMBIADO
-            'horometro_final': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # CAMBIADO
-            
             # --- Campos de Kilómetros ---
             'km_salida_solmed': forms.NumberInput(attrs={'class': 'form-control'}),
             'km_llegada_empresa': forms.NumberInput(attrs={'class': 'form-control'}),
@@ -307,8 +302,6 @@ class ManifiestoPaso3Form(forms.ModelForm):
         labels = {
             'tiempo_llegada_disposicion': 'H. Llegada sitio Disposición', # NUEVO
             'tiempo_salida_disposicion': 'H. Salida sitio Disposición', # NUEVO
-            'horometro_inicio': 'H. Inicio',
-            'horometro_final': 'H. Final',
             'km_llegada_solmed': 'Llegada Solmed', # NUEVO
         }
 

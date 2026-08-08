@@ -219,28 +219,23 @@
         </table>
     </div>
 
-    <!-- ================= TIEMPOS + HORÓMETRO ================= -->
+    <!-- ================= TIEMPOS ================= -->
     <div class="section">
         <table class="grid">
             <tr>
-                <td class="band" colspan="4" style="width: 66%;">TIEMPOS</td>
-                <td class="band" colspan="2" style="width: 34%;">HORÓMETRO SISTEMA DE VACÍO</td>
+                <td class="band" colspan="4">TIEMPOS</td>
             </tr>
             <tr>
-                <td class="th-s" style="width: 16.5%;">H. Inicio Operativo</td>
-                <td class="th-s" style="width: 16.5%;">H. Final Operativo</td>
-                <td class="th-s" style="width: 16.5%;">H. Llegada<br>sitio Disposición</td>
-                <td class="th-s" style="width: 16.5%;">H. Salida<br>sitio Disposición</td>
-                <td class="th-s" style="width: 17%;">H. Inicio</td>
-                <td class="th-s" style="width: 17%;">H. Final</td>
+                <td class="th-s" style="width: 25%;">H. Inicio Operativo</td>
+                <td class="th-s" style="width: 25%;">H. Final Operativo</td>
+                <td class="th-s" style="width: 25%;">H. Llegada<br>sitio Disposición</td>
+                <td class="th-s" style="width: 25%;">H. Salida<br>sitio Disposición</td>
             </tr>
             <tr>
                 <td class="big">{{ manifiesto.tiempo_inicio_operativo|time:"H:i" }}</td>
                 <td class="big">{{ manifiesto.tiempo_final_operativo|time:"H:i" }}</td>
                 <td class="big">{{ manifiesto.tiempo_llegada_disposicion|time:"H:i" }}</td>
                 <td class="big">{{ manifiesto.tiempo_salida_disposicion|time:"H:i" }}</td>
-                <td class="big">{{ manifiesto.horometro_inicio|time:"H:i" }}</td>
-                <td class="big">{{ manifiesto.horometro_final|time:"H:i" }}</td>
             </tr>
         </table>
     </div>

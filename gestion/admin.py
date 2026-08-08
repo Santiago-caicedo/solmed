@@ -91,7 +91,6 @@ class ManifiestoAdmin(admin.ModelAdmin):
         'recorrido', 
         'fecha_creacion', 
         'tiempo_inicio_operativo', 
-        'horometro_inicio', 
         'km_salida_solmed'
     )
     list_filter = ('recorrido__fecha_recorrido',)
