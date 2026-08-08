@@ -81,8 +81,6 @@
     border-radius:var(--r-md); padding:.7rem 1rem; margin-bottom:1rem;
     font-size:.86rem;
 }
-.es-demo .oc-tarea .btn, .es-demo .oc-subir .btn, .es-demo .oc-info-btn ~ * form button{ pointer-events:none; }
-.es-demo .oc-tarea a.btn{ pointer-events:none; }
 
 /* Móvil: botones a lo ancho, cómodos al dedo */
 @media (max-width:600px){
@@ -97,8 +95,15 @@ conductor, pero de solo lectura — los botones no hacen nada.
 {% endcomment %}
 <div class="oc-demo-banner">
     <i class="bi bi-eye-fill me-1"></i>
-    <strong>Vista de demostración con datos de ejemplo:</strong> así ve el conductor
-    una orden en su celular. Nada de lo que aparece es real y los botones están desactivados.
+    <strong>Demostración con datos de ejemplo:</strong> así ve el conductor una orden
+    en su celular. <strong>Puedes probar todos los pasos</strong> —llenar los datos,
+    subir las fotos, el QR y las encuestas—: nada de lo que hagas aquí se guarda.
+    <form method="post" action="{% url 'gestion:demo_conductor_reiniciar' %}" class="mt-2">
+        {% csrf_token %}
+        <button class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Empezar de nuevo
+        </button>
+    </form>
 </div>
 {% endif %}
 

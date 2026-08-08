@@ -1933,15 +1933,40 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
     return tareas
 
 
-class DemoOrdenConductorView(View):
-    """
-    DEMOSTRACIÓN con datos de EJEMPLO (nada real): la pantalla de la orden tal
-    como la ve el conductor, para mostrársela a gerencia. Es pública porque no
-    toca la base de datos: todos los objetos se arman en memoria, fijos.
-    Solo lectura: sin POST y con los botones desactivados.
-    """
-    def get(self, request):
+# ============================================================
+#  DEMOSTRACIÓN PARA GERENCIA (datos de EJEMPLO, nada real)
+#  Reproduce la experiencia completa del conductor —llenar la hoja, subir
+#  fotos, el QR, la encuesta— sin tocar la base de datos: los objetos se
+#  arman en memoria y el avance se guarda en una COOKIE FIRMADA, no en el
+#  servidor. Es público: no hay nada que proteger porque nada es real.
+# ============================================================
+
+class _DemoConductorBase(View):
+    """Piezas comunes de la demo: los datos de ejemplo y el avance simulado."""
+    COOKIE = 'demo_conductor'
+    SAL = 'demo-conductor-avance'
+
+    # --- Avance simulado (cookie firmada; si la manipulan, se ignora) ---
+    def avance(self, request):
+        from django.core import signing
+        try:
+            datos = signing.loads(request.COOKIES.get(self.COOKIE, ''), salt=self.SAL)
+            return datos if isinstance(datos, dict) else {}
+        except signing.BadSignature:
+            return {}
+
+    def marcar(self, request, respuesta, **cambios):
+        from django.core import signing
+        datos = self.avance(request)
+        datos.update(cambios)
+        respuesta.set_cookie(self.COOKIE, signing.dumps(datos, salt=self.SAL),
+                             max_age=8 * 3600, samesite='Lax')
+        return respuesta
+
+    # --- Los datos de ejemplo (SIN guardar: pk=0 y nada de .save()) ---
+    def escenario(self, request):
         hoy = timezone.localdate()
+        avance = self.avance(request)
         conductor = User(first_name='Carlos', last_name='Ejemplo')
         ayudante = User(first_name='Andrés', last_name='Modelo')
         vehiculo = Vehiculo(pk=0, placa='WHB 123', marca='Hino', modelo='FC9J',
@@ -1956,24 +1981,175 @@ class DemoOrdenConductorView(View):
         recorrido = Recorrido(pk=0, orden=orden, vehiculo=vehiculo,
                               conductor=conductor, ayudante=ayudante,
                               fecha_recorrido=hoy)
-        # El acta en vista previa, con las instrucciones que definiría el asesor.
         acta = Manifiesto(
             succ_pozos_septicos=True, succ_pozos_septicos_cant='6 M³',
             succ_trampas_grasa=True, succ_trampas_grasa_cant='1',
             transporte_tipo='Lodos', transporte_cantidad='6 M³',
         )
-        actas_formato = [{'recorrido': recorrido, 'acta': acta, 'estado': 'PENDIENTE'}]
+        # Lo que el conductor "ya llenó" en esta demo.
+        if avance.get('datos'):
+            acta.tiempo_inicio_operativo = datetime.time(7, 30)
+            acta.tiempo_final_operativo = datetime.time(11, 45)
+            acta.km_salida_solmed, acta.km_llegada_solmed = 45210, 45298
+            acta.observaciones = 'Servicio sin novedad.'
+        if avance.get('firma'):
+            acta.estado_firma = 'FIRMADO'
+        return {
+            'avance': avance, 'orden': orden, 'recorrido': recorrido, 'acta': acta,
+            'estado': ('FIRMADA' if avance.get('firma')
+                       else 'DILIGENCIADA' if avance.get('datos') else 'PENDIENTE'),
+        }
+
+    def contexto_pantalla(self, request):
+        """Contexto de la pantalla principal con el avance ya aplicado."""
+        e = self.escenario(request)
+        avance, orden = e['avance'], e['orden']
+        if avance.get('bascula'):
+            orden.bascula_adjunto = 'demo/tiquete.jpg'
+        if avance.get('fotos'):
+            orden.registro_fotografico_adjunto = 'demo/foto.jpg'
+        actas_formato = [{'recorrido': e['recorrido'], 'acta': e['acta'],
+                          'estado': e['estado']}]
         tareas = _tareas_servicio_conductor(orden, actas_formato, [])
-        return render(request, 'gestion/orden_conductor_detail.html', {
-            'orden': orden,
-            'mis_recorridos': [recorrido],
-            'actas_formato': actas_formato,
-            'fotos_registro': [],
-            'tareas': tareas,
-            'progreso': {'hechas': 0, 'total': len(tareas), 'pct': 0,
-                         'faltan': [t['titulo_corto'] for t in tareas]},
+        # En la demo, cada tarea apunta a su propia pantalla simulada.
+        destinos = {
+            'bi-pen-fill': reverse('gestion:demo_conductor_datos'),
+            'bi-qr-code': reverse('gestion:demo_conductor_qr'),
+            'bi-clipboard-check': reverse('gestion:demo_conductor_encuesta'),
+        }
+        for tarea in tareas:
+            if tarea['url']:
+                tarea['url'] = destinos.get(tarea['icono'], tarea['url'])
+            if avance.get('encuesta') and tarea['icono'] == 'bi-clipboard-check':
+                tarea['hecha'], tarea['url'] = True, None
+                tarea['detalle'] = '¡Listo! Con esto el servicio quedó completado.'
+        hechas = sum(1 for t in tareas if t['hecha'])
+        return {
+            'orden': orden, 'mis_recorridos': [e['recorrido']],
+            'actas_formato': actas_formato, 'fotos_registro': [], 'tareas': tareas,
+            'progreso': {
+                'hechas': hechas, 'total': len(tareas),
+                'pct': int(hechas * 100 / len(tareas)) if tareas else 0,
+                'faltan': [t['titulo_corto'] for t in tareas if not t['hecha']],
+            },
+            'es_demo': True,
+        }
+
+
+class DemoOrdenConductorView(_DemoConductorBase):
+    """Pantalla principal de la demo. El POST solo simula subir fotos."""
+    def get(self, request):
+        return render(request, 'gestion/orden_conductor_detail.html',
+                      self.contexto_pantalla(request))
+
+    def post(self, request):
+        destino = redirect('gestion:demo_orden_conductor')
+        if 'submit_bascula' in request.POST:
+            messages.success(request, "Tiquete de báscula cargado (simulado).")
+            return self.marcar(request, destino, bascula=True)
+        if 'submit_fotos' in request.POST:
+            messages.success(request, "Fotos del servicio cargadas (simulado).")
+            return self.marcar(request, destino, fotos=True)
+        return destino
+
+
+class DemoConductorDatosView(_DemoConductorBase):
+    """La hoja del servicio (paso 1) con los campos reales, sin guardar nada."""
+    def get(self, request):
+        e = self.escenario(request)
+        return render(request, 'gestion/manifiesto_wizard/paso3.html', {
+            'recorrido': e['recorrido'], 'pk': 0, 'current_step': 'paso3',
+            'form': ManifiestoPaso3Form(instance=e['acta']),
+            'checklist_izq': [('PALEADA', 'Palea Savicol'),
+                              ('BÁSCULA', 'SÍ — SUBIR FOTO (Báscula Mulera)'),
+                              ('SE REALIZA DISPOSICIÓN', 'RELLENO SANITARIO DOÑA JUANA')],
+            'checklist_der': [('SE REQUIERE SISO', 'SÍ'),
+                              ('REGISTRO FOTOGRÁFICO', 'SÍ — SUBIR FOTOS'),
+                              ('AYUDANTE CON CURSOS', 'Alturas')],
+            'filas_novedades': _formularios_novedades(None),
+            'filas_acpm': _formularios_acpm(None),
             'es_demo': True,
         })
+
+    def post(self, request):
+        return redirect('gestion:demo_conductor_cierre')
+
+
+class DemoConductorCierreView(_DemoConductorBase):
+    """El cierre (paso 2). Al 'guardar' solo marca el avance en la cookie."""
+    def get(self, request):
+        e = self.escenario(request)
+        return render(request, 'gestion/manifiesto_wizard/paso4.html', {
+            'recorrido': e['recorrido'], 'pk': 0, 'current_step': 'paso4',
+            'form': ManifiestoPaso4Form(instance=e['acta']),
+            'responsable_empresa': 'Carlos Ejemplo',
+            'es_demo': True,
+        })
+
+    def post(self, request):
+        messages.success(request, "Datos del servicio guardados (simulado).")
+        return self.marcar(request, redirect('gestion:demo_orden_conductor'), datos=True)
+
+
+class DemoConductorQRView(_DemoConductorBase):
+    """
+    La pantalla del QR. El código lleva a la encuesta del cliente de ejemplo,
+    así que se puede escanear de verdad en la presentación.
+    """
+    def get(self, request):
+        e = self.escenario(request)
+        url_publica = request.build_absolute_uri(
+            reverse('gestion:demo_encuesta_cliente'))
+        return render(request, 'gestion/manifiesto_wizard/qr.html', {
+            'recorrido': e['recorrido'], 'manifiesto': e['acta'],
+            'url_publica': url_publica, 'qr_b64': _qr_data_uri(url_publica),
+            'acta_diligenciada': bool(e['avance'].get('datos')),
+            'es_asesor_viendo': False, 'es_demo': True,
+        })
+
+    def post(self, request):
+        messages.success(request, "El cliente firmó el acta (simulado).")
+        return self.marcar(request, redirect('gestion:demo_orden_conductor'), firma=True)
+
+
+class DemoConductorEncuestaView(_DemoConductorBase):
+    """La encuesta de cierre del conductor, sin guardar."""
+    def get(self, request):
+        e = self.escenario(request)
+        return render(request, 'gestion/encuesta_conductor.html', {
+            'recorrido': e['recorrido'], 'form': EncuestaConductorForm(),
+            'ya_diligenciada': bool(e['avance'].get('encuesta')), 'es_demo': True,
+        })
+
+    def post(self, request):
+        messages.success(request, "Encuesta de cierre enviada (simulado). ¡Servicio completado!")
+        return self.marcar(request, redirect('gestion:demo_orden_conductor'), encuesta=True)
+
+
+class DemoEncuestaClienteView(_DemoConductorBase):
+    """Lo que ve el CLIENTE al escanear el QR de la demo (encuesta + firma)."""
+    def get(self, request):
+        e = self.escenario(request)
+        return render(request, 'gestion/manifiesto_wizard/encuesta_publica.html', {
+            'manifiesto': e['acta'], 'recorrido': e['recorrido'], 'orden': e['orden'],
+            'form': ManifiestoPaso5Form(instance=e['acta']), 'es_demo': True,
+        })
+
+    def post(self, request):
+        e = self.escenario(request)
+        return render(request, 'gestion/manifiesto_wizard/encuesta_gracias.html', {
+            'manifiesto': e['acta'], 'ya_firmado': False, 'es_demo': True,
+        })
+
+
+class DemoConductorReiniciarView(_DemoConductorBase):
+    """Borra el avance simulado para volver a empezar la demostración."""
+    def post(self, request):
+        respuesta = redirect('gestion:demo_orden_conductor')
+        respuesta.delete_cookie(self.COOKIE)
+        messages.info(request, "Demostración reiniciada.")
+        return respuesta
+
 
 
 class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):

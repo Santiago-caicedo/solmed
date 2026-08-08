@@ -8,6 +8,12 @@
 </style>
 
 <div class="qr-container">
+    {% if es_demo %}
+    <div class="alert alert-warning text-start">
+        <i class="bi bi-eye-fill me-1"></i><strong>Demostración:</strong>
+        el código lleva a una encuesta de ejemplo. Nada se guarda.
+    </div>
+    {% endif %}
     <h1 class="mb-1">Encuesta y firma del cliente</h1>
     <p class="text-muted">Acta de servicio de la Orden #{{ recorrido.orden.numero_orden }} — {{ recorrido.orden.cliente.nombre }}</p>
 
@@ -30,10 +36,22 @@
 
         <img src="{{ qr_b64 }}" alt="Código QR" class="qr-img my-3">
 
+        {% if es_demo %}
+        <form method="post" class="mt-3">
+            {% csrf_token %}
+            <button class="btn btn-success">
+                <i class="bi bi-check2-circle me-1"></i>Simular que el cliente ya firmó
+            </button>
+            <div class="text-muted small mt-2">
+                O escanea el código con tu celular para ver lo que ve el cliente.
+            </div>
+        </form>
+        {% else %}
         <div class="d-flex align-items-center justify-content-center text-primary mt-2">
             <div class="spinner-border me-2" role="status"></div>
             <span>Esperando que el cliente complete y firme…</span>
         </div>
+        {% endif %}
 
         {# Enlace copiable: para enviárselo al cliente por WhatsApp o correo. #}
         <div class="mt-4 text-start">
@@ -73,7 +91,11 @@
         El conductor NO descarga el acta: solo confirma que quedó firmada. El
         asesor, en cambio, vuelve al expediente de la orden.
         {% endcomment %}
-        {% if es_asesor_viendo %}
+        {% if es_demo %}
+        <a href="{% url 'gestion:demo_orden_conductor' %}" class="btn btn-primary">
+            <i class="bi bi-arrow-left me-1"></i>Volver a la demostración
+        </a>
+        {% elif es_asesor_viendo %}
         <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="btn btn-primary">
             <i class="bi bi-clipboard-check me-1"></i>Volver a la orden
         </a>
@@ -111,6 +133,7 @@
     })();
 
     (function () {
+        {% if es_demo %}return;{% endif %}
         var estadoUrl = "{% url 'gestion:manifiesto_estado' recorrido.pk %}";
         var intervalo = setInterval(function () {
             fetch(estadoUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })

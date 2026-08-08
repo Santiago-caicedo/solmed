@@ -28,8 +28,15 @@ urlpatterns = [
     path('recorrido/<int:pk>/encuesta-conductor/', views.EncuestaConductorView.as_view(), name='encuesta_conductor'),
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
-    # Demostración "así lo ve el conductor" con DATOS DE EJEMPLO (nada real).
+    # Demostración "así lo ve el conductor" con DATOS DE EJEMPLO (nada real):
+    # se puede recorrer entera (llenar, fotos, QR, encuestas) sin tocar la base.
     path('demo/orden-conductor/', views.DemoOrdenConductorView.as_view(), name='demo_orden_conductor'),
+    path('demo/orden-conductor/datos/', views.DemoConductorDatosView.as_view(), name='demo_conductor_datos'),
+    path('demo/orden-conductor/cierre/', views.DemoConductorCierreView.as_view(), name='demo_conductor_cierre'),
+    path('demo/orden-conductor/qr/', views.DemoConductorQRView.as_view(), name='demo_conductor_qr'),
+    path('demo/orden-conductor/encuesta/', views.DemoConductorEncuestaView.as_view(), name='demo_conductor_encuesta'),
+    path('demo/orden-conductor/reiniciar/', views.DemoConductorReiniciarView.as_view(), name='demo_conductor_reiniciar'),
+    path('demo/encuesta-cliente/', views.DemoEncuestaClienteView.as_view(), name='demo_encuesta_cliente'),
 
     # --- Acceso del ayudante por token (sin usuario ni contraseña) ---
     # Ve su servicio y sube las fotos que le exigen sus novedades.

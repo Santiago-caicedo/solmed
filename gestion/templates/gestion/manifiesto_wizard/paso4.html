@@ -26,6 +26,13 @@
         <div class="wizard-step">Firma cliente (QR)</div>
     </div>
 
+    {% if es_demo %}
+    <div class="alert alert-warning">
+        <i class="bi bi-eye-fill me-1"></i><strong>Demostración:</strong>
+        al guardar solo se marca el paso como hecho; nada se guarda de verdad.
+    </div>
+    {% endif %}
+
     <form method="post">
         {% csrf_token %}
         
@@ -55,7 +62,7 @@
         </div>
 
         <div class="d-flex justify-content-between mt-4">
-            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
+            <a href="{% if es_demo %}{% url 'gestion:demo_conductor_datos' %}{% else %}{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}{% endif %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
             <button type="submit" class="btn btn-success"><i class="bi bi-qr-code"></i> Generar QR para firma del cliente</button>
         </div>
     </form>
