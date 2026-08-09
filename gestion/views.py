@@ -817,8 +817,12 @@ def _generar_pdf_manifiesto(manifiesto, request):
     manifiesto.save()
 
 
-def _generar_pdf_encuesta_conductor(encuesta, request):
-    """Renderiza la encuesta de cierre del conductor a un PDF independiente y lo guarda."""
+def _pdf_encuesta_conductor(encuesta, request):
+    """
+    Renderiza la encuesta de cierre a PDF y devuelve los bytes. NO se guarda
+    en el storage: la base de datos es la fuente de verdad y el documento se
+    genera al momento de descargarlo (siempre con el diseño vigente).
+    """
     recorrido = encuesta.recorrido
     template = get_template('gestion/encuesta_conductor_pdf.html')
 
@@ -837,10 +841,29 @@ def _generar_pdf_encuesta_conductor(encuesta, request):
     }
     html_string = template.render(context)
     html = HTML(string=html_string, base_url=request.build_absolute_uri())
-    pdf = html.write_pdf()
+    return html.write_pdf()
 
-    pdf_file = ContentFile(pdf, name=f'encuesta_conductor_recorrido_{recorrido.pk}.pdf')
-    encuesta.pdf_generado.save(pdf_file.name, pdf_file, save=True)
+
+class EncuestaConductorPDFView(LoginRequiredMixin, View):
+    """
+    Descarga el PDF de la encuesta de cierre de un recorrido, generado al
+    momento. El conductor solo puede bajar la de SUS recorridos; gestión, la
+    de cualquiera.
+    """
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        es_conductor = request.user.groups.filter(name='Conductores').exists()
+        if es_conductor and recorrido.conductor_id != request.user.id:
+            raise Http404("Ese recorrido no es tuyo.")
+        encuesta = getattr(recorrido, 'encuesta_conductor', None)
+        if encuesta is None:
+            raise Http404("Este recorrido aún no tiene encuesta de cierre.")
+        respuesta = HttpResponse(
+            _pdf_encuesta_conductor(encuesta, request),
+            content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="encuesta_cierre_recorrido_{recorrido.pk}.pdf"')
+        return respuesta
 
 
 def _qr_data_uri(url):
@@ -1309,7 +1332,6 @@ class EncuestaConductorView(LoginRequiredMixin, View):
             encuesta = form.save(commit=False)
             encuesta.recorrido = recorrido
             encuesta.save()  # marca el recorrido como COMPLETADO
-            _generar_pdf_encuesta_conductor(encuesta, request)  # genera el PDF de evidencia
             messages.success(
                 request,
                 "Encuesta de cierre registrada. El recorrido fue marcado como completado."

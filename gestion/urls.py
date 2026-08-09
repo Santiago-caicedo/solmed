@@ -27,6 +27,7 @@ urlpatterns = [
 
     # --- Encuesta de cierre del conductor (PESV + ambiental) ---
     path('recorrido/<int:pk>/encuesta-conductor/', views.EncuestaConductorView.as_view(), name='encuesta_conductor'),
+    path('recorrido/<int:pk>/encuesta-pdf/', views.EncuestaConductorPDFView.as_view(), name='encuesta_conductor_pdf'),
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
     # Demostración "así lo ve el conductor" con DATOS DE EJEMPLO (nada real):

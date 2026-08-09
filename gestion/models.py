@@ -933,7 +933,6 @@ class EncuestaConductor(models.Model):
     )
 
     # --- PDF generado (evidencia documental independiente) ---
-    pdf_generado = models.FileField(upload_to='encuestas_conductor_pdf/', blank=True, null=True)
     fecha_diligenciamiento = models.DateTimeField(auto_now_add=True)
 
     class Meta:

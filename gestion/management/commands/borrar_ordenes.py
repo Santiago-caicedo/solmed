@@ -42,9 +42,9 @@ class Command(BaseCommand):
         )
 
     # (modelo, campos de archivo) de todo lo que cae con las órdenes.
+    # La encuesta de cierre ya no guarda PDF (se genera al descargar).
     ARCHIVOS = [
         (Manifiesto, ('pdf_generado', 'firma_cliente')),
-        (EncuestaConductor, ('pdf_generado',)),
         (DocumentoOrden, ('archivo',)),
         (FotoAyudante, ('archivo',)),
         (OrdenServicio, ('bascula_adjunto', 'registro_fotografico_adjunto')),
