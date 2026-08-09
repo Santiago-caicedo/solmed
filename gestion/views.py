@@ -1607,10 +1607,14 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                     if persona is None or not (fotos or pedidas):
                         continue
                     subidas = {f.novedad for f in fotos}
+                    pendientes = [p for p in pedidas if p['codigo'] not in subidas]
                     evidencias.append({
                         'persona': persona,
+                        'cuadrilla': cuadrilla,
+                        'slot': slot,
                         'fotos': fotos,
-                        'faltan': [p['etiqueta'] for p in pedidas if p['codigo'] not in subidas],
+                        'pendientes': pendientes,
+                        'faltan': [p['etiqueta'] for p in pendientes],
                     })
         context['evidencias_ayudantes'] = evidencias
         return context
@@ -1621,6 +1625,37 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         # Soportes pendientes (báscula / fotos): el asesor puede completarlos
         # si el conductor no lo ha hecho.
         if _cargar_soporte_orden(request, orden):
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        # Fotos de los AYUDANTES: si alguno no subió las suyas por su enlace,
+        # gestión las carga aquí (sirve aunque el enlace ya haya vencido).
+        if 'submit_foto_ayudante' in request.POST:
+            programacion = getattr(orden, 'programacion_origen', None)
+            cuadrilla = (programacion.cuadrillas.filter(
+                pk=request.POST.get('cuadrilla')).first() if programacion else None)
+            slot = request.POST.get('slot')
+            novedad = request.POST.get('novedad', '')
+            fotos = request.FILES.getlist('fotos_ayudante')
+            slot = int(slot) if slot in ('1', '2') else None
+            codigos = ({f['codigo'] for f in cuadrilla.fotos_pedidas(slot)}
+                       if cuadrilla and slot else set())
+            if not cuadrilla or slot is None or cuadrilla.ayudante_de(slot) is None:
+                messages.error(request, "Ese ayudante no corresponde a esta orden.")
+            elif novedad not in codigos:
+                messages.error(request, "Esa foto no corresponde al turno del ayudante.")
+            elif not fotos:
+                messages.error(request, "Selecciona la foto del ayudante antes de enviarla.")
+            else:
+                for foto in fotos:
+                    FotoAyudante.objects.create(
+                        cuadrilla=cuadrilla, slot=slot, novedad=novedad, archivo=foto)
+                nombre = cuadrilla.ayudante_de(slot)
+                messages.success(
+                    request,
+                    f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} cargada"
+                    f"{'s' if len(fotos) != 1 else ''} por gestión para "
+                    f"{nombre.get_full_name() or nombre.username}."
+                )
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
         if 'submit_documento' in request.POST:
