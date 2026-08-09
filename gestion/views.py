@@ -831,6 +831,9 @@ def _generar_pdf_encuesta_conductor(encuesta, request):
         'recorrido': recorrido,
         'orden': recorrido.orden,
         'logo_b64': logo_b64,
+        # Números de las preguntas cuya respuesta exige atención (veredicto).
+        'preguntas_alerta': [
+            str(r['numero']) for r in encuesta.respuestas() if r['alerta']],
     }
     html_string = template.render(context)
     html = HTML(string=html_string, base_url=request.build_absolute_uri())

@@ -2,109 +2,241 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Encuesta de Cierre del Conductor - Recorrido #{{ recorrido.pk }}</title>
+    <title>Encuesta de cierre del conductor - Recorrido #{{ recorrido.pk }}</title>
     <style>
-        @page {
-            size: letter portrait;
-            margin: 0.6in;
-        }
+        /* Evidencia interna del PESV: identidad verde SOLMED (el acta del
+           cliente es azul; este documento debe leerse distinto). */
+        @page { size: letter portrait; margin: 0.55in 0.6in; }
         body {
             font-family: "Helvetica", Arial, sans-serif;
-            font-size: 9pt;
-            color: #000;
-            line-height: 1.35;
+            font-size: 9pt; color: #232a20; line-height: 1.4;
         }
-        .header {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            border-bottom: 2px solid #2c3e50;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
-        }
-        .header img { height: 48px; margin-right: 14px; }
-        .header .title { font-size: 13pt; font-weight: bold; color: #2c3e50; }
-        .header .subtitle { font-size: 8pt; color: #555; }
 
-        .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-        .meta-table td { border: 1px solid #999; padding: 4px 6px; font-size: 8.5pt; }
-        .meta-table .lbl { background: #E9ECEF; font-weight: bold; width: 22%; }
-
-        .section { border: 1px solid #000; border-radius: 3px; margin-bottom: 8px; overflow: hidden; }
-        .section-title {
-            font-weight: bold;
-            background-color: #E9ECEF;
-            padding: 4px 6px;
-            border-bottom: 1px solid #000;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            font-size: 8.5pt;
+        /* ---- Cabecera ---- */
+        .header { width: 100%; border-collapse: collapse; }
+        .header td { vertical-align: middle; padding: 0; }
+        .header .logo img { height: 44px; }
+        .header .titulo { padding-left: 12px; }
+        .eyebrow {
+            font-size: 6.8pt; font-weight: bold; letter-spacing: 1.6px;
+            text-transform: uppercase; color: #5E8C1B;
         }
-        .qa { padding: 5px 8px; border-bottom: 1px solid #ddd; }
-        .qa:last-child { border-bottom: none; }
-        .q { font-weight: bold; }
-        .a { margin-top: 2px; padding: 2px 8px; background: #f6f8fa; border-left: 3px solid #9cbe30; }
-        .footer { margin-top: 20px; font-size: 7.5pt; color: #666; text-align: center; border-top: 1px solid #ccc; padding-top: 6px; }
-        .sign-row { display: flex; flex-direction: row; justify-content: space-between; margin-top: 30px; }
-        .sign-box { width: 45%; text-align: center; border-top: 1px solid #000; padding-top: 4px; font-size: 8pt; }
+        .h-title { font-size: 14.5pt; font-weight: bold; color: #1c2416; letter-spacing: .2px; }
+        .h-sub { font-size: 7.5pt; color: #6b7264; margin-top: 1px; }
+        .rec-box {
+            width: 128px; text-align: center; border: 1.2px solid #5E8C1B;
+            border-radius: 6px; padding: 5px 4px 6px; background: #f6f9ec;
+        }
+        .rec-box .t { font-size: 6.6pt; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; color: #5E8C1B; }
+        .rec-box .n { font-size: 13pt; font-weight: bold; color: #1c2416; }
+        .rec-box .f { font-size: 7pt; color: #6b7264; }
+        .header-rule { border: 0; border-top: 2.4px solid #9CBE30; margin: 8px 0 0; }
+        .header-rule2 { border: 0; border-top: 0.8px solid #d9e2c4; margin: 1.6px 0 12px; }
+
+        /* ---- Datos del servicio ---- */
+        .meta { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        .meta td {
+            width: 33.33%; padding: 4px 10px 5px; border-bottom: 0.8px solid #e4e8dc;
+            border-right: 0.8px solid #e4e8dc;
+        }
+        .meta td:last-child { border-right: 0; }
+        .meta tr:last-child td { border-bottom: 0; }
+        .meta .l {
+            font-size: 6.6pt; font-weight: bold; letter-spacing: 1px;
+            text-transform: uppercase; color: #8a9180;
+        }
+        .meta .v { font-size: 9pt; font-weight: bold; color: #232a20; margin-top: 1px; }
+
+        /* ---- Veredicto ---- */
+        .veredicto {
+            border-radius: 6px; padding: 7px 11px; margin-bottom: 12px;
+            font-size: 9pt; font-weight: bold;
+        }
+        .veredicto .detalle { font-weight: normal; font-size: 8pt; margin-top: 1px; }
+        .v-ok { background: #eef4dd; border: 1px solid #c4d68a; color: #3c5c12; }
+        .v-alerta { background: #fdf3e0; border: 1px solid #ecc98a; color: #8a5a12; }
+
+        /* ---- Preguntas ---- */
+        .bloque { border: 1px solid #cdd6bc; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+        .bloque-title {
+            background: #eef4dd; color: #3c5c12; font-weight: bold;
+            font-size: 8.2pt; letter-spacing: 1px; text-transform: uppercase;
+            padding: 5px 10px; border-bottom: 1px solid #cdd6bc;
+        }
+        .qtab { width: 100%; border-collapse: collapse; }
+        .qtab td { padding: 6px 8px; border-bottom: 0.8px solid #e4e8dc; vertical-align: middle; }
+        .qtab tr:last-child td { border-bottom: 0; }
+        .qnum {
+            width: 24px; text-align: center; font-weight: bold; font-size: 9.5pt;
+            color: #5E8C1B;
+        }
+        .qtxt { font-size: 8.6pt; }
+        /* Casillas Sí / No: la elegida queda rellena (verde normal, ámbar si
+           es una respuesta que exige atención). */
+        .qresp { width: 92px; text-align: right; white-space: nowrap; }
+        .casilla {
+            display: inline-block; width: 34px; text-align: center;
+            font-size: 8pt; font-weight: bold; padding: 2.4px 0;
+            border: 1px solid #cdd6bc; border-radius: 4px; color: #a8ae9e;
+            background: #fbfcf8;
+        }
+        .casilla.marcada-ok { background: #5E8C1B; border-color: #5E8C1B; color: #fff; }
+        .casilla.marcada-alerta { background: #c47f12; border-color: #c47f12; color: #fff; }
+        tr.fila-alerta td { background: #fdf6e8; }
+        .marca-atencion {
+            font-size: 6.6pt; font-weight: bold; letter-spacing: .8px;
+            text-transform: uppercase; color: #a8690f; margin-top: 1px;
+        }
+
+        /* ---- Detalle del incidente ---- */
+        .incidente { border: 1.2px solid #ecc98a; background: #fffaf1; border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+        .incidente .cab {
+            background: #fdf3e0; color: #8a5a12; font-weight: bold; font-size: 8.2pt;
+            letter-spacing: 1px; text-transform: uppercase; padding: 5px 10px;
+            border-bottom: 1px solid #ecc98a;
+        }
+        .incidente .fila { padding: 6px 10px; }
+        .incidente .fila + .fila { border-top: 0.8px solid #f3e3c4; }
+        .incidente .l { font-size: 6.6pt; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; color: #b08a4a; }
+        .incidente .v { font-size: 8.8pt; color: #4a3a1a; margin-top: 1px; }
+
+        /* ---- Firmas ---- */
+        .firmas { width: 100%; border-collapse: collapse; margin-top: 26px; }
+        .firmas td { width: 50%; text-align: center; vertical-align: bottom; }
+        .firmas .caja { margin: 0 18px; border-top: 1px solid #232a20; padding-top: 4px; }
+        .firmas .nombre { font-size: 8.6pt; font-weight: bold; }
+        .firmas .rol { font-size: 7pt; color: #6b7264; letter-spacing: .6px; text-transform: uppercase; margin-top: 1px; }
+
+        .nota-digital {
+            margin-top: 10px; text-align: center; font-size: 7pt; color: #8a9180;
+        }
+        .footer {
+            margin-top: 14px; border-top: 0.8px solid #d9e2c4; padding-top: 5px;
+            font-size: 6.8pt; color: #8a9180; text-align: center;
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        {% if logo_b64 %}<img src="{{ logo_b64 }}" alt="SOLMED">{% endif %}
-        <div>
-            <div class="title">Encuesta de Cierre del Conductor</div>
-            <div class="subtitle">Evidencia de cumplimiento del PESV (Plan Estratégico de Seguridad Vial) — SOLMED SAS</div>
-        </div>
-    </div>
+    <table class="header">
+        <tr>
+            <td class="logo" style="width:120px;">{% if logo_b64 %}<img src="{{ logo_b64 }}" alt="SOLMED">{% endif %}</td>
+            <td class="titulo">
+                <div class="eyebrow">SOLMED SAS · Plan Estratégico de Seguridad Vial</div>
+                <div class="h-title">Encuesta de cierre del conductor</div>
+                <div class="h-sub">Autorreporte de seguridad vial y salud al finalizar la ruta — evidencia de cumplimiento del PESV</div>
+            </td>
+            <td style="width:128px;">
+                <div class="rec-box">
+                    <div class="t">Recorrido</div>
+                    <div class="n">#{{ recorrido.pk }}</div>
+                    <div class="f">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    <hr class="header-rule"><hr class="header-rule2">
 
-    <table class="meta-table">
+    <table class="meta">
         <tr>
-            <td class="lbl">Orden de servicio</td><td>#{{ orden.numero_orden }}</td>
-            <td class="lbl">Cliente</td><td>{{ orden.cliente.nombre }}</td>
+            <td>
+                <div class="l">Orden de servicio</div>
+                <div class="v">#{{ orden.numero_orden }}</div>
+            </td>
+            <td>
+                <div class="l">Cliente</div>
+                <div class="v">{{ orden.cliente.nombre }}</div>
+            </td>
+            <td>
+                <div class="l">Vehículo</div>
+                <div class="v">{{ recorrido.vehiculo.placa }}</div>
+            </td>
         </tr>
         <tr>
-            <td class="lbl">Recorrido</td><td>#{{ recorrido.pk }} — {{ recorrido.fecha_recorrido }}</td>
-            <td class="lbl">Vehículo</td><td>{{ recorrido.vehiculo.placa }}</td>
-        </tr>
-        <tr>
-            <td class="lbl">Conductor</td><td>{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</td>
-            <td class="lbl">Diligenciada</td><td>{{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}</td>
+            <td>
+                <div class="l">Conductor</div>
+                <div class="v">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</div>
+            </td>
+            <td>
+                <div class="l">Fecha del recorrido</div>
+                <div class="v">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
+            </td>
+            <td>
+                <div class="l">Encuesta diligenciada</div>
+                <div class="v">{{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}</div>
+            </td>
         </tr>
     </table>
 
-    <div class="section">
-        <div class="section-title">Seguridad vial y salud del conductor</div>
-        {% for r in encuesta.respuestas %}
-        <div class="qa">
-            <div class="q">{{ r.numero }}. {{ r.pregunta }}</div>
-            <div class="a">{{ r.respuesta }}</div>
-        </div>
-        {% endfor %}
+    {% if encuesta.tiene_alertas %}
+    <div class="veredicto v-alerta">
+        ⚠ Hay respuestas que requieren atención del líder de seguridad vial
+        <div class="detalle">Pregunta{{ preguntas_alerta|length|pluralize }}
+            {{ preguntas_alerta|join:", " }} — revisar y dejar registro de la gestión realizada.</div>
+    </div>
+    {% else %}
+    <div class="veredicto v-ok">
+        ✓ Sin señales de alerta: el conductor cerró la ruta sin novedades de seguridad vial ni de salud.
+    </div>
+    {% endif %}
+
+    <div class="bloque">
+        <div class="bloque-title">Seguridad vial y salud del conductor</div>
+        <table class="qtab">
+            {% for r in encuesta.respuestas %}
+            <tr{% if r.alerta %} class="fila-alerta"{% endif %}>
+                <td class="qnum">{{ r.numero }}</td>
+                <td class="qtxt">
+                    {{ r.pregunta }}
+                    {% if r.alerta %}<div class="marca-atencion">Respuesta que requiere atención</div>{% endif %}
+                </td>
+                <td class="qresp">
+                    <span class="casilla{% if r.respuesta == 'Sí' %}{% if r.alerta %} marcada-alerta{% else %} marcada-ok{% endif %}{% endif %}">Sí</span>
+                    <span class="casilla{% if r.respuesta == 'No' %}{% if r.alerta %} marcada-alerta{% else %} marcada-ok{% endif %}{% endif %}">No</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
     </div>
 
     {% if encuesta.condicion_riesgo == 'SI' %}
-    <div class="section">
-        <div class="section-title">Detalle de la condición de riesgo o casi-accidente</div>
-        <div class="qa">
-            <div class="q">Tipo de evento</div>
-            <div class="a">{{ encuesta.get_tipo_incidente_display|default:"—" }}</div>
+    <div class="incidente">
+        <div class="cab">Detalle de la condición de riesgo o casi-accidente</div>
+        <div class="fila">
+            <div class="l">Tipo de evento</div>
+            <div class="v">{{ encuesta.get_tipo_incidente_display|default:"—" }}</div>
         </div>
-        <div class="qa">
-            <div class="q">Descripción de lo ocurrido</div>
-            <div class="a">{{ encuesta.descripcion_incidente|default:"—" }}</div>
+        <div class="fila">
+            <div class="l">Descripción de lo ocurrido</div>
+            <div class="v">{{ encuesta.descripcion_incidente|default:"—"|linebreaksbr }}</div>
         </div>
     </div>
     {% endif %}
 
-    <div class="sign-row">
-        <div class="sign-box">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}<br>Conductor</div>
-        <div class="sign-box">Líder de Seguridad Vial / SST<br>SOLMED SAS</div>
+    <table class="firmas">
+        <tr>
+            <td>
+                <div class="caja">
+                    <div class="nombre">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</div>
+                    <div class="rol">Conductor</div>
+                </div>
+            </td>
+            <td>
+                <div class="caja">
+                    <div class="nombre">&nbsp;</div>
+                    <div class="rol">Líder de Seguridad Vial / SST — SOLMED SAS</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    <div class="nota-digital">
+        El conductor diligenció esta encuesta desde la plataforma con su usuario,
+        el {{ encuesta.fecha_diligenciamiento|date:"d/m/Y" }} a las {{ encuesta.fecha_diligenciamiento|date:"H:i" }}.
     </div>
 
     <div class="footer">
         Documento generado automáticamente por el sistema de gestión SOLMED SAS ·
-        Recorrido #{{ recorrido.pk }} · {{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}
+        Orden #{{ orden.numero_orden }} · Recorrido #{{ recorrido.pk }} ·
+        {{ encuesta.fecha_diligenciamiento|date:"d/m/Y H:i" }}
     </div>
 </body>
 </html>
