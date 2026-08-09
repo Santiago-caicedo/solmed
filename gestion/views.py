@@ -20,7 +20,7 @@ from io import BytesIO
 import qrcode
 from weasyprint import HTML
 from django.db import transaction
-from django.db.models import Sum, Count
+from django.db.models import F, Sum, Count
 import base64
 import datetime
 from django.db.models.functions import TruncMonth
@@ -390,7 +390,8 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = OrdenServicio
     template_name = 'gestion/lista_ordenes.html'
     context_object_name = 'ordenes'
-    ordering = ['-fecha_creacion']
+    # De la orden más alta a la más baja (el número es el consecutivo).
+    ordering = ['-numero_orden']
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -3448,7 +3449,9 @@ class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         estado_filtro = self.request.GET.get('estado')
         if estado_filtro:
             qs = qs.filter(estado=estado_filtro)
-        return qs
+        # Por el número de su orden, de mayor a menor; si alguna quedara sin
+        # orden, arriba (es la más pendiente). El pk desempata para paginar.
+        return qs.order_by(F('orden_id').desc(nulls_first=True), '-pk')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
