@@ -1202,3 +1202,53 @@ class DocumentoInternoForm(forms.ModelForm):
             if not cleaned['descripcion']:
                 self.add_error('descripcion', 'Ponle nombre al documento.')
         return cleaned
+
+
+class OrdenHistoricaForm(forms.Form):
+    """
+    Registra una orden ANTERIOR al consecutivo del sistema: actas que ya se
+    llenaron en físico y solo deben quedar archivadas con su número, el
+    cliente, el vehículo y el escaneo del acta. No pasa por la programación.
+    """
+    numero_orden = forms.IntegerField(
+        min_value=1, label="Número de la orden",
+        widget=forms.NumberInput(attrs={'class': 'form-control'}),
+        help_text=(f"El consecutivo que trae el acta física (menor que "
+                   f"{OrdenServicio.NUMERO_INICIAL}, donde arranca el sistema)."),
+    )
+    cliente = forms.ModelChoiceField(
+        queryset=Cliente.objects.order_by('nombre'), label="Cliente",
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Elige el cliente ---',
+    )
+    vehiculo = forms.ModelChoiceField(
+        queryset=Vehiculo.objects.order_by('placa'), label="Vehículo",
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Elige el vehículo ---',
+    )
+    fecha_servicio = forms.DateField(
+        label="Fecha del servicio",
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'},
+                               format='%Y-%m-%d'),
+    )
+    acta = forms.FileField(
+        label="Acta diligenciada (PDF o foto)",
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control', 'accept': 'application/pdf,image/*'}),
+        help_text="El escaneo o la foto del acta que se llenó en físico.",
+    )
+    descripcion = forms.CharField(
+        required=False, label="Descripción (opcional)",
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+    )
+
+    def clean_numero_orden(self):
+        numero = self.cleaned_data['numero_orden']
+        if numero >= OrdenServicio.NUMERO_INICIAL:
+            raise forms.ValidationError(
+                f"Solo es para órdenes históricas: el número debe ser menor "
+                f"que {OrdenServicio.NUMERO_INICIAL}. Las nuevas salen de la "
+                f"programación con su consecutivo automático.")
+        if OrdenServicio.objects.filter(pk=numero).exists():
+            raise forms.ValidationError(f"Ya existe la orden #{numero}.")
+        return numero

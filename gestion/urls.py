@@ -10,6 +10,7 @@ urlpatterns = [
     
     # Las URLs de las órdenes ahora tendrán un prefijo
     path('ordenes/', views.ListaOrdenesView.as_view(), name='lista_ordenes'),
+    path('ordenes/historica/', views.OrdenHistoricaView.as_view(), name='orden_historica'),
     # Las órdenes NO se crean a mano: siempre nacen de una programación
     # (por eso no hay ruta 'ordenes/nueva/'). Aquí solo se ven y se editan.
     path('ordenes/<int:pk>/', views.OrdenServicioDetailView.as_view(), name='detalle_orden'),

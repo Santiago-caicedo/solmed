@@ -25,7 +25,7 @@ import base64
 import datetime
 from django.db.models.functions import TruncMonth
 from decimal import Decimal 
-from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView
+from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView, FormView
 from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -33,7 +33,7 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
@@ -438,7 +438,45 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
 # Las órdenes NO se crean a mano (se eliminó CrearOrdenView): siempre nacen de
 # una programación, que valida personal/documentos y dispara los correos.
-# Aquí solo queda editarlas y añadirles recorridos.
+# ÚNICA excepción: las órdenes HISTÓRICAS (anteriores al consecutivo 22207),
+# actas que ya se llenaron en físico y solo se archivan con su escaneo.
+class OrdenHistoricaView(AsesorRequiredMixin, FormView):
+    """
+    Registra una orden anterior al arranque del sistema: número real del acta
+    física, cliente, vehículo, fecha y el PDF/foto del acta. Queda finalizada
+    y por fuera de conciliación y cobros; no dispara correos ni validaciones
+    de personal.
+    """
+    template_name = 'gestion/orden_historica_form.html'
+    form_class = OrdenHistoricaForm
+
+    def form_valid(self, form):
+        datos = form.cleaned_data
+        with transaction.atomic():
+            orden = OrdenServicio(
+                numero_orden=datos['numero_orden'],
+                cliente=datos['cliente'],
+                asesor=self.request.user,
+                direccion_servicio='',
+                descripcion=(datos['descripcion'] or
+                             'Orden histórica: acta diligenciada en físico.'),
+                estado_orden='FINALIZADA',
+                estado_pago='PAGADO',
+                estado_conciliacion='NO_APLICA',
+            )
+            orden.save()
+            Recorrido.objects.create(
+                orden=orden, vehiculo=datos['vehiculo'],
+                fecha_recorrido=datos['fecha_servicio'], estado='COMPLETADO')
+            DocumentoOrden.objects.create(
+                orden=orden, archivo=datos['acta'],
+                descripcion='Acta de servicio diligenciada en físico')
+        messages.success(
+            self.request,
+            f"Orden histórica #{orden.numero_orden} registrada con su acta.")
+        return redirect('gestion:detalle_orden', pk=orden.pk)
+
+
 class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
     """
     Edita los datos de la orden. Los recorridos NO se agregan aquí: cada orden
@@ -1592,6 +1630,11 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
             self.object.recorridos.all().order_by('fecha_recorrido'))
         # Fotos adicionales del registro fotográfico que cargó el conductor.
         context['fotos_registro'] = self.object.documentos.filter(
+            descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
+        )
+        # Otros adjuntos de la orden (p. ej. el acta física de una orden
+        # histórica); las fotos de registro ya se muestran como soportes.
+        context['documentos_orden'] = self.object.documentos.exclude(
             descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
         )
         # Evidencias que subieron los ayudantes desde su enlace, agrupadas por
