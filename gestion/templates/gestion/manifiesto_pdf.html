@@ -88,8 +88,12 @@
 
         /* ---- Observaciones / firmas ---- */
         .obs { min-height: 26px; padding: 2px 6px; }
-        /* La firma del cliente, protagonista: alta y legible (cabe en 1 página). */
-        .firma-img { max-height: 55px; max-width: 240px; vertical-align: middle; margin-left: 8px; }
+        /* La firma del cliente, protagonista: alta y legible (cabe en 1 página).
+           Va en una mini-tabla junto a la etiqueta, con centrado vertical real:
+           "FIRMA Y SELLO:" queda a la mitad de la altura de la firma. */
+        .firma-img { max-height: 55px; max-width: 240px; display: block; }
+        .firma-fila td { padding: 0; }
+        .firma-fila .firma-etq { width: 92px; }
 
         .footer {
             position: fixed; bottom: -0.3in; left: 0; right: 0;
@@ -379,8 +383,12 @@
             <tr>
                 <td style="width: 50%;"><span class="lbl">NOMBRE:</span> {{ manifiesto.nombre_responsable_cliente }}</td>
                 <td style="width: 50%;">
-                    <span class="lbl">FIRMA Y SELLO:</span>
-                    {% if firma_cliente_b64 %}<img src="{{ firma_cliente_b64 }}" class="firma-img">{% endif %}
+                    <table class="firma-fila">
+                        <tr>
+                            <td class="firma-etq"><span class="lbl">FIRMA Y SELLO:</span></td>
+                            <td>{% if firma_cliente_b64 %}<img src="{{ firma_cliente_b64 }}" class="firma-img">{% endif %}</td>
+                        </tr>
+                    </table>
                 </td>
             </tr>
         </table>
