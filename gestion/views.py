@@ -1617,6 +1617,13 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                         'faltan': [p['etiqueta'] for p in pendientes],
                     })
         context['evidencias_ayudantes'] = evidencias
+        # ¿Los soportes exigidos (báscula / fotos) ya están completos?
+        orden = self.object
+        context['soportes_ok'] = (
+            (not orden.requiere_bascula or bool(orden.bascula_adjunto))
+            and (not orden.requiere_registro_fotografico
+                 or bool(orden.registro_fotografico_adjunto))
+        )
         return context
 
     def post(self, request, *args, **kwargs):

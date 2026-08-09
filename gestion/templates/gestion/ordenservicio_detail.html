@@ -163,6 +163,113 @@
             </div>
         </div>
 
+        {% if orden.requiere_bascula or orden.requiere_registro_fotografico %}
+        {% comment %}
+        Soportes que el servicio exige (tiquete de báscula, registro fotográfico):
+        se muestran como fotos reales. Si faltan, gestión los puede cargar aquí.
+        {% endcomment %}
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="bi bi-images me-1"></i>Soportes del servicio</h5>
+                {% if soportes_ok %}
+                <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Completos</span>
+                {% else %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Pendientes</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if orden.requiere_bascula %}
+                <div class="ev-bloque">
+                    <div class="ev-cab">
+                        <span class="ev-ico"><i class="bi bi-speedometer2"></i></span>
+                        <div class="ev-tit">
+                            <div class="t">Tiquete de báscula</div>
+                            {% if orden.programacion_origen.bascula_sitio %}
+                            <div class="s">{{ orden.programacion_origen.bascula_sitio.nombre }}{% if orden.programacion_origen.bascula_sitio.direccion %} · {{ orden.programacion_origen.bascula_sitio.direccion }}{% endif %}</div>
+                            {% endif %}
+                        </div>
+                        {% if orden.bascula_adjunto %}
+                        <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Cargado</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">Pendiente</span>
+                        {% endif %}
+                    </div>
+                    {% if orden.bascula_adjunto %}
+                        {% if ".pdf" in orden.bascula_adjunto.name|lower %}
+                        <a class="ev-doc" href="{{ orden.bascula_adjunto.url }}" target="_blank">
+                            <i class="bi bi-file-earmark-pdf-fill"></i>
+                            <span class="tx">Ver el tiquete<small>Documento PDF</small></span>
+                        </a>
+                        {% else %}
+                        <div class="ev-fotos">
+                            <a class="ev-foto" href="{{ orden.bascula_adjunto.url }}" target="_blank" title="Ver el tiquete de báscula">
+                                <img src="{{ orden.bascula_adjunto.url }}" alt="Tiquete de báscula">
+                                <div class="pie">Tiquete</div>
+                            </a>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                    {# El conductor no lo ha subido: gestión lo puede completar aquí #}
+                    <form method="post" enctype="multipart/form-data" class="ev-pend">
+                        {% csrf_token %}
+                        <span class="et"><i class="bi bi-cloud-upload"></i>Falta el soporte</span>
+                        <input type="file" name="bascula_adjunto" accept="image/*,application/pdf"
+                               class="form-control form-control-sm" required>
+                        <button name="submit_bascula" value="1" class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-upload me-1"></i>Cargar tiquete
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if orden.requiere_registro_fotografico %}
+                <div class="ev-bloque">
+                    <div class="ev-cab">
+                        <span class="ev-ico"><i class="bi bi-camera"></i></span>
+                        <div class="ev-tit">
+                            <div class="t">Registro fotográfico</div>
+                            {% if orden.registro_fotografico_adjunto %}
+                            <div class="s">Fotos del servicio subidas por el equipo</div>
+                            {% endif %}
+                        </div>
+                        {% if orden.registro_fotografico_adjunto %}
+                        <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Cargado</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">Pendiente</span>
+                        {% endif %}
+                    </div>
+                    {% if orden.registro_fotografico_adjunto %}
+                    <div class="ev-fotos">
+                        <a class="ev-foto" href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank" title="Registro fotográfico">
+                            <img src="{{ orden.registro_fotografico_adjunto.url }}" alt="Foto 1">
+                            <div class="pie">Foto 1</div>
+                        </a>
+                        {# Fotos adicionales que cargaron el conductor o gestión #}
+                        {% for doc in fotos_registro %}
+                        <a class="ev-foto" href="{{ doc.archivo.url }}" target="_blank" title="{{ doc.descripcion }}">
+                            <img src="{{ doc.archivo.url }}" alt="Foto {{ forloop.counter|add:1 }}">
+                            <div class="pie">Foto {{ forloop.counter|add:1 }}</div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <form method="post" enctype="multipart/form-data" class="ev-pend">
+                        {% csrf_token %}
+                        <span class="et"><i class="bi bi-cloud-upload"></i>Falta el soporte</span>
+                        <input type="file" name="fotos" accept="image/*" multiple
+                               class="form-control form-control-sm" required>
+                        <button name="submit_fotos" value="1" class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-upload me-1"></i>Cargar fotos
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if hojas_conductor %}
         {% comment %}
         Lo que reportó el conductor en su hoja: novedades operacionales y
@@ -225,9 +332,13 @@
                 <div class="card-header"><h5 class="mb-0"><i class="bi bi-camera me-1"></i>Evidencias de los ayudantes</h5></div>
                 <div class="card-body">
                     {% for e in evidencias_ayudantes %}
-                    <div class="{% if not forloop.last %}border-bottom pb-3 mb-3{% endif %}">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                            <strong>{{ e.persona.get_full_name|default:e.persona.username }}</strong>
+                    <div class="ev-bloque">
+                        <div class="ev-cab">
+                            <span class="ev-ico ei-persona"><i class="bi bi-person"></i></span>
+                            <div class="ev-tit">
+                                <div class="t">{{ e.persona.get_full_name|default:e.persona.username }}</div>
+                                <div class="s">Ayudante</div>
+                            </div>
                             {% if e.faltan %}
                             <span class="badge bg-warning text-dark" title="{{ e.faltan|join:', ' }}">
                                 Falta{{ e.faltan|length|pluralize }}: {{ e.faltan|join:", " }}
@@ -237,19 +348,16 @@
                             {% endif %}
                         </div>
                         {% if e.fotos %}
-                        <div class="d-flex flex-wrap gap-2">
+                        <div class="ev-fotos{% if e.pendientes %} mb-2{% endif %}">
                             {% for f in e.fotos %}
-                            <a href="{{ f.archivo.url }}" target="_blank" class="text-decoration-none"
+                            <a class="ev-foto" href="{{ f.archivo.url }}" target="_blank"
                                title="{{ f.get_novedad_display_label }} · {{ f.fecha_subida|date:'d/m/Y H:i' }}">
-                                <img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}"
-                                     style="width:88px; height:88px; object-fit:cover; border-radius:6px; border:1px solid var(--line);">
-                                <div class="small text-muted text-center" style="max-width:88px; font-size:.68rem; line-height:1.2;">
-                                    {{ f.get_novedad_display_label }}
-                                </div>
+                                <img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}">
+                                <div class="pie">{{ f.get_novedad_display_label }}</div>
                             </a>
                             {% endfor %}
                         </div>
-                        {% else %}
+                        {% elif not e.pendientes %}
                         <span class="text-muted small">Aún no ha enviado fotos.</span>
                         {% endif %}
 
@@ -258,26 +366,21 @@
                         Fotos que el ayudante no ha subido: gestión puede cargarlas
                         por él desde aquí (sirve aunque su enlace haya vencido).
                         {% endcomment %}
-                        <div class="mt-2">
-                            {% for p in e.pendientes %}
-                            <form method="post" enctype="multipart/form-data"
-                                  class="d-flex gap-2 flex-wrap align-items-center mb-2">
-                                {% csrf_token %}
-                                <input type="hidden" name="submit_foto_ayudante" value="1">
-                                <input type="hidden" name="cuadrilla" value="{{ e.cuadrilla.pk }}">
-                                <input type="hidden" name="slot" value="{{ e.slot }}">
-                                <input type="hidden" name="novedad" value="{{ p.codigo }}">
-                                <span class="small text-muted" style="min-width:170px;">
-                                    <i class="bi bi-camera me-1"></i>{{ p.etiqueta }}
-                                </span>
-                                <input type="file" name="fotos_ayudante" accept="image/*" multiple
-                                       class="form-control form-control-sm" style="max-width:250px;" required>
-                                <button class="btn btn-sm btn-outline-success">
-                                    <i class="bi bi-upload me-1"></i>Cargar
-                                </button>
-                            </form>
-                            {% endfor %}
-                        </div>
+                        {% for p in e.pendientes %}
+                        <form method="post" enctype="multipart/form-data" class="ev-pend">
+                            {% csrf_token %}
+                            <input type="hidden" name="submit_foto_ayudante" value="1">
+                            <input type="hidden" name="cuadrilla" value="{{ e.cuadrilla.pk }}">
+                            <input type="hidden" name="slot" value="{{ e.slot }}">
+                            <input type="hidden" name="novedad" value="{{ p.codigo }}">
+                            <span class="et"><i class="bi bi-camera"></i>{{ p.etiqueta }}</span>
+                            <input type="file" name="fotos_ayudante" accept="image/*" multiple
+                                   class="form-control form-control-sm" required>
+                            <button class="btn btn-sm btn-outline-success">
+                                <i class="bi bi-upload me-1"></i>Cargar
+                            </button>
+                        </form>
+                        {% endfor %}
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -401,6 +504,50 @@
         .doc-pill.dp-vencido{ background:#fdecec; color:#c92a2a; border-color:#f5c2c7; }
         .doc-pill.dp-vencido:hover{ background:#f8d7da; }
         .doc-pill.dp-vacio{ background:transparent; color:#adb5bd; border:1px dashed #ced4da; }
+        /* ---- Soportes y evidencias del servicio (fotos reales, no enlaces) ---- */
+        .ev-bloque{ border:1px solid var(--line,#e6e9ee); border-radius:12px; padding:.8rem .9rem; background:var(--panel,#fff); }
+        .ev-bloque + .ev-bloque{ margin-top:.85rem; }
+        .ev-cab{ display:flex; align-items:center; gap:.65rem; margin-bottom:.65rem; }
+        .ev-cab:last-child{ margin-bottom:0; }
+        .ev-ico{
+            flex-shrink:0; width:38px; height:38px; border-radius:10px; font-size:1.15rem;
+            display:flex; align-items:center; justify-content:center;
+            background:rgba(13,110,253,.08); color:#0d6efd;
+        }
+        .ev-ico.ei-persona{ background:rgba(108,117,125,.13); color:#5c636a; }
+        .ev-tit{ min-width:0; }
+        .ev-tit .t{ font-weight:700; font-size:.92rem; color:var(--ink,#2b3542); line-height:1.25; }
+        .ev-tit .s{ font-size:.76rem; color:var(--ink-3,#8a94a3); }
+        .ev-cab .badge{ margin-left:auto; flex-shrink:0; }
+        .ev-fotos{ display:flex; flex-wrap:wrap; gap:.6rem; }
+        .ev-foto{ width:106px; text-decoration:none; }
+        .ev-foto img{
+            width:106px; height:84px; object-fit:cover; display:block; border-radius:8px;
+            border:1px solid var(--line,#e6e9ee); transition:transform .12s ease, box-shadow .12s ease;
+        }
+        .ev-foto:hover img{ transform:scale(1.03); box-shadow:0 4px 14px rgba(15,23,35,.18); }
+        .ev-foto .pie{
+            font-size:.68rem; line-height:1.25; color:var(--ink-2,#5b6470);
+            text-align:center; margin-top:.3rem; overflow:hidden;
+        }
+        .ev-doc{
+            display:inline-flex; align-items:center; gap:.6rem; text-decoration:none;
+            border:1px solid var(--line,#e6e9ee); background:#f8f9fa; border-radius:10px; padding:.55rem .85rem;
+        }
+        .ev-doc:hover{ background:#eef1f4; }
+        .ev-doc i{ font-size:1.5rem; color:#c92a2a; }
+        .ev-doc .tx{ font-size:.84rem; font-weight:600; color:var(--ink,#2b3542); line-height:1.2; }
+        .ev-doc .tx small{ display:block; font-weight:400; color:var(--ink-3,#8a94a3); }
+        .ev-pend{
+            border:1.5px dashed #ced4da; border-radius:10px; background:#fbfcfd;
+            padding:.6rem .75rem; display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+        }
+        .ev-pend + .ev-pend{ margin-top:.5rem; }
+        .ev-pend .et{
+            display:flex; align-items:center; gap:.4rem; font-size:.8rem;
+            font-weight:600; color:var(--ink-2,#5b6470); min-width:160px;
+        }
+        .ev-pend input[type=file]{ flex:1 1 190px; max-width:260px; }
     </style>
 
     <div class="col-lg-4">
@@ -412,56 +559,15 @@
                 <p><strong>Asesor:</strong> {{ orden.asesor.get_full_name|default:orden.asesor.username }}</p>
                 <p><strong>Creada:</strong> {{ orden.fecha_creacion|date:"d/m/Y" }}</p>
                 <hr>
-                {# Báscula y registro fotográfico: el soporte solo se muestra si el servicio lo requiere #}
+                {# Los soportes (tiquete y fotos) viven en la tarjeta "Soportes del servicio" #}
                 <p class="mb-1"><strong>Báscula:</strong> {{ orden.get_bascula_display|default:"—" }}
                     {% if orden.programacion_origen.bascula_sitio %}
                         · {{ orden.programacion_origen.bascula_sitio.nombre }}
                         {% if orden.programacion_origen.bascula_sitio.direccion %}
                             <small class="text-muted">({{ orden.programacion_origen.bascula_sitio.direccion }})</small>
                         {% endif %}
-                    {% endif %}
-                    {% if orden.requiere_bascula %}
-                        {% if orden.bascula_adjunto %}
-                            · <a href="{{ orden.bascula_adjunto.url }}" target="_blank">ver soporte</a>
-                        {% else %}
-                            <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
-                        {% endif %}
                     {% endif %}</p>
-                {% if orden.requiere_bascula and not orden.bascula_adjunto %}
-                {% comment %}
-                El conductor no lo ha subido: el asesor puede completarlo desde aquí.
-                {% endcomment %}
-                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center mb-2">
-                    {% csrf_token %}
-                    <input type="file" name="bascula_adjunto" accept="image/*,application/pdf"
-                           class="form-control form-control-sm" style="max-width:280px;" required>
-                    <button name="submit_bascula" value="1" class="btn btn-sm btn-outline-success">
-                        <i class="bi bi-upload me-1"></i>Cargar tiquete
-                    </button>
-                </form>
-                {% endif %}
-                <p class="mb-0"><strong>Registro fotográfico:</strong> {{ orden.get_registro_fotografico_display|default:"—" }}
-                    {% if orden.requiere_registro_fotografico %}
-                        {% if orden.registro_fotografico_adjunto %}
-                            · <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank">foto 1</a>
-                            {# Fotos adicionales que el conductor cargó desde su vista de la orden #}
-                            {% for doc in fotos_registro %}
-                                · <a href="{{ doc.archivo.url }}" target="_blank" title="{{ doc.descripcion }}">foto {{ forloop.counter|add:1 }}</a>
-                            {% endfor %}
-                        {% else %}
-                            <span class="badge bg-warning text-dark ms-1">Falta el soporte</span>
-                        {% endif %}
-                    {% endif %}</p>
-                {% if orden.requiere_registro_fotografico and not orden.registro_fotografico_adjunto %}
-                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center mb-2">
-                    {% csrf_token %}
-                    <input type="file" name="fotos" accept="image/*" multiple
-                           class="form-control form-control-sm" style="max-width:280px;" required>
-                    <button name="submit_fotos" value="1" class="btn btn-sm btn-outline-success">
-                        <i class="bi bi-upload me-1"></i>Cargar fotos
-                    </button>
-                </form>
-                {% endif %}
+                <p class="mb-0"><strong>Registro fotográfico:</strong> {{ orden.get_registro_fotografico_display|default:"—" }}</p>
                 <hr>
                 <p class="mb-0"><strong>Descripción:</strong><br>{{ orden.descripcion|linebreaks }}</p>
             </div>
