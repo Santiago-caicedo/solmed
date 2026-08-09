@@ -1755,8 +1755,10 @@ class DocumentoPersonal(models.Model):
     """
     Documento del expediente de una persona (conductor o ayudante): cédula,
     seguridad social, licencia de conducción, cursos, etc. Los documentos que
-    vencen (licencia, seguridad social) llevan fecha de vencimiento con alerta,
-    igual que los documentos de los vehículos (misma antelación de 20 días).
+    vencen (licencia, seguridad social) llevan fecha de vencimiento con alerta.
+    La antelación es de 20 días, como en los vehículos, SALVO la seguridad
+    social: se renueva cada mes, así que con 20 días viviría en alerta; se
+    avisa solo cuando quedan 3 días.
 
     El expediente de una persona = todos sus DocumentoPersonal. En el expediente
     de la orden se muestran EN VIVO los documentos del conductor/ayudante de cada
@@ -1764,6 +1766,9 @@ class DocumentoPersonal(models.Model):
     órdenes.
     """
     DIAS_ALERTA_VENCIMIENTO = 20
+    # La seguridad social se renueva CADA MES: con la antelación general
+    # estaría en alerta 20 de 30 días. Se avisa a los 3 días del vencimiento.
+    DIAS_ALERTA_SEGURIDAD_SOCIAL = 3
 
     TIPO_CHOICES = [
         ('CEDULA', 'Cédula de ciudadanía'),
@@ -1815,9 +1820,16 @@ class DocumentoPersonal(models.Model):
         return dias is not None and dias < 0
 
     @property
+    def dias_alerta(self):
+        """Antelación del aviso según el tipo (la SS mensual avisa a 3 días)."""
+        if self.tipo == 'SEGURIDAD_SOCIAL':
+            return self.DIAS_ALERTA_SEGURIDAD_SOCIAL
+        return self.DIAS_ALERTA_VENCIMIENTO
+
+    @property
     def por_vencer(self):
         dias = self.dias_restantes
-        return dias is not None and 0 <= dias <= self.DIAS_ALERTA_VENCIMIENTO
+        return dias is not None and 0 <= dias <= self.dias_alerta
 
     @property
     def vigente(self):
