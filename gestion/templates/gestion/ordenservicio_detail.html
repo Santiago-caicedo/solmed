@@ -381,6 +381,19 @@
                             </button>
                         </form>
                         {% endfor %}
+                        {% comment %}
+                        Aún le faltan fotos: se le puede reenviar el correo con su
+                        enlace personal para que las suba él mismo.
+                        {% endcomment %}
+                        <form method="post" class="mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="submit_reenviar_ayudante" value="1">
+                            <input type="hidden" name="cuadrilla" value="{{ e.cuadrilla.pk }}">
+                            <input type="hidden" name="slot" value="{{ e.slot }}">
+                            <button class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-envelope-arrow-up me-1"></i>Reenviar correo para subir las fotos
+                            </button>
+                        </form>
                         {% endif %}
                     </div>
                     {% endfor %}

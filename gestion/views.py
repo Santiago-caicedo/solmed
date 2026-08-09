@@ -1665,6 +1665,41 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                 )
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
+        # Reenviar al ayudante su correo con el enlace (token) para subir fotos.
+        if 'submit_reenviar_ayudante' in request.POST:
+            programacion = getattr(orden, 'programacion_origen', None)
+            cuadrilla = (programacion.cuadrillas.filter(
+                pk=request.POST.get('cuadrilla')).first() if programacion else None)
+            slot = request.POST.get('slot')
+            slot = int(slot) if slot in ('1', '2') else None
+            if not cuadrilla or slot is None or cuadrilla.ayudante_de(slot) is None:
+                messages.error(request, "Ese ayudante no corresponde a esta orden.")
+            else:
+                try:
+                    enviado, aviso = _correo_ayudante(request, cuadrilla, slot)
+                except Exception as e:
+                    messages.warning(request, f"No se pudo reenviar el correo ({e}).")
+                else:
+                    if enviado:
+                        ayudante = cuadrilla.ayudante_de(slot)
+                        messages.success(
+                            request,
+                            f"Correo reenviado a "
+                            f"{ayudante.get_full_name() or ayudante.username} "
+                            f"con su enlace para subir las fotos del servicio."
+                        )
+                        if not cuadrilla.acceso_vigente:
+                            messages.warning(
+                                request,
+                                "Ojo: su enlace ya venció "
+                                f"(era válido hasta el {cuadrilla.fecha_limite_acceso:%d/%m/%Y}), "
+                                "así que podrá ver el servicio pero no subir fotos. "
+                                "Puedes cargarlas tú desde esta página."
+                            )
+                    if aviso:
+                        messages.warning(request, aviso)
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
         if 'submit_documento' in request.POST:
             form = DocumentoOrdenForm(request.POST, request.FILES)
             if form.is_valid():
@@ -3621,6 +3656,47 @@ def _enviar_correo_servicio(ctx, correo):
     mensaje.send(fail_silently=False)
 
 
+def _correo_ayudante(request, cuadrilla, slot):
+    """
+    Arma y envía el correo del ayudante del slot con su enlace personal (token).
+    Sirve para el envío inicial de la programación y para reenviarlo después.
+    Devuelve (enviado, aviso); aviso explica por qué no se pudo enviar.
+    """
+    ayudante = cuadrilla.ayudante_de(slot)
+    nombre = ayudante.get_full_name() or ayudante.username
+    correo = (ayudante.email or '').strip()
+    if not correo:
+        return False, f"El ayudante {nombre} no tiene correo registrado: no se le pudo avisar"
+
+    datos = _datos_servicio_ayudante(cuadrilla, slot)
+    # Al ayudante NO se le manda la operación completa: solo lo suyo.
+    filas = []
+    if datos['hora_ayudante']:
+        filas.append(('Hora', datos['hora_ayudante'].strftime('%H:%M')))
+    if datos['lugar_ayudante']:
+        filas.append(('Lugar', datos['lugar_ayudante']))
+    ctx = {
+        'nombre': nombre,
+        'primer_nombre': (ayudante.first_name or nombre).split(' ')[0],
+        'programacion': cuadrilla.programacion,
+        'rol': 'ayudante',
+        'detalles': filas,
+        'novedades': datos['novedades'],
+        'fotos_pedidas': datos['fotos_pedidas'],
+        'url': request.build_absolute_uri(reverse(
+            'gestion:acceso_ayudante', kwargs={'token': cuadrilla.token_de(slot)})),
+        'url_texto': ('Entra aquí para verlo y subir las fotos '
+                      '(no necesitas usuario ni contraseña)'
+                      if datos['fotos_pedidas'] else
+                      'Entra aquí para ver los detalles del servicio'),
+        'url_boton': ('Ver mi servicio y subir fotos'
+                      if datos['fotos_pedidas'] else 'Ver mi servicio'),
+        'fecha_limite': cuadrilla.fecha_limite_acceso,
+    }
+    _enviar_correo_servicio(ctx, correo)
+    return True, None
+
+
 def _enviar_correos_programacion(programacion, request):
     """
     Notifica por correo a TODO el personal de la programación: el conductor
@@ -3684,31 +3760,13 @@ def _enviar_correos_programacion(programacion, request):
 
         # --- Ayudantes: enlace personal con token ---
         for slot in (1, 2):
-            ayudante = cuadrilla.ayudante_de(slot)
-            if ayudante is None:
+            if cuadrilla.ayudante_de(slot) is None:
                 continue
-            datos = _datos_servicio_ayudante(cuadrilla, slot)
-            # Al ayudante NO se le manda la operación completa: solo lo suyo.
-            filas_ayudante = []
-            if datos['hora_ayudante']:
-                filas_ayudante.append(('Hora', datos['hora_ayudante'].strftime('%H:%M')))
-            if datos['lugar_ayudante']:
-                filas_ayudante.append(('Lugar', datos['lugar_ayudante']))
-            destinatarios.append((ayudante, {
-                'rol': 'ayudante',
-                'detalles': filas_ayudante,
-                'novedades': datos['novedades'],
-                'fotos_pedidas': datos['fotos_pedidas'],
-                'url': request.build_absolute_uri(reverse(
-                    'gestion:acceso_ayudante', kwargs={'token': cuadrilla.token_de(slot)})),
-                'url_texto': ('Entra aquí para verlo y subir las fotos '
-                              '(no necesitas usuario ni contraseña)'
-                              if datos['fotos_pedidas'] else
-                              'Entra aquí para ver los detalles del servicio'),
-                'url_boton': ('Ver mi servicio y subir fotos'
-                              if datos['fotos_pedidas'] else 'Ver mi servicio'),
-                'fecha_limite': cuadrilla.fecha_limite_acceso,
-            }))
+            enviado, aviso = _correo_ayudante(request, cuadrilla, slot)
+            if enviado:
+                enviados += 1
+            if aviso:
+                avisos.append(aviso)
 
         for persona, extra in destinatarios:
             nombre = persona.get_full_name() or persona.username
