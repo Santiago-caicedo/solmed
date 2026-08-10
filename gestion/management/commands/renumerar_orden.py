@@ -14,9 +14,9 @@ número nuevo, moviendo los hijos y borrando la fila vieja, todo en una
 transacción (si algo falla, no queda a medias).
 """
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from gestion.models import OrdenServicio
+from gestion.renumeracion import hijos_de, mover_orden
 
 
 class Command(BaseCommand):
@@ -45,17 +45,12 @@ class Command(BaseCommand):
         if OrdenServicio.objects.filter(pk=nuevo).exists():
             raise CommandError(f"Ya hay una orden con el número #{nuevo}.")
 
-        # Todo lo que apunta a la orden y hay que mover con ella.
-        relaciones = OrdenServicio._meta.related_objects
         self.stdout.write(
             f"\nOrden #{actual} — {orden.cliente.nombre} "
             f"(creada el {orden.fecha_creacion:%d/%m/%Y}) pasaría a ser #{nuevo}.")
         self.stdout.write("Se moverían con ella:")
-        for rel in relaciones:
-            cuantos = rel.related_model.objects.filter(
-                **{rel.field.attname: actual}).count()
-            self.stdout.write(
-                f"  {rel.related_model._meta.verbose_name_plural}: {cuantos}")
+        for etiqueta, cuantos in hijos_de(actual):
+            self.stdout.write(f"  {etiqueta}: {cuantos}")
 
         if not opciones['confirmar']:
             self.stdout.write(self.style.WARNING(
@@ -63,19 +58,7 @@ class Command(BaseCommand):
                 f"  python manage.py renumerar_orden {actual} {nuevo} --confirmar"))
             return
 
-        with transaction.atomic():
-            # 1. Copia de la orden con el número nuevo (mismos datos).
-            orden.pk = nuevo
-            orden._state.adding = True
-            orden.save(force_insert=True)
-            # 2. Los hijos pasan a apuntar al número nuevo.
-            for rel in relaciones:
-                rel.related_model.objects.filter(
-                    **{rel.field.attname: actual}).update(
-                    **{rel.field.attname: nuevo})
-            # 3. La fila vieja queda sin hijos y se borra (la cascada no
-            #    arrastra nada porque ya todo apunta al número nuevo).
-            OrdenServicio.objects.filter(pk=actual).delete()
+        mover_orden(actual, nuevo)
 
         self.stdout.write(self.style.SUCCESS(
             f"\nListo: la orden #{actual} ahora es la #{nuevo}."))
