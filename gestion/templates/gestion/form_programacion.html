@@ -461,6 +461,21 @@
         {% endif %}
     </div>
 
+    {% if not object %}
+    {# Eventualidad: crear todo igual pero sin mandarle el correo al personal #}
+    <div class="card mb-3">
+        <div class="card-body py-3">
+            <div class="form-check form-switch mb-0">
+                {{ form.sin_correos }}
+                <label class="form-check-label" for="{{ form.sin_correos.id_for_label }}">
+                    {{ form.sin_correos.label }}
+                </label>
+                <div class="form-text mb-0">{{ form.sin_correos.help_text }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="d-flex justify-content-end mb-5">
         <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-secondary me-2">Cancelar</a>
         <button type="submit" class="btn btn-success">

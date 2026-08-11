@@ -20,7 +20,7 @@ from io import BytesIO
 import qrcode
 from weasyprint import HTML
 from django.db import IntegrityError, transaction
-from django.db.models import F, Sum, Count
+from django.db.models import F, Min, Sum, Count
 import base64
 import datetime
 from django.db.models.functions import TruncMonth
@@ -403,7 +403,10 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     ordering = ['-numero_orden']
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # La fecha que se lista es la de REALIZACIÓN del servicio (la del
+        # recorrido), no la de creación de la orden en el sistema.
+        queryset = super().get_queryset().annotate(
+            fecha_servicio=Min('recorridos__fecha_recorrido'))
         query = self.request.GET.get('q')
         
         # --- LÓGICA DE FILTROS ---
@@ -3711,7 +3714,15 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
             self.request,
             f"Programación creada y Orden #{orden.numero_orden} generada."
         )
-        _avisar_correos_programacion(self.request, self.object)
+        if form.cleaned_data.get('sin_correos'):
+            messages.info(
+                self.request,
+                "No se envió el aviso por correo al personal (lo marcaste al "
+                "crear). Cuando quieras avisarles, usa los botones de reenviar "
+                "en el expediente de la orden."
+            )
+        else:
+            _avisar_correos_programacion(self.request, self.object)
         _avisar_carga_pendiente(self.request, self.object, orden)
 
         return HttpResponseRedirect(reverse('gestion:detalle_orden', kwargs={'pk': orden.pk}))

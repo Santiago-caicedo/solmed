@@ -50,7 +50,7 @@
                     <tr>
                         <th># Orden</th>
                         <th>Cliente</th>
-                        <th>Creada</th>
+                        <th>Fecha del servicio</th>
                         <th>Recorridos</th>
                         <th>Estado</th>
                         <th>Conciliación</th>
@@ -62,7 +62,10 @@
                     <tr>
                         <td><strong>#{{ orden.numero_orden }}</strong></td>
                         <td>{{ orden.cliente.nombre }}</td>
-                        <td>{{ orden.fecha_creacion|date:"d/m/Y" }}</td>
+                        {# La fecha de realización del servicio (la del recorrido), no la de creación #}
+                        <td title="Creada en el sistema el {{ orden.fecha_creacion|date:'d/m/Y' }}">
+                            {{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}
+                        </td>
                         <td><span class="badge bg-secondary">{{ orden.recorridos.count }}</span></td>
                         <td><span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span></td>
                         <td>

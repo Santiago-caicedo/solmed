@@ -659,6 +659,16 @@ class ProgramacionForm(forms.ModelForm):
 
     # Cuando NO hay disposición final: a dónde queda el contenido (trasiegos /
     # dejar carro cargado). Se guarda en el mismo campo dispositor_final.
+    # Eventualidad: crear la programación SIN avisar por correo al personal
+    # (no se guarda en el modelo; solo aplica al momento de crear).
+    sin_correos = forms.BooleanField(
+        required=False,
+        label="No enviar el aviso por correo al conductor ni a los ayudantes",
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input', 'role': 'switch'}),
+        help_text="Todo se crea igual (orden, recorrido, enlaces); solo se omite "
+                  "el correo. Después puedes reenviarlo desde el expediente de la orden.",
+    )
+
     destino_sin_disposicion = forms.ModelChoiceField(
         queryset=Dispositor.objects.none(), required=False,
         label="¿Dónde queda el contenido?",
