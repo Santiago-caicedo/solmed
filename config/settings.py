@@ -110,6 +110,19 @@ DATABASES = {
     }
 }
 
+# Base de RESCATE (opcional): una copia restaurada a un punto en el tiempo,
+# para recuperar de ahí algo que se borró sin tocar producción. Solo existe
+# si se define DB_RESCATE_HOST en el .env; se usa con `rescatar_orden`.
+if os.getenv('DB_RESCATE_HOST'):
+    DATABASES['rescate'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_RESCATE_NAME', os.getenv('DB_NAME')),
+        'USER': os.getenv('DB_RESCATE_USER', os.getenv('DB_USER')),
+        'PASSWORD': os.getenv('DB_RESCATE_PASSWORD', os.getenv('DB_PASSWORD')),
+        'HOST': os.getenv('DB_RESCATE_HOST'),
+        'PORT': os.getenv('DB_RESCATE_PORT', os.getenv('DB_PORT')),
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
