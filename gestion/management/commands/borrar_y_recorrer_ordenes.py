@@ -66,12 +66,25 @@ class Command(BaseCommand):
             f'\nSE BORRARÍAN {len(a_borrar)} orden(es) entre la #{desde} y la #{hasta}:'))
         firmadas = 0
         for orden in a_borrar:
+            self.stdout.write(self.style.MIGRATE_LABEL(
+                f'\n  #{orden.numero_orden} — {orden.cliente.nombre}'))
             self.stdout.write(
-                f'\n  #{orden.numero_orden} — {orden.cliente.nombre} '
-                f'({orden.fecha_creacion:%d/%m/%Y})')
-            for etiqueta, cuantos in hijos_de(orden.numero_orden):
-                if cuantos:
-                    self.stdout.write(f'      {etiqueta}: {cuantos}')
+                f'      Creada: {orden.fecha_creacion:%d/%m/%Y}   '
+                f'Estado: {orden.get_estado_orden_display()}')
+            self.stdout.write(f'      Dirección: {orden.direccion_servicio or "—"}')
+            # Fecha del servicio, placa y conductor: es lo que permite
+            # reconocer de verdad cuál orden es cuál antes de borrarla.
+            for rec in orden.recorridos.select_related('vehiculo', 'conductor'):
+                quien = (rec.conductor.get_full_name() or rec.conductor.username
+                         ) if rec.conductor else 'sin conductor'
+                self.stdout.write(
+                    f'      Servicio: {rec.fecha_recorrido:%d/%m/%Y} · '
+                    f'placa {rec.vehiculo.placa if rec.vehiculo else "—"} · {quien}')
+            detalle = ' · '.join(f'{etiqueta}: {cuantos}'
+                                 for etiqueta, cuantos in hijos_de(orden.numero_orden)
+                                 if cuantos)
+            if detalle:
+                self.stdout.write(f'      Arrastra → {detalle}')
             actas = Manifiesto.objects.filter(recorrido__orden=orden)
             n_firmadas = actas.filter(estado_firma='FIRMADO').count()
             if n_firmadas:
