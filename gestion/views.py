@@ -19,7 +19,7 @@ from django.views import View
 from io import BytesIO
 import qrcode
 from weasyprint import HTML
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Sum, Count
 import base64
 import datetime
@@ -3561,18 +3561,42 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
                 self.get_context_data(form=form, cuadrilla_form=cuadrilla_form))
 
         form.instance.creado_por = self.request.user
-        self.object = form.save()
-        cuadrilla = cuadrilla_form.save(commit=False)
-        cuadrilla.programacion = self.object
-        cuadrilla.save()
 
-        # Se genera la orden inmediatamente (no queda en borrador). La
-        # documentación al cliente se envía desde el Centro de correos.
-        try:
-            orden = self.object.convertir_en_orden(self.request.user)
-        except ValueError as e:
-            messages.warning(self.request, f"Programación creada en borrador: {e}")
-            return HttpResponseRedirect(self.get_success_url())
+        # La programación, su cuadrilla y la orden nacen JUNTAS o no nace
+        # ninguna: antes se guardaban por separado y un fallo al generar la
+        # orden dejaba la programación colgada en borrador, invisible desde la
+        # lista de órdenes y sin que el asesor se enterara.
+        orden = None
+        for intento in range(_INTENTOS_NUMERO_ORDEN):
+            try:
+                with transaction.atomic():
+                    self.object = form.save()
+                    cuadrilla = cuadrilla_form.save(commit=False)
+                    cuadrilla.programacion = self.object
+                    cuadrilla.save()
+                    orden = self.object.convertir_en_orden(self.request.user)
+                break
+            except IntegrityError:
+                # El número de orden se calcula como "el último + 1", así que
+                # dos guardados a la vez (o un doble clic) pueden pedir el
+                # mismo. Se descarta lo revertido y se reintenta: el segundo
+                # cálculo ya ve el número que acaba de ocupar el otro.
+                _olvidar_guardado(form.instance, cuadrilla_form.instance)
+                if intento == _INTENTOS_NUMERO_ORDEN - 1:
+                    messages.error(
+                        self.request,
+                        "No se pudo guardar la programación porque otro usuario "
+                        "estaba generando una orden al mismo tiempo. No se creó "
+                        "nada: vuelve a intentarlo."
+                    )
+                    return self.render_to_response(self.get_context_data(
+                        form=form, cuadrilla_form=cuadrilla_form))
+            except ValueError as e:
+                # Motivo de negocio (cursos vencidos, cuadrilla sin vehículo):
+                # no se guarda nada y el asesor corrige sobre el formulario.
+                messages.error(self.request, f"No se guardó la programación: {e}")
+                return self.render_to_response(self.get_context_data(
+                    form=form, cuadrilla_form=cuadrilla_form))
 
         messages.success(
             self.request,
@@ -4053,6 +4077,23 @@ class EliminarTipoResiduoView(EliminarItemCatalogoView):
         return Programacion.objects.filter(transporte_tipo__iexact=item.nombre).exists()
 
 
+# Cuántas veces se reintenta si el número de orden choca con otro guardado
+# simultáneo. El número sale de "el último + 1" sin bloqueo de base, así que
+# la colisión es posible; al reintentar se recalcula sobre el ya ocupado.
+_INTENTOS_NUMERO_ORDEN = 3
+
+
+def _olvidar_guardado(*instancias):
+    """
+    Deja las instancias como recién creadas después de una transacción
+    revertida: Django les dejó la clave primaria puesta y en el reintento
+    haría un UPDATE de una fila que ya no existe.
+    """
+    for instancia in instancias:
+        instancia.pk = None
+        instancia._state.adding = True
+
+
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
     """Genera la Orden de Servicio + un recorrido por cuadrilla (solo POST)."""
     def post(self, request, pk):
@@ -4065,11 +4106,24 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
             messages.error(request, "No puedes generar una orden desde una programación cancelada.")
             return redirect('gestion:lista_programaciones')
 
-        try:
-            orden = programacion.convertir_en_orden(request.user)
-        except ValueError as e:
-            messages.error(request, str(e))
-            return redirect('gestion:actualizar_programacion', pk=pk)
+        orden = None
+        for intento in range(_INTENTOS_NUMERO_ORDEN):
+            try:
+                orden = programacion.convertir_en_orden(request.user)
+                break
+            except IntegrityError:
+                # Choque de número con otro guardado simultáneo: se reintenta.
+                if intento == _INTENTOS_NUMERO_ORDEN - 1:
+                    messages.error(
+                        request,
+                        "No se pudo generar la orden porque otro usuario estaba "
+                        "generando una al mismo tiempo. No se creó nada: "
+                        "vuelve a intentarlo."
+                    )
+                    return redirect('gestion:lista_programaciones')
+            except ValueError as e:
+                messages.error(request, str(e))
+                return redirect('gestion:actualizar_programacion', pk=pk)
 
         messages.success(
             request,

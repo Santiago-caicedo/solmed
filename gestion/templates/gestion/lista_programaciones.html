@@ -73,8 +73,13 @@
                             {% else %}
                                 {% if p.estado != 'CANCELADA' %}
                                 <a href="{% url 'gestion:actualizar_programacion' p.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>
+                                {% comment %}
+                                Tras confirmar se bloquea el botón: un doble clic
+                                generaría dos órdenes para la misma programación.
+                                {% endcomment %}
                                 <form method="post" action="{% url 'gestion:convertir_programacion' p.pk %}" class="d-inline"
-                                      onsubmit="return confirm('¿Generar la orden de servicio a partir de esta programación?');">
+                                      onsubmit="if (!confirm('¿Generar la orden de servicio a partir de esta programación?')) return false;
+                                                this.querySelector('button').disabled = true; return true;">
                                     {% csrf_token %}
                                     <button type="submit" class="btn btn-sm btn-primary" {% if not p.puede_convertirse %}disabled title="Asigna un vehículo primero"{% endif %}>
                                         <i class="bi bi-arrow-right-circle me-1"></i>Generar orden

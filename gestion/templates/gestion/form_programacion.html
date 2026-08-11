@@ -1290,6 +1290,15 @@ function revisarDocumentos() {
     return bloquear;
 }
 
+// Un solo envío: al enviar se bloquea el botón para que un doble clic no
+// cree dos programaciones (y dos órdenes) del mismo servicio.
+document.addEventListener('submit', function (e) {
+    var boton = e.target.querySelector('button[type="submit"]');
+    if (!boton || boton.disabled) return;
+    boton.disabled = true;
+    boton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Guardando...';
+});
+
 // Deshabilita el botón de guardar mientras haya un bloqueo (SS o cursos).
 function bloquearGuardado(bloquear) {
     var boton = document.querySelector('form button[type="submit"]');
