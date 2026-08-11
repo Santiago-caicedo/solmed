@@ -33,6 +33,7 @@ from django.db.models import Q
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
+from .renumeracion import reubicar_orden
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
@@ -100,6 +101,14 @@ class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
 
 # --- MIXIN QUE BLOQUEA A LOS CONDUCTORES ---
+class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return es_administrador(self.request.user)
+
+
+SuperuserRequiredMixin = AdministradorRequiredMixin
+
+
 class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """
     Permite el acceso a cualquier usuario autenticado EXCEPTO a los conductores.
@@ -476,6 +485,39 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
             self.request,
             f"Orden histórica #{orden.numero_orden} registrada con su acta.")
         return redirect('gestion:detalle_orden', pk=orden.pk)
+
+
+class CambiarNumeroOrdenView(AdministradorRequiredMixin, View):
+    """
+    Solo administradores: cambia el número (consecutivo) de una orden y la
+    coloca en su sitio, corriendo un puesto las que estorben para que la
+    numeración no quede con huecos ni repetidos.
+    """
+    def post(self, request, pk):
+        orden = get_object_or_404(OrdenServicio, pk=pk)
+        crudo = (request.POST.get('numero_orden') or '').strip()
+        if not crudo.isdigit() or int(crudo) <= 0:
+            messages.error(request, "Escribe un número de orden válido.")
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        nuevo = int(crudo)
+        if nuevo == orden.numero_orden:
+            messages.info(request, "La orden ya tiene ese número.")
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        movimientos = reubicar_orden(orden.numero_orden, nuevo)
+        corridas = len(movimientos) - 1
+        aviso = f"La orden #{orden.numero_orden} ahora es la #{nuevo}."
+        if corridas:
+            aviso += (f" Se corrieron {corridas} orden(es) un puesto para "
+                      f"hacerle sitio.")
+        messages.success(request, aviso)
+        messages.warning(
+            request,
+            "Los PDF de actas ya firmadas siguen mostrando el número que "
+            "tenían al generarse."
+        )
+        return redirect('gestion:detalle_orden', pk=nuevo)
 
 
 class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
@@ -1450,14 +1492,6 @@ def _eliminar_si_no_tiene_uso(request, objeto, etiqueta, destino):
 # --- Mixin para las vistas de administración de la plataforma ---
 # Superusuario y rol 'Administradores' (usuarios, reportes). El nombre viejo
 # SuperuserRequiredMixin se conserva como alias por compatibilidad.
-class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
-    def test_func(self):
-        return es_administrador(self.request.user)
-
-
-SuperuserRequiredMixin = AdministradorRequiredMixin
-
-
 class EliminarClienteView(AdministradorRequiredMixin, View):
     """Elimina un cliente que aún no tiene órdenes ni programaciones (solo POST)."""
     def post(self, request, pk):

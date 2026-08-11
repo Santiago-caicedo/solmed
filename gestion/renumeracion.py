@@ -6,6 +6,7 @@ copiar la fila al número nuevo, llevarse todo lo que cuelga de ella y borrar la
 vieja. Lo usan los comandos `renumerar_orden` y `borrar_y_recorrer_ordenes`.
 """
 from django.db import transaction
+from django.db.models import Max
 
 from .models import OrdenServicio
 
@@ -22,6 +23,57 @@ def hijos_de(numero):
          rel.related_model.objects.filter(**{rel.field.attname: numero}).count())
         for rel in relaciones_orden()
     ]
+
+
+def plan_reubicacion(actual, nuevo):
+    """
+    Qué movimientos hacen falta para que la orden `actual` pase a ser la
+    `nuevo` SIN dejar huecos ni duplicados: [(viejo, nuevo), ...] en el orden
+    en que deben ejecutarse.
+
+    Si el número destino está libre, es un solo movimiento. Si está ocupado,
+    las órdenes que hay entre medias se corren un puesto para hacerle sitio:
+    bajar la orden empuja a las de abajo hacia arriba, y subirla las empuja
+    hacia abajo. El orden relativo de todas las demás se conserva.
+    """
+    if actual == nuevo:
+        return []
+    if not OrdenServicio.objects.filter(pk=nuevo).exists():
+        return [(actual, nuevo)]
+
+    if nuevo < actual:
+        # Baja: las de [nuevo, actual) suben una posición, de mayor a menor
+        # para que el destino de cada una esté siempre libre.
+        entre = OrdenServicio.objects.filter(
+            pk__gte=nuevo, pk__lt=actual).order_by('-pk')
+        movimientos = [(o.pk, o.pk + 1) for o in entre]
+    else:
+        # Sube: las de (actual, nuevo] bajan una posición, de menor a mayor.
+        entre = OrdenServicio.objects.filter(
+            pk__gt=actual, pk__lte=nuevo).order_by('pk')
+        movimientos = [(o.pk, o.pk - 1) for o in entre]
+    return movimientos + [(actual, nuevo)]
+
+
+@transaction.atomic
+def reubicar_orden(actual, nuevo):
+    """
+    Cambia el número de una orden colocándola en su sitio del consecutivo,
+    corriendo las que estorben. Devuelve la lista de movimientos aplicados.
+    """
+    movimientos = plan_reubicacion(actual, nuevo)
+    if not movimientos:
+        return []
+
+    # La orden que se mueve se aparta a un número libre por encima de todo
+    # mientras se corren las demás; si no, chocaría con ellas al pasar.
+    tope = OrdenServicio.objects.aggregate(m=Max('numero_orden'))['m'] or 0
+    aparcadero = max(tope, nuevo, actual) + 1
+    mover_orden(actual, aparcadero)
+    for viejo, destino in movimientos[:-1]:
+        mover_orden(viejo, destino)
+    mover_orden(aparcadero, nuevo)
+    return movimientos
 
 
 @transaction.atomic

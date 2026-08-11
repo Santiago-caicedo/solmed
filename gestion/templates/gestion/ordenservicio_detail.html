@@ -5,7 +5,14 @@
 {% include 'gestion/partials/_acta_estilos.html' %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h1 class="mb-1">Expediente de Orden #{{ orden.numero_orden }}</h1>
+        <h1 class="mb-1">Expediente de Orden #{{ orden.numero_orden }}
+            {% if es_administrador %}
+            <button class="btn btn-link btn-sm align-baseline p-0 ms-1" data-bs-toggle="modal"
+                    data-bs-target="#modal-numero-orden" title="Cambiar el número de la orden">
+                <i class="bi bi-pencil"></i>
+            </button>
+            {% endif %}
+        </h1>
         <span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span>
         {% if orden.estado_conciliacion == 'PENDIENTE' %}
             <span class="badge bg-warning text-dark"><i class="bi bi-calculator me-1"></i>Pendiente de conciliación</span>
@@ -19,6 +26,45 @@
         <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
     </a>
 </div>
+
+{% if es_administrador %}
+{% comment %}
+Cambiar el consecutivo de la orden (solo administradores). La orden se coloca
+en el número pedido y las que estorben se corren un puesto.
+{% endcomment %}
+<div class="modal fade" id="modal-numero-orden" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" action="{% url 'gestion:cambiar_numero_orden' orden.pk %}" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-hash me-1"></i>Cambiar el número de la orden</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    La orden se coloca en el número que elijas y las demás se corren
+                    un puesto para hacerle sitio, sin dejar huecos ni repetidos.
+                </p>
+                <label class="form-label" for="numero_orden">Número de la orden</label>
+                <input type="number" name="numero_orden" id="numero_orden" min="1"
+                       class="form-control form-control-lg" value="{{ orden.numero_orden }}" required>
+                <div class="form-text">Ahora es la #{{ orden.numero_orden }}.</div>
+                <div class="alert alert-warning small mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    Los PDF de actas ya firmadas seguirán mostrando el número que
+                    tenían al generarse: no se vuelven a crear.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check2 me-1"></i>Cambiar el número
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 {% if personal_con_alerta %}
 <div class="alert alert-warning">
@@ -152,7 +198,19 @@
                             <div class="rc-doc">
                                 <span class="rc-doc-label">Acta de servicio</span>
                                 {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
+                                    {% if recorrido.manifiesto.pdf_generado %}
                                     <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
+                                    {% else %}
+                                    {% comment %}
+                                    Firmada pero sin PDF: pasa si falló al generarlo.
+                                    Sin este caso, pedir el .url reventaba el expediente
+                                    entero con un error 500.
+                                    {% endcomment %}
+                                    <span class="badge bg-warning text-dark"
+                                          title="El cliente firmó, pero el PDF no se llegó a generar">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>Firmada, sin PDF
+                                    </span>
+                                    {% endif %}
                                 {% else %}
                                     {% comment %}
                                     El QR y el enlace se pueden generar aunque el conductor no

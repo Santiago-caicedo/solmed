@@ -15,6 +15,7 @@ urlpatterns = [
     # (por eso no hay ruta 'ordenes/nueva/'). Aquí solo se ven y se editan.
     path('ordenes/<int:pk>/', views.OrdenServicioDetailView.as_view(), name='detalle_orden'),
     path('ordenes/<int:pk>/editar/', views.ActualizarOrdenView.as_view(), name='actualizar_orden'),
+    path('ordenes/<int:pk>/numero/', views.CambiarNumeroOrdenView.as_view(), name='cambiar_numero_orden'),
     path('recorrido/<int:pk>/editar/', views.EditarRecorridoView.as_view(), name='editar_recorrido'),
     path('recorrido/<int:pk>/eliminar/', views.EliminarRecorridoView.as_view(), name='eliminar_recorrido'),
     path('recorrido/<int:pk>/formato/', views.ActaFormatoView.as_view(), name='acta_formato'),
