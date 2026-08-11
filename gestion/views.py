@@ -1734,6 +1734,39 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
                 )
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
+        # Reenviar al conductor su correo con el enlace a la orden.
+        if 'submit_reenviar_conductor' in request.POST:
+            recorrido = orden.recorridos.filter(
+                pk=request.POST.get('recorrido')).select_related('conductor').first()
+            cuadrilla = None
+            programacion = getattr(orden, 'programacion_origen', None)
+            if programacion is not None and recorrido is not None:
+                # La cuadrilla aporta los datos del servicio; el destinatario
+                # es el conductor del RECORRIDO (puede haber cambiado después).
+                cuadrilla = programacion.cuadrillas.filter(
+                    vehiculo=recorrido.vehiculo_id).first() or programacion.cuadrillas.first()
+            if recorrido is None or cuadrilla is None:
+                messages.error(request, "Ese recorrido no corresponde a esta orden.")
+            elif recorrido.conductor_id is None:
+                messages.error(request, "El recorrido no tiene conductor asignado.")
+            else:
+                try:
+                    enviado, aviso = _correo_conductor(
+                        request, cuadrilla, conductor=recorrido.conductor)
+                except Exception as e:
+                    messages.warning(request, f"No se pudo reenviar el correo ({e}).")
+                else:
+                    if enviado:
+                        messages.success(
+                            request,
+                            f"Correo reenviado a "
+                            f"{recorrido.conductor.get_full_name() or recorrido.conductor.username} "
+                            f"({recorrido.conductor.email})."
+                        )
+                    if aviso:
+                        messages.warning(request, aviso)
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
         # Reenviar al ayudante su correo con el enlace (token) para subir fotos.
         if 'submit_reenviar_ayudante' in request.POST:
             programacion = getattr(orden, 'programacion_origen', None)
@@ -3792,6 +3825,65 @@ def _correo_ayudante(request, cuadrilla, slot):
     return True, None
 
 
+def _correo_conductor(request, cuadrilla, conductor=None):
+    """
+    Arma y envía el correo del conductor con el enlace a su servicio en la
+    plataforma. `conductor` permite mandárselo a quien está de verdad en el
+    recorrido (si lo cambiaron después de programar, la cuadrilla conserva al
+    anterior). Devuelve (enviado, aviso).
+    """
+    conductor = conductor or cuadrilla.conductor
+    if conductor is None:
+        return False, "El recorrido no tiene conductor asignado: no hay a quién avisarle"
+    nombre = conductor.get_full_name() or conductor.username
+    correo = (conductor.email or '').strip()
+    if not correo:
+        return False, f"El conductor {nombre} no tiene correo registrado: no se le pudo avisar"
+
+    programacion = cuadrilla.programacion
+    datos = _datos_servicio_ayudante(cuadrilla, 1)
+    if programacion.orden_id:
+        url = request.build_absolute_uri(reverse(
+            'gestion:detalle_orden_conductor', kwargs={'pk': programacion.orden_id}))
+    else:
+        url = request.build_absolute_uri(reverse('gestion:dashboard_conductor'))
+
+    # Sin el nombre del cliente ni el de su sede (decisión de gerencia: al
+    # personal solo le llega lo necesario para prestar el servicio).
+    filas = []
+    if datos['direccion']:
+        filas.append(('Dirección', datos['direccion']))
+    if programacion.hora_ingreso_bodega:
+        filas.append(('Hora de ingreso', programacion.hora_ingreso_bodega.strftime('%H:%M')))
+    if datos['sitio_inicio']:
+        filas.append(('Sitio de inicio', datos['sitio_inicio']))
+    if programacion.hora_servicio:
+        filas.append(('Hora del servicio', programacion.hora_servicio.strftime('%H:%M')))
+    if datos['placa']:
+        filas.append(('Vehículo', datos['placa']))
+    if datos['contacto']:
+        filas.append(('Contacto en el sitio', datos['contacto']))
+    ayudantes = [p.get_full_name() or p.username
+                 for p in (cuadrilla.ayudante, cuadrilla.ayudante2) if p]
+    if ayudantes:
+        filas.append(('Ayudante(s)', ', '.join(ayudantes)))
+
+    _enviar_correo_servicio({
+        'nombre': nombre,
+        'primer_nombre': (conductor.first_name or nombre).split(' ')[0],
+        'programacion': programacion,
+        'rol': 'conductor',
+        'detalles': filas,
+        'novedades': [],
+        'fotos_pedidas': [],
+        'url': url,
+        'url_texto': 'Entra a la plataforma para ver tu servicio',
+        'url_boton': 'Ver mi servicio',
+        'fecha_limite': None,
+    }, correo)
+    return True, None
+
+
 def _enviar_correos_programacion(programacion, request):
     """
     Notifica por correo a TODO el personal de la programación: el conductor
@@ -3802,82 +3894,20 @@ def _enviar_correos_programacion(programacion, request):
     enviados, avisos = 0, []
     for cuadrilla in programacion.cuadrillas.select_related(
             'ayudante', 'ayudante2', 'conductor', 'vehiculo'):
-
-        # Datos comunes del servicio (mismos que ve el ayudante).
-        base = _datos_servicio_ayudante(cuadrilla, 1)
-
-        def detalles(rol_conductor, datos):
-            # Sin el nombre del cliente ni el de su sede (decisión de gerencia:
-            # al personal solo le llega lo necesario para prestar el servicio).
-            filas = []
-            if datos['direccion']:
-                filas.append(('Dirección', datos['direccion']))
-            if programacion.hora_ingreso_bodega:
-                filas.append(('Hora de ingreso', programacion.hora_ingreso_bodega.strftime('%H:%M')))
-            if datos['sitio_inicio']:
-                filas.append(('Sitio de inicio', datos['sitio_inicio']))
-            if programacion.hora_servicio:
-                filas.append(('Hora del servicio', programacion.hora_servicio.strftime('%H:%M')))
-            if not rol_conductor and datos['conductor']:
-                filas.append(('Conductor', datos['conductor']))
-            if datos['placa']:
-                filas.append(('Vehículo', datos['placa']))
-            if datos['contacto']:
-                filas.append(('Contacto en el sitio', datos['contacto']))
-            return filas
-
-        destinatarios = []
-
-        # --- Conductor: enlace a su app (él sí tiene usuario) ---
-        if cuadrilla.conductor:
-            if programacion.orden_id:
-                url_conductor = request.build_absolute_uri(reverse(
-                    'gestion:detalle_orden_conductor', kwargs={'pk': programacion.orden_id}))
-            else:
-                url_conductor = request.build_absolute_uri(reverse('gestion:dashboard_conductor'))
-            ayudantes_fila = [
-                p.get_full_name() or p.username
-                for p in (cuadrilla.ayudante, cuadrilla.ayudante2) if p
-            ]
-            filas = detalles(True, base)
-            if ayudantes_fila:
-                filas.append(('Ayudante(s)', ', '.join(ayudantes_fila)))
-            destinatarios.append((cuadrilla.conductor, {
-                'rol': 'conductor',
-                'detalles': filas,
-                'novedades': [],
-                'fotos_pedidas': [],
-                'url': url_conductor,
-                'url_texto': 'Entra a la plataforma para ver tu servicio',
-                'url_boton': 'Ver mi servicio',
-                'fecha_limite': None,
-            }))
-
-        # --- Ayudantes: enlace personal con token ---
-        for slot in (1, 2):
-            if cuadrilla.ayudante_de(slot) is None:
-                continue
-            enviado, aviso = _correo_ayudante(request, cuadrilla, slot)
+        # Conductor (entra a la plataforma con su usuario) y ayudantes (enlace
+        # personal con token). Cada uno arma su correo en su propio helper,
+        # compartido con el botón de reenviar del expediente de la orden.
+        destinatarios = [(_correo_conductor, (request, cuadrilla))] if cuadrilla.conductor else []
+        destinatarios += [
+            (_correo_ayudante, (request, cuadrilla, slot))
+            for slot in (1, 2) if cuadrilla.ayudante_de(slot) is not None
+        ]
+        for enviar, argumentos in destinatarios:
+            enviado, aviso = enviar(*argumentos)
             if enviado:
                 enviados += 1
             if aviso:
                 avisos.append(aviso)
-
-        for persona, extra in destinatarios:
-            nombre = persona.get_full_name() or persona.username
-            correo = (persona.email or '').strip()
-            rol = 'conductor' if extra['rol'] == 'conductor' else 'ayudante'
-            if not correo:
-                avisos.append(f"El {rol} {nombre} no tiene correo registrado: no se le pudo avisar")
-                continue
-            ctx = {
-                'nombre': nombre,
-                'primer_nombre': (persona.first_name or nombre).split(' ')[0],
-                'programacion': programacion,
-                **extra,
-            }
-            _enviar_correo_servicio(ctx, correo)
-            enviados += 1
     return enviados, avisos
 
 
