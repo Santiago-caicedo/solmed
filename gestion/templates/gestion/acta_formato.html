@@ -26,9 +26,10 @@
         {% endif %}
     </div>
     <div class="d-flex gap-2">
-        {% if manifiesto.pdf_generado %}
-        <a href="{{ manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-danger btn-sm">
-            <i class="bi bi-file-earmark-pdf-fill me-1"></i>Descargar PDF final
+        {% if estado_acta != 'PENDIENTE' %}
+        {# Generado al momento con los datos vigentes (no es un archivo guardado) #}
+        <a href="{% url 'gestion:acta_pdf' recorrido.pk %}" class="btn btn-danger btn-sm">
+            <i class="bi bi-file-earmark-pdf-fill me-1"></i>Descargar PDF
         </a>
         {% endif %}
         <button onclick="window.print()" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer me-1"></i>Imprimir</button>

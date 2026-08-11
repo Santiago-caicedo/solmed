@@ -252,6 +252,6 @@ class Command(BaseCommand):
             'manifiesto': manifiesto, 'recorrido': recorrido, 'orden': recorrido.orden,
             'logo_b64': logo_b64, 'firma_cliente_b64': firma_b64,
         })
-        pdf = HTML(string=html).write_pdf()
-        manifiesto.pdf_generado.save(
-            f'acta_demo_recorrido_{recorrido.pk}.pdf', ContentFile(pdf), save=True)
+        # El PDF del acta ya no se guarda: se genera al descargarlo. Aquí solo
+        # se comprueba que el render funciona con los datos sembrados.
+        HTML(string=html).write_pdf()

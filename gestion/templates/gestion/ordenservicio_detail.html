@@ -49,11 +49,6 @@ en el número pedido y las que estorben se corren un puesto.
                 <input type="number" name="numero_orden" id="numero_orden" min="1"
                        class="form-control form-control-lg" value="{{ orden.numero_orden }}" required>
                 <div class="form-text">Ahora es la #{{ orden.numero_orden }}.</div>
-                <div class="alert alert-warning small mt-3 mb-0">
-                    <i class="bi bi-exclamation-triangle me-1"></i>
-                    Los PDF de actas ya firmadas seguirán mostrando el número que
-                    tenían al generarse: no se vuelven a crear.
-                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -198,19 +193,8 @@ en el número pedido y las que estorben se corren un puesto.
                             <div class="rc-doc">
                                 <span class="rc-doc-label">Acta de servicio</span>
                                 {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                    {% if recorrido.manifiesto.pdf_generado %}
-                                    <a href="{{ recorrido.manifiesto.pdf_generado.url }}" target="_blank" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
-                                    {% else %}
-                                    {% comment %}
-                                    Firmada pero sin PDF: pasa si falló al generarlo.
-                                    Sin este caso, pedir el .url reventaba el expediente
-                                    entero con un error 500.
-                                    {% endcomment %}
-                                    <span class="badge bg-warning text-dark"
-                                          title="El cliente firmó, pero el PDF no se llegó a generar">
-                                        <i class="bi bi-exclamation-triangle me-1"></i>Firmada, sin PDF
-                                    </span>
-                                    {% endif %}
+                                    {# El PDF se genera al momento, con los datos vigentes #}
+                                    <a href="{% url 'gestion:acta_pdf' recorrido.pk %}" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
                                 {% else %}
                                     {% comment %}
                                     El QR y el enlace se pueden generar aunque el conductor no
@@ -735,8 +719,9 @@ en el número pedido y las que estorben se corren un puesto.
                 {% endif %}
             </div>
             <div class="d-flex gap-2">
-                {% if item.acta.pdf_generado %}
-                <a href="{{ item.acta.pdf_generado.url }}" target="_blank" class="btn btn-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF final</a>
+                {% if item.estado != 'PENDIENTE' %}
+                {# Generado al momento con los datos vigentes (no es un archivo guardado) #}
+                <a href="{% url 'gestion:acta_pdf' item.recorrido.pk %}" class="btn btn-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Descargar PDF</a>
                 {% endif %}
                 <a href="{% url 'gestion:acta_formato' item.recorrido.pk %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrows-fullscreen me-1"></i>Pantalla completa / imprimir</a>
             </div>

@@ -715,7 +715,6 @@ class Manifiesto(models.Model):
     nombre_responsable_empresa = models.CharField(max_length=200, blank=True, verbose_name="Nombre Responsable Solmed")
     
     # --- PDF Generado ---
-    pdf_generado = models.FileField(upload_to='manifiestos_pdf/', blank=True, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

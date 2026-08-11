@@ -14,8 +14,8 @@ Después del borrado, las órdenes que quedan por encima del rango se renumeran
 de forma consecutiva empezando en el primer número liberado, así que el hueco
 se cierra y la siguiente orden nueva sigue el consecutivo sin saltos.
 
-OJO: los PDF de actas ya firmadas llevan impreso el número viejo (no se
-regeneran), y las notas de carga de los vehículos también lo mencionan.
+Los PDF de las actas se generan al momento de descargarlos, así que salen con
+el número nuevo; las notas de carga de los vehículos sí conservan el viejo.
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -95,7 +95,7 @@ class Command(BaseCommand):
         if firmadas:
             self.stdout.write(self.style.WARNING(
                 f'\n  ATENCIÓN: se perderían {firmadas} acta(s) ya firmada(s) '
-                f'por el cliente, con su firma y su PDF.'))
+                f'por el cliente, con su firma.'))
 
         if movimientos:
             self.stdout.write(self.style.MIGRATE_HEADING(
@@ -123,7 +123,7 @@ class Command(BaseCommand):
             numeros = [o.numero_orden for o in a_borrar]
             fuentes = [
                 (Manifiesto.objects.filter(recorrido__orden__in=numeros),
-                 ('pdf_generado', 'firma_cliente')),
+                 ('firma_cliente',)),
                 (DocumentoOrden.objects.filter(orden__in=numeros), ('archivo',)),
                 (FotoAyudante.objects.filter(
                     cuadrilla__programacion__orden__in=numeros), ('archivo',)),
@@ -167,6 +167,3 @@ class Command(BaseCommand):
                 '  Los archivos (PDFs, firmas, fotos) de lo borrado quedaron en '
                 'el storage. Para eliminarlos también, usa --borrar-archivos.'))
 
-        self.stdout.write(self.style.WARNING(
-            '  Recuerda: los PDF de actas firmadas que se renumeraron siguen '
-            'mostrando el número viejo (no se regeneran).'))

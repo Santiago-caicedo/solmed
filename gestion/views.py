@@ -512,11 +512,6 @@ class CambiarNumeroOrdenView(AdministradorRequiredMixin, View):
             aviso += (f" Se corrieron {corridas} orden(es) un puesto para "
                       f"hacerle sitio.")
         messages.success(request, aviso)
-        messages.warning(
-            request,
-            "Los PDF de actas ya firmadas siguen mostrando el número que "
-            "tenían al generarse."
-        )
         return redirect('gestion:detalle_orden', pk=nuevo)
 
 
@@ -829,8 +824,13 @@ def _guardar_firma_cliente(manifiesto, signature_data, pk):
     manifiesto.firma_cliente.save(signature_file.name, signature_file, save=True)
 
 
-def _generar_pdf_manifiesto(manifiesto, request):
-    """Renderiza el manifiesto a PDF (logo + firma embebidos en base64) y lo guarda."""
+def _pdf_manifiesto(manifiesto, request):
+    """
+    Renderiza el acta (manifiesto) a PDF y devuelve los bytes. NO se guarda en
+    el storage: se genera al momento de descargarla, así siempre sale con los
+    datos vigentes (si gestión corrige algo después de la firma —decisión del
+    usuario—, el PDF se regenera al día en la próxima descarga).
+    """
     recorrido = manifiesto.recorrido
     template = get_template('gestion/manifiesto_pdf.html')
 
@@ -852,11 +852,25 @@ def _generar_pdf_manifiesto(manifiesto, request):
     }
     html_string = template.render(context)
     html = HTML(string=html_string, base_url=request.build_absolute_uri())
-    pdf = html.write_pdf()
+    return html.write_pdf()
 
-    pdf_file = ContentFile(pdf, name=f'manifiesto_recorrido_{recorrido.pk}.pdf')
-    manifiesto.pdf_generado = pdf_file
-    manifiesto.save()
+
+class ActaPDFView(NoConductorRequiredMixin, View):
+    """
+    Descarga el PDF del acta de servicio, generado al momento con los datos
+    vigentes. Solo gestión: el conductor no accede al acta como documento.
+    """
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        manifiesto = getattr(recorrido, 'manifiesto', None)
+        if manifiesto is None:
+            raise Http404("Este recorrido aún no tiene acta de servicio.")
+        respuesta = HttpResponse(
+            _pdf_manifiesto(manifiesto, request),
+            content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="acta_servicio_recorrido_{recorrido.pk}.pdf"')
+        return respuesta
 
 
 def _pdf_encuesta_conductor(encuesta, request):
@@ -1321,7 +1335,6 @@ def manifiesto_estado_json(request, pk):
     except Manifiesto.DoesNotExist:
         return JsonResponse({'firmado': False, 'pdf_url': None})
 
-    pdf_url = manifiesto.pdf_generado.url if manifiesto.pdf_generado else None
     try:
         recorrido.encuesta_conductor
         encuesta_pendiente = False
@@ -1329,7 +1342,6 @@ def manifiesto_estado_json(request, pk):
         encuesta_pendiente = True
     return JsonResponse({
         'firmado': manifiesto.estado_firma == 'FIRMADO',
-        'pdf_url': pdf_url,
         'encuesta_pendiente': encuesta_pendiente,
         'encuesta_url': reverse('gestion:encuesta_conductor', kwargs={'pk': pk}),
     })
@@ -1421,13 +1433,16 @@ class EncuestaPublicaView(View):
         nombre_responsable_cliente = request.POST.get('nombre_responsable_cliente')
 
         if form.is_valid() and signature_data and nombre_responsable_cliente:
-            manifiesto = form.save(commit=False)
-            manifiesto.nombre_responsable_cliente = nombre_responsable_cliente
-            manifiesto.estado_firma = 'FIRMADO'
-            manifiesto.save()
-
-            _guardar_firma_cliente(manifiesto, signature_data, manifiesto.recorrido.pk)
-            _generar_pdf_manifiesto(manifiesto, request)
+            # Todo o nada: si la imagen de la firma no se puede guardar, el
+            # acta NO queda marcada como firmada (y el cliente puede volver a
+            # intentarlo). El PDF ya no se genera aquí: sale al momento de
+            # descargarlo, siempre con los datos vigentes.
+            with transaction.atomic():
+                manifiesto = form.save(commit=False)
+                manifiesto.nombre_responsable_cliente = nombre_responsable_cliente
+                manifiesto.estado_firma = 'FIRMADO'
+                manifiesto.save()
+                _guardar_firma_cliente(manifiesto, signature_data, manifiesto.recorrido.pk)
 
             return render(request, self.template_gracias, {
                 'manifiesto': manifiesto, 'ya_firmado': False,
