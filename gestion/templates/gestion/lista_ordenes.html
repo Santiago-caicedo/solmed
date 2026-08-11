@@ -75,8 +75,8 @@
                             {% endif %}
                         </td>
                         <td>
+                            {# Un solo camino: se edita desde el expediente, no desde la lista. #}
                             <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
-                            <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>
                         </td>
                     </tr>
                     {% empty %}
