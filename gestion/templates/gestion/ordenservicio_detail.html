@@ -195,6 +195,15 @@ en el número pedido y las que estorben se corren un puesto.
                                 {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
                                     {# El PDF se genera al momento, con los datos vigentes #}
                                     <a href="{% url 'gestion:acta_pdf' recorrido.pk %}" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Ver PDF</a>
+                                    {% comment %}
+                                    Firmada, gestión aún puede corregir datos pendientes
+                                    (el conductor ya no; la firma no se altera y el PDF
+                                    sale actualizado en la próxima descarga).
+                                    {% endcomment %}
+                                    <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso3' %}" class="btn btn-outline-secondary btn-sm"
+                                       title="El acta ya está firmada: corrige tiempos, kilómetros o novedades sin tocar la firma">
+                                        <i class="bi bi-pen me-1"></i>Corregir datos
+                                    </a>
                                 {% else %}
                                     {% comment %}
                                     El QR y el enlace se pueden generar aunque el conductor no

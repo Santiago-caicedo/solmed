@@ -1131,6 +1131,18 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             if not _puede_gestionar_manifiesto(request.user, recorrido):
                 messages.error(request, "No tienes permiso para llenar esta acta de servicio.")
                 return redirect('gestion:dashboard_redirect')
+            # Firmada por el cliente, el CONDUCTOR ya no la toca (ni desde una
+            # pestaña que quedó abierta). Gestión sí puede corregir datos
+            # pendientes; el estado de la firma no se altera en ningún caso.
+            manifiesto = Manifiesto.objects.filter(recorrido=recorrido).first()
+            if (manifiesto is not None and manifiesto.estado_firma == 'FIRMADO'
+                    and request.user.groups.filter(name='Conductores').exists()):
+                messages.info(
+                    request,
+                    "El cliente ya firmó el acta de este servicio: quedó "
+                    "cerrada. Si hay que corregir algo, avísale a la oficina."
+                )
+                return redirect('gestion:detalle_orden_conductor', pk=recorrido.orden_id)
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, pk, step='paso3'):
@@ -1245,6 +1257,11 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         # Los auxiliares son los ayudantes que asignó el asesor: se copian del
         # recorrido, el conductor no los edita.
         auxiliar1, auxiliar2 = recorrido.auxiliares
+        # OJO: el estado de la firma NO va en los defaults. Antes se forzaba a
+        # PENDIENTE_FIRMA y eso "desfirmaba" un acta que el cliente acababa de
+        # firmar (pestaña del conductor abierta mientras el cliente firmaba),
+        # reviviendo el enlace público. Un acta nueva ya nace pendiente por el
+        # default del modelo; una firmada, firmada se queda.
         Manifiesto.objects.update_or_create(
             recorrido=recorrido,
             defaults={
@@ -1252,7 +1269,6 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
                 'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
                 # El responsable SOLMED es el conductor: tampoco lo escribe él.
                 'nombre_responsable_empresa': recorrido.responsable_empresa,
-                'estado_firma': 'PENDIENTE_FIRMA',
             },
         )
         if f'manifiesto_data_{pk}' in request.session:
@@ -1904,6 +1920,17 @@ class EliminarRecorridoView(NoConductorRequiredMixin, View):
     def post(self, request, pk):
         recorrido = get_object_or_404(Recorrido, pk=pk)
         orden = recorrido.orden
+        # Con el acta firmada por el cliente, quitar el recorrido arrastraría
+        # la firma y la encuesta en cascada: evidencia que no se recupera.
+        manifiesto = Manifiesto.objects.filter(recorrido=recorrido).first()
+        if manifiesto is not None and manifiesto.estado_firma == 'FIRMADO':
+            messages.error(
+                request,
+                "Este recorrido tiene el acta FIRMADA por el cliente: quitarlo "
+                "borraría la firma y la encuesta. Si de verdad hay que "
+                "eliminarlo, es desde el admin de Django."
+            )
+            return redirect('gestion:detalle_orden', pk=orden.pk)
         # Como los recorridos ya no se pueden añadir, quitar el último dejaría
         # la orden vacía y sin forma de arreglarla desde la app.
         if orden.recorridos.count() <= 1:
