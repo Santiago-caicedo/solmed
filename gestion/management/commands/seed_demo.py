@@ -165,7 +165,8 @@ class Command(BaseCommand):
                 transporte_tipo='Lodos orgánicos', transporte_cantidad='8 m³',
                 tiempo_inicio_operativo=datetime.time(4, 15), tiempo_final_operativo=datetime.time(7, 20),
                 tiempo_llegada_disposicion=datetime.time(10, 46),
-                km_salida_solmed=300, km_llegada_empresa=415, km_llegada_disposicion=1046, km_llegada_solmed=1135,
+                hora_salida_solmed=datetime.time(6, 30), hora_llegada_empresa=datetime.time(7, 45),
+                hora_llegada_disposicion=datetime.time(11, 20), hora_llegada_solmed=datetime.time(13, 5),
                 evals=[4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4],
                 observaciones='Mantenimiento general + tanques sótano. Descarga #1 - descarga #3 - '
                               'mantenimiento tanques PTAR. Carro sin mal olor.',
@@ -179,7 +180,8 @@ class Command(BaseCommand):
                 transporte_tipo='Aguas residuales', transporte_cantidad='10 m³',
                 tiempo_inicio_operativo=datetime.time(6, 0), tiempo_final_operativo=datetime.time(9, 30),
                 tiempo_llegada_disposicion=datetime.time(11, 15),
-                km_salida_solmed=120, km_llegada_empresa=180, km_llegada_disposicion=430, km_llegada_solmed=560,
+                hora_salida_solmed=datetime.time(7, 0), hora_llegada_empresa=datetime.time(8, 10),
+                hora_llegada_disposicion=datetime.time(10, 40), hora_llegada_solmed=datetime.time(12, 30),
                 evals=[4, 4, 3, 4, 3, 4, 4, 3, 4, 4, 4],
                 observaciones='Succión de pozo séptico y sondeo de red de aguas negras. '
                               'Se recomienda mantenimiento trimestral.',
@@ -194,7 +196,8 @@ class Command(BaseCommand):
                 transporte_tipo='RESPEL', transporte_cantidad='4 m³',
                 tiempo_inicio_operativo=datetime.time(5, 30), tiempo_final_operativo=datetime.time(8, 45),
                 tiempo_llegada_disposicion=datetime.time(10, 0),
-                km_salida_solmed=210, km_llegada_empresa=260, km_llegada_disposicion=520, km_llegada_solmed=640,
+                hora_salida_solmed=datetime.time(6, 45), hora_llegada_empresa=datetime.time(7, 55),
+                hora_llegada_disposicion=datetime.time(11, 0), hora_llegada_solmed=datetime.time(12, 50),
                 evals=[3, 4, 4, 4, 4, 4, 3, 4, 4, 4, 3],
                 observaciones='Lavado correctivo de tubería y succión de trampa de grasa. '
                               'Cliente satisfecho con el servicio.',

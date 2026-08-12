@@ -1498,7 +1498,7 @@ def _acta_lista_para_firmar(manifiesto):
     acta queda sin esos datos. Sirve para advertirlo, no para bloquear.
     """
     campos = ('tiempo_inicio_operativo', 'tiempo_final_operativo',
-              'km_salida_solmed', 'km_llegada_solmed')
+              'hora_salida_solmed', 'hora_llegada_solmed')
     return any(getattr(manifiesto, campo, None) not in (None, '') for campo in campos)
 
 
@@ -2528,7 +2528,8 @@ class _DemoConductorBase(View):
         if avance.get('datos'):
             acta.tiempo_inicio_operativo = datetime.time(7, 30)
             acta.tiempo_final_operativo = datetime.time(11, 45)
-            acta.km_salida_solmed, acta.km_llegada_solmed = 45210, 45298
+            acta.hora_salida_solmed = datetime.time(7, 10)
+            acta.hora_llegada_solmed = datetime.time(12, 15)
             acta.observaciones = 'Servicio sin novedad.'
         if avance.get('firma'):
             acta.estado_firma = 'FIRMADO'

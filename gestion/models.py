@@ -685,10 +685,12 @@ class Manifiesto(models.Model):
     tiempo_final_operativo = models.TimeField(null=True, blank=True, verbose_name="H. Final Operativo")
     tiempo_llegada_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Llegada sitio Disposición") 
     tiempo_salida_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Salida sitio Disposición") 
-    km_salida_solmed = models.IntegerField(null=True, blank=True, verbose_name="Salida SolMed (Km)")
-    km_llegada_empresa = models.IntegerField(null=True, blank=True, verbose_name="Llegada Empresa (Km)")
-    km_llegada_disposicion = models.IntegerField(null=True, blank=True, verbose_name="Llegada Sitio Disposición (Km)")
-    km_llegada_solmed = models.IntegerField(null=True, blank=True, verbose_name="Llegada Solmed (Km)") 
+    # Bloque "Tiempos de recorrido": eran los kilómetros del tablero y ahora
+    # son las horas de cada punto de la ruta.
+    hora_salida_solmed = models.TimeField(null=True, blank=True, verbose_name="H. Salida SolMed")
+    hora_llegada_empresa = models.TimeField(null=True, blank=True, verbose_name="H. Llegada Empresa")
+    hora_llegada_disposicion = models.TimeField(null=True, blank=True, verbose_name="H. Llegada Sitio Disposición")
+    hora_llegada_solmed = models.TimeField(null=True, blank=True, verbose_name="H. Llegada SolMed")
     
     # --- Evaluación de Satisfacción ---
     SATISFACCION_CHOICES = [(1, 'Deficiente'), (2, 'Regular'), (3, 'Bueno'), (4, 'Excelente')]

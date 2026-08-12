@@ -73,7 +73,7 @@
         .srv-qty { float: right; color: #2C4D9E; font-size: 6.6pt; }
         .srv-qty b { color: #000; font-size: 7.3pt; }
 
-        /* ---- Tiempos / Kilómetros: valores grandes centrados ---- */
+        /* ---- Tiempos: valores grandes centrados ---- */
         .th-s { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; font-size: 6.6pt; }
         .big { text-align: center; font-size: 9.5pt; font-weight: bold; height: 16px; }
 
@@ -245,10 +245,10 @@
         </table>
     </div>
 
-    <!-- ================= KILÓMETROS ================= -->
+    <!-- ============ TIEMPOS DE RECORRIDO ============ -->
     <div class="section">
         <table class="grid">
-            <tr><td class="band" colspan="4">KILÓMETROS</td></tr>
+            <tr><td class="band" colspan="4">TIEMPOS DE RECORRIDO</td></tr>
             <tr>
                 <td class="th-s" style="width: 25%;">Salida SolMed</td>
                 <td class="th-s" style="width: 25%;">Llegada Empresa</td>
@@ -256,10 +256,10 @@
                 <td class="th-s" style="width: 25%;">Llegada SolMed</td>
             </tr>
             <tr>
-                <td class="big">{{ manifiesto.km_salida_solmed|default_if_none:''|unlocalize }}</td>
-                <td class="big">{{ manifiesto.km_llegada_empresa|default_if_none:''|unlocalize }}</td>
-                <td class="big">{{ manifiesto.km_llegada_disposicion|default_if_none:''|unlocalize }}</td>
-                <td class="big">{{ manifiesto.km_llegada_solmed|default_if_none:''|unlocalize }}</td>
+                <td class="big">{{ manifiesto.hora_salida_solmed|time:'H:i'|default_if_none:'' }}</td>
+                <td class="big">{{ manifiesto.hora_llegada_empresa|time:'H:i'|default_if_none:'' }}</td>
+                <td class="big">{{ manifiesto.hora_llegada_disposicion|time:'H:i'|default_if_none:'' }}</td>
+                <td class="big">{{ manifiesto.hora_llegada_solmed|time:'H:i'|default_if_none:'' }}</td>
             </tr>
         </table>
     </div>

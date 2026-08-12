@@ -283,8 +283,8 @@ class ManifiestoPaso3Form(forms.ModelForm):
         fields = [
             'tiempo_inicio_operativo', 'tiempo_final_operativo',
             'tiempo_llegada_disposicion', 'tiempo_salida_disposicion',
-            'km_salida_solmed', 'km_llegada_empresa', 'km_llegada_disposicion',
-            'km_llegada_solmed'
+            'hora_salida_solmed', 'hora_llegada_empresa', 'hora_llegada_disposicion',
+            'hora_llegada_solmed'
         ]
         widgets = {
             # --- Campos de Tiempos ---
@@ -293,16 +293,16 @@ class ManifiestoPaso3Form(forms.ModelForm):
             'tiempo_llegada_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
             'tiempo_salida_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'), # NUEVO
             
-            # --- Campos de Kilómetros ---
-            'km_salida_solmed': forms.NumberInput(attrs={'class': 'form-control'}),
-            'km_llegada_empresa': forms.NumberInput(attrs={'class': 'form-control'}),
-            'km_llegada_disposicion': forms.NumberInput(attrs={'class': 'form-control'}),
-            'km_llegada_solmed': forms.NumberInput(attrs={'class': 'form-control'}), # NUEVO
+            # --- Tiempos de recorrido (antes kilómetros) ---
+            'hora_salida_solmed': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'hora_llegada_empresa': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'hora_llegada_disposicion': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'hora_llegada_solmed': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
         }
         labels = {
             'tiempo_llegada_disposicion': 'H. Llegada sitio Disposición', # NUEVO
             'tiempo_salida_disposicion': 'H. Salida sitio Disposición', # NUEVO
-            'km_llegada_solmed': 'Llegada Solmed', # NUEVO
+            'hora_llegada_solmed': 'Llegada SolMed',
         }
 
 class NovedadOperacionalForm(forms.Form):

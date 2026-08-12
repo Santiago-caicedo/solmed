@@ -91,7 +91,7 @@ class ManifiestoAdmin(admin.ModelAdmin):
         'recorrido', 
         'fecha_creacion', 
         'tiempo_inicio_operativo', 
-        'km_salida_solmed'
+        'hora_salida_solmed'
     )
     list_filter = ('recorrido__fecha_recorrido',)
     search_fields = ('recorrido__orden__cliente__nombre',)
