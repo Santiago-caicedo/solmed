@@ -61,6 +61,7 @@ urlpatterns = [
     # --- AÑADIR ESTAS LÍNEAS PARA CLIENTES ---
     path('clientes/', views.ListaClientesView.as_view(), name='lista_clientes'),
     path('clientes/nuevo/', views.CrearClienteView.as_view(), name='crear_cliente'),
+    path('clientes/<int:pk>/', views.FichaClienteView.as_view(), name='ficha_cliente'),
     path('clientes/<int:pk>/editar/', views.ActualizarClienteView.as_view(), name='actualizar_cliente'),
     # Borrado de registros nuevos (sin uso). Solo administradores.
     path('clientes/<int:pk>/eliminar/', views.EliminarClienteView.as_view(), name='eliminar_cliente'),

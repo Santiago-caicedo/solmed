@@ -691,7 +691,9 @@ en el número pedido y las que estorben se corren un puesto.
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0">Detalles de la orden</h5></div>
             <div class="card-body">
-                <p><strong>Cliente:</strong> {{ orden.cliente.nombre }}</p>
+                <p><strong>Cliente:</strong>
+                    <a href="{% url 'gestion:ficha_cliente' orden.cliente.pk %}"
+                       title="Ver el expediente del cliente">{{ orden.cliente.nombre }}</a></p>
                 <p><strong>Dirección:</strong> {{ orden.direccion_servicio }}</p>
                 <p><strong>Asesor:</strong> {{ orden.asesor.get_full_name|default:orden.asesor.username }}</p>
                 <p><strong>Creada:</strong> {{ orden.fecha_creacion|date:"d/m/Y" }}</p>

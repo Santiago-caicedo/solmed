@@ -1,0 +1,493 @@
+{% extends "gestion/base.html" %}
+{% load humanize %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-4">
+    <div>
+        <div class="fc-eyebrow">Expediente del cliente</div>
+        <h1 class="mb-1">{{ cliente.nombre }}</h1>
+        <div class="fc-sub">
+            <span><i class="bi bi-card-text me-1"></i>{{ cliente.identificacion }}</span>
+            {% if cliente.sigla %}<span><i class="bi bi-tag me-1"></i>{{ cliente.sigla }}</span>{% endif %}
+            {% if cliente.ciudad %}<span><i class="bi bi-geo-alt me-1"></i>{{ cliente.ciudad }}</span>{% endif %}
+            {% if cliente.direccion %}<span><i class="bi bi-signpost me-1"></i>{{ cliente.direccion }}</span>{% endif %}
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>Clientes
+        </a>
+        <a href="{% url 'gestion:actualizar_cliente' cliente.pk %}" class="btn btn-primary">
+            <i class="bi bi-pencil-square me-1"></i>Editar cliente
+        </a>
+    </div>
+</div>
+
+{# --- Indicadores del histórico completo (los filtros no los afectan) --- #}
+<div class="fc-tiles mb-4">
+    <div class="fc-tile">
+        <div class="t">Servicios en total</div>
+        <div class="n">{{ indicadores.total_ordenes }}</div>
+        <div class="s">{{ indicadores.ordenes_anio }} este año</div>
+    </div>
+    <div class="fc-tile">
+        <div class="t">Último servicio</div>
+        <div class="n sm">{% if indicadores.ultimo_servicio %}{{ indicadores.ultimo_servicio|date:"d/m/Y" }}{% else %}—{% endif %}</div>
+        <div class="s">{% if indicadores.ultimo_servicio %}{{ indicadores.ultimo_servicio|timesince }} atrás{% else %}Sin servicios aún{% endif %}</div>
+    </div>
+    <div class="fc-tile">
+        <div class="t">Satisfacción</div>
+        {% if indicadores.satisfaccion %}
+        <div class="n">{{ indicadores.satisfaccion|floatformat:1 }}<small>/4</small></div>
+        <div class="s">{{ indicadores.actas_firmadas }} acta{{ indicadores.actas_firmadas|pluralize }} firmada{{ indicadores.actas_firmadas|pluralize }}</div>
+        {% else %}
+        <div class="n sm">—</div>
+        <div class="s">Aún sin actas firmadas</div>
+        {% endif %}
+    </div>
+    <div class="fc-tile {% if indicadores.por_conciliar %}alerta{% endif %}">
+        <div class="t">Por conciliar</div>
+        <div class="n">{{ indicadores.por_conciliar }}</div>
+        <div class="s">Transporte — Cantidad</div>
+    </div>
+    <div class="fc-tile {% if indicadores.por_firmar %}alerta{% endif %}">
+        <div class="t">Actas por firmar</div>
+        <div class="n">{{ indicadores.por_firmar }}</div>
+        <div class="s">Esperan al cliente</div>
+    </div>
+</div>
+
+{# --- Gráficas --- #}
+<div class="card shadow mb-4">
+    <div class="card-header"><h5 class="mb-0"><i class="bi bi-bar-chart me-1"></i>Servicios de los últimos 12 meses</h5></div>
+    <div class="card-body">
+        <div class="fc-gr" style="height:230px;"><canvas id="g-meses"></canvas></div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-emoji-smile me-1"></i>Cómo nos califica (1 a 4)</h5></div>
+            <div class="card-body">
+                {% if aspectos %}
+                <div class="fc-gr" style="height:330px;"><canvas id="g-satisfaccion"></canvas></div>
+                <div class="fc-nota">Promedio de las actas que el cliente ha firmado. En ámbar, los aspectos por debajo de 3.</div>
+                {% else %}
+                <p class="text-muted mb-0">Todavía no ha firmado ninguna acta, así que no hay calificaciones.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-geo me-1"></i>Dónde se le presta el servicio</h5></div>
+            <div class="card-body">
+                {% if indicadores.total_ordenes %}
+                <div class="fc-gr" style="height:330px;"><canvas id="g-lugares"></canvas></div>
+                {% else %}
+                <p class="text-muted mb-0">Sin servicios registrados todavía.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- Órdenes del cliente, con filtros y paginación --- #}
+<div class="card shadow mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h5 class="mb-0"><i class="bi bi-clipboard-check me-1"></i>Órdenes de servicio</h5>
+        {% if hay_filtros %}
+        <a href="{% url 'gestion:ficha_cliente' cliente.pk %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-x-lg me-1"></i>Quitar filtros
+        </a>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end mb-3">
+            <div class="col-md-4">
+                <label class="form-label" for="q">Buscar</label>
+                <input type="text" name="q" id="q" class="form-control" value="{{ filtros.q }}"
+                       placeholder="N° de orden o dirección">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="anio">Año</label>
+                <select name="anio" id="anio" class="form-select">
+                    <option value="">Todos</option>
+                    {% for a in anios %}
+                    <option value="{{ a }}" {% if filtros.anio == a|stringformat:"s" %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="estado">Estado</label>
+                <select name="estado" id="estado" class="form-select">
+                    <option value="">Todos</option>
+                    {% for valor, texto in estado_choices %}
+                    <option value="{{ valor }}" {% if filtros.estado == valor %}selected{% endif %}>{{ texto }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="conciliacion">Conciliación</label>
+                <select name="conciliacion" id="conciliacion" class="form-select">
+                    <option value="">Todas</option>
+                    {% for valor, texto in conciliacion_choices %}
+                    <option value="{{ valor }}" {% if filtros.conciliacion == valor %}selected{% endif %}>{{ texto }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-primary w-100"><i class="bi bi-search"></i></button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>N° Orden</th>
+                        <th>Fecha del servicio</th>
+                        <th>Lugar</th>
+                        <th>Vehículo</th>
+                        <th>Acta</th>
+                        <th>Estado</th>
+                        <th>Conciliación</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for orden in ordenes %}
+                    <tr>
+                        <td class="fw-bold">#{{ orden.numero_orden }}</td>
+                        <td>{{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="small">{{ orden.direccion_servicio|default:"—"|truncatechars:40 }}</td>
+                        <td class="small">
+                            {% for r in orden.recorridos.all %}
+                                {% if r.vehiculo %}{{ r.vehiculo.placa }}{% if not forloop.last %}, {% endif %}{% endif %}
+                            {% empty %}—{% endfor %}
+                        </td>
+                        <td>
+                            {% for r in orden.recorridos.all %}
+                                {% if r.manifiesto.estado_firma == 'FIRMADO' %}
+                                <span class="badge bg-success"><i class="bi bi-check2"></i> Firmada</span>
+                                {% elif r.manifiesto %}
+                                <span class="badge bg-warning text-dark">Sin firmar</span>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            {% endfor %}
+                        </td>
+                        <td>
+                            <span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                                {{ orden.get_estado_orden_display }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if orden.estado_conciliacion == 'PENDIENTE' %}
+                            <span class="badge bg-warning text-dark">Pendiente</span>
+                            {% elif orden.estado_conciliacion == 'CONCILIADA' %}
+                            <span class="badge bg-success">Conciliada</span>
+                            {% else %}
+                            <span class="text-muted small">No aplica</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">
+                            {% if hay_filtros %}
+                            Ninguna orden coincide con los filtros.
+                            {% else %}
+                            Este cliente aún no tiene órdenes de servicio.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
+    </div>
+</div>
+
+{# --- Datos del cliente: contacto, sedes, terceros, documentos y correos --- #}
+<div class="row">
+    <div class="col-lg-4">
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-lines-fill me-1"></i>Contactos</h5></div>
+            <div class="card-body">
+                {% for c in contactos %}
+                <div class="fc-contacto">
+                    <div class="et">{{ c.etiqueta }}</div>
+                    <div class="nm">{{ c.nombre }}{% if c.cargo %} <small>· {{ c.cargo }}</small>{% endif %}</div>
+                    {% if c.correo %}<div class="dt"><i class="bi bi-envelope me-1"></i>{{ c.correo }}</div>{% endif %}
+                    {% if c.telefono %}<div class="dt"><i class="bi bi-telephone me-1"></i>{{ c.telefono }}</div>{% endif %}
+                </div>
+                {% empty %}
+                <p class="text-muted mb-0">Sin contactos registrados.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-buildings me-1"></i>Sedes y terceros</h5></div>
+            <div class="card-body">
+                {% if sedes %}
+                <div class="fc-sublabel">Sedes</div>
+                {% for sede in sedes %}
+                <div class="fc-lugar {% if not sede.activa %}off{% endif %}">
+                    <strong>{{ sede.nombre }}</strong>
+                    {% if not sede.activa %}<span class="badge bg-secondary ms-1">inactiva</span>{% endif %}
+                    {% if sede.direccion %}<div class="dt">{{ sede.direccion }}{% if sede.ciudad %} · {{ sede.ciudad }}{% endif %}</div>{% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% if terceros %}
+                <div class="fc-sublabel {% if sedes %}mt-3{% endif %}">Terceros</div>
+                {% for t in terceros %}
+                <div class="fc-lugar {% if not t.activo %}off{% endif %}">
+                    <strong>{{ t.nombre }}</strong>
+                    {% if not t.activo %}<span class="badge bg-secondary ms-1">inactivo</span>{% endif %}
+                    {% if t.direccion %}<div class="dt">{{ t.direccion }}{% if t.ciudad %} · {{ t.ciudad }}{% endif %}</div>{% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% if not sedes and not terceros %}
+                <p class="text-muted mb-0">Sin sedes ni terceros registrados.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-paperclip me-1"></i>Documentos y correos</h5></div>
+            <div class="card-body">
+                <div class="fc-sublabel">Documentos ambientales</div>
+                {% for doc in documentos_ambientales %}
+                <a class="fc-doc" href="{{ doc.archivo.url }}" target="_blank">
+                    <i class="bi bi-file-earmark-text"></i>
+                    <span>{{ doc.descripcion|default:"Documento" }}<small>{{ doc.fecha_subida|date:"d/m/Y" }}</small></span>
+                </a>
+                {% empty %}
+                <p class="text-muted small mb-0">Sin documentos ambientales.</p>
+                {% endfor %}
+
+                <div class="fc-sublabel mt-3">Últimos correos enviados</div>
+                {% for envio in correos_enviados %}
+                <a class="fc-doc" href="{% url 'gestion:detalle_envio_correo' envio.pk %}">
+                    <i class="bi {% if envio.estado == 'FALLIDO' %}bi-exclamation-circle text-danger{% else %}bi-envelope-check{% endif %}"></i>
+                    <span>{{ envio.asunto|truncatechars:38 }}<small>{{ envio.fecha|date:"d/m/Y H:i" }}</small></span>
+                </a>
+                {% empty %}
+                <p class="text-muted small mb-0">Todavía no se le ha enviado documentación.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fc-eyebrow{
+        font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+        color:var(--brand-600,#5E8C1B);
+    }
+    .fc-sub{ display:flex; flex-wrap:wrap; gap:.25rem 1rem; font-size:.85rem; color:var(--ink-3,#8a94a3); }
+
+    /* ---- Indicadores ---- */
+    .fc-tiles{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:.85rem; }
+    .fc-tile{
+        background:var(--panel,#fff); border:1px solid var(--line,#e6e9ee); border-radius:12px;
+        padding:.85rem 1rem; box-shadow:0 1px 3px rgba(15,23,35,.04);
+    }
+    .fc-tile.alerta{ border-color:#ffe08a; background:#fffdf5; }
+    .fc-tile .t{
+        font-size:.68rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+        color:var(--ink-3,#8a94a3);
+    }
+    .fc-tile .n{ font-size:1.9rem; font-weight:700; line-height:1.15; color:var(--ink,#2b3542); }
+    .fc-tile .n.sm{ font-size:1.25rem; }
+    .fc-tile .n small{ font-size:.9rem; font-weight:600; color:var(--ink-3,#8a94a3); }
+    .fc-tile .s{ font-size:.76rem; color:var(--ink-3,#8a94a3); }
+
+    .fc-gr{ position:relative; }
+    .fc-nota{ font-size:.74rem; color:var(--ink-3,#8a94a3); margin-top:.6rem; }
+
+    /* ---- Contactos, lugares y documentos ---- */
+    .fc-contacto + .fc-contacto{ margin-top:.7rem; padding-top:.7rem; border-top:1px dashed var(--line,#eef0f3); }
+    .fc-contacto .et{
+        font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+        color:var(--brand-600,#5E8C1B);
+    }
+    .fc-contacto .nm{ font-weight:600; font-size:.9rem; }
+    .fc-contacto .nm small{ color:var(--ink-3,#8a94a3); font-weight:400; }
+    .fc-contacto .dt, .fc-lugar .dt{ font-size:.8rem; color:var(--ink-2,#5b6470); }
+    .fc-sublabel{
+        font-size:.66rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+        color:var(--ink-3,#8a94a3); margin-bottom:.4rem;
+    }
+    .fc-lugar{ padding:.35rem 0; }
+    .fc-lugar + .fc-lugar{ border-top:1px dashed var(--line,#eef0f3); }
+    .fc-lugar.off{ opacity:.55; }
+    .fc-doc{
+        display:flex; align-items:center; gap:.55rem; text-decoration:none; padding:.35rem 0;
+        color:var(--ink,#2b3542);
+    }
+    .fc-doc + .fc-doc{ border-top:1px dashed var(--line,#eef0f3); }
+    .fc-doc:hover{ color:var(--brand-700,#4d7416); }
+    .fc-doc i{ font-size:1.1rem; color:var(--ink-3,#8a94a3); }
+    .fc-doc span{ font-size:.85rem; line-height:1.25; }
+    .fc-doc small{ display:block; font-size:.72rem; color:var(--ink-3,#8a94a3); }
+</style>
+
+{{ graficas|json_script:"datos-graficas" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof Chart === 'undefined') return;   // sin la librería, la página sigue sirviendo
+    var datos = JSON.parse(document.getElementById('datos-graficas').textContent);
+
+    var VERDE = '#5E8C1B', VERDE_CLARO = '#9CBE30', AMBAR = '#C47F12';
+    var TINTA = '#5b6470', SUAVE = '#8a94a3', REJILLA = '#eef0f3';
+
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    Chart.defaults.color = TINTA;
+    Chart.defaults.plugins.legend.display = false;   // una serie: el título ya la nombra
+
+    // --- Servicios por mes: magnitud en el tiempo ---
+    var meses = document.getElementById('g-meses');
+    if (meses) {
+        new Chart(meses, {
+            type: 'bar',
+            data: {
+                labels: datos.meses.etiquetas,
+                datasets: [{
+                    data: datos.meses.datos,
+                    backgroundColor: VERDE,
+                    borderRadius: 4,
+                    borderSkipped: 'bottom',
+                    maxBarThickness: 34,
+                }],
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, color: SUAVE },
+                        grid: { color: REJILLA, drawTicks: false },
+                        border: { display: false },
+                    },
+                    x: { grid: { display: false }, ticks: { color: SUAVE } },
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function (c) {
+                                return c.parsed.y + (c.parsed.y === 1 ? ' servicio' : ' servicios');
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    // --- Satisfacción: los aspectos por debajo de 3 se marcan en ámbar ---
+    var satisfaccion = document.getElementById('g-satisfaccion');
+    if (satisfaccion) {
+        new Chart(satisfaccion, {
+            type: 'bar',
+            data: {
+                labels: datos.aspectos.etiquetas,
+                datasets: [{
+                    data: datos.aspectos.datos,
+                    backgroundColor: datos.aspectos.datos.map(function (v) {
+                        return v < 3 ? AMBAR : VERDE;
+                    }),
+                    borderRadius: 4,
+                    borderSkipped: 'start',
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true, max: 4,
+                        ticks: { stepSize: 1, color: SUAVE },
+                        grid: { color: REJILLA, drawTicks: false },
+                        border: { display: false },
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: TINTA, font: { size: 11 } },
+                        border: { display: false },
+                    },
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: { label: function (c) { return c.parsed.x + ' de 4'; } },
+                    },
+                },
+            },
+        });
+    }
+
+    // --- Dónde se presta el servicio ---
+    var lugares = document.getElementById('g-lugares');
+    if (lugares) {
+        new Chart(lugares, {
+            type: 'bar',
+            data: {
+                labels: datos.lugares.etiquetas,
+                datasets: [{
+                    data: datos.lugares.datos,
+                    backgroundColor: VERDE_CLARO,
+                    borderRadius: 4,
+                    borderSkipped: 'start',
+                }],
+            },
+            options: {
+                indexAxis: 'y',
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { precision: 0, color: SUAVE },
+                        grid: { color: REJILLA, drawTicks: false },
+                        border: { display: false },
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            color: TINTA, font: { size: 11 },
+                            callback: function (v) {
+                                var t = this.getLabelForValue(v);
+                                return t.length > 26 ? t.slice(0, 25) + '…' : t;
+                            },
+                        },
+                        border: { display: false },
+                    },
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function (c) {
+                                return c.parsed.x + (c.parsed.x === 1 ? ' servicio' : ' servicios');
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+});
+</script>
+{% endblock %}

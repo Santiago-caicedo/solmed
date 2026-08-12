@@ -20,10 +20,10 @@ from io import BytesIO
 import qrcode
 from weasyprint import HTML
 from django.db import IntegrityError, transaction
-from django.db.models import F, Min, Sum, Count
+from django.db.models import Avg, F, Min, Q, Sum, Count
 import base64
 import datetime
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import ExtractYear, TruncMonth
 from decimal import Decimal 
 from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView, FormView
 from django.utils import timezone
@@ -533,6 +533,213 @@ class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
         self.object = form.save()
         messages.success(self.request, "Orden actualizada.")
         return HttpResponseRedirect(self.get_success_url())
+
+def _contactos_cliente(cliente):
+    """Los contactos del cliente por área, saltando los que están vacíos."""
+    areas = [
+        ('Principal', 'persona_contacto', 'cargo_contacto', 'email', 'telefono'),
+        ('Comercial', 'comercial_nombre', 'comercial_cargo', 'comercial_correo', 'comercial_telefono'),
+        ('Contabilidad', 'contab_nombre', 'contab_cargo', 'contab_correo', 'contab_telefono'),
+        ('Ambiental', 'ambiental_nombre', 'ambiental_cargo', 'ambiental_correo', 'ambiental_telefono'),
+        ('SST', 'sst_nombre', 'sst_cargo', 'sst_correo', 'sst_telefono'),
+    ]
+    contactos = []
+    for etiqueta, campo_nombre, campo_cargo, campo_correo, campo_tel in areas:
+        nombre = (getattr(cliente, campo_nombre, '') or '').strip()
+        correo = (getattr(cliente, campo_correo, '') or '').strip()
+        telefono = (getattr(cliente, campo_tel, '') or '').strip()
+        if not (nombre or correo or telefono):
+            continue
+        contactos.append({
+            'etiqueta': etiqueta,
+            'nombre': nombre or '—',
+            'cargo': (getattr(cliente, campo_cargo, '') or '').strip(),
+            'correo': correo,
+            'telefono': telefono,
+        })
+    return contactos
+
+
+class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    """
+    Expediente del cliente: su centro de control. Reúne los indicadores del
+    histórico (servicios, satisfacción, conciliación), las gráficas, la lista
+    paginada y filtrable de TODAS sus órdenes, y sus datos de contacto, sedes,
+    terceros y documentos.
+    """
+    model = OrdenServicio
+    template_name = 'gestion/ficha_cliente.html'
+    context_object_name = 'ordenes'
+    paginate_by = 15
+
+    # Los once aspectos de la encuesta de satisfacción del acta, en el orden
+    # en que se le preguntan al cliente.
+    ASPECTOS = [
+        ('eval_atencion', 'Atención'),
+        ('eval_amabilidad', 'Amabilidad'),
+        ('eval_solucion_inquietudes', 'Solución de inquietudes'),
+        ('eval_asesoria', 'Asesoría'),
+        ('eval_puntualidad', 'Puntualidad'),
+        ('eval_calidad_servicio', 'Calidad del servicio'),
+        ('eval_oportunidad', 'Oportunidad'),
+        ('eval_cumplimiento_condiciones', 'Cumplimiento de condiciones'),
+        ('eval_solucion_problemas', 'Solución de problemas'),
+        ('eval_volveria_contratar', 'Volvería a contratar'),
+        ('eval_nos_recomendaria', 'Nos recomendaría'),
+    ]
+
+    def get_cliente(self):
+        if not hasattr(self, '_cliente'):
+            self._cliente = get_object_or_404(Cliente, pk=self.kwargs['pk'])
+        return self._cliente
+
+    def _ordenes_del_cliente(self):
+        """Todas las órdenes del cliente, con la fecha del servicio anotada."""
+        return (OrdenServicio.objects
+                .filter(cliente=self.get_cliente())
+                .annotate(fecha_servicio=Min('recorridos__fecha_recorrido')))
+
+    def get_queryset(self):
+        qs = self._ordenes_del_cliente().prefetch_related(
+            'recorridos__vehiculo', 'recorridos__manifiesto')
+        pedido = self.request.GET
+        if pedido.get('estado'):
+            qs = qs.filter(estado_orden=pedido['estado'])
+        if pedido.get('conciliacion'):
+            qs = qs.filter(estado_conciliacion=pedido['conciliacion'])
+        if pedido.get('anio'):
+            qs = qs.filter(recorridos__fecha_recorrido__year=pedido['anio'])
+        texto = (pedido.get('q') or '').strip()
+        if texto:
+            qs = qs.filter(
+                Q(numero_orden__icontains=texto) |
+                Q(direccion_servicio__icontains=texto))
+        # Sin huecos ni repetidos al paginar: la más reciente primero.
+        return qs.order_by('-numero_orden').distinct()
+
+    def _indicadores(self, ordenes):
+        """Las cifras de la cabecera, sobre TODO el histórico (sin filtros)."""
+        hoy = timezone.localdate()
+        recorridos = Recorrido.objects.filter(orden__cliente=self.get_cliente())
+        firmadas = Manifiesto.objects.filter(
+            recorrido__orden__cliente=self.get_cliente(), estado_firma='FIRMADO')
+
+        promedios = firmadas.aggregate(
+            **{campo: Avg(campo) for campo, _ in self.ASPECTOS})
+        valores = [v for v in promedios.values() if v is not None]
+        satisfaccion = sum(valores) / len(valores) if valores else None
+
+        ultimo = recorridos.order_by('-fecha_recorrido').first()
+        return {
+            'total_ordenes': ordenes.count(),
+            'ordenes_anio': ordenes.filter(
+                recorridos__fecha_recorrido__year=hoy.year).distinct().count(),
+            'ultimo_servicio': ultimo.fecha_recorrido if ultimo else None,
+            'satisfaccion': satisfaccion,
+            'actas_firmadas': firmadas.count(),
+            'por_conciliar': ordenes.filter(estado_conciliacion='PENDIENTE').count(),
+            'por_firmar': Manifiesto.objects.filter(
+                recorrido__orden__cliente=self.get_cliente(),
+                estado_firma='PENDIENTE_FIRMA').count(),
+        }, promedios
+
+    def _servicios_por_mes(self):
+        """Los últimos 12 meses de servicios (incluidos los meses en cero)."""
+        hoy = timezone.localdate()
+        primero = (hoy.replace(day=1) - datetime.timedelta(days=334)).replace(day=1)
+        filas = (Recorrido.objects
+                 .filter(orden__cliente=self.get_cliente(),
+                         fecha_recorrido__gte=primero)
+                 .annotate(mes=TruncMonth('fecha_recorrido'))
+                 .values('mes').annotate(n=Count('id')).order_by('mes'))
+        conteo = {f['mes'].strftime('%Y-%m'): f['n'] for f in filas if f['mes']}
+
+        MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
+                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+        etiquetas, datos = [], []
+        cursor = primero
+        for _ in range(12):
+            etiquetas.append(f"{MESES[cursor.month - 1]} {cursor.year % 100:02d}")
+            datos.append(conteo.get(cursor.strftime('%Y-%m'), 0))
+            # Primer día del mes siguiente.
+            cursor = (cursor.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        return etiquetas, datos
+
+    def _servicios_por_lugar(self):
+        """Dónde se le presta el servicio: sede, tercero o dirección."""
+        conteo = {}
+        for orden in (OrdenServicio.objects
+                      .filter(cliente=self.get_cliente())
+                      .select_related('programacion_origen__sede_cliente',
+                                      'programacion_origen__tercero')):
+            programacion = getattr(orden, 'programacion_origen', None)
+            if programacion is not None and programacion.sede_cliente_id:
+                lugar = programacion.sede_cliente.nombre
+            elif programacion is not None and programacion.tercero_id:
+                lugar = f"{programacion.tercero.nombre} (tercero)"
+            else:
+                lugar = orden.direccion_servicio or 'Sin lugar registrado'
+            conteo[lugar] = conteo.get(lugar, 0) + 1
+        # Los ocho lugares más frecuentes; el resto se agrupa.
+        ordenado = sorted(conteo.items(), key=lambda par: -par[1])
+        principales, resto = ordenado[:8], ordenado[8:]
+        if resto:
+            principales.append(('Otros lugares', sum(n for _l, n in resto)))
+        return [l for l, _n in principales], [n for _l, n in principales]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        cliente = self.get_cliente()
+        todas = self._ordenes_del_cliente()
+        indicadores, promedios = self._indicadores(todas)
+
+        etiquetas_mes, datos_mes = self._servicios_por_mes()
+        lugares, datos_lugar = self._servicios_por_lugar()
+        aspectos = [
+            {'etiqueta': etiqueta, 'valor': round(promedios[campo], 2)}
+            for campo, etiqueta in self.ASPECTOS if promedios.get(campo) is not None
+        ]
+
+        anios = sorted(
+            {f['anio'] for f in Recorrido.objects
+             .filter(orden__cliente=cliente)
+             .annotate(anio=ExtractYear('fecha_recorrido'))
+             .values('anio') if f['anio']},
+            reverse=True)
+
+        context.update({
+            'cliente': cliente,
+            'indicadores': indicadores,
+            'aspectos': aspectos,
+            'anios': anios,
+            'estado_choices': OrdenServicio.ESTADO_ORDEN_CHOICES,
+            'conciliacion_choices': OrdenServicio.CONCILIACION_CHOICES,
+            'filtros': {
+                'q': self.request.GET.get('q', ''),
+                'estado': self.request.GET.get('estado', ''),
+                'conciliacion': self.request.GET.get('conciliacion', ''),
+                'anio': self.request.GET.get('anio', ''),
+            },
+            'hay_filtros': any(self.request.GET.get(c) for c in
+                               ('q', 'estado', 'conciliacion', 'anio')),
+            # Series para las gráficas (las publica {{ graficas|json_script }}).
+            'graficas': ({
+                'meses': {'etiquetas': etiquetas_mes, 'datos': datos_mes},
+                'lugares': {'etiquetas': lugares, 'datos': datos_lugar},
+                'aspectos': {
+                    'etiquetas': [a['etiqueta'] for a in aspectos],
+                    'datos': [a['valor'] for a in aspectos],
+                },
+            }),
+            'contactos': _contactos_cliente(cliente),
+            'sedes': cliente.sedes.all(),
+            'terceros': cliente.terceros.all(),
+            'documentos_ambientales': cliente.documentos_ambientales.all(),
+            'correos_enviados': EnvioCorreo.objects.filter(
+                cliente=cliente).order_by('-fecha')[:5],
+        })
+        return context
+
 
 # --- Vistas para Vehículos ---
 class ListaVehiculosView(NoConductorRequiredMixin, PaginadoMixin, ListView):

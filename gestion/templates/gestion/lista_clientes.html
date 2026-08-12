@@ -44,11 +44,17 @@
         {% for cliente in clientes %}
         <tr>
             <td>
-                <strong>{{ cliente.nombre }}</strong>
+                {# El nombre lleva al expediente: historial, gráficas y órdenes #}
+                <a href="{% url 'gestion:ficha_cliente' cliente.pk %}" class="fw-bold text-decoration-none">
+                    {{ cliente.nombre }}
+                </a>
                 {% if cliente.sigla %}<span class="badge bg-light ms-1">{{ cliente.sigla }}</span>{% endif %}
             </td>
             <td>{{ cliente.identificacion }}</td>
             <td>{{ cliente.ciudad }}</td> <td>{{ cliente.persona_contacto }}</td> <td class="text-end">
+                <a href="{% url 'gestion:ficha_cliente' cliente.pk %}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-folder2-open"></i> Expediente
+                </a>
                 <a href="{% url 'gestion:actualizar_cliente' cliente.pk %}" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-pencil-square"></i> Editar
                 </a>
