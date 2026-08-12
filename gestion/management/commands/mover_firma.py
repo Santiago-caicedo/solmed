@@ -12,11 +12,16 @@ Qué hace al confirmar:
     cliente calificó fue la de ese servicio).
   - El acta de la orden ORIGEN vuelve a PENDIENTE_FIRMA con TOKEN NUEVO: el
     enlace enviado por error queda muerto.
+  - Si el conductor ya respondió la ENCUESTA DE CIERRE en el origen (se
+    desbloqueó con la firma equivocada), también se traslada al destino:
+    el recorrido destino queda COMPLETADO y el origen vuelve a PROGRAMADO,
+    con los estados de ambas órdenes recalculados. Exige que el conductor
+    sea el mismo en las dos (la encuesta es su autorreporte PESV).
   - Lo diligenciado por los conductores en ambas actas no se toca.
 
 Solo procede si LAS DOS ÓRDENES SON DEL MISMO CLIENTE (si no, la firma es de
 la persona equivocada y no hay nada que mover: usa anular_firma). Se niega si
-el destino ya está firmado o si el origen ya tiene encuesta de cierre.
+el destino ya está firmado o ya tiene su propia encuesta de cierre.
 """
 import uuid
 
@@ -79,11 +84,8 @@ class Command(BaseCommand):
                 f"esto está pensado para el caso normal de una sola.")
         acta_origen = firmadas[0]
 
-        if EncuestaConductor.objects.filter(recorrido=acta_origen.recorrido).exists():
-            raise CommandError(
-                f"El recorrido de la orden #{origen.pk} ya tiene la encuesta de "
-                f"cierre (figura completado). Quitarle la firma lo dejaría "
-                f"inconsistente: revisa primero la encuesta en el admin.")
+        encuesta = EncuestaConductor.objects.filter(
+            recorrido=acta_origen.recorrido).first()
 
         recorridos_destino = list(destino.recorridos.select_related('vehiculo'))
         if len(recorridos_destino) != 1:
@@ -96,6 +98,21 @@ class Command(BaseCommand):
             raise CommandError(
                 f"El acta de la orden #{destino.pk} YA está firmada: no se "
                 f"puede firmar encima.")
+
+        if encuesta is not None:
+            # La encuesta de cierre es el AUTORREPORTE PESV del conductor:
+            # solo se mueve si el conductor es el mismo en las dos órdenes.
+            if EncuestaConductor.objects.filter(recorrido=recorrido_destino).exists():
+                raise CommandError(
+                    f"La orden #{destino.pk} ya tiene su propia encuesta de "
+                    f"cierre: revisa en el admin cuál de las dos vale.")
+            if (acta_origen.recorrido.conductor_id is None
+                    or acta_origen.recorrido.conductor_id != recorrido_destino.conductor_id):
+                raise CommandError(
+                    "Los CONDUCTORES de las dos órdenes no coinciden: la "
+                    "encuesta de cierre es el autorreporte del conductor y no "
+                    "se puede atribuir a otra persona. Resuelve la encuesta "
+                    "desde el admin y vuelve a intentarlo.")
 
         evals = sum(1 for c in CAMPOS_EVAL if getattr(acta_origen, c) is not None)
         self.stdout.write(self.style.MIGRATE_HEADING(
@@ -110,6 +127,11 @@ class Command(BaseCommand):
             f"  DESTINO #{destino.pk} — servicio {recorrido_destino.fecha_recorrido:%d/%m/%Y}"
             f"{' · placa ' + recorrido_destino.vehiculo.placa if recorrido_destino.vehiculo else ''}"
             f"{' · acta sin crear (se crea)' if acta_destino is None else ''}")
+        if encuesta is not None:
+            self.stdout.write(
+                "  La ENCUESTA DE CIERRE del conductor también se traslada: "
+                "el recorrido destino queda COMPLETADO y el origen vuelve a "
+                "PROGRAMADO (estados de las órdenes recalculados).")
         self.stdout.write(
             "\nAl mover: el destino queda FIRMADO con esa firma, nombre y "
             "respuestas; el origen vuelve a PENDIENTE_FIRMA con enlace nuevo "
@@ -147,7 +169,19 @@ class Command(BaseCommand):
                 'estado_firma', 'firma_cliente', 'nombre_responsable_cliente',
                 'token_publico', *CAMPOS_EVAL])
 
+            if encuesta is not None:
+                # La encuesta pasa al recorrido destino; su save() lo marca
+                # COMPLETADO y recalcula el estado de esa orden. El recorrido
+                # origen vuelve a PROGRAMADO (su servicio sigue pendiente) y
+                # su orden se recalcula al guardar.
+                encuesta.recorrido = recorrido_destino
+                encuesta.save()
+                rec_origen = acta_origen.recorrido
+                rec_origen.estado = 'PROGRAMADO'
+                rec_origen.save()
+
+        extra = " La encuesta de cierre quedó en el destino." if encuesta is not None else ""
         self.stdout.write(self.style.SUCCESS(
             f"\nListo: la orden #{destino.pk} quedó FIRMADA y la #{origen.pk} "
             f"volvió a pendiente con enlace nuevo. El PDF del acta del destino "
-            f"sale con la firma en la próxima descarga."))
+            f"sale con la firma en la próxima descarga.{extra}"))
