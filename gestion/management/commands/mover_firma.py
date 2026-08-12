@@ -51,6 +51,12 @@ class Command(BaseCommand):
             '--confirmar', action='store_true',
             help='Ejecuta de verdad (sin esto, solo muestra qué pasaría).',
         )
+        parser.add_argument(
+            '--clientes-distintos', action='store_true',
+            help='Permite mover la firma entre órdenes de clientes distintos '
+                 '(cuando el enlace equivocado le llegó a la persona correcta: '
+                 'quien firmó es el cliente de la orden DESTINO).',
+        )
 
     def _orden(self, numero):
         try:
@@ -64,13 +70,16 @@ class Command(BaseCommand):
         origen = self._orden(opciones['origen'])
         destino = self._orden(opciones['destino'])
 
-        # La validación que no se negocia: mismo cliente. Si no, la firma es
-        # de la persona equivocada y lo correcto es anular_firma.
-        if origen.cliente_id != destino.cliente_id:
+        # Por defecto se exige el mismo cliente. Con --clientes-distintos se
+        # permite el caso "el enlace equivocado le llegó a la persona correcta":
+        # quien firmó es el cliente del DESTINO confirmando su propio servicio.
+        if origen.cliente_id != destino.cliente_id and not opciones['clientes_distintos']:
             raise CommandError(
                 f"Las órdenes son de CLIENTES DISTINTOS (#{origen.pk}: "
                 f"{origen.cliente.nombre} / #{destino.pk}: {destino.cliente.nombre}). "
-                f"La firma no se puede mover: usa anular_firma y pide la firma correcta.")
+                f"Si quien firmó fue el cliente del destino (le llegó el enlace "
+                f"equivocado), repite con --clientes-distintos. Si firmó otra "
+                f"persona, usa anular_firma y pide la firma correcta.")
 
         firmadas = list(Manifiesto.objects.filter(
             recorrido__orden=origen, estado_firma='FIRMADO'
@@ -99,20 +108,19 @@ class Command(BaseCommand):
                 f"El acta de la orden #{destino.pk} YA está firmada: no se "
                 f"puede firmar encima.")
 
+        mover_encuesta = False
         if encuesta is not None:
-            # La encuesta de cierre es el AUTORREPORTE PESV del conductor:
-            # solo se mueve si el conductor es el mismo en las dos órdenes.
             if EncuestaConductor.objects.filter(recorrido=recorrido_destino).exists():
                 raise CommandError(
                     f"La orden #{destino.pk} ya tiene su propia encuesta de "
                     f"cierre: revisa en el admin cuál de las dos vale.")
-            if (acta_origen.recorrido.conductor_id is None
-                    or acta_origen.recorrido.conductor_id != recorrido_destino.conductor_id):
-                raise CommandError(
-                    "Los CONDUCTORES de las dos órdenes no coinciden: la "
-                    "encuesta de cierre es el autorreporte del conductor y no "
-                    "se puede atribuir a otra persona. Resuelve la encuesta "
-                    "desde el admin y vuelve a intentarlo.")
+            # La encuesta es el AUTORREPORTE PESV del conductor: solo puede
+            # viajar si el conductor es el mismo. Si no, la del origen se
+            # ELIMINA: describe un servicio que no se ha prestado y no se
+            # puede atribuir a otra persona.
+            mover_encuesta = (
+                acta_origen.recorrido.conductor_id is not None
+                and acta_origen.recorrido.conductor_id == recorrido_destino.conductor_id)
 
         evals = sum(1 for c in CAMPOS_EVAL if getattr(acta_origen, c) is not None)
         self.stdout.write(self.style.MIGRATE_HEADING(
@@ -127,11 +135,22 @@ class Command(BaseCommand):
             f"  DESTINO #{destino.pk} — servicio {recorrido_destino.fecha_recorrido:%d/%m/%Y}"
             f"{' · placa ' + recorrido_destino.vehiculo.placa if recorrido_destino.vehiculo else ''}"
             f"{' · acta sin crear (se crea)' if acta_destino is None else ''}")
-        if encuesta is not None:
+        if origen.cliente_id != destino.cliente_id:
+            self.stdout.write(self.style.WARNING(
+                f"  ⚠ CLIENTES DISTINTOS: la firma pasa de una orden de "
+                f"{origen.cliente.nombre} a una de {destino.cliente.nombre}. "
+                f"Se asume que quien firmó fue el cliente del destino."))
+        if encuesta is not None and mover_encuesta:
             self.stdout.write(
                 "  La ENCUESTA DE CIERRE del conductor también se traslada: "
                 "el recorrido destino queda COMPLETADO y el origen vuelve a "
                 "PROGRAMADO (estados de las órdenes recalculados).")
+        elif encuesta is not None:
+            self.stdout.write(self.style.WARNING(
+                "  ⚠ La encuesta de cierre del origen se ELIMINARÁ: los "
+                "conductores no coinciden y ese autorreporte corresponde a un "
+                "servicio que no se ha prestado. El recorrido origen vuelve a "
+                "PROGRAMADO; el conductor del destino responde la suya normal."))
         self.stdout.write(
             "\nAl mover: el destino queda FIRMADO con esa firma, nombre y "
             "respuestas; el origen vuelve a PENDIENTE_FIRMA con enlace nuevo "
@@ -170,17 +189,28 @@ class Command(BaseCommand):
                 'token_publico', *CAMPOS_EVAL])
 
             if encuesta is not None:
-                # La encuesta pasa al recorrido destino; su save() lo marca
-                # COMPLETADO y recalcula el estado de esa orden. El recorrido
-                # origen vuelve a PROGRAMADO (su servicio sigue pendiente) y
-                # su orden se recalcula al guardar.
-                encuesta.recorrido = recorrido_destino
-                encuesta.save()
+                if mover_encuesta:
+                    # La encuesta pasa al recorrido destino; su save() lo marca
+                    # COMPLETADO y recalcula el estado de esa orden.
+                    encuesta.recorrido = recorrido_destino
+                    encuesta.save()
+                else:
+                    # Conductores distintos: la encuesta del origen no se puede
+                    # reatribuir y era de un servicio no prestado. Se elimina.
+                    encuesta.delete()
+                # El recorrido origen vuelve a PROGRAMADO (su servicio sigue
+                # pendiente) y su orden se recalcula al guardar.
                 rec_origen = acta_origen.recorrido
                 rec_origen.estado = 'PROGRAMADO'
                 rec_origen.save()
 
-        extra = " La encuesta de cierre quedó en el destino." if encuesta is not None else ""
+        if encuesta is not None and mover_encuesta:
+            extra = " La encuesta de cierre quedó en el destino."
+        elif encuesta is not None:
+            extra = (" La encuesta de cierre del origen se eliminó (conductores "
+                     "distintos); el conductor del destino responde la suya.")
+        else:
+            extra = ""
         self.stdout.write(self.style.SUCCESS(
             f"\nListo: la orden #{destino.pk} quedó FIRMADA y la #{origen.pk} "
             f"volvió a pendiente con enlace nuevo. El PDF del acta del destino "
