@@ -51,7 +51,6 @@
                         <th># Orden</th>
                         <th>Cliente</th>
                         <th>Fecha del servicio</th>
-                        <th>Recorridos</th>
                         <th>Estado</th>
                         <th>Conciliación</th>
                         <th>Acciones</th>
@@ -66,7 +65,6 @@
                         <td title="Creada en el sistema el {{ orden.fecha_creacion|date:'d/m/Y' }}">
                             {{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}
                         </td>
-                        <td><span class="badge bg-secondary">{{ orden.recorridos.count }}</span></td>
                         <td><span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span></td>
                         <td>
                             {% if orden.estado_conciliacion == 'PENDIENTE' %}
@@ -84,7 +82,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">No hay órdenes de servicio registradas.</td>
+                        <td colspan="6" class="text-center text-muted py-4">No hay órdenes de servicio registradas.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
