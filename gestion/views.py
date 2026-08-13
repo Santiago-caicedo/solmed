@@ -1,4 +1,5 @@
 import json
+import re
 import mimetypes
 import os
 from django.conf import settings
@@ -1029,6 +1030,19 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
         return destino
 
 
+def _placa_partes(placa):
+    """
+    La placa como va impresa: las letras y los números separados. En la placa
+    colombiana van con un punto en medio; si no se puede separar, se devuelve
+    entera.
+    """
+    texto = (placa or '').strip().upper()
+    coincide = re.match(r'^([A-Z]+)[\s\-·]*([0-9A-Z]+)$', texto)
+    if coincide:
+        return coincide.group(1), coincide.group(2)
+    return texto, ''
+
+
 def _documentos_vehiculo(vehiculo):
     """Los papeles del camión con su vigencia, para el semáforo del expediente."""
     hoy = timezone.localdate()
@@ -1144,6 +1158,7 @@ class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
         # El veredicto de la cabecera y el semáforo de papeles.
         context['veredicto'] = _puede_programarse(vehiculo)
         context['documentos'] = _documentos_vehiculo(vehiculo)
+        context['placa_letras'], context['placa_numeros'] = _placa_partes(vehiculo.placa)
         # Los "ingresos generados" se quitaron: salían de valor_servicio, que no
         # se llena en ninguna parte, así que la tarjeta siempre mostraba $0.
 

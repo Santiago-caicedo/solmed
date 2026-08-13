@@ -7,19 +7,17 @@ camión hoy?", así que la página abre con la placa (como se le nombra en la
 empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
 {% endcomment %}
 <div class="vh-cabecera">
-    <div class="vh-placa" aria-label="Placa {{ vehiculo.placa }}">
-        <div class="vh-placa-franja">
-            <span>SOLMED</span>
-            <span>{{ vehiculo.get_estado_display }}</span>
-        </div>
-        <div class="vh-placa-num">{{ vehiculo.placa }}</div>
-        <span class="vh-tornillo iz"></span><span class="vh-tornillo de"></span>
+    <div class="vh-placa" role="img" aria-label="Placa {{ vehiculo.placa }}">
+        <span class="vh-placa-txt">{{ placa_letras }}{% if placa_numeros %}<span class="pt"></span>{{ placa_numeros }}{% endif %}</span>
+        <span class="tor ar-iz"></span><span class="tor ar-de"></span>
+        <span class="tor ab-iz"></span><span class="tor ab-de"></span>
     </div>
 
     <div class="vh-id">
         <div class="vh-eyebrow">Expediente del vehículo</div>
         <h1 class="vh-titulo">{{ vehiculo.marca }} {{ vehiculo.modelo }}</h1>
         <div class="vh-meta">
+            <span class="vh-estado e-{{ vehiculo.estado|lower }}">{{ vehiculo.get_estado_display }}</span>
             <span><i class="bi bi-box-seam"></i>{{ vehiculo.capacidad }}</span>
             <span><i class="bi bi-check2-circle"></i>{{ total_servicios_realizados }} servicio{{ total_servicios_realizados|pluralize }} completado{{ total_servicios_realizados|pluralize }}</span>
         </div>
@@ -329,29 +327,50 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
     .vh-cabecera{
         display:flex; align-items:center; gap:1.25rem; flex-wrap:wrap; margin-bottom:1.1rem;
     }
+    /* La placa real: amarilla, con el marco negro impreso por dentro y las
+       ranuras de los tornillos. Proporción oficial 330x165 mm (2:1). */
     .vh-placa{
-        position:relative; flex-shrink:0; width:216px; padding:.45rem .5rem .5rem;
-        background:#1b1e24; border:2px solid #0e1013; border-radius:9px;
-        box-shadow:0 2px 0 rgba(255,255,255,.06) inset, 0 4px 14px rgba(15,23,35,.22);
+        position:relative; flex-shrink:0; width:250px; height:125px;
+        display:flex; align-items:center; justify-content:center;
+        background:#F2C500; border-radius:12px;
+        box-shadow:0 4px 14px rgba(15,23,35,.25),
+                   inset 0 0 0 1px rgba(0,0,0,.30),
+                   inset 0 -3px 8px rgba(0,0,0,.10);
     }
-    .vh-placa-franja{
-        display:flex; justify-content:space-between; align-items:center;
-        font-size:.55rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
-        color:var(--brand,#9CBE30); padding:0 .35rem .3rem;
-        border-bottom:1px solid rgba(255,255,255,.12);
+    /* El marco negro impreso por dentro (top/left explícitos: `inset` no lo
+       entienden todos los motores de render). */
+    .vh-placa::before{
+        content:""; position:absolute; top:8px; right:8px; bottom:8px; left:8px;
+        border:3px solid #14161a; border-radius:7px;
     }
-    .vh-placa-franja span:last-child{ color:rgba(255,255,255,.45); letter-spacing:.08em; }
-    .vh-placa-num{
-        font-size:1.85rem; font-weight:800; letter-spacing:.09em; text-align:center;
-        color:#fff; line-height:1.25; padding-top:.2rem;
-        font-variant-numeric:tabular-nums;
+    .vh-placa-txt{
+        position:relative; display:flex; align-items:center;
+        font-size:3.05rem; font-weight:800; line-height:1; color:#14161a;
+        letter-spacing:0; white-space:nowrap;
+        font-family:"Arial Narrow","Helvetica Neue Condensed",
+                    "Liberation Sans Narrow",Arial,sans-serif;
+        text-shadow:0 1px 0 rgba(255,255,255,.25);
     }
-    .vh-tornillo{
-        position:absolute; top:50%; width:5px; height:5px; border-radius:50%;
-        background:rgba(255,255,255,.22); margin-top:6px;
+    .vh-placa-txt .pt{
+        width:.17em; height:.17em; border-radius:50%; background:#14161a;
+        margin:0 .16em; flex-shrink:0;
     }
-    .vh-tornillo.iz{ left:6px; }
-    .vh-tornillo.de{ right:6px; }
+    .vh-placa .tor{
+        position:absolute; width:14px; height:6px; border-radius:3px;
+        background:rgba(0,0,0,.5);
+    }
+    .vh-placa .tor.ar-iz{ top:17px; left:40px; }
+    .vh-placa .tor.ar-de{ top:17px; right:40px; }
+    .vh-placa .tor.ab-iz{ bottom:17px; left:40px; }
+    .vh-placa .tor.ab-de{ bottom:17px; right:40px; }
+
+    .vh-estado{
+        font-size:.72rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+        background:#eef1f4; color:var(--ink-2,#5b6470); padding:.1rem .5rem; border-radius:999px;
+    }
+    .vh-estado.e-operativo{ background:#eef4dd; color:#3c5c12; }
+    .vh-estado.e-mantenimiento{ background:#fdf3e0; color:#8a5a12; }
+    .vh-estado.e-stand_by{ background:#fdecec; color:#a02525; }
 
     .vh-id{ min-width:0; flex:1 1 240px; }
     .vh-eyebrow{
@@ -469,7 +488,7 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
     .vh-linea .qn{ font-size:.72rem; color:var(--ink-3,#8a94a3); }
 
     @media (max-width: 575.98px){
-        .vh-placa{ width:100%; }
+        .vh-placa{ width:100%; height:auto; aspect-ratio:2/1; }
         .vh-editar{ width:100%; }
     }
     @media (prefers-reduced-motion: reduce){
