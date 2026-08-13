@@ -23,7 +23,7 @@
         {% endif %}
     </div>
     <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
-        <i class="bi bi-pencil-square me-1"></i> Editar orden / recorridos
+        <i class="bi bi-pencil-square me-1"></i> Editar orden / recorrido
     </a>
 </div>
 
@@ -240,7 +240,12 @@ en el número pedido y las que estorben se corren un puesto.
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">Esta orden aún no tiene recorridos. Usa <strong>Editar orden / recorridos</strong> para añadir uno.</p>
+                {% comment %}
+                Solo se llega aquí si el recorrido se borró desde el admin: los
+                recorridos ya no se añaden desde la app, así que no se puede
+                arreglar por interfaz.
+                {% endcomment %}
+                <p class="text-muted mb-0">Esta orden se quedó sin recorrido. Para asignarle uno hay que hacerlo desde el admin de Django.</p>
                 {% endif %}
             </div>
         </div>
