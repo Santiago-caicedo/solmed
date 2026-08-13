@@ -1,154 +1,176 @@
 {% extends "gestion/base.html" %}
-{% load humanize %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="mb-0">Expediente del Vehículo: {{ vehiculo.placa }}</h1>
+{% comment %}
+Expediente del vehículo. La pregunta que trae aquí al asesor es "¿mando este
+camión hoy?", así que la página abre con la placa (como se le nombra en la
+empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
+{% endcomment %}
+<div class="vh-cabecera">
+    <div class="vh-placa" aria-label="Placa {{ vehiculo.placa }}">
+        <div class="vh-placa-franja">
+            <span>SOLMED</span>
+            <span>{{ vehiculo.get_estado_display }}</span>
+        </div>
+        <div class="vh-placa-num">{{ vehiculo.placa }}</div>
+        <span class="vh-tornillo iz"></span><span class="vh-tornillo de"></span>
+    </div>
+
+    <div class="vh-id">
+        <div class="vh-eyebrow">Expediente del vehículo</div>
+        <h1 class="vh-titulo">{{ vehiculo.marca }} {{ vehiculo.modelo }}</h1>
+        <div class="vh-meta">
+            <span><i class="bi bi-box-seam"></i>{{ vehiculo.capacidad }}</span>
+            <span><i class="bi bi-check2-circle"></i>{{ total_servicios_realizados }} servicio{{ total_servicios_realizados|pluralize }} completado{{ total_servicios_realizados|pluralize }}</span>
+        </div>
+    </div>
+
+    <a href="{% url 'gestion:actualizar_vehiculo' vehiculo.pk %}" class="btn btn-outline-secondary vh-editar">
+        <i class="bi bi-pencil-square me-1"></i>Editar vehículo
+    </a>
+</div>
+
+{# El veredicto: lo primero que hay que leer, con sus motivos concretos. #}
+<div class="vh-veredicto n-{{ veredicto.nivel }}">
+    <i class="bi {% if veredicto.nivel == 'ok' %}bi-check-circle-fill{% elif veredicto.nivel == 'aviso' %}bi-exclamation-triangle-fill{% else %}bi-slash-circle-fill{% endif %}"></i>
     <div>
-        <a href="{% url 'gestion:actualizar_vehiculo' vehiculo.pk %}" class="btn btn-secondary">
-            <i class="bi bi-pencil-square me-1"></i> Editar Vehículo
-        </a>
+        <div class="t">{{ veredicto.titulo }}</div>
+        <ul class="m">
+            {% for motivo in veredicto.motivos %}<li>{{ motivo }}</li>{% endfor %}
+        </ul>
     </div>
 </div>
 
-{% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=vehiculo %}
-
-{% if vehiculo.cargado %}
-<div class="alert alert-danger d-flex align-items-center gap-2">
-    <i class="bi bi-exclamation-octagon-fill fs-4"></i>
-    <div>
-        <strong>Este camión está CARGADO, pendiente de disposición final.</strong>
-        <div class="small">{{ vehiculo.cargado_detalle }} — regístralo en la tarjeta
-        <strong>Carga de residuo</strong> cuando se disponga.</div>
+{# Semáforo de papeles: la alerta y los datos, en un solo sitio. #}
+<div class="vh-docs">
+    {% for doc in documentos %}
+    <div class="vh-doc n-{{ doc.nivel }}">
+        <div class="et">{{ doc.nombre }}</div>
+        <div class="vl">{{ doc.titular }}</div>
+        <div class="dt">{{ doc.detalle }}</div>
+        <div class="pie">
+            {% if doc.fecha %}<span class="fe">{{ doc.fecha|date:"d/m/Y" }}</span>{% endif %}
+            {% if doc.archivo %}
+            <a href="{{ doc.archivo.url }}" target="_blank"><i class="bi bi-file-earmark-text"></i>Ver</a>
+            {% endif %}
+        </div>
     </div>
+    {% endfor %}
 </div>
-{% endif %}
 
 <div class="row">
     <div class="col-lg-8">
 
+        {# ---------------- Agenda del día ---------------- #}
         <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0"><i class="bi bi-calendar-day me-2"></i>Agenda del Vehículo</h5></div>
-            <div class="card-body">
-                <form method="get" class="row g-2 align-items-end mb-4 pb-3 border-bottom">
-                    <div class="col-md-5">
-                        <label for="fecha" class="form-label fw-bold">Seleccionar Fecha:</label>
-                        <input type="date" name="fecha" id="fecha" class="form-control" value="{{ fecha_seleccionada|date:'Y-m-d' }}">
-                    </div>
-                    <div class="col-md-4"><button type="submit" class="btn btn-primary">Ver Agenda</button></div>
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0"><i class="bi bi-calendar-day me-1"></i>Agenda del día</h5>
+                <form method="get" class="d-flex gap-2 align-items-center">
+                    <input type="date" name="fecha" class="form-control form-control-sm"
+                           style="max-width:170px;" value="{{ fecha_seleccionada|date:'Y-m-d' }}"
+                           aria-label="Fecha de la agenda">
+                    <button class="btn btn-sm btn-primary">Ver agenda</button>
                 </form>
-
-                <h6 class="mb-3">Recorridos para el: <span class="fw-bold">{{ fecha_seleccionada|date:"l, d \d\e F, Y" }}</span></h6>
-                
+            </div>
+            <div class="card-body">
+                <div class="vh-sublabel">{{ fecha_seleccionada|date:"l j \d\e F, Y" }}</div>
                 {% if programacion_del_dia %}
-                    <div class="list-group">
-                        {% for recorrido in programacion_del_dia %}
-                            <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="list-group-item list-group-item-action">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">Orden #{{ recorrido.orden.numero_orden }} - {{ recorrido.orden.cliente.nombre }}</h6>
-                                    <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
-                                </div>
-                                <p class="mb-1">{{ recorrido.orden.direccion_servicio }}</p>
-                                {% if recorrido.descripcion %}<small class="text-muted">Nota: {{ recorrido.descripcion }}</small>{% endif %}
-                            </a>
-                        {% endfor %}
-                    </div>
+                <div class="vh-lista">
+                    {% for recorrido in programacion_del_dia %}
+                    <a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}" class="vh-item">
+                        <div class="cab">
+                            <strong>Orden #{{ recorrido.orden.numero_orden }}</strong>
+                            <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
+                        </div>
+                        <div class="dt">{{ recorrido.orden.cliente.nombre }}</div>
+                        <div class="dt"><i class="bi bi-geo-alt me-1"></i>{{ recorrido.orden.direccion_servicio }}</div>
+                        {% if recorrido.descripcion %}<div class="nota">{{ recorrido.descripcion }}</div>{% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
                 {% else %}
-                    <p class="text-center text-muted mt-3">No hay recorridos programados para esta fecha.</p>
+                <p class="vh-vacio">Este camión no tiene servicios ese día.</p>
                 {% endif %}
             </div>
         </div>
 
-        {# ================= FILTROS Y ACEITES (mantenimiento) ================= #}
+        {# ---------------- Mantenimiento ---------------- #}
         <div class="card shadow mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h5 class="mb-0"><i class="bi bi-droplet-half me-1"></i>Filtros y aceites</h5>
-                {% if filtros_registros %}<span class="badge bg-light">{{ filtros_registros|length }} registro{{ filtros_registros|length|pluralize }}</span>{% endif %}
+                {% if puede_gestionar_filtros %}
+                <button class="btn btn-sm btn-outline-success" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#form-filtro">
+                    <i class="bi bi-plus-lg me-1"></i>Registrar cambio
+                </button>
+                {% endif %}
             </div>
             <div class="card-body">
-
-                {# --- Último cambio por tipo --- #}
-                {% if filtros_resumen %}
-                <h6 class="text-muted mb-2" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.06em;">Último cambio por tipo</h6>
-                <div class="table-responsive mb-3">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
-                            <tr><th>Tipo</th><th>Último cambio</th><th>Cantidad</th><th>Km</th><th>Referencia</th></tr>
-                        </thead>
-                        <tbody>
-                            {% for r in filtros_resumen %}
-                            <tr>
-                                <td><strong>{{ r.get_tipo_display }}</strong></td>
-                                <td>
-                                    {{ r.fecha_cambio|date:"d/m/Y" }}
-                                    <small class="text-muted d-block">hace {{ r.dias_desde_cambio }} día{{ r.dias_desde_cambio|pluralize }}</small>
-                                </td>
-                                <td class="mono">{{ r.cantidad|floatformat:"-2" }} {{ r.get_unidad_display }}</td>
-                                <td class="mono">{{ r.kilometraje|default:"—" }}</td>
-                                <td class="text-muted">{{ r.referencia|default:"—" }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-muted text-center py-2 mb-3">
-                    <i class="bi bi-droplet me-1"></i>Aún no hay cambios de filtros o aceites registrados para este vehículo.
-                </p>
-                {% endif %}
-
-                {# --- Registrar un cambio (asesores y superusuarios) --- #}
                 {% if puede_gestionar_filtros %}
-                <form method="post" action="{% url 'gestion:registrar_filtro_aceite' vehiculo.pk %}"
-                      class="border rounded p-3 mb-3" style="background:var(--panel-2);">
-                    {% csrf_token %}
-                    <h6 class="mb-2"><i class="bi bi-plus-circle me-1"></i>Registrar cambio</h6>
-                    <div class="row g-2">
-                        <div class="col-md-4">
-                            <label class="form-label small mb-1">Filtro / aceite <span class="text-danger">*</span></label>
-                            {{ form_filtro_aceite.tipo }}
+                <div class="collapse mb-3" id="form-filtro">
+                    <form method="post" action="{% url 'gestion:registrar_filtro_aceite' vehiculo.pk %}"
+                          class="vh-form">
+                        {% csrf_token %}
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Filtro o aceite <span class="text-danger">*</span></label>
+                                {{ form_filtro_aceite.tipo }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1">Fecha del cambio <span class="text-danger">*</span></label>
+                                {{ form_filtro_aceite.fecha_cambio }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1">Cantidad <span class="text-danger">*</span></label>
+                                {{ form_filtro_aceite.cantidad }}
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small mb-1">Unidad</label>
+                                {{ form_filtro_aceite.unidad }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1">Kilometraje</label>
+                                {{ form_filtro_aceite.kilometraje }}
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small mb-1">Referencia o marca</label>
+                                {{ form_filtro_aceite.referencia }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Observaciones</label>
+                                {{ form_filtro_aceite.observaciones }}
+                            </div>
+                            <div class="col-12 text-end">
+                                <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Guardar cambio</button>
+                            </div>
                         </div>
-                        <div class="col-md-3">
-                            <label class="form-label small mb-1">Fecha del cambio <span class="text-danger">*</span></label>
-                            {{ form_filtro_aceite.fecha_cambio }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label small mb-1">Cantidad <span class="text-danger">*</span></label>
-                            {{ form_filtro_aceite.cantidad }}
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label small mb-1">Unidad</label>
-                            {{ form_filtro_aceite.unidad }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label small mb-1">Kilometraje</label>
-                            {{ form_filtro_aceite.kilometraje }}
-                        </div>
-                        <div class="col-md-5">
-                            <label class="form-label small mb-1">Referencia / marca</label>
-                            {{ form_filtro_aceite.referencia }}
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small mb-1">Observaciones</label>
-                            {{ form_filtro_aceite.observaciones }}
-                        </div>
-                        <div class="col-12 text-end">
-                            <button class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Registrar</button>
-                        </div>
-                    </div>
-                </form>
+                    </form>
+                </div>
                 {% endif %}
 
-                {# --- Historial completo (aquí se eliminan registros equivocados) --- #}
-                {% if filtros_registros %}
-                <details>
-                    <summary class="text-muted small mb-2" style="cursor:pointer;">
-                        Ver historial completo ({{ filtros_registros|length }})
-                    </summary>
-                    <div class="table-responsive">
+                {% if filtros_resumen %}
+                <div class="vh-sublabel">Último cambio de cada uno</div>
+                <div class="vh-mant">
+                    {% for r in filtros_resumen %}
+                    <div class="vh-mant-item">
+                        <div class="tp">{{ r.get_tipo_display }}</div>
+                        <div class="dias">{{ r.dias_desde_cambio }}<small>día{{ r.dias_desde_cambio|pluralize }}</small></div>
+                        <div class="dt">
+                            {{ r.fecha_cambio|date:"d/m/Y" }} ·
+                            {{ r.cantidad|floatformat:"-2" }} {{ r.get_unidad_display }}
+                            {% if r.kilometraje %} · {{ r.kilometraje }} km{% endif %}
+                        </div>
+                        {% if r.referencia %}<div class="rf">{{ r.referencia }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <details class="vh-detalle">
+                    <summary>Ver los {{ filtros_registros|length }} registro{{ filtros_registros|length|pluralize }} del historial</summary>
+                    <div class="table-responsive mt-2">
                         <table class="table table-sm align-middle mb-0">
                             <thead class="table-light">
-                                <tr><th>Fecha</th><th>Tipo</th><th>Cantidad</th><th>Km</th><th>Referencia</th><th>Obs.</th>{% if puede_gestionar_filtros %}<th></th>{% endif %}</tr>
+                                <tr><th>Fecha</th><th>Tipo</th><th>Cantidad</th><th>Km</th><th>Referencia</th><th>Observaciones</th>{% if puede_gestionar_filtros %}<th></th>{% endif %}</tr>
                             </thead>
                             <tbody>
                                 {% for r in filtros_registros %}
@@ -162,9 +184,9 @@
                                     {% if puede_gestionar_filtros %}
                                     <td class="text-end">
                                         <form method="post" action="{% url 'gestion:eliminar_filtro_aceite' r.pk %}" class="d-inline"
-                                              onsubmit="return confirm('¿Eliminar este registro del historial?');">
+                                              onsubmit="return confirm('¿Quitar este registro del historial?');">
                                             {% csrf_token %}
-                                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Eliminar registro"><i class="bi bi-trash"></i></button>
+                                            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Quitar registro"><i class="bi bi-trash"></i></button>
                                         </form>
                                     </td>
                                     {% endif %}
@@ -174,31 +196,42 @@
                         </table>
                     </div>
                 </details>
+                {% else %}
+                <p class="vh-vacio">
+                    Todavía no se le ha registrado ningún cambio de filtro ni de aceite.
+                    {% if puede_gestionar_filtros %}Registra el primero con el botón de arriba.{% endif %}
+                </p>
                 {% endif %}
             </div>
         </div>
 
+        {# ---------------- Servicios completados ---------------- #}
         <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Historial de Recorridos Finalizados</h5></div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-1"></i>Servicios completados</h5>
+                {% if historial_recorridos %}<span class="badge bg-light text-dark">{{ total_servicios_realizados }}</span>{% endif %}
+            </div>
             <div class="card-body">
                 {% if historial_recorridos %}
                 <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead><tr><th>Fecha</th><th>Orden</th><th>Cliente</th><th>Valor Orden</th></tr></thead>
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr><th>Fecha</th><th>Orden</th><th>Cliente</th><th>Conductor</th></tr></thead>
                         <tbody>
                             {% for recorrido in historial_recorridos %}
                             <tr>
-                                <td>{{ recorrido.fecha_recorrido }}</td>
+                                <td class="mono">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
                                 <td><a href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}">#{{ recorrido.orden.numero_orden }}</a></td>
                                 <td>{{ recorrido.orden.cliente.nombre }}</td>
-                                <td>${{ recorrido.orden.valor_servicio|floatformat:0|intcomma }}</td>
+                                <td class="text-muted">
+                                    {% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 {% else %}
-                <p class="text-center text-muted">Este vehículo aún no ha completado ningún recorrido.</p>
+                <p class="vh-vacio">Este camión aún no ha completado ningún servicio.</p>
                 {% endif %}
             </div>
         </div>
@@ -206,48 +239,42 @@
 
     <div class="col-lg-4">
         {% comment %}
-        Carga de residuo: estado actual, marcado manual (asesores) e historial.
-        El flujo normal la actualiza solo al generar órdenes; esto cubre lo que
-        pasa por fuera (disposición sin orden, correcciones).
+        Carga de residuo: estado, marcado manual (asesores) e historial. El flujo
+        normal la actualiza sola al generar órdenes; esto cubre lo que pasa por
+        fuera (disposición sin orden, correcciones).
         {% endcomment %}
-        <div class="card shadow mb-4 {% if vehiculo.cargado %}border-danger{% endif %}">
+        <div class="card shadow mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-droplet-fill me-1"></i>Carga de residuo</h5>
-                {% if vehiculo.cargado %}
-                <span class="badge bg-danger"><i class="bi bi-exclamation-octagon"></i> CARGADO</span>
-                {% else %}
-                <span class="badge bg-success">Sin carga</span>
-                {% endif %}
+                <span class="badge {% if vehiculo.cargado %}bg-danger{% else %}bg-success{% endif %}">
+                    {% if vehiculo.cargado %}Cargado{% else %}Vacío{% endif %}
+                </span>
             </div>
             <div class="card-body">
                 {% if vehiculo.cargado %}
-                <p class="small mb-2">{{ vehiculo.cargado_detalle }}</p>
+                <p class="vh-carga-detalle">{{ vehiculo.cargado_detalle|default:"Sin detalle registrado." }}</p>
                 {% else %}
-                <p class="text-muted small mb-2">Sin carga pendiente de disposición.</p>
+                <p class="text-muted small mb-2">No tiene contenido pendiente de disposición.</p>
                 {% endif %}
 
                 {% if es_asesor %}
-                {% if vehiculo.cargado %}
-                <button class="btn btn-success btn-sm w-100" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#form-carga">
-                    <i class="bi bi-check2-circle me-1"></i>Marcar como descargado / dispuesto
-                </button>
-                {% else %}
-                <button class="btn btn-outline-danger btn-sm w-100" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#form-carga">
+                <button class="btn btn-sm w-100 {% if vehiculo.cargado %}btn-success{% else %}btn-outline-danger{% endif %}"
+                        type="button" data-bs-toggle="collapse" data-bs-target="#form-carga">
+                    {% if vehiculo.cargado %}
+                    <i class="bi bi-check2-circle me-1"></i>Registrar la disposición
+                    {% else %}
                     <i class="bi bi-exclamation-octagon me-1"></i>Marcar como cargado
+                    {% endif %}
                 </button>
-                {% endif %}
                 <div class="collapse mt-2" id="form-carga">
-                    <form method="post" action="{% url 'gestion:marcar_carga_vehiculo' vehiculo.pk %}"
-                          class="border rounded p-2" style="background:var(--panel-2);">
+                    <form method="post" action="{% url 'gestion:marcar_carga_vehiculo' vehiculo.pk %}" class="vh-form">
                         {% csrf_token %}
                         {% if vehiculo.cargado %}
                         <input type="hidden" name="accion" value="DESCARGA">
-                        <label class="form-label small mb-1">¿A dónde se dispuso el contenido? *</label>
+                        <label class="form-label small mb-1">¿A dónde se dispuso el contenido? <span class="text-danger">*</span></label>
                         <input type="text" name="nota" class="form-control form-control-sm mb-2" required
-                               placeholder="Ej: se llevó al relleno el 04/08, vale N° 123">
-                        <label class="form-label small mb-1">Proveedor de disposición <span class="text-muted">(opcional)</span></label>
+                               placeholder="Ej: relleno sanitario, vale N° 123">
+                        <label class="form-label small mb-1">Proveedor <span class="text-muted">(opcional)</span></label>
                         <select name="dispositor" class="form-select form-select-sm mb-2">
                             <option value="">--- Sin proveedor / otro ---</option>
                             {% for p in proveedores_disposicion %}
@@ -256,16 +283,16 @@
                         </select>
                         <button class="btn btn-success btn-sm w-100"
                                 onclick="return confirm('¿Confirmas que el contenido de {{ vehiculo.placa }} ya se dispuso?');">
-                            <i class="bi bi-check2 me-1"></i>Registrar descarga
+                            Registrar la disposición
                         </button>
                         {% else %}
                         <input type="hidden" name="accion" value="CARGA">
-                        <label class="form-label small mb-1">¿De dónde viene la carga? *</label>
+                        <label class="form-label small mb-1">¿De dónde viene la carga? <span class="text-danger">*</span></label>
                         <input type="text" name="nota" class="form-control form-control-sm mb-2" required
                                placeholder="Ej: quedó cargado del servicio de ayer">
                         <button class="btn btn-danger btn-sm w-100"
-                                onclick="return confirm('¿Marcar {{ vehiculo.placa }} como CARGADO pendiente de disposición?');">
-                            <i class="bi bi-check2 me-1"></i>Registrar carga
+                                onclick="return confirm('¿Marcar {{ vehiculo.placa }} como cargado, pendiente de disposición?');">
+                            Marcar como cargado
                         </button>
                         {% endif %}
                     </form>
@@ -273,60 +300,182 @@
                 {% endif %}
 
                 {% if movimientos_carga %}
-                <div class="fw-semibold small mt-3 mb-1"><i class="bi bi-clock-history me-1"></i>Historial</div>
-                <ul class="list-group list-group-flush">
+                <div class="vh-sublabel mt-3">Movimientos</div>
+                <ol class="vh-linea">
                     {% for m in movimientos_carga %}
-                    <li class="list-group-item px-0 py-2">
-                        <div class="d-flex justify-content-between align-items-start gap-2">
-                            <span class="badge {% if m.accion == 'CARGA' %}bg-danger{% else %}bg-success{% endif %}">
-                                {{ m.get_accion_display }}
-                            </span>
-                            <small class="text-muted text-nowrap">{{ m.fecha|date:"d/m/Y H:i" }}</small>
+                    <li class="{% if m.accion == 'CARGA' %}carga{% else %}descarga{% endif %}">
+                        <div class="cab">
+                            <strong>{{ m.get_accion_display }}</strong>
+                            <span>{{ m.fecha|date:"d/m/Y H:i" }}</span>
                         </div>
-                        <div class="small mt-1">{{ m.nota }}</div>
-                        <div class="text-muted" style="font-size:.72rem;">
-                            {% if m.dispositor %}Proveedor: {{ m.dispositor.nombre }} · {% endif %}
-                            {% if m.registrado_por %}{{ m.registrado_por.get_full_name|default:m.registrado_por.username }}{% else %}Sistema{% endif %}
+                        <div class="nt">{{ m.nota }}</div>
+                        <div class="qn">
+                            {% if m.dispositor %}{{ m.dispositor.nombre }} · {% endif %}
+                            {% if m.registrado_por %}{{ m.registrado_por.get_full_name|default:m.registrado_por.username }}{% else %}Automático del sistema{% endif %}
                         </div>
                     </li>
                     {% endfor %}
-                </ul>
+                </ol>
+                {% else %}
+                <p class="vh-vacio mt-3">Sin movimientos de carga registrados.</p>
                 {% endif %}
             </div>
         </div>
-
-        <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0">Datos del Vehículo</h5></div>
-            <ul class="list-group list-group-flush">
-                <li class="list-group-item"><strong>Marca:</strong> {{ vehiculo.marca }}</li>
-                <li class="list-group-item"><strong>Modelo:</strong> {{ vehiculo.modelo }}</li>
-                <li class="list-group-item"><strong>Capacidad:</strong> {{ vehiculo.capacidad }}</li>
-                <li class="list-group-item">
-                    <strong>Tarjeta de Propiedad:</strong>
-                    {% if vehiculo.archivo_tarjeta %}<a href="{{ vehiculo.archivo_tarjeta.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> Ver PDF</a>{% else %}<span class="text-muted">Sin adjuntar</span>{% endif %}
-                </li>
-                <li class="list-group-item">
-                    <strong>SOAT:</strong>
-                    {{ vehiculo.fecha_vencimiento_soat|date:"d/m/Y"|default:"—" }}
-                    {% if vehiculo.archivo_soat %}· <a href="{{ vehiculo.archivo_soat.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> PDF</a>{% endif %}
-                </li>
-                <li class="list-group-item">
-                    <strong>Tecnomecánica:</strong>
-                    {{ vehiculo.fecha_vencimiento_tecnomecanica|date:"d/m/Y"|default:"—" }}
-                    {% if vehiculo.archivo_tecnomecanica %}· <a href="{{ vehiculo.archivo_tecnomecanica.url }}" target="_blank"><i class="bi bi-file-earmark-pdf-fill text-danger"></i> PDF</a>{% endif %}
-                </li>
-            </ul>
-        </div>
-        <div class="card shadow mb-4 text-center">
-            <div class="card-header"><h5 class="mb-0">Servicios Realizados</h5></div>
-            <div class="card-body"><p class="display-4 fw-bold">{{ total_servicios_realizados }}</p></div>
-        </div>
-        <div class="card shadow mb-4 text-center">
-            <div class="card-header"><h5 class="mb-0">Ingresos Generados</h5></div>
-            <div class="card-body"><p class="display-4 fw-bold text-success">${{ total_ingresos_generados|floatformat:0|intcomma }}</p></div>
-        </div>
     </div>
 </div>
+
+<style>
+    /* ============ Cabecera: la placa manda ============ */
+    .vh-cabecera{
+        display:flex; align-items:center; gap:1.25rem; flex-wrap:wrap; margin-bottom:1.1rem;
+    }
+    .vh-placa{
+        position:relative; flex-shrink:0; width:216px; padding:.45rem .5rem .5rem;
+        background:#1b1e24; border:2px solid #0e1013; border-radius:9px;
+        box-shadow:0 2px 0 rgba(255,255,255,.06) inset, 0 4px 14px rgba(15,23,35,.22);
+    }
+    .vh-placa-franja{
+        display:flex; justify-content:space-between; align-items:center;
+        font-size:.55rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+        color:var(--brand,#9CBE30); padding:0 .35rem .3rem;
+        border-bottom:1px solid rgba(255,255,255,.12);
+    }
+    .vh-placa-franja span:last-child{ color:rgba(255,255,255,.45); letter-spacing:.08em; }
+    .vh-placa-num{
+        font-size:1.85rem; font-weight:800; letter-spacing:.09em; text-align:center;
+        color:#fff; line-height:1.25; padding-top:.2rem;
+        font-variant-numeric:tabular-nums;
+    }
+    .vh-tornillo{
+        position:absolute; top:50%; width:5px; height:5px; border-radius:50%;
+        background:rgba(255,255,255,.22); margin-top:6px;
+    }
+    .vh-tornillo.iz{ left:6px; }
+    .vh-tornillo.de{ right:6px; }
+
+    .vh-id{ min-width:0; flex:1 1 240px; }
+    .vh-eyebrow{
+        font-size:.66rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+        color:var(--brand-600,#5E8C1B);
+    }
+    .vh-titulo{ font-size:1.6rem; font-weight:700; margin:.1rem 0 .25rem; }
+    .vh-meta{ display:flex; flex-wrap:wrap; gap:.2rem 1.1rem; font-size:.85rem; color:var(--ink-3,#8a94a3); }
+    .vh-meta i{ margin-right:.35rem; }
+    .vh-editar{ flex-shrink:0; }
+
+    /* ============ Veredicto ============ */
+    .vh-veredicto{
+        display:flex; gap:.85rem; align-items:flex-start;
+        border:1px solid; border-radius:12px; padding:.85rem 1rem; margin-bottom:1rem;
+    }
+    .vh-veredicto > i{ font-size:1.4rem; line-height:1.2; flex-shrink:0; }
+    .vh-veredicto .t{ font-weight:700; font-size:1.02rem; }
+    .vh-veredicto .m{ margin:.2rem 0 0; padding-left:1.1rem; font-size:.86rem; }
+    .vh-veredicto .m:empty{ display:none; }
+    .vh-veredicto.n-ok{ background:#f3f8ea; border-color:#cbe0a0; color:#3c5c12; }
+    .vh-veredicto.n-aviso{ background:#fdf6e9; border-color:#eccf95; color:#8a5a12; }
+    .vh-veredicto.n-alto{ background:#fdecec; border-color:#f0b6b6; color:#a02525; }
+
+    /* ============ Semáforo de papeles ============ */
+    .vh-docs{
+        display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+        gap:.85rem; margin-bottom:1.4rem;
+    }
+    .vh-doc{
+        background:var(--panel,#fff); border:1px solid var(--line,#e6e9ee);
+        border-left:4px solid var(--line,#e6e9ee); border-radius:10px; padding:.75rem .9rem;
+        transition:box-shadow .15s ease;
+    }
+    .vh-doc:hover{ box-shadow:0 3px 12px rgba(15,23,35,.07); }
+    .vh-doc .et{
+        font-size:.66rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+        color:var(--ink-3,#8a94a3);
+    }
+    .vh-doc .vl{ font-size:1.22rem; font-weight:700; line-height:1.25; color:var(--ink,#2b3542); }
+    .vh-doc .dt{ font-size:.78rem; color:var(--ink-3,#8a94a3); }
+    .vh-doc .pie{
+        display:flex; justify-content:space-between; align-items:center; gap:.5rem;
+        margin-top:.5rem; padding-top:.45rem; border-top:1px dashed var(--line,#eef0f3);
+        font-size:.76rem;
+    }
+    .vh-doc .pie .fe{ color:var(--ink-2,#5b6470); font-variant-numeric:tabular-nums; }
+    .vh-doc .pie a{ text-decoration:none; font-weight:600; margin-left:auto; }
+    .vh-doc .pie a i{ margin-right:.25rem; }
+    .vh-doc.n-ok{ border-left-color:#2f9e44; }
+    .vh-doc.n-ok .vl{ color:#2f9e44; }
+    .vh-doc.n-aviso{ border-left-color:#C47F12; background:#fffdf7; }
+    .vh-doc.n-aviso .vl{ color:#a8690f; }
+    .vh-doc.n-alto{ border-left-color:#c92a2a; background:#fffafa; }
+    .vh-doc.n-alto .vl{ color:#c92a2a; }
+    .vh-doc.n-vacio .vl{ color:var(--ink-3,#8a94a3); font-weight:600; font-size:1rem; }
+
+    /* ============ Piezas compartidas ============ */
+    .vh-sublabel{
+        font-size:.66rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+        color:var(--ink-3,#8a94a3); margin-bottom:.55rem;
+    }
+    .vh-vacio{ color:var(--ink-3,#8a94a3); font-size:.88rem; margin:0; padding:.6rem 0; }
+    .vh-form{ background:var(--panel-2,#f7f8fa); border:1px solid var(--line,#e6e9ee); border-radius:10px; padding:.85rem; }
+
+    .vh-lista{ display:flex; flex-direction:column; gap:.6rem; }
+    .vh-item{
+        display:block; text-decoration:none; color:inherit;
+        border:1px solid var(--line,#e6e9ee); border-radius:10px; padding:.7rem .9rem;
+        transition:border-color .15s ease, box-shadow .15s ease;
+    }
+    .vh-item:hover{ border-color:#cdd3db; box-shadow:0 3px 12px rgba(15,23,35,.06); }
+    .vh-item .cab{ display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+    .vh-item .dt{ font-size:.84rem; color:var(--ink-2,#5b6470); }
+    .vh-item .nota{ font-size:.78rem; color:var(--ink-3,#8a94a3); margin-top:.2rem; }
+
+    /* ---- Mantenimiento: cuánto hace del último cambio ---- */
+    .vh-mant{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:.7rem; }
+    .vh-mant-item{
+        border:1px solid var(--line,#e6e9ee); border-radius:10px; padding:.65rem .8rem;
+        background:var(--panel,#fff);
+    }
+    .vh-mant-item .tp{ font-size:.8rem; font-weight:700; color:var(--ink,#2b3542); }
+    .vh-mant-item .dias{
+        font-size:1.5rem; font-weight:700; line-height:1.15; color:var(--brand-600,#5E8C1B);
+        font-variant-numeric:tabular-nums;
+    }
+    .vh-mant-item .dias small{ font-size:.72rem; font-weight:600; margin-left:.25rem; color:var(--ink-3,#8a94a3); }
+    .vh-mant-item .dt{ font-size:.76rem; color:var(--ink-3,#8a94a3); }
+    .vh-mant-item .rf{ font-size:.76rem; color:var(--ink-2,#5b6470); margin-top:.15rem; }
+    .vh-detalle{ margin-top:.9rem; }
+    .vh-detalle summary{ cursor:pointer; font-size:.8rem; color:var(--ink-3,#8a94a3); }
+    .vh-detalle summary:hover{ color:var(--brand-700,#4d7416); }
+
+    /* ---- Carga: línea de tiempo ---- */
+    .vh-carga-detalle{
+        font-size:.85rem; background:#fdecec; border:1px solid #f0b6b6; color:#a02525;
+        border-radius:8px; padding:.5rem .7rem; margin-bottom:.7rem;
+    }
+    .vh-linea{ list-style:none; margin:0; padding:0 0 0 1.1rem; position:relative; }
+    .vh-linea::before{
+        content:""; position:absolute; left:4px; top:.4rem; bottom:.4rem;
+        width:1px; background:var(--line,#e6e9ee);
+    }
+    .vh-linea li{ position:relative; padding:0 0 .8rem; }
+    .vh-linea li::before{
+        content:""; position:absolute; left:-1.1rem; top:.35rem;
+        width:9px; height:9px; border-radius:50%; border:2px solid var(--panel,#fff);
+    }
+    .vh-linea li.carga::before{ background:#c92a2a; }
+    .vh-linea li.descarga::before{ background:#2f9e44; }
+    .vh-linea .cab{ display:flex; justify-content:space-between; gap:.5rem; font-size:.8rem; }
+    .vh-linea .cab span{ color:var(--ink-3,#8a94a3); white-space:nowrap; font-size:.72rem; }
+    .vh-linea .nt{ font-size:.82rem; color:var(--ink-2,#5b6470); }
+    .vh-linea .qn{ font-size:.72rem; color:var(--ink-3,#8a94a3); }
+
+    @media (max-width: 575.98px){
+        .vh-placa{ width:100%; }
+        .vh-editar{ width:100%; }
+    }
+    @media (prefers-reduced-motion: reduce){
+        .vh-doc, .vh-item{ transition:none; }
+    }
+</style>
 
 {% if puede_gestionar_filtros %}
 <script>

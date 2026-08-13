@@ -1029,6 +1029,82 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
         return destino
 
 
+def _documentos_vehiculo(vehiculo):
+    """Los papeles del camión con su vigencia, para el semáforo del expediente."""
+    hoy = timezone.localdate()
+    filas = []
+    for nombre, fecha, archivo in (
+        ('SOAT', vehiculo.fecha_vencimiento_soat, vehiculo.archivo_soat),
+        ('Tecnomecánica', vehiculo.fecha_vencimiento_tecnomecanica,
+         vehiculo.archivo_tecnomecanica),
+    ):
+        if fecha is None:
+            nivel, titular, detalle = 'vacio', 'Sin fecha', 'Regístrala al editar'
+        else:
+            dias = (fecha - hoy).days
+            if dias < 0:
+                nivel = 'alto'
+                titular = 'Vencido'
+                detalle = f"hace {abs(dias)} día{'s' if abs(dias) != 1 else ''}"
+            elif dias <= Vehiculo.DIAS_ALERTA_VENCIMIENTO:
+                nivel = 'aviso'
+                titular = f"{dias} día{'s' if dias != 1 else ''}"
+                detalle = 'para vencerse'
+            else:
+                nivel = 'ok'
+                titular = 'Vigente'
+                detalle = f"{dias} días por delante"
+        filas.append({
+            'nombre': nombre, 'nivel': nivel, 'titular': titular,
+            'detalle': detalle, 'fecha': fecha, 'archivo': archivo,
+        })
+    filas.append({
+        'nombre': 'Tarjeta de propiedad',
+        'nivel': 'ok' if vehiculo.archivo_tarjeta else 'vacio',
+        'titular': 'Adjunta' if vehiculo.archivo_tarjeta else 'Sin adjuntar',
+        'detalle': 'No vence' if vehiculo.archivo_tarjeta else 'Súbela al editar',
+        'fecha': None, 'archivo': vehiculo.archivo_tarjeta,
+    })
+    return filas
+
+
+def _puede_programarse(vehiculo):
+    """
+    La pregunta que trae al asesor a esta pantalla: ¿mando este camión hoy?
+    Devuelve el veredicto y los motivos concretos, sin inventar política:
+    lo vencido o fuera de servicio frena; lo que está por vencer o la carga
+    pendiente solo advierten.
+    """
+    frenos, avisos = [], []
+    if vehiculo.estado != 'OPERATIVO':
+        frenos.append(f"Está marcado como {vehiculo.get_estado_display().lower()}.")
+    for alerta in vehiculo.documentos_por_vencer():
+        dias = alerta['dias_abs']
+        plural = 's' if dias != 1 else ''
+        if alerta['vencido']:
+            frenos.append(
+                f"El {alerta['documento']} venció hace {dias} día{plural} "
+                f"({alerta['fecha']:%d/%m/%Y}).")
+        else:
+            avisos.append(
+                f"El {alerta['documento']} vence en {dias} día{plural} "
+                f"({alerta['fecha']:%d/%m/%Y}).")
+    if vehiculo.cargado:
+        avisos.append(f"Lleva residuo pendiente de disposición: "
+                      f"{vehiculo.cargado_detalle or 'sin detalle registrado'}.")
+
+    if frenos:
+        return {'nivel': 'alto', 'titulo': 'No debería salir',
+                'motivos': frenos + avisos}
+    if avisos:
+        return {'nivel': 'aviso', 'titulo': 'Revísalo antes de programarlo',
+                'motivos': avisos}
+    # En verde el motivo no repite el título: dice QUÉ se revisó.
+    return {'nivel': 'ok', 'titulo': 'Listo para programar',
+            'motivos': ['SOAT y tecnomecánica vigentes, sin carga pendiente '
+                        'de disposición.']}
+
+
 class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
     model = Vehiculo
     template_name = 'gestion/vehiculo_detail.html'
@@ -1064,13 +1140,12 @@ class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
         historial_recorridos = Recorrido.objects.filter(vehiculo=vehiculo, estado='COMPLETADO').order_by('-fecha_recorrido')
         context['historial_recorridos'] = historial_recorridos
         
-        # Las métricas ahora se calculan a partir del historial de recorridos.
         context['total_servicios_realizados'] = historial_recorridos.count()
-        
-        # Sumamos el valor de las órdenes padres de los recorridos completados.
-        # Nota: Esto podría sumar una orden varias veces si el vehículo hizo varios recorridos para ella.
-        ingresos_generados = historial_recorridos.aggregate(total=Sum('orden__valor_servicio'))
-        context['total_ingresos_generados'] = ingresos_generados['total'] or 0
+        # El veredicto de la cabecera y el semáforo de papeles.
+        context['veredicto'] = _puede_programarse(vehiculo)
+        context['documentos'] = _documentos_vehiculo(vehiculo)
+        # Los "ingresos generados" se quitaron: salían de valor_servicio, que no
+        # se llena en ninguna parte, así que la tarjeta siempre mostraba $0.
 
         # --- Filtros y aceites (mantenimiento) ---
         registros = list(vehiculo.filtros_aceites.all())   # ya ordenados: más reciente primero
