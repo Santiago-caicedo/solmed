@@ -4,14 +4,22 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="mb-0">
         {% comment %}
-        Solo se editan borradores (las convertidas redirigen a su orden), así
-        que aquí todavía no hay número: lo toma al generar la orden.
+        La misma pantalla sirve para crear la programación, editar un borrador
+        y corregir una orden ya generada (ahí llega con `desde_orden`).
         {% endcomment %}
-        {% if object %}Editar programación{% if object.numero %} #{{ object.numero }}{% else %} (borrador){% endif %}{% else %}Nueva Programación{% endif %}
+        {% if desde_orden %}Editar Orden #{{ desde_orden.numero_orden }}
+        {% elif object %}Editar programación{% if object.numero %} #{{ object.numero }}{% else %} (borrador){% endif %}
+        {% else %}Nueva Programación{% endif %}
     </h1>
+    {% if desde_orden %}
+    <a href="{% url 'gestion:detalle_orden' desde_orden.pk %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver a la orden
+    </a>
+    {% else %}
     <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Volver
     </a>
+    {% endif %}
 </div>
 
 <form method="post" enctype="multipart/form-data" novalidate>
@@ -452,7 +460,12 @@
 
     <div class="alert alert-info mb-4">
         <i class="bi bi-info-circle me-1"></i>
-        {% if object %}
+        {% if desde_orden %}
+        Estos son los datos con los que se generó la orden. Al guardar, la orden y su
+        recorrido se actualizan con lo que corrijas (dirección, báscula, registro
+        fotográfico, fecha, vehículo, conductor y ayudantes). No se envían correos:
+        para avisarle al personal usa los botones de reenviar en la orden.
+        {% elif object %}
         Al pulsar <strong>Generar orden</strong> desde la lista, estos datos se arrastran a una
         Orden de Servicio con su recorrido y acta de servicio (un vehículo por orden).
         {% else %}
@@ -477,7 +490,8 @@
     {% endif %}
 
     <div class="d-flex justify-content-end mb-5">
-        <a href="{% url 'gestion:lista_programaciones' %}" class="btn btn-secondary me-2">Cancelar</a>
+        <a href="{% if desde_orden %}{% url 'gestion:detalle_orden' desde_orden.pk %}{% else %}{% url 'gestion:lista_programaciones' %}{% endif %}"
+           class="btn btn-secondary me-2">Cancelar</a>
         <button type="submit" class="btn btn-success">
             <i class="bi bi-check-circle me-1"></i>
             {% if object %}Guardar cambios{% else %}Crear y generar orden{% endif %}

@@ -518,21 +518,131 @@ class CambiarNumeroOrdenView(AdministradorRequiredMixin, View):
         return redirect('gestion:detalle_orden', pk=nuevo)
 
 
-class ActualizarOrdenView(NoConductorRequiredMixin, UpdateView):
+def _sincronizar_orden_desde_programacion(programacion, orden):
     """
-    Edita los datos de la orden. Los recorridos NO se agregan aquí: cada orden
-    nace de su programación con los que le corresponden (se pueden corregir o
-    quitar uno a uno, pero no añadir nuevos).
+    Refleja en la orden y en su recorrido lo que se acaba de corregir en la
+    programación, para que las dos no digan cosas distintas del mismo servicio.
+    Devuelve los avisos que hay que darle al asesor.
     """
-    model = OrdenServicio
-    form_class = OrdenServicioForm
-    template_name = 'gestion/form_orden.html'
-    success_url = reverse_lazy('gestion:lista_ordenes')
+    avisos = []
+    orden.cliente = programacion.cliente
+    orden.direccion_servicio = programacion.direccion_del_servicio()
+    orden.bascula = programacion.bascula
+    orden.registro_fotografico = programacion.registro_fotografico
+    orden.save(update_fields=['cliente', 'direccion_servicio', 'bascula',
+                              'registro_fotografico'])
 
-    def form_valid(self, form):
-        self.object = form.save()
-        messages.success(self.request, "Orden actualizada.")
-        return HttpResponseRedirect(self.get_success_url())
+    cuadrilla = programacion.cuadrillas.first()
+    recorrido = orden.recorridos.first()
+    if cuadrilla is None or recorrido is None:
+        return avisos
+
+    if recorrido.vehiculo_id != cuadrilla.vehiculo_id and recorrido.vehiculo_id:
+        avisos.append(
+            f"Cambiaste el vehículo del servicio: revisa el estado de carga de "
+            f"{recorrido.vehiculo.placa} y de "
+            f"{cuadrilla.vehiculo.placa if cuadrilla.vehiculo else 'el nuevo'} "
+            f"en su expediente."
+        )
+    if recorrido.conductor_id != cuadrilla.conductor_id:
+        avisos.append(
+            "Cambiaste el conductor: usa «Reenviar correo al conductor» en la "
+            "orden para avisarle al nuevo."
+        )
+
+    recorrido.vehiculo = cuadrilla.vehiculo
+    recorrido.conductor = cuadrilla.conductor
+    recorrido.ayudante = cuadrilla.ayudante
+    recorrido.ayudante2 = cuadrilla.ayudante2
+    recorrido.fecha_recorrido = programacion.fecha
+    recorrido.save()
+    return avisos
+
+
+class ActualizarOrdenView(NoConductorRequiredMixin, View):
+    """
+    Corrige una orden con el MISMO formulario de la programación, ya lleno:
+    una vez generada la orden, la programación queda de solo lectura y este es
+    el único sitio donde se arregla lo que quedó mal (horas, sitio de inicio,
+    checklist, cursos, disposición final, cuadrilla...). Al guardar, la orden y
+    su recorrido se actualizan con lo corregido.
+
+    Las órdenes HISTÓRICAS no nacieron de una programación: esas conservan el
+    formulario corto de siempre.
+    """
+    template_name = 'gestion/form_programacion.html'
+
+    def _programacion(self, orden):
+        return getattr(orden, 'programacion_origen', None)
+
+    def _contexto(self, orden, programacion, form=None, cuadrilla_form=None):
+        contexto = {
+            'form': form or ProgramacionForm(instance=programacion),
+            'cuadrilla_form': cuadrilla_form or ProgramacionCuadrillaForm(
+                prefix='cuadrilla', instance=programacion.cuadrillas.first()),
+            'object': programacion,
+            # La plantilla se comparte con la programación: esta bandera cambia
+            # los textos y el botón de volver.
+            'desde_orden': orden,
+        }
+        _contexto_programacion(contexto)
+        return contexto
+
+    def get(self, request, pk):
+        orden = get_object_or_404(OrdenServicio, pk=pk)
+        programacion = self._programacion(orden)
+        if programacion is None:
+            return render(request, 'gestion/form_orden.html', {
+                'form': OrdenServicioForm(instance=orden), 'object': orden})
+        return render(request, self.template_name,
+                      self._contexto(orden, programacion))
+
+    def post(self, request, pk):
+        orden = get_object_or_404(OrdenServicio, pk=pk)
+        programacion = self._programacion(orden)
+
+        if programacion is None:
+            form = OrdenServicioForm(request.POST, instance=orden)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Orden actualizada.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+            return render(request, 'gestion/form_orden.html',
+                          {'form': form, 'object': orden})
+
+        form = ProgramacionForm(request.POST, instance=programacion)
+        cuadrilla_form = ProgramacionCuadrillaForm(
+            request.POST, prefix='cuadrilla',
+            instance=programacion.cuadrillas.first())
+        if not (form.is_valid() and cuadrilla_form.is_valid()):
+            return render(request, self.template_name,
+                          self._contexto(orden, programacion, form, cuadrilla_form))
+
+        # Las mismas exigencias que al programar: sin SS vigente ni los cursos
+        # requeridos, no se guarda.
+        cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
+        ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
+        if not (cursos_ok and ss_ok):
+            messages.error(
+                request,
+                "No se guardó: revisa la documentación del personal asignado "
+                "(seguridad social vigente y cursos exigidos)."
+            )
+            return render(request, self.template_name,
+                          self._contexto(orden, programacion, form, cuadrilla_form))
+
+        with transaction.atomic():
+            programacion = form.save()
+            cuadrilla = cuadrilla_form.save(commit=False)
+            cuadrilla.programacion = programacion
+            cuadrilla.save()
+            avisos = _sincronizar_orden_desde_programacion(programacion, orden)
+
+        messages.success(
+            request, f"Orden #{orden.numero_orden} actualizada.")
+        for aviso in avisos:
+            messages.warning(request, aviso)
+        return redirect('gestion:detalle_orden', pk=orden.pk)
 
 def _contactos_cliente(cliente):
     """Los contactos del cliente por área, saltando los que están vacíos."""

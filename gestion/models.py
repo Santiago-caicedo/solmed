@@ -1446,6 +1446,18 @@ class Programacion(models.Model):
             and self.cuadrillas.filter(vehiculo__isnull=False).exists()
         )
 
+    def direccion_del_servicio(self):
+        """
+        A dónde va el equipo: la dirección del tercero elegido, si no la de la
+        sede, si no la de la programación, si no la del cliente. La usan tanto
+        la creación de la orden como su corrección posterior.
+        """
+        return (
+            (self.tercero.direccion if self.tercero_id else '')
+            or (self.sede_cliente.direccion if self.sede_cliente_id else '')
+            or self.direccion or self.cliente.direccion or 'Por definir'
+        )
+
     def convertir_en_orden(self, usuario):
         """
         Genera la OrdenServicio y un Recorrido por CADA cuadrilla con vehículo
@@ -1471,13 +1483,7 @@ class Programacion(models.Model):
                 f"No se puede generar la orden: esta programación exige cursos y {detalle}."
             )
 
-        # La dirección del servicio: la del tercero elegido, si no la de la
-        # sede, si no la de la programación, si no la del cliente.
-        direccion_servicio = (
-            (self.tercero.direccion if self.tercero_id else '')
-            or (self.sede_cliente.direccion if self.sede_cliente_id else '')
-            or self.direccion or self.cliente.direccion or 'Por definir'
-        )
+        direccion_servicio = self.direccion_del_servicio()
 
         # Si el servicio se recoge donde un tercero del cliente, sus datos
         # quedan registrados en la descripción de la orden.
