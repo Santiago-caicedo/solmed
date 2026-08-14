@@ -507,6 +507,13 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         # en un diccionario por clave.
         for orden in context.get('ordenes', []):
             orden.pendientes = _pendientes_orden(orden)
+            actas = [getattr(r, 'manifiesto', None) for r in orden.recorridos.all()]
+            actas = [a for a in actas if a is not None]
+            orden.acta_firmada = bool(actas) and all(
+                a.estado_firma == 'FIRMADO' for a in actas)
+            # Contenido del globo que se ve al pasar el cursor por la alerta.
+            orden.pendientes_texto = '<br>'.join(
+                f"· {p['etiqueta']}" for p in orden.pendientes)
         return context
 
 # Las órdenes NO se crean a mano (se eliminó CrearOrdenView): siempre nacen de

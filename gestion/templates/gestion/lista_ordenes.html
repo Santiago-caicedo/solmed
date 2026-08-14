@@ -51,7 +51,7 @@
                         <th># Orden</th>
                         <th>Cliente</th>
                         <th>Fecha del servicio</th>
-                        <th>Qué falta</th>
+                        <th>Acta</th>
                         <th>Conciliación</th>
                         <th>Acciones</th>
                     </tr>
@@ -66,22 +66,23 @@
                             {{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}
                         </td>
                         {% comment %}
-                        En vez del estado (que casi siempre decía "En ejecución"),
-                        lo que hay que perseguir para cerrar la orden.
+                        Si el cliente ya firmó, y una alerta con lo que falta
+                        para cerrar la orden (se ve al pasar el cursor).
                         {% endcomment %}
-                        <td>
+                        <td class="text-nowrap">
                             {% if orden.estado_orden == 'CANCELADA' %}
                             <span class="badge bg-secondary">Cancelada</span>
+                            {% elif orden.acta_firmada %}
+                            <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Firmada</span>
                             {% else %}
-                            {% if orden.pendientes %}
-                            <div class="lo-falta">
-                                {% for item in orden.pendientes %}
-                                <span class="lo-chip"><i class="bi {{ item.icono }}"></i>{{ item.etiqueta }}</span>
-                                {% endfor %}
-                            </div>
-                            {% else %}
-                            <span class="lo-lista"><i class="bi bi-check-circle-fill"></i>Todo listo</span>
+                            <span class="badge bg-warning text-dark">Sin firmar</span>
                             {% endif %}
+                            {% if orden.pendientes and orden.estado_orden != 'CANCELADA' %}
+                            <span class="lo-alerta" tabindex="0" data-bs-toggle="tooltip"
+                                  data-bs-html="true" data-bs-placement="left"
+                                  title="Falta por hacer:<br>{{ orden.pendientes_texto }}">
+                                <i class="bi bi-exclamation-triangle-fill"></i>{{ orden.pendientes|length }}
+                            </span>
                             {% endif %}
                         </td>
                         <td>
@@ -111,17 +112,23 @@
 {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
 
 <style>
-    .lo-falta{ display:flex; flex-wrap:wrap; gap:.25rem; max-width:340px; }
-    .lo-chip{
-        display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap;
-        font-size:.72rem; font-weight:600; line-height:1.4;
-        background:#fdf3e0; color:#8a5a12; border:1px solid #f0dcb4;
-        padding:.1rem .45rem; border-radius:999px;
+    /* Alerta compacta: el número de cosas que faltan; el detalle va en el globo. */
+    .lo-alerta{
+        display:inline-flex; align-items:center; gap:.2rem; cursor:help;
+        font-size:.74rem; font-weight:700; line-height:1;
+        color:#8a5a12; background:#fdf3e0; border:1px solid #f0dcb4;
+        padding:.2rem .4rem; border-radius:999px; margin-left:.25rem;
+        vertical-align:middle;
     }
-    .lo-chip i{ font-size:.78rem; opacity:.85; }
-    .lo-lista{
-        display:inline-flex; align-items:center; gap:.3rem;
-        font-size:.78rem; font-weight:600; color:#2f9e44;
-    }
+    .lo-alerta i{ font-size:.8rem; }
+    .lo-alerta:focus-visible{ outline:2px solid #C47F12; outline-offset:2px; }
+    .tooltip-inner{ text-align:left; max-width:260px; }
 </style>
+
+<script>
+// Los globos de ayuda de Bootstrap son opcionales: hay que encenderlos.
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+    new bootstrap.Tooltip(el);
+});
+</script>
 {% endblock %}
