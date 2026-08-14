@@ -1,0 +1,15 @@
+{% extends "base_error.html" %}
+
+{% block titulo_pestana %}403 — Verificación vencida{% endblock %}
+{% block clase %}e-csrf{% endblock %}
+{% block eyebrow %}Verificación de seguridad{% endblock %}
+{% block codigo %}403{% endblock %}
+{% block encabezado %}La verificación de seguridad venció{% endblock %}
+{% block mensaje %}
+El formulario llevaba mucho tiempo abierto o la sesión cambió. Vuelve
+atrás, recarga la página y envía la información otra vez.
+{% endblock %}
+{% block acciones %}
+<a class="btn btn-primario" href="/" onclick="if(history.length>1){history.back();return false;}">Ir atrás</a>
+<a class="btn btn-plano" href="/">Volver al inicio</a>
+{% endblock %}

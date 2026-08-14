@@ -1,0 +1,16 @@
+{% extends "base_error.html" %}
+
+{% block titulo_pestana %}500 — Falla del sistema{% endblock %}
+{% block clase %}e-500{% endblock %}
+{% block eyebrow %}Incidente del sistema{% endblock %}
+{% block codigo %}500{% endblock %}
+{% block encabezado %}La operación no se pudo completar{% endblock %}
+{% block mensaje %}
+Algo falló dentro del sistema al procesar la solicitud; no es un error
+tuyo. Espera un momento y reintenta. Si la falla continúa, avísale al
+administrador.
+{% endblock %}
+{% block acciones %}
+<a class="btn btn-primario" href="" onclick="location.reload();return false;">Reintentar</a>
+<a class="btn btn-plano" href="/">Volver al inicio</a>
+{% endblock %}

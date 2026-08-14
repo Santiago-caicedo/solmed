@@ -1,0 +1,135 @@
+{% load static %}<!doctype html>
+{% comment %}
+Base de las páginas de error (404, 403, 500, 400, 403_csrf). Django las toma
+por el nombre del archivo cuando DEBUG=False; la del 500 se renderiza con
+contexto vacío, así que aquí no se usa nada del context ni de sus processors.
+Es autocontenida: solo depende de /static/ y de las fuentes (con fallback).
+{% endcomment %}
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block titulo_pestana %}Error{% endblock %} · Solmed</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <style>
+    :root{
+        /* Tokens de la consola (ver base.html) */
+        --g-900:#0E1723; --g-800:#16222F;
+        --steel:#215E8C; --steel-600:#1b4e76;
+        --warn:#9A6206; --err:#B42318;
+        --canvas:#EDF0F4; --panel:#fff; --panel-2:#F7F9FB;
+        --line:#DCE1E8; --ink:#111A24; --ink-2:#51606E; --ink-3:#8A97A5;
+        --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+        --sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+    }
+    *{ box-sizing:border-box; margin:0; }
+    body{
+        min-height:100vh; min-height:100svh;
+        display:flex; align-items:center; justify-content:center; padding:1.25rem;
+        background:var(--canvas); color:var(--ink);
+        font-family:var(--sans); font-size:14px; line-height:1.6;
+        -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums;
+    }
+    /* La cinta codifica la severidad: acero=señalización, ámbar=restricción, rojo=incidente. */
+    .e-404{ --tono:var(--steel); }
+    .e-403, .e-400, .e-csrf{ --tono:var(--warn); }
+    .e-500{ --tono:var(--err); }
+
+    main{ width:100%; max-width:600px; }
+    .ticket{
+        width:100%;
+        background:var(--panel); border:1px solid var(--line); border-radius:10px;
+        overflow:hidden; box-shadow:0 18px 45px rgba(17,26,36,.09);
+        animation:aparecer .45s ease-out both;
+    }
+    .ticket-header{
+        display:flex; align-items:center; justify-content:space-between; gap:1rem;
+        padding:1rem 1.5rem;
+    }
+    .ticket-header img{ height:58px; width:auto; display:block; }
+    .ticket-header .consola{
+        font-family:var(--mono); font-size:.64rem; font-weight:500;
+        letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3);
+        text-align:right;
+    }
+
+    /* Cinta de balizamiento: franja diagonal que acordona la zona. */
+    .cinta{
+        height:12px;
+        background:repeating-linear-gradient(135deg,
+            var(--tono) 0 14px, var(--g-800) 14px 28px);
+        animation:arrastre 2.6s linear infinite;
+    }
+
+    .ticket-body{ padding:2rem 1.5rem 2.3rem; }
+    .eyebrow{
+        display:flex; align-items:center; gap:.55rem;
+        font-family:var(--mono); font-size:.68rem; font-weight:500;
+        letter-spacing:.14em; text-transform:uppercase; color:var(--ink-2);
+    }
+    .eyebrow::before{
+        content:""; width:8px; height:8px; border-radius:2px;
+        background:var(--tono); flex:none;
+    }
+    .codigo{
+        font-family:var(--mono); font-weight:600;
+        font-size:clamp(4.2rem, 16vw, 6.6rem); line-height:1.05;
+        letter-spacing:-.02em; margin:.35rem 0 .2rem;
+    }
+    h1{ font-size:1.28rem; font-weight:700; letter-spacing:-.01em; margin-bottom:.55rem; }
+    .mensaje{ color:var(--ink-2); max-width:46ch; }
+
+    .acciones{ display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.7rem; }
+    .btn{
+        display:inline-block; padding:.55rem 1.15rem; border-radius:6px;
+        font:inherit; font-size:.85rem; font-weight:600; line-height:1.4;
+        text-decoration:none; cursor:pointer; border:1px solid transparent;
+        transition:background .14s ease,border-color .14s ease;
+    }
+    .btn-primario{ background:var(--steel); color:#fff; }
+    .btn-primario:hover{ background:var(--steel-600); }
+    .btn-plano{ background:var(--panel); color:var(--ink); border-color:var(--line); }
+    .btn-plano:hover{ background:var(--panel-2); }
+    .btn:focus-visible{ outline:2px solid var(--steel); outline-offset:2px; }
+
+    .firma{
+        margin-top:1.1rem; text-align:center;
+        font-family:var(--mono); font-size:.64rem; font-weight:500;
+        letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3);
+    }
+
+    @keyframes aparecer{ from{ opacity:0; transform:translateY(10px); } }
+    /* 39.6px = un período de la franja a 135° (28px·√2): el bucle es continuo. */
+    @keyframes arrastre{ to{ background-position:39.6px 0; } }
+    @media (prefers-reduced-motion:reduce){
+        .ticket,.cinta{ animation:none; }
+    }
+    </style>
+</head>
+<body class="{% block clase %}e-404{% endblock %}">
+    <main>
+        <div class="ticket">
+            <header class="ticket-header">
+                <img src="{% static 'images/logo-solmed.png' %}" alt="Solmed">
+                <span class="consola">Consola de<br>operaciones</span>
+            </header>
+            <div class="cinta" aria-hidden="true"></div>
+            <div class="ticket-body">
+                <p class="eyebrow">{% block eyebrow %}{% endblock %}</p>
+                <p class="codigo">{% block codigo %}{% endblock %}</p>
+                <h1>{% block encabezado %}{% endblock %}</h1>
+                <p class="mensaje">{% block mensaje %}{% endblock %}</p>
+                <div class="acciones">
+                    {% block acciones %}
+                    <a class="btn btn-primario" href="/">Volver al inicio</a>
+                    <a class="btn btn-plano" href="/" onclick="if(history.length>1){history.back();return false;}">Ir atrás</a>
+                    {% endblock %}
+                </div>
+            </div>
+        </div>
+        <p class="firma">Solmed · Soluciones medioambientales</p>
+    </main>
+</body>
+</html>

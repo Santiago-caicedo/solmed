@@ -1,0 +1,11 @@
+{% extends "base_error.html" %}
+
+{% block titulo_pestana %}403 — Acceso restringido{% endblock %}
+{% block clase %}e-403{% endblock %}
+{% block eyebrow %}Acceso restringido{% endblock %}
+{% block codigo %}403{% endblock %}
+{% block encabezado %}No tienes acceso a esta página{% endblock %}
+{% block mensaje %}
+Tu rol no incluye este módulo. Si lo necesitas para tu trabajo, pídele el
+acceso a un administrador.
+{% endblock %}
