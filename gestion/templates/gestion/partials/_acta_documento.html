@@ -53,8 +53,8 @@
                 </tr>
                 <tr>
                     <td><span class="lbl">Conductor:</span> {{ recorrido.conductor.get_full_name|default:'' }}</td>
-                    <td><span class="lbl">Auxiliar 1:</span> {{ manifiesto.auxiliar1 }}</td>
-                    <td><span class="lbl">Auxiliar 2:</span> {{ manifiesto.auxiliar2 }}</td>
+                    <td><span class="lbl">Auxiliar 1:</span> {{ manifiesto.auxiliar1|default:"Sin ayudante" }}</td>
+                    <td><span class="lbl">Auxiliar 2:</span> {{ manifiesto.auxiliar2|default:"Sin ayudante" }}</td>
                 </tr>
             </table>
         </div>
