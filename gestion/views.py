@@ -396,6 +396,57 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 # --- Vistas para Órdenes de Servicio ---
 # Todas las vistas de gestión se protegen con LoginRequiredMixin.
 # Se usa 'form_class' para conectar la vista con el formulario personalizado.
+def _pendientes_orden(orden):
+    """
+    Qué le falta a la orden para quedar cerrada, en el orden natural en que
+    ocurre: los datos del conductor, sus soportes, las fotos del ayudante, la
+    firma del cliente, la encuesta de cierre y la conciliación. Se usa en la
+    lista de órdenes como guía de lo que hay que perseguir.
+    """
+    faltan = []
+    recorridos = list(orden.recorridos.all())
+    actas = [getattr(r, 'manifiesto', None) for r in recorridos]
+    actas = [a for a in actas if a is not None]
+
+    if not actas or not any(_acta_lista_para_firmar(a) for a in actas):
+        faltan.append({'etiqueta': 'Datos del acta', 'icono': 'bi-pencil-square'})
+
+    if orden.requiere_bascula and not orden.bascula_adjunto:
+        faltan.append({'etiqueta': 'Tiquete de báscula', 'icono': 'bi-speedometer2'})
+    if orden.requiere_registro_fotografico and not orden.registro_fotografico_adjunto:
+        faltan.append({'etiqueta': 'Fotos del servicio', 'icono': 'bi-camera'})
+
+    # Fotos que le pidieron al ayudante y todavía no ha subido.
+    programacion = getattr(orden, 'programacion_origen', None)
+    if programacion is not None:
+        pendientes_ayudante = 0
+        for cuadrilla in programacion.cuadrillas.all():
+            for slot in (1, 2):
+                if cuadrilla.ayudante_de(slot) is None:
+                    continue
+                subidas = {f.novedad for f in cuadrilla.fotos_ayudantes.all()
+                           if f.slot == slot}
+                pendientes_ayudante += sum(
+                    1 for pedida in cuadrilla.fotos_pedidas(slot)
+                    if pedida['codigo'] not in subidas)
+        if pendientes_ayudante:
+            faltan.append({
+                'etiqueta': f"Fotos del ayudante ({pendientes_ayudante})",
+                'icono': 'bi-person-square',
+            })
+
+    if not actas or any(a.estado_firma != 'FIRMADO' for a in actas):
+        faltan.append({'etiqueta': 'Firma del cliente', 'icono': 'bi-vector-pen'})
+
+    if any(getattr(r, 'encuesta_conductor', None) is None for r in recorridos):
+        faltan.append({'etiqueta': 'Encuesta de cierre', 'icono': 'bi-clipboard-check'})
+
+    if orden.estado_conciliacion == 'PENDIENTE':
+        faltan.append({'etiqueta': 'Conciliar cantidad', 'icono': 'bi-calculator'})
+
+    return faltan
+
+
 class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = OrdenServicio
     template_name = 'gestion/lista_ordenes.html'
@@ -407,7 +458,10 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         # La fecha que se lista es la de REALIZACIÓN del servicio (la del
         # recorrido), no la de creación de la orden en el sistema.
         queryset = super().get_queryset().annotate(
-            fecha_servicio=Min('recorridos__fecha_recorrido'))
+            fecha_servicio=Min('recorridos__fecha_recorrido')
+        ).select_related('cliente').prefetch_related(
+            'recorridos__manifiesto', 'recorridos__encuesta_conductor',
+            'programacion_origen__cuadrillas__fotos_ayudantes')
         query = self.request.GET.get('q')
         
         # --- LÓGICA DE FILTROS ---
@@ -448,6 +502,11 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         context['current_estado'] = self.request.GET.get('estado', '')
         context['current_pago'] = self.request.GET.get('pago', '')
         context['current_conciliacion'] = self.request.GET.get('conciliacion', '')
+        # Lo que le falta a cada orden de ESTA página, como guía de seguimiento.
+        # Se cuelga del propio objeto: en la plantilla no hay forma de buscar
+        # en un diccionario por clave.
+        for orden in context.get('ordenes', []):
+            orden.pendientes = _pendientes_orden(orden)
         return context
 
 # Las órdenes NO se crean a mano (se eliminó CrearOrdenView): siempre nacen de

@@ -51,7 +51,7 @@
                         <th># Orden</th>
                         <th>Cliente</th>
                         <th>Fecha del servicio</th>
-                        <th>Estado</th>
+                        <th>Qué falta</th>
                         <th>Conciliación</th>
                         <th>Acciones</th>
                     </tr>
@@ -65,7 +65,25 @@
                         <td title="Creada en el sistema el {{ orden.fecha_creacion|date:'d/m/Y' }}">
                             {{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}
                         </td>
-                        <td><span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ orden.get_estado_orden_display }}</span></td>
+                        {% comment %}
+                        En vez del estado (que casi siempre decía "En ejecución"),
+                        lo que hay que perseguir para cerrar la orden.
+                        {% endcomment %}
+                        <td>
+                            {% if orden.estado_orden == 'CANCELADA' %}
+                            <span class="badge bg-secondary">Cancelada</span>
+                            {% else %}
+                            {% if orden.pendientes %}
+                            <div class="lo-falta">
+                                {% for item in orden.pendientes %}
+                                <span class="lo-chip"><i class="bi {{ item.icono }}"></i>{{ item.etiqueta }}</span>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <span class="lo-lista"><i class="bi bi-check-circle-fill"></i>Todo listo</span>
+                            {% endif %}
+                            {% endif %}
+                        </td>
                         <td>
                             {% if orden.estado_conciliacion == 'PENDIENTE' %}
                                 <span class="badge bg-warning text-dark"><i class="bi bi-calculator me-1"></i>Pendiente</span>
@@ -91,4 +109,19 @@
     </div>
 </div>
 {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
+
+<style>
+    .lo-falta{ display:flex; flex-wrap:wrap; gap:.25rem; max-width:340px; }
+    .lo-chip{
+        display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap;
+        font-size:.72rem; font-weight:600; line-height:1.4;
+        background:#fdf3e0; color:#8a5a12; border:1px solid #f0dcb4;
+        padding:.1rem .45rem; border-radius:999px;
+    }
+    .lo-chip i{ font-size:.78rem; opacity:.85; }
+    .lo-lista{
+        display:inline-flex; align-items:center; gap:.3rem;
+        font-size:.78rem; font-weight:600; color:#2f9e44;
+    }
+</style>
 {% endblock %}
