@@ -17,9 +17,16 @@ def roles(request):
     # lo único que no puede es entrar al admin de Django (necesita is_staff).
     es_administrador = user.is_superuser or 'Administradores' in nombres
 
+    # Talento Humano solo trabaja el módulo de Personal: no es asesor.
+    es_talento_humano = 'Talento Humano' in nombres and not es_administrador
+
     return {
         'es_administrador': es_administrador,
         'es_asesor': es_administrador or 'Asesores' in nombres,
+        'es_talento_humano': es_talento_humano,
+        # Quién puede entrar al módulo de Personal.
+        've_personal': (es_administrador or 'Asesores' in nombres
+                        or es_talento_humano),
         'es_planificador': es_administrador or 'Planificadores' in nombres,
         # Un administrador que además esté en Conductores no ve el menú del
         # conductor: manda su rol de gestión.

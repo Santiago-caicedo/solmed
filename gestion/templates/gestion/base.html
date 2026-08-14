@@ -393,12 +393,18 @@
         </li>
         {% endif %}
 
+        {% if not es_talento_humano %}
+        {% comment %}
+        El calendario lo ven todos MENOS Talento Humano, cuyo alcance es solo
+        el módulo de Personal (la vista además lo redirige si entra por URL).
+        {% endcomment %}
         <li class="nav-section">Operación</li>
         <li>
             <a href="{% url 'gestion:calendario' %}" class="nav-link {% if 'calendario' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar3"></i>Calendario
             </a>
         </li>
+        {% endif %}
         {% if es_planificador %}
         <li>
             <a href="{% url 'gestion:planificacion' %}" class="nav-link {% if 'planificacion' in request.path %}active{% endif %}">
@@ -435,11 +441,6 @@
             </a>
         </li>
         <li>
-            <a href="{% url 'gestion:lista_personal' %}" class="nav-link {% if 'personal' in request.path %}active{% endif %}">
-                <i class="bi bi-people-fill"></i>Personal
-            </a>
-        </li>
-        <li>
             <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if 'proveedores' in request.path %}active{% endif %}">
                 <i class="bi bi-recycle"></i>Proveedores
             </a>
@@ -447,6 +448,17 @@
         <li>
             <a href="{% url 'gestion:documentacion' %}" class="nav-link {% if 'documentacion' in request.path %}active{% endif %}">
                 <i class="bi bi-folder-fill"></i>Documentación
+            </a>
+        </li>
+        {% endif %}
+
+        {% if ve_personal %}
+        {% comment %}
+        Personal lo ven gestión y el rol Talento Humano (que no ve nada más).
+        {% endcomment %}
+        <li>
+            <a href="{% url 'gestion:lista_personal' %}" class="nav-link {% if 'personal' in request.path %}active{% endif %}">
+                <i class="bi bi-people-fill"></i>Personal
             </a>
         </li>
         {% endif %}

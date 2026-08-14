@@ -29,6 +29,13 @@ def crear_roles(sender, **kwargs):
             "recorrido": ["add", "change", "view", "delete"],
             "user": ["add", "change", "view"],
         },
+        # Talento Humano: SOLO el módulo de Personal (expedientes, seguridad
+        # social, cuentas de acceso). No ve órdenes, clientes ni vehículos.
+        "Talento Humano": {
+            "documentopersonal": ["add", "change", "view", "delete"],
+            "perfilpersona": ["add", "change", "view", "delete"],
+            "user": ["add", "change", "view"],
+        },
         "Asesores": {
             "ordenservicio": ["add", "change", "view", "delete"],
             "cliente": ["add", "change", "view", "delete"],

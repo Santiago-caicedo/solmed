@@ -102,6 +102,23 @@ class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
 
 # --- MIXIN QUE BLOQUEA A LOS CONDUCTORES ---
+def es_talento_humano(user):
+    """Rol de Talento Humano: solo el módulo de Personal."""
+    return user.is_authenticated and user.groups.filter(name='Talento Humano').exists()
+
+
+class PersonalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    Módulo de Personal: lo trabajan gestión (administradores y asesores) y el
+    rol Talento Humano, que NO ve nada más del sistema.
+    """
+    def test_func(self):
+        user = self.request.user
+        return (es_administrador(user)
+                or user.groups.filter(name='Asesores').exists()
+                or es_talento_humano(user))
+
+
 class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     def test_func(self):
         return es_administrador(self.request.user)
@@ -110,15 +127,30 @@ class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 SuperuserRequiredMixin = AdministradorRequiredMixin
 
 
+class SinTalentoHumanoMixin:
+    """
+    Pantallas operativas que comparten gestión y conductores, pero que Talento
+    Humano no necesita: su alcance es el módulo de Personal.
+    """
+    def dispatch(self, request, *args, **kwargs):
+        if (request.user.is_authenticated and es_talento_humano(request.user)
+                and not es_administrador(request.user)):
+            return redirect('gestion:lista_personal')
+        return super().dispatch(request, *args, **kwargs)
+
+
 class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """
-    Permite el acceso a cualquier usuario autenticado EXCEPTO a los conductores.
-    Se usa en vistas de gestión (como el expediente de la orden) a las que el
-    conductor no debe entrar.
+    Vistas de gestión (expediente de la orden, clientes, vehículos...): las ve
+    cualquier usuario autenticado MENOS los roles acotados a lo suyo, que hoy
+    son los conductores y Talento Humano (este último solo trabaja Personal).
     """
+    ROLES_ACOTADOS = ('Conductores', 'Talento Humano')
+
     def test_func(self):
         user = self.request.user
-        return es_administrador(user) or not user.groups.filter(name='Conductores').exists()
+        return es_administrador(user) or not user.groups.filter(
+            name__in=self.ROLES_ACOTADOS).exists()
 
 
 # Nombres cortos de los meses para las series de 12 meses del tablero.
@@ -139,9 +171,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def dispatch(self, request, *args, **kwargs):
         # El conductor tiene su propio tablero: si llega aquí por URL, se le
         # redirige en vez de mostrarle las cifras de gestión.
-        if (request.user.is_authenticated and not es_administrador(request.user)
-                and request.user.groups.filter(name='Conductores').exists()):
-            return redirect('gestion:dashboard_conductor')
+        if request.user.is_authenticated and not es_administrador(request.user):
+            if request.user.groups.filter(name='Conductores').exists():
+                return redirect('gestion:dashboard_conductor')
+            if es_talento_humano(request.user):
+                return redirect('gestion:lista_personal')
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1376,7 +1410,7 @@ def _pdf_encuesta_conductor(encuesta, request):
     return html.write_pdf()
 
 
-class EncuestaConductorPDFView(LoginRequiredMixin, View):
+class EncuestaConductorPDFView(SinTalentoHumanoMixin, LoginRequiredMixin, View):
     """
     Descarga el PDF de la encuesta de cierre de un recorrido, generado al
     momento. El conductor solo puede bajar la de SUS recorridos; gestión, la
@@ -2426,6 +2460,9 @@ class EliminarRecorridoView(NoConductorRequiredMixin, View):
 @login_required
 def feed_calendario(request):
     user = request.user
+    # Talento Humano no ve la operación: su alcance es el módulo de Personal.
+    if es_talento_humano(user) and not es_administrador(user):
+        return JsonResponse({'error': 'Sin acceso al calendario.'}, status=403)
 
     # Si el usuario es un conductor, filtra solo sus recorridos
     if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
@@ -2458,7 +2495,7 @@ def feed_calendario(request):
     return JsonResponse(eventos, safe=False)
 
 
-class CalendarioView(LoginRequiredMixin, TemplateView):
+class CalendarioView(SinTalentoHumanoMixin, LoginRequiredMixin, TemplateView):
     template_name = 'gestion/calendario.html'
 
 
@@ -2581,8 +2618,10 @@ def dashboard_redirect_view(request):
     user = request.user
     if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
         return redirect('gestion:dashboard_conductor')
-    else: # Asesores y Superusuarios
-        return redirect('gestion:dashboard')
+    if not es_administrador(user) and es_talento_humano(user):
+        # Su casa es el listado de personal: no ve el tablero de gestión.
+        return redirect('gestion:lista_personal')
+    return redirect('gestion:dashboard')
     
 
 
@@ -4773,7 +4812,25 @@ def _perfil_de(persona):
     return perfil
 
 
-class ListaPersonalView(AsesorRequiredMixin, PaginadoMixin, ListView):
+def _protege_gestion(request, persona):
+    """
+    Talento Humano no toca las cuentas de gestión (administradores, asesores,
+    planificadores): podría degradarlas o quedarse con su acceso. Devuelve una
+    redirección si hay que frenar, o None si puede seguir.
+    """
+    from .forms import ROLES_DE_GESTION
+    if not es_talento_humano(request.user) or es_administrador(request.user):
+        return None
+    if persona.is_superuser or persona.groups.filter(name__in=ROLES_DE_GESTION).exists():
+        messages.error(
+            request,
+            "Esa cuenta es de gestión: solo un administrador puede modificarla."
+        )
+        return redirect('gestion:ficha_persona', pk=persona.pk)
+    return None
+
+
+class ListaPersonalView(PersonalRequiredMixin, PaginadoMixin, ListView):
     model = User
     template_name = 'gestion/lista_personal.html'
     context_object_name = 'usuarios'
@@ -4825,7 +4882,7 @@ class ListaPersonalView(AsesorRequiredMixin, PaginadoMixin, ListView):
         return context
 
 
-class CrearPersonaView(AsesorRequiredMixin, View):
+class CrearPersonaView(PersonalRequiredMixin, View):
     """
     Da de alta a una persona. El ROL se elige primero porque determina todo lo
     demás: los roles con acceso (conductores, asesores...) llevan usuario y
@@ -4836,7 +4893,7 @@ class CrearPersonaView(AsesorRequiredMixin, View):
 
     def get(self, request):
         return render(request, self.template_name, {
-            'form': CrearUsuarioForm(),
+            'form': CrearUsuarioForm(autor=request.user),
             'perfil_form': PerfilPersonaForm(),
             'crear': True,
             'grupos_sin_acceso_ids': json.dumps(_ids_grupos_sin_acceso()),
@@ -4849,7 +4906,7 @@ class CrearPersonaView(AsesorRequiredMixin, View):
         # reducido, que crea la cuenta inactiva y sin contraseña utilizable.
         FormClass = PersonaSinAccesoForm if sin_acceso else CrearUsuarioForm
 
-        form = FormClass(request.POST)
+        form = FormClass(request.POST, autor=request.user)
         perfil_form = PerfilPersonaForm(request.POST)
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
@@ -4872,7 +4929,7 @@ class CrearPersonaView(AsesorRequiredMixin, View):
         })
 
 
-class FichaPersonaView(AsesorRequiredMixin, View):
+class FichaPersonaView(PersonalRequiredMixin, View):
     """Ficha completa de la persona: accesos, datos personales y expediente."""
     template_name = 'gestion/ficha_persona.html'
 
@@ -4960,19 +5017,19 @@ class FichaPersonaView(AsesorRequiredMixin, View):
         return redirect('gestion:ficha_persona', pk=pk)
 
 
-class EditarCuentaPersonaView(AsesorRequiredMixin, View):
+class EditarCuentaPersonaView(PersonalRequiredMixin, View):
     """Edita la cuenta (usuario, nombre, correo, rol, estado) y el perfil de datos."""
     template_name = 'gestion/form_persona.html'
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        frenar = _protege_superusuario(request, persona)
+        frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
             return frenar
         sin_acceso = _persona_sin_acceso(persona)
         FormClass = PersonaSinAccesoForm if sin_acceso else ActualizarUsuarioForm
         return render(request, self.template_name, {
-            'form': FormClass(instance=persona),
+            'form': FormClass(instance=persona, autor=request.user),
             'perfil_form': PerfilPersonaForm(instance=_perfil_de(persona)),
             'persona': persona,
             'crear': False,
@@ -4982,7 +5039,7 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
 
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        frenar = _protege_superusuario(request, persona)
+        frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
             return frenar
         grupo = _grupo_de_post(request)
@@ -4998,7 +5055,7 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
             datos.setdefault('username', persona.username)
             datos['is_active'] = 'on'
 
-        form = FormClass(datos, instance=persona)
+        form = FormClass(datos, instance=persona, autor=request.user)
         perfil_form = PerfilPersonaForm(request.POST, instance=_perfil_de(persona))
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
@@ -5020,14 +5077,14 @@ class EditarCuentaPersonaView(AsesorRequiredMixin, View):
         })
 
 
-class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
+class CambiarPasswordPersonaView(PersonalRequiredMixin, View):
     """Cambia la contraseña de acceso de una persona (no aplica a los ayudantes)."""
     template_name = 'gestion/cambiar_password.html'
 
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
             persona = get_object_or_404(User, pk=kwargs.get('pk'))
-            frenar = _protege_superusuario(request, persona)
+            frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
             if frenar is not None:
                 return frenar
             if _persona_sin_acceso(persona):
@@ -5059,7 +5116,7 @@ class CambiarPasswordPersonaView(AsesorRequiredMixin, View):
         return form
 
 
-class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
+class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
     """
     Historial completo de la seguridad social de una persona. Cada carga lleva su
     vigencia (fecha de vencimiento) puesta a mano: está vigente mientras no venza,
@@ -5117,7 +5174,7 @@ class HistorialSeguridadSocialView(AsesorRequiredMixin, View):
         return redirect('gestion:historial_seguridad_social', pk=pk)
 
 
-class ActualizarVigenciaDocumentoView(AsesorRequiredMixin, View):
+class ActualizarVigenciaDocumentoView(PersonalRequiredMixin, View):
     """
     Fija o edita la vigencia (fecha de vencimiento) de un documento del
     expediente desde el pop-up de la ficha. Solo POST.
@@ -5147,7 +5204,7 @@ class ActualizarVigenciaDocumentoView(AsesorRequiredMixin, View):
         return redirect('gestion:ficha_persona', pk=documento.usuario_id)
 
 
-class CambiarEstadoPersonaView(AsesorRequiredMixin, View):
+class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
     """
     Retira o reactiva a una persona (solo POST). Al retirar, deja de aparecer en
     las asignaciones (programación, recorridos, planificación) y se le bloquea el
@@ -5156,7 +5213,7 @@ class CambiarEstadoPersonaView(AsesorRequiredMixin, View):
     """
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        frenar = _protege_superusuario(request, persona)
+        frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
             return frenar
         perfil = _perfil_de(persona)
@@ -5182,7 +5239,7 @@ class CambiarEstadoPersonaView(AsesorRequiredMixin, View):
         return redirect('gestion:ficha_persona', pk=pk)
 
 
-class EliminarDocumentoPersonalView(AsesorRequiredMixin, View):
+class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
     """Elimina un documento del expediente (solo POST)."""
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)

@@ -407,7 +407,41 @@ class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
             campo.required = True
 
 
-class CrearUsuarioForm(UserCreationForm):
+# Roles que dan acceso más allá del módulo de Personal. Talento Humano no
+# puede repartirlos: si no, podría crearse a sí mismo un usuario Administrador.
+ROLES_DE_GESTION = ('Administradores', 'Asesores', 'Planificadores')
+
+
+def roles_asignables(usuario):
+    """
+    Los roles que ese usuario puede otorgar. Gestión los otorga todos; Talento
+    Humano, todos MENOS los de gestión (no puede subir a nadie —ni a sí mismo—
+    por encima de su propio alcance).
+    """
+    todos = Group.objects.all()
+    if usuario is None or not usuario.is_authenticated:
+        return todos
+    es_gestion = (usuario.is_superuser
+                  or usuario.groups.filter(
+                      name__in=('Administradores', 'Asesores')).exists())
+    if es_gestion:
+        return todos
+    return todos.exclude(name__in=ROLES_DE_GESTION)
+
+
+class RolLimitadoMixin:
+    """
+    Recorta el desplegable de rol según quién esté creando o editando. Al ser
+    un ModelChoiceField, la restricción también se aplica en el servidor: un
+    POST manipulado con un rol fuera de la lista no valida.
+    """
+    def __init__(self, *args, autor=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if autor is not None:
+            self.fields['grupo'].queryset = roles_asignables(autor)
+
+
+class CrearUsuarioForm(RolLimitadoMixin, UserCreationForm):
     email = forms.EmailField(
         label="Correo electrónico", required=True,
         widget=forms.EmailInput(attrs={'class': 'form-control'})
@@ -495,7 +529,7 @@ def generar_username(first_name, last_name, numero_documento=''):
     return username
 
 
-class PersonaSinAccesoForm(forms.ModelForm):
+class PersonaSinAccesoForm(RolLimitadoMixin, forms.ModelForm):
     """
     Alta/edición de una persona que NO accede a la plataforma (ayudantes): se
     registra únicamente para su expediente y para poder asignarla a las
@@ -560,7 +594,7 @@ class PerfilPersonaForm(forms.ModelForm):
         }
 
 
-class ActualizarUsuarioForm(forms.ModelForm):
+class ActualizarUsuarioForm(RolLimitadoMixin, forms.ModelForm):
     grupo = forms.ModelChoiceField(
         label="Rol", queryset=Group.objects.all(), required=True,
         widget=forms.Select(attrs={'class': 'form-select'})
