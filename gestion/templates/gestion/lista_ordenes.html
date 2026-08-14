@@ -125,8 +125,12 @@
     .tooltip-inner{ text-align:left; max-width:260px; }
 </style>
 
+{% endblock %}
+
+{% block scripts %}
 <script>
-// Los globos de ayuda de Bootstrap son opcionales: hay que encenderlos.
+// Los globos de ayuda de Bootstrap son opcionales: hay que encenderlos. Este
+// bloque se pinta después del bundle, así que aquí `bootstrap` ya existe.
 document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
     new bootstrap.Tooltip(el);
 });
