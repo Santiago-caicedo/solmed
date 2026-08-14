@@ -80,6 +80,16 @@ urlpatterns = [
     path('documentacion/<int:pk>/eliminar/', views.EliminarDocumentoInternoView.as_view(), name='eliminar_documento_interno'),
 
     # --- Proveedores de disposición final (Dispositor) y su expediente ---
+    # Otros proveedores (bienes y servicios), con contactos, banco y expediente.
+    # Van ANTES que 'proveedores/<int:pk>/' solo por orden de lectura: el
+    # segmento 'generales' no choca con el <int:pk> de los dispositores.
+    path('proveedores/generales/', views.ListaProveedoresView.as_view(), name='lista_proveedores'),
+    path('proveedores/generales/nuevo/', views.CrearProveedorView.as_view(), name='crear_proveedor'),
+    path('proveedores/generales/<int:pk>/', views.FichaProveedorView.as_view(), name='ficha_proveedor'),
+    path('proveedores/generales/<int:pk>/editar/', views.ActualizarProveedorView.as_view(), name='actualizar_proveedor'),
+    path('proveedores/generales/<int:pk>/eliminar/', views.EliminarProveedorView.as_view(), name='eliminar_proveedor'),
+    path('documento-proveedor/<int:pk>/eliminar/', views.EliminarDocumentoProveedorView.as_view(), name='eliminar_documento_proveedor'),
+
     path('proveedores/', views.ListaDispositoresView.as_view(), name='lista_dispositores'),
     path('proveedores/nuevo/', views.CrearDispositorView.as_view(), name='crear_dispositor'),
     path('proveedores/<int:pk>/', views.FichaDispositorView.as_view(), name='ficha_dispositor'),

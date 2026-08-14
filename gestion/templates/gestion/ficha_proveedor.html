@@ -1,0 +1,144 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-briefcase me-2"></i>{{ proveedor.razon_social }}</h1>
+        <div class="text-muted">
+            Proveedor de bienes y servicios
+            {% if proveedor.nombre_comercial %} · {{ proveedor.nombre_comercial }}{% endif %}
+            · NIT <span class="mono">{{ proveedor.nit }}</span>
+            {% if proveedor.activo %}
+                <span class="badge bg-success ms-1">Activo</span>
+            {% else %}
+                <span class="badge bg-secondary ms-1">Inactivo</span>
+            {% endif %}
+        </div>
+    </div>
+    <div>
+        <a href="{% url 'gestion:actualizar_proveedor' proveedor.pk %}" class="btn btn-outline-secondary">
+            <i class="bi bi-pencil-square me-1"></i> Editar datos
+        </a>
+        <a href="{% url 'gestion:lista_proveedores' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> Volver al listado
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card shadow mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-card-text me-1"></i>Datos</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-5">NIT</dt><dd class="col-sm-7 mono">{{ proveedor.nit }}</dd>
+                    <dt class="col-sm-5">Razón social</dt><dd class="col-sm-7">{{ proveedor.razon_social }}</dd>
+                    <dt class="col-sm-5">Nombre comercial</dt><dd class="col-sm-7">{{ proveedor.nombre_comercial|default:"—" }}</dd>
+                    <dt class="col-sm-5">Dirección</dt><dd class="col-sm-7">{{ proveedor.direccion|default:"—" }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card shadow mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bank me-1"></i>Datos bancarios</h5>
+            </div>
+            <div class="card-body">
+                {% if proveedor.banco or proveedor.numero_cuenta %}
+                <dl class="row mb-0">
+                    <dt class="col-sm-5">Banco</dt><dd class="col-sm-7">{{ proveedor.banco|default:"—" }}</dd>
+                    <dt class="col-sm-5">Tipo de cuenta</dt><dd class="col-sm-7">{{ proveedor.get_tipo_cuenta_display|default:"—" }}</dd>
+                    <dt class="col-sm-5">No. de cuenta</dt><dd class="col-sm-7 mono">{{ proveedor.numero_cuenta|default:"—" }}</dd>
+                </dl>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    Sin datos bancarios.
+                    <a href="{% url 'gestion:actualizar_proveedor' proveedor.pk %}">Agrégalos aquí</a>.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-person-lines-fill me-1"></i>Contactos</h5>
+                <span class="badge bg-secondary">{{ contactos|length }} de 3</span>
+            </div>
+            <div class="card-body">
+                {% for c in contactos %}
+                <div class="{% if not forloop.last %}mb-3 pb-3 border-bottom{% endif %}">
+                    <strong>{{ c.nombre }}</strong>
+                    {% if c.area %}<span class="text-muted">· {{ c.area }}</span>{% endif %}
+                    <small class="d-block text-muted">
+                        {% if c.correo %}<i class="bi bi-envelope me-1"></i>{{ c.correo }}{% endif %}
+                        {% if c.celular %}<i class="bi bi-telephone ms-2 me-1"></i>{{ c.celular }}{% endif %}
+                        {% if not c.correo and not c.celular %}Sin datos de contacto{% endif %}
+                    </small>
+                </div>
+                {% empty %}
+                <p class="text-muted small mb-0">
+                    Sin contactos registrados.
+                    <a href="{% url 'gestion:actualizar_proveedor' proveedor.pk %}">Agrégalos aquí</a>.
+                </p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-folder2-open me-1"></i>Expediente</h5>
+                {% if documentos %}
+                    <span class="badge bg-success">{{ documentos|length }} documento{{ documentos|length|pluralize }}</span>
+                {% else %}
+                    <span class="badge bg-secondary">Vacío</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {# Carga con nombre libre: cada documento se nombra al subirlo #}
+                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end mb-3">
+                    {% csrf_token %}
+                    <div class="col-md-5">
+                        <label class="form-label small mb-1">Nombre del documento</label>
+                        {{ doc_form.nombre }}
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small mb-1">Archivo</label>
+                        {{ doc_form.archivo }}
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
+                    </div>
+                </form>
+
+                {% if documentos %}
+                <ul class="list-group">
+                    {% for d in documentos %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <span class="text-truncate">
+                            <i class="bi bi-file-earmark-arrow-down me-1 text-muted"></i>
+                            <a href="{{ d.archivo.url }}" target="_blank">{{ d.nombre }}</a>
+                            <small class="text-muted d-block">Cargado el {{ d.fecha_subida|date:"d/m/Y" }}</small>
+                        </span>
+                        <form method="post" action="{% url 'gestion:eliminar_documento_proveedor' d.pk %}"
+                              onsubmit="return confirm('¿Eliminar este documento del expediente?');">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-exclamation-circle me-1"></i>Aún no hay documentos: carga el primero
+                    con su nombre (RUT, cámara de comercio, certificación bancaria…).
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

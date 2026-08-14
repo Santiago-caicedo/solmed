@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Bascula, Cliente, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Banco, Bascula, Cliente, ContactoProveedor, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -108,6 +108,32 @@ class DispositorAdmin(admin.ModelAdmin):
     list_filter = ('tipo', 'activo')
     search_fields = ('nombre', 'descripcion')
     inlines = [DocumentoDispositorInline]
+
+
+@admin.register(Banco)
+class BancoAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'activo')
+    list_editable = ('activo',)
+    search_fields = ('nombre',)
+
+
+class ContactoProveedorInline(admin.TabularInline):
+    model = ContactoProveedor
+    extra = 0
+    max_num = ContactoProveedor.MAX_CONTACTOS
+
+
+class DocumentoProveedorInline(admin.TabularInline):
+    model = DocumentoProveedor
+    extra = 0
+
+
+@admin.register(Proveedor)
+class ProveedorAdmin(admin.ModelAdmin):
+    list_display = ('razon_social', 'nombre_comercial', 'nit', 'banco', 'activo')
+    list_filter = ('activo', 'banco')
+    search_fields = ('razon_social', 'nombre_comercial', 'nit')
+    inlines = [ContactoProveedorInline, DocumentoProveedorInline]
 
 
 class ProgramacionCuadrillaInline(admin.TabularInline):

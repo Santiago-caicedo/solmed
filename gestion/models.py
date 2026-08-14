@@ -851,6 +851,114 @@ class DocumentoDispositor(models.Model):
         return f"{self.get_tipo_display()} - {self.dispositor.nombre}"
 
 
+class Banco(models.Model):
+    """
+    Catálogo de bancos (y billeteras como Nequi o Daviplata) para los datos de
+    pago de los proveedores. Se siembra por migración y se amplía desde el admin.
+    """
+    nombre = models.CharField(max_length=100, unique=True)
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para ocultarlo del desplegable sin borrar el histórico."
+    )
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Banco"
+        verbose_name_plural = "Bancos"
+
+    def __str__(self):
+        return self.nombre
+
+
+class Proveedor(models.Model):
+    """
+    Proveedor general de bienes y servicios (compras, mantenimiento, insumos...).
+    Es DISTINTO del proveedor de disposición final (Dispositor): este no participa
+    en la operación de residuos; lleva sus datos de facturación, contactos, datos
+    bancarios para pagos y un expediente de documentos con nombre libre.
+    """
+    TIPO_CUENTA_CHOICES = [
+        ('AHORROS', 'Ahorros'),
+        ('CORRIENTE', 'Corriente'),
+        ('NEQUI', 'Nequi'),
+        ('DAVIPLATA', 'Daviplata'),
+        ('OTRA', 'Otra'),
+    ]
+
+    nit = models.CharField(max_length=30, verbose_name="NIT")
+    razon_social = models.CharField(max_length=200, verbose_name="Razón social")
+    nombre_comercial = models.CharField(max_length=200, blank=True, verbose_name="Nombre comercial")
+    direccion = models.CharField(max_length=255, blank=True, verbose_name="Dirección")
+
+    # Datos de pago
+    banco = models.ForeignKey(
+        Banco, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='proveedores'
+    )
+    tipo_cuenta = models.CharField(
+        max_length=10, choices=TIPO_CUENTA_CHOICES, blank=True,
+        verbose_name="Tipo de cuenta"
+    )
+    numero_cuenta = models.CharField(max_length=50, blank=True, verbose_name="No. de cuenta")
+
+    activo = models.BooleanField(
+        default=True,
+        help_text="Desmárcalo para archivarlo sin borrar su expediente."
+    )
+
+    class Meta:
+        ordering = ['razon_social']
+        verbose_name = "Proveedor general"
+        verbose_name_plural = "Proveedores generales"
+
+    def __str__(self):
+        return self.nombre_comercial or self.razon_social
+
+
+class ContactoProveedor(models.Model):
+    """
+    Contacto de un proveedor general (hasta MAX_CONTACTOS por proveedor, con
+    nombre propio): a quién llamar o escribir, de qué área, correo y celular.
+    """
+    MAX_CONTACTOS = 3
+
+    proveedor = models.ForeignKey(Proveedor, on_delete=models.CASCADE, related_name='contactos')
+    # Todos opcionales a nivel de modelo: el formulario exige el nombre cuando
+    # la fila trae algún dato, y una fila vaciada equivale a quitar el contacto.
+    nombre = models.CharField(max_length=120, blank=True)
+    area = models.CharField(max_length=120, blank=True, verbose_name="Área")
+    correo = models.EmailField(blank=True)
+    celular = models.CharField(max_length=30, blank=True)
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Contacto del proveedor"
+        verbose_name_plural = "Contactos del proveedor"
+
+    def __str__(self):
+        return f"{self.nombre} ({self.proveedor})"
+
+
+class DocumentoProveedor(models.Model):
+    """
+    Documento del expediente de un proveedor general. Sin tipos fijos: cada
+    documento se carga con un nombre libre (RUT, cámara, certificación, etc.).
+    """
+    proveedor = models.ForeignKey(Proveedor, on_delete=models.CASCADE, related_name='documentos')
+    nombre = models.CharField(max_length=150, verbose_name="Nombre del documento")
+    archivo = models.FileField(upload_to='proveedores_documentos/')
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_subida']
+        verbose_name = "Documento del proveedor general"
+        verbose_name_plural = "Documentos de los proveedores generales"
+
+    def __str__(self):
+        return f"{self.nombre} - {self.proveedor}"
+
+
 class EncuestaConductor(models.Model):
     """
     Encuesta de cierre que llena EL CONDUCTOR una vez firmada el acta por el

@@ -1,0 +1,133 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="bi bi-briefcase me-2"></i>
+        {% if form.instance.pk %}Editar proveedor{% else %}Nuevo proveedor{% endif %}
+    </h1>
+    <a href="{% url 'gestion:lista_proveedores' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver al listado
+    </a>
+</div>
+
+{% if form.errors or formset.total_error_count %}
+<div class="alert alert-danger">
+    <strong>Revisa los campos:</strong>
+    <ul class="mb-0">
+        {% for field in form %}{% for error in field.errors %}<li>{{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+        {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        {% for f in formset %}{% for field in f %}{% for error in field.errors %}<li>Contacto {{ forloop.parentloop.parentloop.counter }} · {{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}{% endfor %}
+        {% for error in formset.non_form_errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    <div class="row">
+        <div class="col-lg-7">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-card-text me-1"></i>Datos del proveedor</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="{{ form.nit.id_for_label }}" class="form-label">NIT <span class="text-danger">*</span></label>
+                            {{ form.nit }}
+                        </div>
+                        <div class="col-md-8">
+                            <label for="{{ form.razon_social.id_for_label }}" class="form-label">Razón social <span class="text-danger">*</span></label>
+                            {{ form.razon_social }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.nombre_comercial.id_for_label }}" class="form-label">Nombre comercial</label>
+                            {{ form.nombre_comercial }}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="{{ form.direccion.id_for_label }}" class="form-label">Dirección</label>
+                            {{ form.direccion }}
+                        </div>
+                    </div>
+                    <div class="form-check form-switch mt-4">
+                        {{ form.activo }}
+                        <label class="form-check-label" for="{{ form.activo.id_for_label }}">
+                            Activo (desmárcalo para archivarlo sin borrar su expediente)
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-person-lines-fill me-1"></i>Contactos <small class="text-muted fw-normal">(hasta 3, con nombre propio)</small></h5>
+                </div>
+                <div class="card-body p-4">
+                    {{ formset.management_form }}
+                    {% for f in formset %}
+                    {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+                    <div class="row g-2 {% if not forloop.last %}mb-3 pb-3 border-bottom{% endif %}">
+                        <div class="col-12"><span class="eyebrow">Contacto {{ forloop.counter }}</span></div>
+                        <div class="col-md-3">{{ f.nombre }}</div>
+                        <div class="col-md-3">{{ f.area }}</div>
+                        <div class="col-md-3">{{ f.correo }}</div>
+                        <div class="col-md-3">{{ f.celular }}</div>
+                    </div>
+                    {% endfor %}
+                    <small class="text-muted d-block mt-2">
+                        Para quitar un contacto, borra todos sus campos y guarda.
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-bank me-1"></i>Datos bancarios</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <label for="{{ form.banco.id_for_label }}" class="form-label">Banco</label>
+                        {{ form.banco }}
+                        <small class="text-muted">¿Falta un banco? Un administrador lo agrega desde el panel de administración.</small>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label for="{{ form.tipo_cuenta.id_for_label }}" class="form-label">Tipo de cuenta</label>
+                            {{ form.tipo_cuenta }}
+                        </div>
+                        <div class="col-md-7">
+                            <label for="{{ form.numero_cuenta.id_for_label }}" class="form-label">No. de cuenta</label>
+                            {{ form.numero_cuenta }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-0 bg-light mb-4">
+                <div class="card-body">
+                    <h6><i class="bi bi-info-circle me-1"></i>¿Qué es un proveedor general?</h6>
+                    <p class="small text-muted mb-0">
+                        Proveedor de bienes y servicios (compras, mantenimiento, insumos…).
+                        Es distinto de los proveedores de <strong>disposición final</strong>, que
+                        tienen su propio panel. {% if not form.instance.pk %}Al crearlo pasarás a su
+                        <strong>ficha</strong> para cargar los documentos de su expediente.{% endif %}
+                    </p>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i>
+                {% if form.instance.pk %}Guardar cambios{% else %}Crear proveedor{% endif %}
+            </button>
+            {% if form.instance.pk %}
+            <a href="{% url 'gestion:ficha_proveedor' form.instance.pk %}" class="btn btn-outline-primary">
+                <i class="bi bi-folder2-open me-1"></i> Ir a la ficha
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</form>
+{% endblock %}

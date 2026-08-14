@@ -1,6 +1,6 @@
 from django import forms
 from django.db.models import Q
-from .models import Bascula, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
+from .models import Banco, Bascula, ContactoProveedor, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
@@ -1207,6 +1207,90 @@ class DocumentoDispositorForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['descripcion'].required = False
+
+
+class ProveedorForm(forms.ModelForm):
+    """
+    Alta/edición de un proveedor general (bienes y servicios). Los contactos
+    van aparte, en ContactoProveedorFormSet; el expediente se carga en la ficha.
+    """
+    class Meta:
+        model = Proveedor
+        fields = ['nit', 'razon_social', 'nombre_comercial', 'direccion',
+                  'banco', 'tipo_cuenta', 'numero_cuenta', 'activo']
+        widgets = {
+            'nit': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: 900123456-7'}),
+            'razon_social': forms.TextInput(attrs={'class': 'form-control'}),
+            'nombre_comercial': forms.TextInput(attrs={'class': 'form-control'}),
+            'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'banco': forms.Select(attrs={'class': 'form-select'}),
+            'tipo_cuenta': forms.Select(attrs={'class': 'form-select'}),
+            'numero_cuenta': forms.TextInput(attrs={'class': 'form-control'}),
+            'activo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Solo bancos activos, sin sacar del desplegable el que ya tenga puesto.
+        bancos = Banco.objects.filter(activo=True)
+        if self.instance.pk and self.instance.banco_id:
+            bancos = Banco.objects.filter(Q(activo=True) | Q(pk=self.instance.banco_id))
+        self.fields['banco'].queryset = bancos
+        self.fields['banco'].empty_label = 'Sin banco'
+
+
+class ContactoProveedorForm(forms.ModelForm):
+    """Una fila de contacto del proveedor. Fila vacía = sin contacto."""
+    class Meta:
+        model = ContactoProveedor
+        fields = ['nombre', 'area', 'correo', 'celular']
+        widgets = {
+            'nombre': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Nombre'}),
+            'area': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Área o cargo'}),
+            'correo': forms.EmailInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Correo'}),
+            'celular': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Celular'}),
+        }
+
+    def clean(self):
+        datos = super().clean()
+        # Si la fila trae algún dato, tiene que llevar el nombre del contacto.
+        if not datos.get('nombre') and (datos.get('area') or datos.get('correo') or datos.get('celular')):
+            self.add_error('nombre', 'Ponle nombre a este contacto.')
+        return datos
+
+
+class _ContactosProveedorBase(forms.BaseInlineFormSet):
+    def save(self, commit=True):
+        objetos = super().save(commit=commit)
+        # Vaciar por completo la fila de un contacto existente equivale a quitarlo.
+        if commit:
+            for form in self.forms:
+                c = form.instance
+                if c.pk and not (c.nombre or c.area or c.correo or c.celular):
+                    c.delete()
+        return objetos
+
+
+ContactoProveedorFormSet = forms.inlineformset_factory(
+    Proveedor, ContactoProveedor,
+    form=ContactoProveedorForm, formset=_ContactosProveedorBase,
+    extra=ContactoProveedor.MAX_CONTACTOS, max_num=ContactoProveedor.MAX_CONTACTOS,
+    validate_max=True, can_delete=False,
+)
+
+
+class DocumentoProveedorForm(forms.ModelForm):
+    """Carga de un documento (con nombre libre) al expediente del proveedor general."""
+    class Meta:
+        model = DocumentoProveedor
+        fields = ['nombre', 'archivo']
+        widgets = {
+            'nombre': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'placeholder': 'Ej: RUT, cámara de comercio, certificación bancaria…',
+            }),
+            'archivo': forms.FileInput(attrs={'class': 'form-control form-control-sm'}),
+        }
 
 
 class DocumentoInternoForm(forms.ModelForm):

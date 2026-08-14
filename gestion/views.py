@@ -5458,3 +5458,131 @@ class EliminarDocumentoDispositorView(AsesorRequiredMixin, View):
         documento.delete()
         messages.success(request, "Documento eliminado del expediente.")
         return redirect('gestion:ficha_dispositor', pk=dispositor_pk)
+
+
+# ============================================================================
+# OTROS PROVEEDORES (bienes y servicios)
+# Distintos de los dispositores: no participan en la operación de residuos.
+# Llevan datos de facturación, hasta 3 contactos, datos bancarios para pagos
+# y un expediente de documentos con nombre libre.
+# ============================================================================
+from .models import DocumentoProveedor, Proveedor
+from .forms import ContactoProveedorFormSet, DocumentoProveedorForm, ProveedorForm
+
+
+class ListaProveedoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    model = Proveedor
+    template_name = 'gestion/lista_proveedores.html'
+    context_object_name = 'proveedores'
+
+    def get_queryset(self):
+        # Los inactivos (archivados) van al final, igual que en dispositores.
+        return (
+            Proveedor.objects
+            .select_related('banco')
+            .prefetch_related('contactos', 'documentos')
+            .order_by('-activo', 'razon_social')
+        )
+
+
+class _FormularioProveedorMixin:
+    """Alta y edición comparten plantilla y el manejo del formset de contactos."""
+    template_name = 'gestion/form_proveedor.html'
+
+    def _render(self, request, form, formset):
+        return render(request, self.template_name, {'form': form, 'formset': formset})
+
+
+class CrearProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
+    def get(self, request):
+        return self._render(request, ProveedorForm(), ContactoProveedorFormSet())
+
+    def post(self, request):
+        form = ProveedorForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, form, ContactoProveedorFormSet(request.POST))
+        proveedor = form.save(commit=False)
+        formset = ContactoProveedorFormSet(request.POST, instance=proveedor)
+        if not formset.is_valid():
+            return self._render(request, form, formset)
+        proveedor.save()
+        formset.save()
+        messages.success(
+            request,
+            "Proveedor creado. Ahora puedes cargar los documentos de su expediente."
+        )
+        return redirect('gestion:ficha_proveedor', pk=proveedor.pk)
+
+
+class ActualizarProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
+    def get(self, request, pk):
+        proveedor = get_object_or_404(Proveedor, pk=pk)
+        return self._render(request, ProveedorForm(instance=proveedor),
+                            ContactoProveedorFormSet(instance=proveedor))
+
+    def post(self, request, pk):
+        proveedor = get_object_or_404(Proveedor, pk=pk)
+        form = ProveedorForm(request.POST, instance=proveedor)
+        formset = ContactoProveedorFormSet(request.POST, instance=proveedor)
+        if not (form.is_valid() and formset.is_valid()):
+            return self._render(request, form, formset)
+        form.save()
+        formset.save()
+        messages.success(request, "Proveedor actualizado.")
+        return redirect('gestion:ficha_proveedor', pk=proveedor.pk)
+
+
+class FichaProveedorView(AsesorRequiredMixin, View):
+    """
+    Ficha del proveedor general: datos de facturación, contactos, datos
+    bancarios y su expediente (documentos con nombre libre).
+    """
+    template_name = 'gestion/ficha_proveedor.html'
+
+    def _context(self, proveedor, form=None):
+        return {
+            'proveedor': proveedor,
+            'contactos': proveedor.contactos.all(),
+            'documentos': proveedor.documentos.all(),
+            'doc_form': form or DocumentoProveedorForm(),
+        }
+
+    def get(self, request, pk):
+        proveedor = get_object_or_404(Proveedor, pk=pk)
+        return render(request, self.template_name, self._context(proveedor))
+
+    def post(self, request, pk):
+        # Carga de un documento al expediente.
+        proveedor = get_object_or_404(Proveedor, pk=pk)
+        form = DocumentoProveedorForm(request.POST, request.FILES)
+        if form.is_valid():
+            documento = form.save(commit=False)
+            documento.proveedor = proveedor
+            documento.save()
+            messages.success(request, "Documento cargado al expediente.")
+            return redirect('gestion:ficha_proveedor', pk=pk)
+        messages.error(request, "No se pudo cargar el documento: ponle nombre y adjunta el archivo.")
+        return render(request, self.template_name, self._context(proveedor, form))
+
+
+class EliminarProveedorView(AdministradorRequiredMixin, View):
+    """
+    Elimina un proveedor general (solo POST). Sus contactos y documentos se
+    van con él; como nada más lo referencia, se puede borrar siempre.
+    """
+    def post(self, request, pk):
+        proveedor = get_object_or_404(Proveedor, pk=pk)
+        nombre = str(proveedor)
+        proveedor.delete()
+        messages.success(request, f"Proveedor «{nombre}» eliminado con su expediente.")
+        return redirect('gestion:lista_proveedores')
+
+
+class EliminarDocumentoProveedorView(AsesorRequiredMixin, View):
+    """Elimina un documento del expediente del proveedor general (solo POST)."""
+    def post(self, request, pk):
+        documento = get_object_or_404(DocumentoProveedor, pk=pk)
+        proveedor_pk = documento.proveedor_id
+        documento.delete()
+        messages.success(request, "Documento eliminado del expediente.")
+        return redirect('gestion:ficha_proveedor', pk=proveedor_pk)

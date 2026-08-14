@@ -1,0 +1,13 @@
+{# Conmutador entre los dos tipos de proveedor. Usar con: include ... with activa='disposicion'|'generales' #}
+<ul class="nav nav-pills mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if activa == 'disposicion' %}active{% endif %}" href="{% url 'gestion:lista_dispositores' %}">
+            <i class="bi bi-recycle me-1"></i>Disposición final
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if activa == 'generales' %}active{% endif %}" href="{% url 'gestion:lista_proveedores' %}">
+            <i class="bi bi-briefcase me-1"></i>Otros proveedores
+        </a>
+    </li>
+</ul>
