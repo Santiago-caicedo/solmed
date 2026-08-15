@@ -50,6 +50,21 @@ CSRF_TRUSTED_ORIGINS += [
 # para que Django sepa que la petición original llegó por HTTPS.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# --- Endurecimiento para producción (solo con DEBUG=False) ---
+# En desarrollo (HTTP local) se dejan sin activar para no romper el login.
+if not DEBUG:
+    # Las cookies de sesión y CSRF solo viajan por HTTPS.
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # Redirige HTTP→HTTPS y fija HSTS (el proxy ya termina el TLS).
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 año
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # La sesión caduca en 12 horas (evita sesiones vivas por semanas en
+    # dispositivos compartidos del conductor).
+    SESSION_COOKIE_AGE = 60 * 60 * 12
+
 
 # Application definition
 
@@ -109,19 +124,6 @@ DATABASES = {
         'PORT': os.getenv('DB_PORT'),
     }
 }
-
-# Base de RESCATE (opcional): una copia restaurada a un punto en el tiempo,
-# para recuperar de ahí algo que se borró sin tocar producción. Solo existe
-# si se define DB_RESCATE_HOST en el .env; se usa con `rescatar_orden`.
-if os.getenv('DB_RESCATE_HOST'):
-    DATABASES['rescate'] = {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_RESCATE_NAME', os.getenv('DB_NAME')),
-        'USER': os.getenv('DB_RESCATE_USER', os.getenv('DB_USER')),
-        'PASSWORD': os.getenv('DB_RESCATE_PASSWORD', os.getenv('DB_PASSWORD')),
-        'HOST': os.getenv('DB_RESCATE_HOST'),
-        'PORT': os.getenv('DB_RESCATE_PORT', os.getenv('DB_PORT')),
-    }
 
 
 # Password validation
