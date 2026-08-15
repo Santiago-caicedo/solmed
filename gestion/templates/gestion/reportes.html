@@ -34,6 +34,9 @@
 {% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{# Datos del gráfico serializados de forma segura: json_script escapa </script> #}
+{{ chart_labels|json_script:"chartLabels" }}
+{{ chart_data|json_script:"chartData" }}
 <script>
     // Script para mostrar/ocultar filtros
     document.addEventListener('DOMContentLoaded', function() {
@@ -60,10 +63,10 @@
         new Chart(ctx, {
             type: '{{ chart_type }}', // Tipo de gráfico dinámico
             data: {
-                labels: {{ chart_labels|safe }},
+                labels: JSON.parse(document.getElementById('chartLabels').textContent),
                 datasets: [{
                     label: 'Total Facturado ($)',
-                    data: {{ chart_data|safe }},
+                    data: JSON.parse(document.getElementById('chartData').textContent),
                     backgroundColor: '{{ chart_type }}' === 'line' ? 'rgba(0, 140, 186, 0.2)' : 'rgba(0, 140, 186, 0.6)',
                     borderColor: 'rgba(0, 140, 186, 1)',
                     borderWidth: 2,

@@ -1326,11 +1326,34 @@ def _puede_gestionar_manifiesto(user, recorrido):
     )
 
 
-def _guardar_firma_cliente(manifiesto, signature_data, pk):
-    """Decodifica la firma en base64 (data-URL) y la guarda en el manifiesto."""
-    formato, imgstr = signature_data.split(';base64,')
-    ext = formato.split('/')[-1]
-    signature_file = ContentFile(base64.b64decode(imgstr), name=f'firma_cliente_{pk}.{ext}')
+def _decodificar_firma_png(signature_data):
+    """
+    Valida y decodifica la firma del cliente. Este dato llega por el endpoint
+    PÚBLICO de la encuesta, así que no se puede confiar en él: el pad de firma
+    del frontend siempre manda un PNG (`canvas.toDataURL('image/png')`), y se
+    rechaza cualquier otra cosa para no guardar contenido arbitrario (SVG con
+    scripts, ejecutables, blobs enormes) con una extensión que elija el cliente.
+    Devuelve los bytes del PNG ya validados, o None si la firma no es válida.
+    """
+    PREFIJO = 'data:image/png;base64,'
+    if not isinstance(signature_data, str) or not signature_data.startswith(PREFIJO):
+        return None
+    try:
+        # binascii.Error hereda de ValueError, así que un base64 corrupto cae aquí.
+        crudo = base64.b64decode(signature_data[len(PREFIJO):], validate=True)
+    except ValueError:
+        return None
+    # No vacío, con tope de tamaño, y con la firma de bytes real de un PNG.
+    if not crudo or len(crudo) > 2 * 1024 * 1024:
+        return None
+    if not crudo.startswith(b'\x89PNG\r\n\x1a\n'):
+        return None
+    return crudo
+
+
+def _guardar_firma_cliente(manifiesto, firma_bytes, pk):
+    """Guarda la firma del cliente (bytes PNG ya validados) en el manifiesto."""
+    signature_file = ContentFile(firma_bytes, name=f'firma_cliente_{pk}.png')
     manifiesto.firma_cliente.save(signature_file.name, signature_file, save=True)
 
 
@@ -1732,12 +1755,16 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             # Los pasos siguientes actualizan esta misma acta.
             if manifiesto_instance is None:
                 auxiliar1, auxiliar2 = recorrido.auxiliares
-                manifiesto_instance = Manifiesto.objects.create(
+                # get_or_create evita el IntegrityError (el acta es OneToOne) si
+                # se creó entre medias por un doble envío o por el QR del asesor.
+                manifiesto_instance, _ = Manifiesto.objects.get_or_create(
                     recorrido=recorrido,
-                    **_instrucciones_servicio_de(recorrido),
-                    auxiliar1=auxiliar1, auxiliar2=auxiliar2,
-                    nombre_responsable_empresa=recorrido.responsable_empresa,
-                    estado_firma='PENDIENTE_FIRMA',
+                    defaults=dict(
+                        **_instrucciones_servicio_de(recorrido),
+                        auxiliar1=auxiliar1, auxiliar2=auxiliar2,
+                        nombre_responsable_empresa=recorrido.responsable_empresa,
+                        estado_firma='PENDIENTE_FIRMA',
+                    ),
                 )
             # Los tiempos y kilómetros se escriben ya sobre esa acta (no solo
             # en la sesión): así lo guardado coincide con lo que se ve al volver.
@@ -1821,17 +1848,19 @@ class ManifiestoQRView(LoginRequiredMixin, View):
             messages.error(request, "No tienes permiso para ver esta acta de servicio.")
             return redirect('gestion:dashboard_redirect')
 
-        try:
-            manifiesto = recorrido.manifiesto
-        except Manifiesto.DoesNotExist:
-            auxiliar1, auxiliar2 = recorrido.auxiliares
-            manifiesto = Manifiesto.objects.create(
-                recorrido=recorrido,
+        auxiliar1, auxiliar2 = recorrido.auxiliares
+        # get_or_create en vez de try/create: si el conductor guarda el paso 3
+        # a la vez que el asesor abre el QR, ambos podrían crear el acta y saltar
+        # el IntegrityError del OneToOne. Aquí solo se lee o se crea una vez.
+        manifiesto, _ = Manifiesto.objects.get_or_create(
+            recorrido=recorrido,
+            defaults=dict(
                 **_instrucciones_servicio_de(recorrido),
                 auxiliar1=auxiliar1, auxiliar2=auxiliar2,
                 nombre_responsable_empresa=recorrido.responsable_empresa,
                 estado_firma='PENDIENTE_FIRMA',
-            )
+            ),
+        )
 
         url_publica = request.build_absolute_uri(
             reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico})
@@ -1886,6 +1915,22 @@ class EncuestaConductorView(LoginRequiredMixin, View):
             recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
             if not _puede_gestionar_manifiesto(request.user, recorrido):
                 messages.error(request, "No tienes permiso para llenar esta encuesta.")
+                return redirect('gestion:dashboard_redirect')
+            # La encuesta de cierre va DESPUÉS de que el cliente firma el acta:
+            # diligenciarla marca el recorrido como COMPLETADO. Sin acta firmada
+            # no se puede cerrar el servicio por aquí; la UI ya lo esconde, esto
+            # lo blinda contra entrar por la URL directa (evita completar un
+            # servicio sin la firma del cliente). Si ya se diligenció, se deja
+            # editar (en ese caso el acta ya estaba firmada).
+            manifiesto = Manifiesto.objects.filter(recorrido=recorrido).first()
+            ya_diligenciada = EncuestaConductor.objects.filter(recorrido=recorrido).exists()
+            firmada = manifiesto is not None and manifiesto.estado_firma == 'FIRMADO'
+            if not firmada and not ya_diligenciada:
+                messages.error(
+                    request,
+                    "El cliente aún no ha firmado el acta de este servicio: no se "
+                    "puede registrar la encuesta de cierre todavía."
+                )
                 return redirect('gestion:dashboard_redirect')
         return super().dispatch(request, *args, **kwargs)
 
@@ -1957,8 +2002,11 @@ class EncuestaPublicaView(View):
         form = ManifiestoPaso5Form(request.POST, instance=manifiesto)
         signature_data = request.POST.get('signature_data')
         nombre_responsable_cliente = request.POST.get('nombre_responsable_cliente')
+        # Se valida la firma ANTES de tocar el acta: si no es un PNG legítimo,
+        # el acta no se marca como firmada y el cliente puede reintentar.
+        firma_bytes = _decodificar_firma_png(signature_data)
 
-        if form.is_valid() and signature_data and nombre_responsable_cliente:
+        if form.is_valid() and firma_bytes and nombre_responsable_cliente:
             # Todo o nada: si la imagen de la firma no se puede guardar, el
             # acta NO queda marcada como firmada (y el cliente puede volver a
             # intentarlo). El PDF ya no se genera aquí: sale al momento de
@@ -1968,13 +2016,13 @@ class EncuestaPublicaView(View):
                 manifiesto.nombre_responsable_cliente = nombre_responsable_cliente
                 manifiesto.estado_firma = 'FIRMADO'
                 manifiesto.save()
-                _guardar_firma_cliente(manifiesto, signature_data, manifiesto.recorrido.pk)
+                _guardar_firma_cliente(manifiesto, firma_bytes, manifiesto.recorrido.pk)
 
             return render(request, self.template_gracias, {
                 'manifiesto': manifiesto, 'ya_firmado': False,
             })
 
-        if not signature_data or not nombre_responsable_cliente:
+        if not firma_bytes or not nombre_responsable_cliente:
             messages.error(request, 'Falta la firma o el nombre de quien recibe.')
         else:
             messages.error(request, 'Por favor, corrija los errores en la encuesta.')
@@ -2390,17 +2438,6 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         return redirect('gestion:detalle_orden', pk=orden.pk)
 
 
-def completar_recorrido(request, pk):
-    recorrido = get_object_or_404(Recorrido, pk=pk)
-
-    if request.method == 'POST':
-        recorrido.estado = 'COMPLETADO'
-        recorrido.save() # La lógica automática en el modelo se disparará aquí
-        messages.success(request, f'Recorrido del {recorrido.fecha_recorrido} marcado como completado.')
-
-    return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
-
-
 class EditarRecorridoView(NoConductorRequiredMixin, UpdateView):
     """
     Corrige un recorrido que quedó mal (fecha, vehículo, conductor, ayudante).
@@ -2573,8 +2610,11 @@ class ReportesView(SuperuserRequiredMixin, ListView):
 
         context['resultados'] = resultados
         context['report_type'] = report_type
-        context['chart_labels'] = json.dumps(chart_labels)
-        context['chart_data'] = json.dumps(chart_data)
+        # Se pasan como listas crudas: la plantilla las serializa con
+        # `json_script`, que escapa `</script>` y evita XSS almacenado desde
+        # nombres de cliente/placa (a diferencia de json.dumps + |safe).
+        context['chart_labels'] = chart_labels
+        context['chart_data'] = chart_data
         context['chart_type'] = chart_type
         context['total_general'] = total_general
         
@@ -5006,6 +5046,9 @@ class FichaPersonaView(PersonalRequiredMixin, View):
     def post(self, request, pk):
         # Carga de un documento al expediente (cada casilla envía su 'tipo').
         persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
+        if frenar is not None:
+            return frenar
         form = DocumentoPersonalForm(request.POST, request.FILES)
         if form.is_valid():
             documento = form.save(commit=False)
@@ -5157,6 +5200,9 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
     def post(self, request, pk):
         """Carga una seguridad social (con su vigencia) desde el historial."""
         persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
+        if frenar is not None:
+            return frenar
         datos = request.POST.copy()
         datos['tipo'] = 'SEGURIDAD_SOCIAL'
         form = DocumentoPersonalForm(datos, request.FILES)
@@ -5181,6 +5227,10 @@ class ActualizarVigenciaDocumentoView(PersonalRequiredMixin, View):
     """
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
+        frenar = (_protege_superusuario(request, documento.usuario)
+                  or _protege_gestion(request, documento.usuario))
+        if frenar is not None:
+            return frenar
         fecha = request.POST.get('fecha_vencimiento', '').strip()
 
         if not fecha:
@@ -5243,6 +5293,10 @@ class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
     """Elimina un documento del expediente (solo POST)."""
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
+        frenar = (_protege_superusuario(request, documento.usuario)
+                  or _protege_gestion(request, documento.usuario))
+        if frenar is not None:
+            return frenar
         usuario_pk = documento.usuario_id
         # Al borrar desde el historial de seguridad social se vuelve allí.
         volver_a_historial = request.POST.get('origen') == 'seguridad_social'

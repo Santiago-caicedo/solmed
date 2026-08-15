@@ -4,6 +4,7 @@ from .models import Banco, Bascula, ContactoProveedor, Dispositor, DocumentoCorr
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
 from django.utils.text import slugify
+from decimal import Decimal
 import datetime
 
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
@@ -1106,12 +1107,18 @@ class ReporteFiltroForm(forms.Form):
 
 
 class PagoForm(forms.ModelForm):
+    # El monto debe ser positivo: un pago de 0 o negativo marcaba la orden como
+    # PAGADA sin ingresar dinero (y el negativo pasaba sin objeción).
+    monto = forms.DecimalField(
+        label="Monto", max_digits=10, decimal_places=2, min_value=Decimal('0.01'),
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0.01'}),
+    )
+
     class Meta:
         model = Pago
         fields = ['fecha_pago', 'monto', 'metodo_pago', 'notas']
         widgets = {
             'fecha_pago': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
-            'monto': forms.NumberInput(attrs={'class': 'form-control'}),
             'metodo_pago': forms.Select(attrs={'class': 'form-select'}),
             'notas': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
