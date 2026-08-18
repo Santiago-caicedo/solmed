@@ -393,10 +393,10 @@
         </li>
         {% endif %}
 
-        {% if not es_talento_humano %}
+        {% if es_asesor or es_conductor %}
         {% comment %}
-        El calendario lo ven todos MENOS Talento Humano, cuyo alcance es solo
-        el módulo de Personal (la vista además lo redirige si entra por URL).
+        El calendario muestra órdenes y placas: lo ven gestión y el conductor
+        (a él su feed solo le devuelve SUS recorridos).
         {% endcomment %}
         <li class="nav-section">Operación</li>
         <li>

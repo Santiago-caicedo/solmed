@@ -127,32 +127,6 @@ class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 SuperuserRequiredMixin = AdministradorRequiredMixin
 
 
-class SinTalentoHumanoMixin:
-    """
-    Pantallas operativas que comparten gestión y conductores, pero que Talento
-    Humano no necesita: su alcance es el módulo de Personal.
-    """
-    def dispatch(self, request, *args, **kwargs):
-        if (request.user.is_authenticated and es_talento_humano(request.user)
-                and not es_administrador(request.user)):
-            return redirect('gestion:lista_personal')
-        return super().dispatch(request, *args, **kwargs)
-
-
-class NoConductorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
-    """
-    Vistas de gestión (expediente de la orden, clientes, vehículos...): las ve
-    cualquier usuario autenticado MENOS los roles acotados a lo suyo, que hoy
-    son los conductores y Talento Humano (este último solo trabaja Personal).
-    """
-    ROLES_ACOTADOS = ('Conductores', 'Talento Humano')
-
-    def test_func(self):
-        user = self.request.user
-        return es_administrador(user) or not user.groups.filter(
-            name__in=self.ROLES_ACOTADOS).exists()
-
-
 # Nombres cortos de los meses para las series de 12 meses del tablero.
 MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -659,7 +633,7 @@ def _sincronizar_orden_desde_programacion(programacion, orden):
     return avisos
 
 
-class ActualizarOrdenView(NoConductorRequiredMixin, View):
+class ActualizarOrdenView(AsesorRequiredMixin, View):
     """
     Corrige una orden con el MISMO formulario de la programación, ya lleno:
     una vez generada la orden, la programación queda de solo lectura y este es
@@ -952,27 +926,27 @@ class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
 
 # --- Vistas para Vehículos ---
-class ListaVehiculosView(NoConductorRequiredMixin, PaginadoMixin, ListView):
+class ListaVehiculosView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Vehiculo
     template_name = 'gestion/lista_vehiculos.html'
     context_object_name = 'vehiculos'
     # Orden estable: sin él la paginación puede repetir o saltarse filas.
     ordering = ['placa']
 
-class CrearVehiculoView(NoConductorRequiredMixin, CreateView):
+class CrearVehiculoView(AsesorRequiredMixin, CreateView):
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
-class ActualizarVehiculoView(NoConductorRequiredMixin, UpdateView):
+class ActualizarVehiculoView(AsesorRequiredMixin, UpdateView):
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
 # --- Vistas para Clientes ---
-class ListaClientesView(NoConductorRequiredMixin, PaginadoMixin, ListView):
+class ListaClientesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Cliente
     template_name = 'gestion/lista_clientes.html'
     context_object_name = 'clientes'
@@ -1058,13 +1032,13 @@ class ClienteFormMixin:
         return HttpResponseRedirect(self.get_success_url())
 
 
-class CrearClienteView(ClienteFormMixin, NoConductorRequiredMixin, CreateView):
+class CrearClienteView(ClienteFormMixin, AsesorRequiredMixin, CreateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
 
-class ActualizarClienteView(ClienteFormMixin, NoConductorRequiredMixin, UpdateView):
+class ActualizarClienteView(ClienteFormMixin, AsesorRequiredMixin, UpdateView):
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
@@ -1218,7 +1192,7 @@ def _puede_programarse(vehiculo):
                         'de disposición.']}
 
 
-class VehiculoDetailView(NoConductorRequiredMixin, DetailView):
+class VehiculoDetailView(AsesorRequiredMixin, DetailView):
     model = Vehiculo
     template_name = 'gestion/vehiculo_detail.html'
     context_object_name = 'vehiculo'
@@ -1387,7 +1361,7 @@ def _pdf_manifiesto(manifiesto, request):
     return html.write_pdf()
 
 
-class ActaPDFView(NoConductorRequiredMixin, View):
+class ActaPDFView(AsesorRequiredMixin, View):
     """
     Descarga el PDF del acta de servicio, generado al momento con los datos
     vigentes. Solo gestión: el conductor no accede al acta como documento.
@@ -1432,17 +1406,21 @@ def _pdf_encuesta_conductor(encuesta, request):
     return html.write_pdf()
 
 
-class EncuestaConductorPDFView(SinTalentoHumanoMixin, LoginRequiredMixin, View):
+class EncuestaConductorPDFView(LoginRequiredMixin, View):
     """
     Descarga el PDF de la encuesta de cierre de un recorrido, generado al
-    momento. El conductor solo puede bajar la de SUS recorridos; gestión, la
-    de cualquiera.
+    momento. El documento lleva el número de orden y el nombre del cliente,
+    así que lo bajan GESTIÓN (superusuario, Administradores, Asesores) y el
+    conductor de ESE recorrido. Nadie más.
     """
     def get(self, request, pk):
+        from django.core.exceptions import PermissionDenied
         recorrido = get_object_or_404(Recorrido, pk=pk)
-        es_conductor = request.user.groups.filter(name='Conductores').exists()
-        if es_conductor and recorrido.conductor_id != request.user.id:
-            raise Http404("Ese recorrido no es tuyo.")
+        if not _puede_gestionar_manifiesto(request.user, recorrido):
+            # Otro conductor: 404 (no le decimos qué existe); el resto, 403.
+            if request.user.groups.filter(name='Conductores').exists():
+                raise Http404("Ese recorrido no es tuyo.")
+            raise PermissionDenied
         encuesta = getattr(recorrido, 'encuesta_conductor', None)
         if encuesta is None:
             raise Http404("Este recorrido aún no tiene encuesta de cierre.")
@@ -1517,7 +1495,7 @@ def _actas_formato(recorridos):
     return resultado
 
 
-class ActaFormatoView(NoConductorRequiredMixin, View):
+class ActaFormatoView(AsesorRequiredMixin, View):
     """
     Vista del acta (Orden de Servicio) en el MISMO formato del PDF final, pero en
     la plataforma y pre-llenada "hasta donde va": las instrucciones del asesor
@@ -2221,7 +2199,7 @@ def _cargar_soporte_orden(request, orden):
     return False
 
 
-class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
+class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
     model = OrdenServicio
     template_name = 'gestion/ordenservicio_detail.html'
     context_object_name = 'orden'
@@ -2437,7 +2415,7 @@ class OrdenServicioDetailView(NoConductorRequiredMixin, DetailView):
         return redirect('gestion:detalle_orden', pk=orden.pk)
 
 
-class EditarRecorridoView(NoConductorRequiredMixin, UpdateView):
+class EditarRecorridoView(AsesorRequiredMixin, UpdateView):
     """
     Corrige un recorrido que quedó mal (fecha, vehículo, conductor, ayudante).
     Es la forma de arreglar una orden sin borrarla.
@@ -2457,7 +2435,7 @@ class EditarRecorridoView(NoConductorRequiredMixin, UpdateView):
         return context
 
 
-class EliminarRecorridoView(NoConductorRequiredMixin, View):
+class EliminarRecorridoView(AsesorRequiredMixin, View):
     """
     Quita un recorrido de la orden (solo POST). Al borrarlo caen su manifiesto y
     su encuesta (CASCADE) y se recalcula el estado de la orden. La orden completa
@@ -2495,17 +2473,23 @@ class EliminarRecorridoView(NoConductorRequiredMixin, View):
 
 @login_required
 def feed_calendario(request):
+    """
+    Eventos del calendario. La agenda completa es de gestión; el conductor solo
+    recibe SUS recorridos, y ningún otro rol recibe nada (las órdenes, los
+    clientes y las placas son información de gestión — decisión del usuario,
+    ago-2026).
+    """
     user = request.user
-    # Talento Humano no ve la operación: su alcance es el módulo de Personal.
-    if es_talento_humano(user) and not es_administrador(user):
+    es_gestion = es_administrador(user) or user.groups.filter(name='Asesores').exists()
+    es_conductor = user.groups.filter(name='Conductores').exists()
+    if not (es_gestion or es_conductor):
         return JsonResponse({'error': 'Sin acceso al calendario.'}, status=403)
 
-    # Si el usuario es un conductor, filtra solo sus recorridos
-    if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
-        recorridos = Recorrido.objects.filter(conductor=user)
-    # Si es asesor o admin, muestra todos los recorridos
-    else:
+    if es_gestion:
         recorridos = Recorrido.objects.all()
+    else:
+        # El conductor, solo lo suyo.
+        recorridos = Recorrido.objects.filter(conductor=user)
 
     recorridos = recorridos.exclude(
         orden__estado_orden='CANCELADA'
@@ -2531,7 +2515,17 @@ def feed_calendario(request):
     return JsonResponse(eventos, safe=False)
 
 
-class CalendarioView(SinTalentoHumanoMixin, LoginRequiredMixin, TemplateView):
+class CalendarioView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+    """
+    Agenda de servicios. Muestra órdenes y placas, así que la ven gestión
+    (superusuario, Administradores, Asesores) y el CONDUCTOR, que en su feed
+    solo recibe SUS recorridos (ver feed_calendario).
+    """
+    def test_func(self):
+        user = self.request.user
+        return (es_administrador(user)
+                or user.groups.filter(name__in=('Asesores', 'Conductores')).exists())
+
     template_name = 'gestion/calendario.html'
 
 
@@ -2652,6 +2646,15 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
         return context
     
 
+class SinAccesoView(LoginRequiredMixin, TemplateView):
+    """
+    Casa de las cuentas que existen solo por su expediente (Director Técnico,
+    SISO, Soldador, Auxiliares Administrativas, Administrativo): entran, pero
+    no tienen ningún módulo asignado. No muestra ningún dato de la operación.
+    """
+    template_name = 'gestion/sin_acceso.html'
+
+
 @login_required
 def dashboard_redirect_view(request):
     """
@@ -2672,9 +2675,9 @@ def dashboard_redirect_view(request):
         return redirect('gestion:lista_ordenes')
     if user.groups.filter(name='Planificadores').exists():
         return redirect('gestion:planificacion')
-    # Cargos sin módulo propio (Director Técnico, SISO, Soldador...): la
-    # operación del día, que es lo único que el menú les ofrece.
-    return redirect('gestion:calendario')
+    # Cargos sin módulo propio (Director Técnico, SISO, Soldador...): su
+    # cuenta existe por el expediente, no para operar el CRM.
+    return redirect('gestion:sin_acceso')
     
 
 

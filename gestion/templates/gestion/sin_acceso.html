@@ -1,0 +1,26 @@
+{% extends "base_error.html" %}
+{% comment %}
+Casa de las cuentas que existen solo por su expediente (Director Técnico,
+SISO, Soldador, Auxiliares Administrativas, Administrativo). Usa la base de
+las páginas de error a propósito: es autocontenida, así que NO trae el menú
+lateral con secciones que esa persona no puede abrir. No muestra ni un dato
+de la operación.
+{% endcomment %}
+
+{% block titulo_pestana %}Tu cuenta{% endblock %}
+{% block clase %}e-403{% endblock %}
+{% block eyebrow %}Cuenta sin módulos{% endblock %}
+{% block codigo %}<i class="bi"></i>{% endblock %}
+{% block encabezado %}Hola{% if user.first_name %}, {{ user.first_name }}{% endif %}{% endblock %}
+{% block mensaje %}
+Tu cuenta está registrada para tu <strong>expediente y tu documentación</strong>,
+no para trabajar en la consola: por eso no tiene módulos asignados.
+Si necesitas entrar a alguno para tu trabajo, pídeselo a la oficina.
+{% endblock %}
+
+{% block acciones %}
+<form method="post" action="{% url 'logout' %}" style="display:inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primario">Cerrar sesión</button>
+</form>
+{% endblock %}
