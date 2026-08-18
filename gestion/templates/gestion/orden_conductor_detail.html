@@ -75,12 +75,6 @@
 .oc-info-btn .tx .s{ font-size:.8rem; color:var(--ink-2); margin-top:.1rem; }
 .oc-info-btn > .bi-chevron-right{ color:var(--steel); font-size:1.1rem; }
 
-/* Vista de demostración: idéntica, pero sin acciones */
-.oc-demo-banner{
-    background:var(--warn-tint); border:1px solid var(--warn-line); color:#7a4e05;
-    border-radius:var(--r-md); padding:.7rem 1rem; margin-bottom:1rem;
-    font-size:.86rem;
-}
 
 /* Móvil: botones a lo ancho, cómodos al dedo */
 @media (max-width:600px){
@@ -88,26 +82,7 @@
 }
 </style>
 
-{% if es_demo %}
-{% comment %}
-Vista de demostración (enlace firmado, sin login): idéntica a la del
-conductor, pero de solo lectura — los botones no hacen nada.
-{% endcomment %}
-<div class="oc-demo-banner">
-    <i class="bi bi-eye-fill me-1"></i>
-    <strong>Demostración con datos de ejemplo:</strong> así ve el conductor una orden
-    en su celular. <strong>Puedes probar todos los pasos</strong> —llenar los datos,
-    subir las fotos, el QR y las encuestas—: nada de lo que hagas aquí se guarda.
-    <form method="post" action="{% url 'gestion:demo_conductor_reiniciar' %}" class="mt-2">
-        {% csrf_token %}
-        <button class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-counterclockwise me-1"></i>Empezar de nuevo
-        </button>
-    </form>
-</div>
-{% endif %}
-
-<div class="{% if es_demo %}es-demo{% endif %}">
+<div>
 {% comment %}
 Encabezado sin el nombre del cliente (decisión de gerencia): al conductor le
 importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
@@ -117,11 +92,9 @@ importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
         <h1 class="mb-0">Tu servicio · {{ mis_recorridos.0.fecha_recorrido|date:"d/m/Y" }}</h1>
         <span class="text-muted"><i class="bi bi-geo-alt-fill me-1"></i>{{ orden.direccion_servicio }}</span>
     </div>
-    {% if not es_demo %}
     <a href="{% url 'gestion:dashboard_conductor' %}" class="btn btn-outline-secondary">
         <i class="bi bi-arrow-left me-1"></i> Volver a mi jornada
     </a>
-    {% endif %}
 </div>
 
 {% for r in mis_recorridos %}

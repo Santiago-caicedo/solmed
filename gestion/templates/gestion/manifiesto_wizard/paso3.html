@@ -104,13 +104,6 @@
         </div>
     </div>
 
-    {% if es_demo %}
-    <div class="alert alert-warning">
-        <i class="bi bi-eye-fill me-1"></i><strong>Demostración:</strong>
-        escribe lo que quieras y pulsa Siguiente; nada de esto se guarda.
-    </div>
-    {% endif %}
-
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
@@ -223,7 +216,7 @@
         </div>
 
         <div class="hoja-acciones">
-            <a href="{% if es_demo %}{% url 'gestion:demo_orden_conductor' %}{% else %}{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}{% endif %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver a la orden</a>
+            <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver a la orden</a>
             <button type="submit" class="btn btn-success">Siguiente <i class="bi bi-arrow-right ms-1"></i></button>
         </div>
     </form>
