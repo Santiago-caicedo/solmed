@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.humanize',
     'gestion.apps.GestionConfig',
+    'planes.apps.PlanesConfig',
 ]
 
 MIDDLEWARE = [

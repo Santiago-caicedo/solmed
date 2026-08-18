@@ -3006,8 +3006,11 @@ class PlantillasTests(TestCase):
     @staticmethod
     def plantillas():
         from django.conf import settings
-        patron = os.path.join(settings.BASE_DIR, 'gestion', 'templates', '**', '*.html')
-        return glob.glob(patron, recursive=True)
+        rutas = []
+        for app in ('gestion', 'planes'):
+            patron = os.path.join(settings.BASE_DIR, app, 'templates', '**', '*.html')
+            rutas.extend(glob.glob(patron, recursive=True))
+        return rutas
 
     def test_hay_plantillas_que_revisar(self):
         self.assertGreater(len(self.plantillas()), 20)

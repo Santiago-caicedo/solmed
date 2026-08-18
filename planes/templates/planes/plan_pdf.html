@@ -1,0 +1,150 @@
+{% comment %}
+PDF del plan de trabajo diario. Réplica del formato físico: sección 1 (el
+reparto de actividades, con los servicios programados incluidos) y sección 2
+(novedades vigentes ese día). Identidad grafito + verde SOLMED, para
+distinguirse del acta del cliente (azul) y de la encuesta de cierre (verde).
+Se genera al descargar; la fuente de datos es la misma del tablero.
+{% endcomment %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+    @page {
+        size: letter portrait; margin: 0.5in 0.55in 0.65in;
+        @bottom-center {
+            content: "Solmed SAS · Plan de trabajo del {{ fecha|date:'d/m/Y' }} · página " counter(page) " de " counter(pages);
+            font-family: Helvetica, Arial, sans-serif; font-size: 6.5pt; color: #8A97A5;
+        }
+    }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 8.6pt; color: #16222F; line-height: 1.35; }
+
+    /* --- Cabecera --- */
+    .cab { width: 100%; border-collapse: collapse; border-bottom: 2.5pt solid #22313F; }
+    .cab td { padding: 0 0 6pt; vertical-align: middle; }
+    .cab .titulo { text-align: center; }
+    .cab .titulo .t { font-size: 13pt; font-weight: bold; letter-spacing: 1.5px; color: #16222F; }
+    .cab .titulo .s { font-size: 7pt; color: #51606E; letter-spacing: .6px; margin-top: 1px; }
+    .cab .fecha-box { text-align: right; white-space: nowrap; }
+    .cab .fecha-box .e { font-size: 6.4pt; font-weight: bold; letter-spacing: 1.2px; color: #5E8C1B; text-transform: uppercase; }
+    .cab .fecha-box .f { font-size: 11.5pt; font-weight: bold; color: #16222F; }
+    .cab .fecha-box .d { font-size: 7pt; color: #51606E; }
+
+    /* --- Barra de sección --- */
+    .seccion { margin: 10pt 0 4pt; padding: 3pt 6pt; background: #22313F; color: #fff;
+               font-size: 8pt; font-weight: bold; letter-spacing: 1px; }
+    .seccion .num { color: #9CBE30; }
+
+    /* --- Tablas --- */
+    table.datos { width: 100%; border-collapse: collapse; }
+    table.datos th { background: #EDF0F4; border: 0.6pt solid #B9C2CC; padding: 2.5pt 4pt;
+                     font-size: 6.6pt; font-weight: bold; letter-spacing: .8px; text-transform: uppercase;
+                     color: #51606E; text-align: left; }
+    table.datos td { border: 0.6pt solid #C9D1D9; padding: 2.8pt 4pt; vertical-align: top; }
+    table.datos tr { page-break-inside: avoid; }
+    .mono { font-family: "Courier New", monospace; font-size: 8.2pt; font-weight: bold; }
+    .cargo { font-size: 7pt; color: #51606E; text-transform: uppercase; letter-spacing: .4px; }
+    .servicio { color: #2E7D46; font-weight: bold; }
+    .vacio { text-align: center; color: #8A97A5; padding: 8pt; }
+
+    /* --- Sin plan / observaciones / firma --- */
+    .nota { margin-top: 5pt; font-size: 7.6pt; color: #51606E; }
+    .nota b { color: #9A6206; }
+    .obs { margin-top: 9pt; border: 0.7pt solid #C9D1D9; padding: 4pt 6pt; min-height: 26pt; }
+    .obs .e { font-size: 6.4pt; font-weight: bold; letter-spacing: 1px; color: #51606E; text-transform: uppercase; }
+    .pie { margin-top: 14pt; width: 100%; border-collapse: collapse; }
+    .pie td { font-size: 7.4pt; color: #51606E; padding-top: 3pt; }
+    .pie .linea { border-top: 0.8pt solid #16222F; width: 200pt; }
+</style>
+</head>
+<body>
+
+<table class="cab">
+    <tr>
+        <td style="width:26%"><img src="{{ logo_b64 }}" style="max-width:110px"></td>
+        <td class="titulo">
+            <div class="t">PLAN DE TRABAJO</div>
+            <div class="s">SOLMED SAS · Soluciones medioambientales</div>
+        </td>
+        <td class="fecha-box" style="width:26%">
+            <div class="e">Fecha del plan</div>
+            <div class="f">{{ fecha|date:"d/m/Y" }}</div>
+            <div class="d">{{ fecha|date:"l"|capfirst }}</div>
+        </td>
+    </tr>
+</table>
+
+<div class="seccion"><span class="num">1.</span> PLAN DE TRABAJO</div>
+<table class="datos">
+    <thead>
+        <tr>
+            <th style="width:15%">Cargo</th>
+            <th style="width:22%">Nombre</th>
+            <th style="width:26%">Plan de trabajo</th>
+            <th style="width:13%">Placa</th>
+            <th>Descripción</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for f in filas %}
+        <tr>
+            <td class="cargo">{{ f.cargo }}</td>
+            <td>{{ f.nombre }}</td>
+            <td {% if f.actividad == 'Servicio programado' %}class="servicio"{% endif %}>{{ f.actividad }}</td>
+            <td class="mono">{{ f.placa|default:"—" }}</td>
+            <td>{{ f.detalle|default:"" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="vacio">Sin actividades ni servicios registrados para este día.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% if sin_plan %}
+<div class="nota"><b>Sin asignación registrada:</b> {{ sin_plan|join:" · " }}</div>
+{% endif %}
+
+<div class="seccion"><span class="num">2.</span> NOVEDADES EN EL PLAN DE TRABAJO</div>
+<table class="datos">
+    <thead>
+        <tr>
+            <th style="width:22%">Nombre</th>
+            <th style="width:30%">Novedad</th>
+            <th style="width:14%">Fecha de inicio</th>
+            <th style="width:14%">Fecha final</th>
+            <th>Detalle</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for n in novedades %}
+        <tr>
+            <td>{{ n.persona_nombre }}</td>
+            <td>{{ n.get_tipo_display }}</td>
+            <td class="mono">{{ n.fecha_inicio|date:"d/m/Y" }}{% if n.hora %} {{ n.hora|time:"H:i" }}{% endif %}</td>
+            <td class="mono">{{ n.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
+            <td>{{ n.detalle|default:"" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="vacio">Sin novedades vigentes este día.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if plan.notas %}
+<div class="obs">
+    <div class="e">Observaciones del día</div>
+    {{ plan.notas|linebreaksbr }}
+</div>
+{% endif %}
+
+<table class="pie">
+    <tr>
+        <td>
+            <div class="linea"></div>
+            Elaboró: {% if plan.creado_por %}{% firstof plan.creado_por.get_full_name plan.creado_por.username %}{% else %}—{% endif %}
+        </td>
+        <td style="text-align:right">Generado el {{ generado|date:"d/m/Y H:i" }}</td>
+    </tr>
+</table>
+
+</body>
+</html>

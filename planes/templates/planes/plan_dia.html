@@ -1,0 +1,333 @@
+{% extends "gestion/base.html" %}
+{% block content %}
+
+<style>
+/* ============ Plan de trabajo (solo esta vista, prefijo pt-) ============ */
+.pt-head{ display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:1rem; margin-bottom:1.1rem; }
+.pt-resumen{ font-family:var(--mono); font-size:.78rem; color:var(--ink-2); margin-top:.4rem; }
+.pt-resumen b{ color:var(--ink); font-weight:600; }
+.pt-resumen .sep{ color:var(--ink-3); margin:0 .45rem; }
+.pt-resumen .pend{ color:var(--warn); font-weight:600; }
+
+/* Navegador de fecha: la tira del día, como la casilla FECHA del formato */
+.pt-fecha{ display:inline-flex; align-items:stretch; border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:var(--panel); }
+.pt-fecha a,.pt-fecha input,.pt-fecha .hoy{ display:flex; align-items:center; border:0; background:transparent; }
+.pt-fecha a{ padding:.35rem .6rem; color:var(--ink-2); border-right:1px solid var(--line-2); }
+.pt-fecha a:hover{ background:var(--panel-2); text-decoration:none; }
+.pt-fecha input{ font-family:var(--mono); font-size:.82rem; font-weight:600; color:var(--ink); padding:.3rem .55rem; width:9.6rem; }
+.pt-fecha .hoy{ padding:.35rem .6rem; font-size:.75rem; color:var(--steel); border-left:1px solid var(--line-2); }
+.pt-fecha .hoy:hover{ background:var(--steel-tint); }
+
+/* ---- Tablero de formación ---- */
+.pt-grupo{ margin-bottom:1rem; }
+.pt-grupo-h{ display:flex; align-items:center; gap:.6rem; padding:.3rem .15rem .45rem; }
+.pt-grupo-h .cargo{ font-family:var(--mono); font-size:.7rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); }
+.pt-grupo-h .linea{ flex:1; height:1px; background:var(--line); }
+.pt-grupo-h .conteo{ font-family:var(--mono); font-size:.7rem; color:var(--ink-3); }
+.pt-grupo-h .conteo.ok{ color:var(--ok); font-weight:600; }
+
+.pt-fila{ display:flex; align-items:flex-start; gap:.65rem; background:var(--panel); border:1px solid var(--line-2);
+    border-left:3px solid var(--ink-3); border-radius:var(--r-sm); padding:.5rem .65rem; margin-bottom:.4rem; }
+.pt-fila.st-servicio{ border-left-color:var(--ok); }
+.pt-fila.st-actividad{ border-left-color:var(--steel); }
+.pt-fila.st-novedad{ border-left-color:var(--warn); }
+.pt-fila.st-libre{ border-left-color:transparent; border-style:dashed; background:transparent; }
+.pt-avatar{ width:30px; height:30px; flex-shrink:0; border-radius:var(--r-sm); background:var(--g-700); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:.78rem; font-weight:600; }
+.pt-fila.st-libre .pt-avatar{ background:var(--panel-2); color:var(--ink-3); border:1px dashed var(--line); }
+.pt-fila .quien{ flex:1 1 auto; min-width:0; }
+.pt-fila .nombre{ font-weight:600; font-size:.84rem; color:var(--ink); }
+.pt-chips{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.25rem; }
+.pt-chip{ display:inline-flex; align-items:center; gap:.35rem; font-size:.74rem; padding:.14rem .5rem;
+    border-radius:99px; border:1px solid var(--line); background:var(--panel-2); color:var(--ink-2); }
+.pt-chip .mono{ font-size:.72rem; }
+.pt-chip.c-servicio{ background:var(--ok-tint); border-color:var(--ok-line); color:var(--ok); }
+.pt-chip.c-actividad{ background:var(--steel-tint); border-color:#cfe0ec; color:var(--steel-600); }
+.pt-chip.c-novedad{ background:var(--warn-tint); border-color:var(--warn-line); color:var(--warn); }
+.pt-chip.c-libre{ border-style:dashed; color:var(--ink-3); }
+.pt-chip form{ display:inline; margin:0; }
+.pt-chip .quitar{ border:0; background:none; padding:0; color:inherit; opacity:.55; line-height:1; }
+.pt-chip .quitar:hover{ opacity:1; }
+.pt-fila .btn-asignar{ flex-shrink:0; }
+
+/* ---- Panel de registro (columna derecha, fija) ---- */
+.pt-panel{ position:sticky; top:calc(var(--topbar-h) + 1rem); }
+.pt-tabs{ display:flex; border-bottom:1px solid var(--line); }
+.pt-tabs button{ flex:1; border:0; background:none; padding:.55rem .5rem; font-family:var(--mono);
+    font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
+    border-bottom:2px solid transparent; }
+.pt-tabs button.activa{ color:var(--brand-700); border-bottom-color:var(--brand); }
+.pt-etq{ font-family:var(--mono); font-size:.66rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin:.65rem 0 .3rem; }
+.pt-sel{ display:flex; flex-wrap:wrap; gap:.3rem; max-height:170px; overflow-y:auto; padding:.1rem; }
+.pt-sel label{ display:inline-flex; align-items:center; gap:.3rem; font-size:.76rem; padding:.2rem .55rem; margin:0;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel-2); color:var(--ink-2); cursor:pointer; user-select:none; }
+.pt-sel label:hover{ border-color:var(--steel); }
+.pt-sel input{ display:none; }
+.pt-sel label:has(input:checked){ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); font-weight:600; }
+.pt-sel .cargo-mini{ flex-basis:100%; font-family:var(--mono); font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin-top:.25rem; }
+.pt-campo{ display:none; }
+.pt-campo.visible{ display:block; }
+.pt-panel .form-label{ font-size:.78rem; margin-bottom:.2rem; color:var(--ink-2); }
+
+@media (max-width: 992px){ .pt-panel{ position:static; } }
+</style>
+
+{# ================= Cabecera del día ================= #}
+<div class="pt-head">
+    <div>
+        <div class="eyebrow mb-1">Plan de trabajo</div>
+        <h1 class="mb-0">{{ fecha|date:"l j \d\e F"|capfirst }}{% if fecha == hoy %} · hoy{% endif %}</h1>
+        <div class="pt-resumen">
+            <b>{{ total_personas }}</b> persona{{ total_personas|pluralize }}
+            <span class="sep">·</span><b>{{ con_plan }}</b> con plan
+            {% if sin_plan %}<span class="sep">·</span><span class="pend">{{ sin_plan }} sin asignar</span>
+            {% else %}<span class="sep">·</span>todas asignadas{% endif %}
+        </div>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <form method="get" class="pt-fecha" id="nav-fecha">
+            <a href="?fecha={{ ayer|date:'Y-m-d' }}" title="Día anterior"><i class="bi bi-chevron-left"></i></a>
+            <input type="date" name="fecha" value="{{ fecha|date:'Y-m-d' }}"
+                   onchange="document.getElementById('nav-fecha').submit()">
+            <a href="?fecha={{ manana|date:'Y-m-d' }}" title="Día siguiente"><i class="bi bi-chevron-right"></i></a>
+            {% if fecha != hoy %}<a class="hoy" href="{% url 'planes:plan_dia' %}">Hoy</a>{% endif %}
+        </form>
+        <a href="{% url 'planes:plan_pdf' fecha|date:'Y-m-d' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-file-earmark-pdf me-1"></i> PDF del día
+        </a>
+        <a href="{% url 'planes:historial' %}" class="btn btn-secondary btn-sm">
+            <i class="bi bi-archive me-1"></i> Historial
+        </a>
+    </div>
+</div>
+
+<div class="row g-3">
+    {# ================= Tablero de formación ================= #}
+    <div class="col-lg-7 col-xl-8">
+        {% for grupo in grupos %}
+        <div class="pt-grupo">
+            <div class="pt-grupo-h">
+                <span class="cargo">{{ grupo.cargo }}</span>
+                <span class="linea"></span>
+                <span class="conteo {% if grupo.con_plan == grupo.total %}ok{% endif %}">{{ grupo.con_plan }} de {{ grupo.total }} con plan</span>
+            </div>
+            {% for fila in grupo.filas %}
+            <div class="pt-fila {% if fila.servicios %}st-servicio{% elif fila.asignaciones %}st-actividad{% elif fila.novedades %}st-novedad{% else %}st-libre{% endif %}">
+                <div class="pt-avatar">{{ fila.nombre|slice:":1"|upper }}</div>
+                <div class="quien">
+                    <div class="nombre">{{ fila.nombre }}</div>
+                    <div class="pt-chips">
+                        {% for servicio in fila.servicios %}
+                        <span class="pt-chip c-servicio"><i class="bi bi-truck"></i> En servicio · <span class="mono">{{ servicio }}</span></span>
+                        {% endfor %}
+                        {% for a in fila.asignaciones %}
+                        <span class="pt-chip c-actividad">
+                            {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.orden_id %} · <span class="mono">#{{ a.orden_id }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.hora|time:"H:i" }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
+                            <form method="post" action="{% url 'planes:eliminar_asignacion' a.pk %}">
+                                {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+                                <button class="quitar" title="Quitar esta asignación"><i class="bi bi-x-lg"></i></button>
+                            </form>
+                        </span>
+                        {% endfor %}
+                        {% for n in fila.novedades %}
+                        <span class="pt-chip c-novedad">
+                            <i class="bi bi-person-dash"></i> {{ n.get_tipo_display }}
+                            · <span class="mono">{{ n.fecha_inicio|date:"d/m" }}{% if n.fecha_fin %}–{{ n.fecha_fin|date:"d/m" }}{% endif %}{% if n.hora %} {{ n.hora|time:"H:i" }}{% endif %}</span>
+                            {% if n.detalle %} · {{ n.detalle }}{% endif %}
+                            <form method="post" action="{% url 'planes:eliminar_novedad' n.pk %}">
+                                {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+                                <button class="quitar" title="Eliminar esta novedad"><i class="bi bi-x-lg"></i></button>
+                            </form>
+                        </span>
+                        {% endfor %}
+                        {% if not fila.con_plan %}<span class="pt-chip c-libre">Sin plan para este día</span>{% endif %}
+                    </div>
+                </div>
+                {% if not fila.servicios and not fila.novedades %}
+                <button type="button" class="btn btn-outline-secondary btn-sm btn-asignar"
+                        data-persona="{{ fila.persona.pk }}" title="Asignarle una actividad">
+                    <i class="bi bi-plus-lg"></i>
+                </button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% empty %}
+        <div class="card"><div class="card-body text-center text-muted py-5">
+            No hay personal activo registrado. Crea a las personas en el módulo de Personal.
+        </div></div>
+        {% endfor %}
+    </div>
+
+    {# ================= Panel de registro ================= #}
+    <div class="col-lg-5 col-xl-4">
+        <div class="pt-panel">
+            <div class="card mb-3">
+                <div class="pt-tabs">
+                    <button type="button" class="activa" data-tab="actividad">Asignar actividad</button>
+                    <button type="button" data-tab="novedad">Registrar novedad</button>
+                </div>
+
+                {# ---- Pestaña 1: actividad ---- #}
+                <div class="card-body pt-2" id="tab-actividad">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+                        <div class="pt-etq">¿Quiénes?</div>
+                        <div class="pt-sel" id="sel-personas">
+                            {% for grupo in grupos %}
+                            <span class="cargo-mini">{{ grupo.cargo }}</span>
+                            {% for fila in grupo.filas %}
+                            <label><input type="checkbox" name="personas" value="{{ fila.persona.pk }}">{{ fila.nombre }}</label>
+                            {% endfor %}
+                            {% endfor %}
+                        </div>
+
+                        <div class="pt-etq">Actividad</div>
+                        <select name="tipo" id="sel-tipo" class="form-select form-select-sm" required>
+                            <option value="">--- Elige la actividad ---</option>
+                            {% for valor, etiqueta in tipos_actividad %}
+                            <option value="{{ valor }}">{{ etiqueta }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <div class="pt-campo" id="campo-vehiculos">
+                            <div class="pt-etq" id="etq-placas">Placa</div>
+                            <div class="pt-sel">
+                                {% for v in vehiculos %}
+                                <label><input type="checkbox" name="vehiculos" value="{{ v.pk }}"><span class="mono">{{ v.placa }}</span>{% if v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}</label>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="pt-campo" id="campo-orden">
+                            <div class="pt-etq">Orden de servicio</div>
+                            <input type="text" name="orden_numero" class="form-control form-control-sm mono"
+                                   inputmode="numeric" placeholder="Nº de la orden (ej. 22207)">
+                        </div>
+
+                        <div class="pt-campo" id="campo-proveedor">
+                            <div class="pt-etq">Proveedor externo</div>
+                            <select name="proveedor" class="form-select form-select-sm">
+                                <option value="">--- Sin proveedor ---</option>
+                                {% for p in form_asignacion.fields.proveedor.queryset %}
+                                <option value="{{ p.pk }}">{{ p }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text" style="font-size:.72rem">
+                                ¿No está? <a href="{% url 'gestion:crear_proveedor' %}" target="_blank" rel="noopener">Créalo en Proveedores</a> y recarga esta página.
+                            </div>
+                        </div>
+
+                        <div class="pt-campo" id="campo-hora">
+                            <div class="pt-etq">Hora</div>
+                            <input type="time" name="hora" class="form-control form-control-sm">
+                        </div>
+
+                        <div class="pt-etq" id="etq-detalle">Descripción <span class="text-muted" id="detalle-opcional">(opcional)</span></div>
+                        <input type="text" name="detalle" class="form-control form-control-sm"
+                               maxlength="255" placeholder="Detalle para el plan impreso">
+
+                        <button name="submit_asignacion" value="1" class="btn btn-primary btn-sm w-100 mt-3">
+                            <i class="bi bi-check-lg me-1"></i> Asignar al plan
+                        </button>
+                    </form>
+                </div>
+
+                {# ---- Pestaña 2: novedad ---- #}
+                <div class="card-body pt-2 d-none" id="tab-novedad">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+                        <div class="pt-etq">Persona</div>
+                        {{ form_novedad.persona }}
+                        <div class="pt-etq">Novedad</div>
+                        {{ form_novedad.tipo }}
+                        <div class="row g-2 mt-0">
+                            <div class="col-6">
+                                <div class="pt-etq">Desde</div>
+                                {{ form_novedad.fecha_inicio }}
+                            </div>
+                            <div class="col-6">
+                                <div class="pt-etq">Hasta <span class="text-muted">(opcional)</span></div>
+                                {{ form_novedad.fecha_fin }}
+                            </div>
+                        </div>
+                        <div class="pt-etq">Hora <span class="text-muted">(permisos de unas horas)</span></div>
+                        {{ form_novedad.hora }}
+                        <div class="pt-etq">Detalle</div>
+                        {{ form_novedad.detalle }}
+                        <div class="form-text" style="font-size:.72rem">
+                            Una novedad con rango (vacaciones, incapacidad) se registra una sola vez
+                            y aparece en el plan de cada día que cubra.
+                        </div>
+                        <button name="submit_novedad" value="1" class="btn btn-primary btn-sm w-100 mt-3">
+                            <i class="bi bi-check-lg me-1"></i> Registrar novedad
+                        </button>
+                    </form>
+                    <div class="text-end mt-2">
+                        <a href="{% url 'planes:novedades' %}" style="font-size:.78rem">
+                            Ver el registro completo de novedades <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            {# ---- Observaciones del día (van al PDF) ---- #}
+            <div class="card">
+                <div class="card-header"><h5>Observaciones del día</h5></div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+                        <textarea name="notas" rows="2" class="form-control form-control-sm"
+                                  placeholder="Lo que el equipo deba tener presente (sale en el PDF).">{{ plan.notas|default:'' }}</textarea>
+                        <button name="submit_notas" value="1" class="btn btn-outline-secondary btn-sm mt-2">Guardar</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ campos_tipo|json_script:"campos-tipo" }}
+<script>
+(function () {
+    // --- Pestañas del panel ---
+    var tabs = document.querySelectorAll('.pt-tabs button');
+    tabs.forEach(function (b) {
+        b.addEventListener('click', function () {
+            tabs.forEach(function (o) { o.classList.remove('activa'); });
+            b.classList.add('activa');
+            document.getElementById('tab-actividad').classList.toggle('d-none', b.dataset.tab !== 'actividad');
+            document.getElementById('tab-novedad').classList.toggle('d-none', b.dataset.tab !== 'novedad');
+        });
+    });
+
+    // --- Campos según la actividad elegida ---
+    var CAMPOS = JSON.parse(document.getElementById('campos-tipo').textContent);
+    var selTipo = document.getElementById('sel-tipo');
+    function pinta() {
+        var spec = CAMPOS[selTipo.value] || {};
+        document.getElementById('campo-vehiculos').classList.toggle('visible', !!spec.vehiculos);
+        document.getElementById('etq-placas').textContent = spec.vehiculos === 'varios' ? 'Placas' : 'Placa';
+        document.getElementById('campo-orden').classList.toggle('visible', !!spec.orden);
+        document.getElementById('campo-proveedor').classList.toggle('visible', !!spec.proveedor);
+        document.getElementById('campo-hora').classList.toggle('visible', !!spec.hora);
+        document.getElementById('detalle-opcional').classList.toggle('d-none', !!spec.detalle);
+    }
+    selTipo.addEventListener('change', pinta);
+    pinta();
+
+    // --- El botón "+" de una fila marca a esa persona en el panel ---
+    document.querySelectorAll('.btn-asignar').forEach(function (b) {
+        b.addEventListener('click', function () {
+            var caja = document.querySelector('#sel-personas input[value="' + b.dataset.persona + '"]');
+            if (caja) { caja.checked = true; }
+            document.querySelector('.pt-tabs button[data-tab="actividad"]').click();
+            document.querySelector('.pt-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+})();
+</script>
+{% endblock %}

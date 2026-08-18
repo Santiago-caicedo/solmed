@@ -23,6 +23,9 @@ urlpatterns = [
     # de eso se encarga dashboard_redirect.
     path('', lambda request: redirect('gestion:dashboard_redirect' if request.user.is_authenticated else 'login'), name='root'),
 
+    # El plan de trabajo diario vive en su propia app, bajo /app/plan/.
+    path('app/plan/', include('planes.urls')),
+
     # Movemos toda la aplicación 'gestion' a un prefijo '/app/'
     path('app/', include('gestion.urls')),
 ]

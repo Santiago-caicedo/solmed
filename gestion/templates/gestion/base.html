@@ -414,6 +414,11 @@
         {% endif %}
         {% if es_asesor %}
         <li>
+            <a href="{% url 'planes:plan_dia' %}" class="nav-link {% if request.resolver_match.namespace == 'planes' %}active{% endif %}">
+                <i class="bi bi-journal-check"></i>Plan de trabajo
+            </a>
+        </li>
+        <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar-plus"></i>Programación
             </a>

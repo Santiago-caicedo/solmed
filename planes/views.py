@@ -1,0 +1,336 @@
+"""
+Vistas del plan de trabajo diario.
+
+Acceso: SOLO gestión (superusuario, Administradores, Asesores), igual que el
+resto de la operación — el plan dice quién es cada cliente y qué hace cada
+persona. Se reutilizan los mixins de gestión.
+"""
+import base64
+import datetime
+import os
+
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.models import User
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import get_template
+from django.urls import reverse
+from django.utils import timezone
+from django.views import View
+from django.views.generic import ListView
+from weasyprint import HTML
+
+from gestion.models import Recorrido, Vehiculo
+from gestion.views import AsesorRequiredMixin, PaginadoMixin
+
+from .forms import AsignacionForm, NovedadForm
+from .models import Asignacion, Novedad, PlanDia
+
+# El orden del formato físico: primero la operación, luego la oficina.
+ORDEN_CARGOS = [
+    'Conductores', 'Ayudantes', 'Planificadores', 'Asesores',
+    'Talento Humano', 'Director Técnico', 'SISO', 'Soldador - Armador',
+    'Auxiliares Administrativas', 'Administrativo', 'Administradores',
+]
+
+
+def _fecha_de(request):
+    """La fecha pedida (?fecha=AAAA-MM-DD) o la de hoy."""
+    crudo = request.GET.get('fecha') or request.POST.get('fecha') or ''
+    try:
+        return datetime.datetime.strptime(crudo, '%Y-%m-%d').date()
+    except ValueError:
+        return timezone.localdate()
+
+
+def _personal_activo():
+    """Todo el personal del plan: con rol, activo laboralmente, sin superadmins."""
+    return (
+        User.objects.filter(groups__isnull=False, is_superuser=False)
+        .exclude(perfil__retirado=True)
+        .prefetch_related('groups').distinct()
+    )
+
+
+def _cargo_de(persona):
+    """El cargo con el que la persona sale en el plan (el más operativo)."""
+    nombres = {g.name for g in persona.groups.all()}
+    for cargo in ORDEN_CARGOS:
+        if cargo in nombres:
+            return cargo
+    return next(iter(nombres), 'Sin cargo')
+
+
+def _servicios_del_dia(fecha):
+    """
+    {persona_id: [texto]} con los servicios YA programados ese día (entran
+    solos al plan: el recorrido es la fuente, no se digitan de nuevo).
+    """
+    servicios = {}
+    recorridos = (
+        Recorrido.objects.filter(fecha_recorrido=fecha)
+        .exclude(orden__estado_orden='CANCELADA')
+        .select_related('vehiculo', 'orden')
+    )
+    for r in recorridos:
+        texto = f"Orden #{r.orden_id} · {r.vehiculo.placa}"
+        for persona_id in (r.conductor_id, r.ayudante_id, r.ayudante2_id):
+            if persona_id:
+                servicios.setdefault(persona_id, []).append(texto)
+    return servicios
+
+
+def _tablero(fecha):
+    """
+    El tablero de formación del día: los grupos de cargos, y por persona sus
+    servicios, asignaciones y novedades. Es la misma fuente de la pantalla y
+    del PDF, para que digan exactamente lo mismo.
+    """
+    servicios = _servicios_del_dia(fecha)
+    plan = PlanDia.objects.filter(fecha=fecha).first()
+    asignaciones = {}
+    if plan:
+        for a in (plan.asignaciones.select_related('persona', 'orden', 'proveedor')
+                  .prefetch_related('vehiculos')):
+            asignaciones.setdefault(a.persona_id, []).append(a)
+    novedades = {}
+    for n in Novedad.del_dia(fecha):
+        novedades.setdefault(n.persona_id, []).append(n)
+
+    por_cargo = {}
+    for persona in _personal_activo():
+        fila = {
+            'persona': persona,
+            'nombre': persona.get_full_name() or persona.username,
+            'servicios': servicios.get(persona.pk, []),
+            'asignaciones': asignaciones.get(persona.pk, []),
+            'novedades': novedades.get(persona.pk, []),
+        }
+        fila['con_plan'] = bool(fila['servicios'] or fila['asignaciones']
+                                or fila['novedades'])
+        por_cargo.setdefault(_cargo_de(persona), []).append(fila)
+
+    grupos = []
+    conocidos = [c for c in ORDEN_CARGOS if c in por_cargo]
+    extras = sorted(c for c in por_cargo if c not in ORDEN_CARGOS)
+    for cargo in conocidos + extras:
+        filas = sorted(por_cargo[cargo], key=lambda f: f['nombre'].lower())
+        grupos.append({
+            'cargo': cargo,
+            'filas': filas,
+            'total': len(filas),
+            'con_plan': sum(1 for f in filas if f['con_plan']),
+        })
+    return plan, grupos
+
+
+class PlanDiaView(AsesorRequiredMixin, View):
+    """El plan de UN día: tablero de formación + registro de actividades y novedades."""
+    template_name = 'planes/plan_dia.html'
+
+    def get(self, request):
+        fecha = _fecha_de(request)
+        plan, grupos = _tablero(fecha)
+        total = sum(g['total'] for g in grupos)
+        con_plan = sum(g['con_plan'] for g in grupos)
+        # Metadatos de cada actividad para que el JS muestre solo sus campos.
+        campos_tipo = {
+            tipo: {
+                'vehiculos': spec.get('vehiculos') or '',
+                'orden': bool(spec.get('orden')),
+                'proveedor': bool(spec.get('proveedor')),
+                'hora': bool(spec.get('hora')),
+                'detalle': bool(spec.get('detalle')),
+            }
+            for tipo, spec in Asignacion.CAMPOS_POR_TIPO.items()
+        }
+        hoy = timezone.localdate()
+        return render(request, self.template_name, {
+            'fecha': fecha,
+            'hoy': hoy,
+            'ayer': fecha - datetime.timedelta(days=1),
+            'manana': fecha + datetime.timedelta(days=1),
+            'plan': plan,
+            'grupos': grupos,
+            'total_personas': total,
+            'con_plan': con_plan,
+            'sin_plan': total - con_plan,
+            'form_asignacion': AsignacionForm(),
+            'form_novedad': NovedadForm(initial={'fecha_inicio': fecha}),
+            'campos_tipo': campos_tipo,
+            'tipos_actividad': Asignacion.TIPO_CHOICES,
+            # TODAS las placas (también las que están en taller: la
+            # tecnomecánica o el mantenimiento son justo para esas).
+            'vehiculos': Vehiculo.objects.order_by('placa'),
+        })
+
+    def post(self, request):
+        fecha = _fecha_de(request)
+        volver = f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}"
+
+        if 'submit_asignacion' in request.POST:
+            form = AsignacionForm(
+                request.POST,
+                personas_ids=request.POST.getlist('personas'),
+                vehiculos_ids=request.POST.getlist('vehiculos'),
+            )
+            if form.is_valid():
+                plan, _ = PlanDia.objects.get_or_create(
+                    fecha=fecha, defaults={'creado_por': request.user})
+                n = form.crear(plan, request.user)
+                messages.success(
+                    request,
+                    f"Actividad asignada a {n} persona{'s' if n != 1 else ''}.")
+            else:
+                for lista in form.errors.values():
+                    for error in lista:
+                        messages.error(request, error)
+            return redirect(volver)
+
+        if 'submit_novedad' in request.POST:
+            form = NovedadForm(request.POST)
+            if form.is_valid():
+                novedad = form.save(commit=False)
+                novedad.registrado_por = request.user
+                novedad.save()
+                messages.success(
+                    request,
+                    f"Novedad registrada: {novedad.get_tipo_display().lower()} "
+                    f"de {novedad.persona_nombre}.")
+            else:
+                for campo, lista in form.errors.items():
+                    etiqueta = form.fields.get(campo)
+                    nombre = etiqueta.label if etiqueta else ''
+                    for error in lista:
+                        messages.error(request, f"{nombre}: {error}" if nombre else error)
+            return redirect(volver)
+
+        if 'submit_notas' in request.POST:
+            plan, _ = PlanDia.objects.get_or_create(
+                fecha=fecha, defaults={'creado_por': request.user})
+            plan.notas = request.POST.get('notas', '').strip()
+            plan.save(update_fields=['notas'])
+            messages.success(request, "Observaciones del día guardadas.")
+            return redirect(volver)
+
+        messages.error(request, "No se reconoció la acción enviada.")
+        return redirect(volver)
+
+
+class EliminarAsignacionView(AsesorRequiredMixin, View):
+    """Quita una fila del plan (se asignó mal). Solo POST."""
+    def post(self, request, pk):
+        asignacion = get_object_or_404(Asignacion, pk=pk)
+        fecha = asignacion.plan.fecha
+        asignacion.delete()
+        messages.success(request, "Asignación quitada del plan.")
+        return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
+
+
+class EliminarNovedadView(AsesorRequiredMixin, View):
+    """Borra una novedad registrada por error. Solo POST."""
+    def post(self, request, pk):
+        novedad = get_object_or_404(Novedad, pk=pk)
+        fecha = _fecha_de(request)
+        novedad.delete()
+        messages.success(request, "Novedad eliminada del registro.")
+        return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
+
+
+class HistorialPlanesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    """El registro: un renglón por día planeado, con sus conteos."""
+    model = PlanDia
+    template_name = 'planes/historial.html'
+    context_object_name = 'planes'
+
+    def get_queryset(self):
+        from django.db.models import Count
+        return PlanDia.objects.annotate(
+            n_asignaciones=Count('asignaciones')).order_by('-fecha')
+
+
+class HistorialNovedadesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    """El registro completo de novedades, filtrable por persona y tipo."""
+    model = Novedad
+    template_name = 'planes/novedades.html'
+    context_object_name = 'novedades'
+
+    def get_queryset(self):
+        qs = Novedad.objects.select_related('persona', 'registrado_por')
+        q = self.request.GET.get('q', '').strip()
+        tipo = self.request.GET.get('tipo', '')
+        if q:
+            from django.db.models import Q
+            qs = qs.filter(Q(persona__first_name__icontains=q)
+                           | Q(persona__last_name__icontains=q)
+                           | Q(persona__username__icontains=q))
+        if tipo:
+            qs = qs.filter(tipo=tipo)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['q'] = self.request.GET.get('q', '')
+        context['tipo_sel'] = self.request.GET.get('tipo', '')
+        context['tipos'] = Novedad.TIPO_CHOICES
+        return context
+
+
+def _pdf_plan(fecha, request):
+    """
+    El plan del día en PDF, generado al momento (no se guarda: es un reporte
+    interno derivado de datos, con la misma fuente que la pantalla).
+    """
+    plan, grupos = _tablero(fecha)
+    template = get_template('planes/plan_pdf.html')
+
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, 'rb') as archivo:
+        logo_b64 = 'data:image/png;base64,' + base64.b64encode(archivo.read()).decode()
+
+    # Filas de la sección 1 (una por servicio/actividad; el orden del formato).
+    filas = []
+    sin_plan = []
+    novedades_dia = []
+    for grupo in grupos:
+        for fila in grupo['filas']:
+            base = {'cargo': grupo['cargo'], 'nombre': fila['nombre']}
+            for servicio in fila['servicios']:
+                filas.append({**base, 'actividad': 'Servicio programado',
+                              'placa': servicio.split('·')[-1].strip(),
+                              'detalle': servicio.split('·')[0].strip()})
+            for a in fila['asignaciones']:
+                detalle = ' · '.join(filter(None, [
+                    f"Orden #{a.orden_id}" if a.orden_id else '',
+                    a.proveedor.razon_social if a.proveedor_id else '',
+                    a.hora.strftime('%H:%M') if a.hora else '',
+                    a.detalle,
+                ]))
+                filas.append({**base, 'actividad': a.get_tipo_display(),
+                              'placa': a.placas, 'detalle': detalle})
+            for n in fila['novedades']:
+                novedades_dia.append(n)
+            if not fila['con_plan']:
+                sin_plan.append(f"{fila['nombre']} ({grupo['cargo']})")
+
+    html = template.render({
+        'fecha': fecha, 'plan': plan, 'filas': filas,
+        'novedades': novedades_dia, 'sin_plan': sin_plan,
+        'logo_b64': logo_b64, 'generado': timezone.localtime(),
+    })
+    return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
+
+
+class PlanPDFView(AsesorRequiredMixin, View):
+    """Descarga el PDF del plan de un día."""
+    def get(self, request, fecha):
+        try:
+            dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            raise Http404("Fecha inválida.")
+        respuesta = HttpResponse(_pdf_plan(dia, request),
+                                 content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="plan_trabajo_{dia.isoformat()}.pdf"')
+        return respuesta
