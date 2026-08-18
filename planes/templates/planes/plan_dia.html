@@ -117,8 +117,8 @@
                 <div class="quien">
                     <div class="nombre">{{ fila.nombre }}</div>
                     <div class="pt-chips">
-                        {% for servicio in fila.servicios %}
-                        <span class="pt-chip c-servicio"><i class="bi bi-truck"></i> En servicio · <span class="mono">{{ servicio }}</span></span>
+                        {% for s in fila.servicios %}
+                        <span class="pt-chip c-servicio"><i class="bi bi-truck"></i> En servicio · <span class="mono">Orden #{{ s.orden }} · {{ s.placa }}{% if s.horas %} · {{ s.horas }}{% endif %}</span></span>
                         {% endfor %}
                         {% for a in fila.asignaciones %}
                         <span class="pt-chip c-actividad">

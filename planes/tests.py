@@ -153,8 +153,9 @@ class TableroTests(BasePlan):
         for nombre in ('Carlos Pérez', 'Luis Gómez'):
             with self.subTest(persona=nombre):
                 self.assertEqual(len(filas[nombre]['servicios']), 1)
-                self.assertIn(str(orden.numero_orden), filas[nombre]['servicios'][0])
-                self.assertIn('WHB123', filas[nombre]['servicios'][0])
+                servicio = filas[nombre]['servicios'][0]
+                self.assertEqual(servicio['orden'], orden.numero_orden)
+                self.assertEqual(servicio['placa'], 'WHB123')
                 self.assertTrue(filas[nombre]['con_plan'])
 
     def test_una_orden_cancelada_no_manda_a_nadie_a_servicio(self):
@@ -265,6 +266,93 @@ class AsignacionesTests(BasePlan):
         self.asignar([self.ayudante], 'APOYO_DISPOSICION', [self.camion],
                      hora='14:30')
         self.assertEqual(Asignacion.objects.get().hora, datetime.time(14, 30))
+
+
+class HorasDeParticipacionTests(BasePlan):
+    """Los servicios entran con las horas en que la cuadrilla participó."""
+
+    def setUp(self):
+        super().setUp()
+        from gestion.models import Manifiesto  # noqa: F401 (se usa abajo)
+        cliente = Cliente.objects.create(nombre='Cliente X', identificacion='900')
+        self.orden = OrdenServicio.objects.create(
+            cliente=cliente, asesor=self.asesor, direccion_servicio='x',
+            descripcion='y')
+        self.recorrido = Recorrido.objects.create(
+            orden=self.orden, vehiculo=self.camion, conductor=self.conductor,
+            ayudante=self.ayudante, fecha_recorrido=self.hoy)
+        self.entrar(self.admin)
+
+    def servicio_de(self, persona, fecha=None):
+        fecha = fecha or self.hoy
+        contexto = self.client.get(self.url, {'fecha': fecha.isoformat()}).context
+        fila = [f for g in contexto['grupos'] for f in g['filas']
+                if f['persona'] == persona][0]
+        return fila['servicios'][0]
+
+    def test_con_acta_salen_las_horas_reales_de_la_jornada(self):
+        from gestion.models import Manifiesto
+        Manifiesto.objects.create(
+            recorrido=self.recorrido,
+            hora_salida_solmed=datetime.time(6, 30),
+            hora_llegada_solmed=datetime.time(15, 45))
+        for persona in (self.conductor, self.ayudante):
+            with self.subTest(persona=persona.username):
+                self.assertEqual(self.servicio_de(persona)['horas'], '06:30–15:45')
+
+    def test_sin_horas_de_ruta_se_usan_las_operativas(self):
+        from gestion.models import Manifiesto
+        Manifiesto.objects.create(
+            recorrido=self.recorrido,
+            tiempo_inicio_operativo=datetime.time(7, 0),
+            tiempo_final_operativo=datetime.time(11, 30))
+        self.assertEqual(self.servicio_de(self.conductor)['horas'], '07:00–11:30')
+
+    def test_con_solo_la_hora_de_inicio_se_dice_desde(self):
+        from gestion.models import Manifiesto
+        Manifiesto.objects.create(recorrido=self.recorrido,
+                                  tiempo_inicio_operativo=datetime.time(7, 0))
+        self.assertEqual(self.servicio_de(self.conductor)['horas'], 'desde 07:00')
+
+    def test_sin_acta_sale_la_hora_programada_marcada_como_prog(self):
+        from gestion.models import Programacion
+        programacion = Programacion.objects.create(
+            cliente=self.orden.cliente, fecha=self.hoy,
+            hora_servicio=datetime.time(8, 0), orden=self.orden,
+            estado='CONVERTIDA')
+        self.assertEqual(self.servicio_de(self.conductor)['horas'], 'prog. 08:00')
+
+    def test_sin_acta_ni_programacion_no_se_inventan_horas(self):
+        self.assertEqual(self.servicio_de(self.conductor)['horas'], '')
+
+    def test_el_historico_tambien_aplica_a_dias_pasados(self):
+        """Un día viejo con servicios se consulta y da PDF, sin plan manual."""
+        from gestion.models import Manifiesto
+        pasado = self.hoy - datetime.timedelta(days=30)
+        Recorrido.objects.filter(pk=self.recorrido.pk).update(
+            fecha_recorrido=pasado)
+        Manifiesto.objects.create(
+            recorrido=self.recorrido,
+            hora_salida_solmed=datetime.time(6, 0),
+            hora_llegada_solmed=datetime.time(14, 0))
+
+        self.assertEqual(self.servicio_de(self.conductor, pasado)['horas'],
+                         '06:00–14:00')
+        respuesta = self.client.get(
+            reverse('planes:plan_pdf', args=[pasado.isoformat()]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
+
+    def test_el_historial_lista_los_dias_que_solo_tuvieron_servicios(self):
+        pasado = self.hoy - datetime.timedelta(days=30)
+        Recorrido.objects.filter(pk=self.recorrido.pk).update(
+            fecha_recorrido=pasado)
+        contexto = self.client.get(reverse('planes:historial')).context
+        filas = {f['fecha']: f for f in contexto['planes']}
+        self.assertIn(pasado, filas, "el día con servicios entra sin plan manual")
+        self.assertIsNone(filas[pasado]['plan'])
+        self.assertEqual(filas[pasado]['n_servicios'], 1)
+        self.assertEqual(filas[pasado]['n_asignaciones'], 0)
 
 
 class NovedadesTests(BasePlan):
@@ -381,9 +469,9 @@ class PdfYRegistroTests(BasePlan):
                                     'personas': [self.ayudante.pk],
                                     'orden_numero': '', 'detalle': '', 'hora': ''})
         contexto = self.client.get(reverse('planes:historial')).context
-        self.assertEqual([p.fecha for p in contexto['planes']],
+        self.assertEqual([p['fecha'] for p in contexto['planes']],
                          [manana, self.hoy])
-        self.assertEqual(contexto['planes'][0].n_asignaciones, 1)
+        self.assertEqual(contexto['planes'][0]['n_asignaciones'], 1)
 
     def test_el_plan_de_otro_dia_se_abre_con_su_fecha(self):
         manana = self.hoy + datetime.timedelta(days=1)

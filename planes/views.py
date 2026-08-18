@@ -22,7 +22,7 @@ from django.views import View
 from django.views.generic import ListView
 from weasyprint import HTML
 
-from gestion.models import Recorrido, Vehiculo
+from gestion.models import Manifiesto, Recorrido, Vehiculo
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin
 
 from .forms import AsignacionForm, NovedadForm
@@ -63,22 +63,50 @@ def _cargo_de(persona):
     return next(iter(nombres), 'Sin cargo')
 
 
+def _horario_de(recorrido, acta):
+    """
+    Las horas en que la cuadrilla participó en la orden. La fuente más real es
+    el ACTA que llenó el conductor: la salida y la llegada a SolMed (la jornada
+    completa) o, si no las anotó, el inicio y el final operativos. Sin tiempos
+    en el acta, se muestra la hora PROGRAMADA por el asesor, marcada "prog."
+    para distinguir el plan de lo ejecutado.
+    """
+    if acta is not None:
+        inicio = acta.hora_salida_solmed or acta.tiempo_inicio_operativo
+        fin = acta.hora_llegada_solmed or acta.tiempo_final_operativo
+        if inicio and fin:
+            return f"{inicio:%H:%M}–{fin:%H:%M}"
+        if inicio:
+            return f"desde {inicio:%H:%M}"
+    programacion = getattr(recorrido.orden, 'programacion_origen', None)
+    if programacion is not None:
+        hora = programacion.hora_servicio or programacion.hora_ingreso_bodega
+        if hora:
+            return f"prog. {hora:%H:%M}"
+    return ''
+
+
 def _servicios_del_dia(fecha):
     """
-    {persona_id: [texto]} con los servicios YA programados ese día (entran
-    solos al plan: el recorrido es la fuente, no se digitan de nuevo).
+    {persona_id: [servicio]} con los servicios de ese día: entran SOLOS al
+    plan (el recorrido es la fuente, no se digitan de nuevo), cada uno con la
+    orden, la placa y las horas en que la persona participó (_horario_de).
     """
     servicios = {}
     recorridos = (
         Recorrido.objects.filter(fecha_recorrido=fecha)
         .exclude(orden__estado_orden='CANCELADA')
-        .select_related('vehiculo', 'orden')
+        .select_related('vehiculo', 'orden', 'orden__programacion_origen')
     )
+    # El acta es OneToOne y puede no existir: se trae aparte en un solo query.
+    actas = {a.recorrido_id: a for a in Manifiesto.objects.filter(
+        recorrido__fecha_recorrido=fecha)}
     for r in recorridos:
-        texto = f"Orden #{r.orden_id} · {r.vehiculo.placa}"
+        servicio = {'orden': r.orden_id, 'placa': r.vehiculo.placa,
+                    'horas': _horario_de(r, actas.get(r.pk))}
         for persona_id in (r.conductor_id, r.ayudante_id, r.ayudante2_id):
             if persona_id:
-                servicios.setdefault(persona_id, []).append(texto)
+                servicios.setdefault(persona_id, []).append(servicio)
     return servicios
 
 
@@ -240,15 +268,34 @@ class EliminarNovedadView(AdministradorRequiredMixin, View):
 
 
 class HistorialPlanesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
-    """El registro: un renglón por día planeado, con sus conteos."""
-    model = PlanDia
+    """
+    El registro: un renglón por día con actividad. Entran tanto los días
+    PLANEADOS (PlanDia) como los que solo tuvieron SERVICIOS: esos también
+    hacen parte del histórico del plan, porque los recorridos entran solos
+    al tablero y al PDF de su fecha.
+    """
     template_name = 'planes/historial.html'
     context_object_name = 'planes'
 
     def get_queryset(self):
         from django.db.models import Count
-        return PlanDia.objects.annotate(
-            n_asignaciones=Count('asignaciones')).order_by('-fecha')
+        planes = {p.fecha: p for p in PlanDia.objects.annotate(
+            n_asignaciones=Count('asignaciones'))}
+        servicios = {
+            f['fecha_recorrido']: f['n'] for f in
+            Recorrido.objects.exclude(orden__estado_orden='CANCELADA')
+            .values('fecha_recorrido').annotate(n=Count('id'))
+        }
+        filas = []
+        for fecha in sorted(set(planes) | set(servicios), reverse=True):
+            plan = planes.get(fecha)
+            filas.append({
+                'fecha': fecha,
+                'plan': plan,
+                'n_asignaciones': plan.n_asignaciones if plan else 0,
+                'n_servicios': servicios.get(fecha, 0),
+            })
+        return filas
 
 
 class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
@@ -298,9 +345,11 @@ def _pdf_plan(fecha, request):
         for fila in grupo['filas']:
             base = {'cargo': grupo['cargo'], 'nombre': fila['nombre']}
             for servicio in fila['servicios']:
+                detalle = f"Orden #{servicio['orden']}"
+                if servicio['horas']:
+                    detalle += f" · {servicio['horas']}"
                 filas.append({**base, 'actividad': 'Servicio programado',
-                              'placa': servicio.split('·')[-1].strip(),
-                              'detalle': servicio.split('·')[0].strip()})
+                              'placa': servicio['placa'], 'detalle': detalle})
             for a in fila['asignaciones']:
                 detalle = ' · '.join(filter(None, [
                     f"Orden #{a.orden_id}" if a.orden_id else '',
