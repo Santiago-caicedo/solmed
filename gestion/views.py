@@ -160,23 +160,22 @@ MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
 
 # --- Vista Principal (Dashboard) ---
 # Se protege con LoginRequiredMixin para que sea la página de inicio después del login.
-class DashboardView(LoginRequiredMixin, TemplateView):
+class DashboardView(AdministradorRequiredMixin, TemplateView):
     """
     Parte de operaciones: estadísticas clave de todo lo mapeado en el sistema
     (servicios, órdenes, actas, flota, personal, proveedores, PESV, cobranza y
     conciliación) más el centro de alertas accionable.
+
+    ACCESO: ÚNICAMENTE el superusuario y el rol 'Administradores' (decisión del
+    usuario, ago-2026). Aquí se resume TODO el negocio —cobranza, top de
+    clientes, agenda con clientes y placas—, así que no lo ve nadie más: ni
+    asesores, ni planificadores, ni los cargos sin módulo. El mixin lo bloquea
+    en `dispatch`, así que da igual el método (GET, POST, HEAD) o que se
+    escriba la URL a mano: quien no es administrador recibe 403 y quien no ha
+    iniciado sesión va al login. A cada rol se le manda a SU pantalla desde
+    `dashboard_redirect_view`, que es donde aterrizan al entrar.
     """
     template_name = 'gestion/dashboard.html'
-
-    def dispatch(self, request, *args, **kwargs):
-        # El conductor tiene su propio tablero: si llega aquí por URL, se le
-        # redirige en vez de mostrarle las cifras de gestión.
-        if request.user.is_authenticated and not es_administrador(request.user):
-            if request.user.groups.filter(name='Conductores').exists():
-                return redirect('gestion:dashboard_conductor')
-            if es_talento_humano(request.user):
-                return redirect('gestion:lista_personal')
-        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -2655,13 +2654,27 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
 
 @login_required
 def dashboard_redirect_view(request):
+    """
+    La casa de cada rol al iniciar sesión. El TABLERO es solo del
+    administrador (ver DashboardView): a los demás se les manda a la pantalla
+    donde de verdad trabajan, para que nadie aterrice en un 403.
+    """
     user = request.user
-    if not es_administrador(user) and user.groups.filter(name='Conductores').exists():
+    if es_administrador(user):
+        return redirect('gestion:dashboard')
+    if user.groups.filter(name='Conductores').exists():
         return redirect('gestion:dashboard_conductor')
-    if not es_administrador(user) and es_talento_humano(user):
-        # Su casa es el listado de personal: no ve el tablero de gestión.
+    if es_talento_humano(user):
+        # Su casa es el listado de personal: no ve nada más del sistema.
         return redirect('gestion:lista_personal')
-    return redirect('gestion:dashboard')
+    if user.groups.filter(name='Asesores').exists():
+        # El asesor vive en las órdenes (su lista de seguimiento).
+        return redirect('gestion:lista_ordenes')
+    if user.groups.filter(name='Planificadores').exists():
+        return redirect('gestion:planificacion')
+    # Cargos sin módulo propio (Director Técnico, SISO, Soldador...): la
+    # operación del día, que es lo único que el menú les ofrece.
+    return redirect('gestion:calendario')
     
 
 

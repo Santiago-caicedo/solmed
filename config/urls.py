@@ -19,7 +19,9 @@ urlpatterns = [
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     
     # Ruta Raíz ('/'): Si el usuario está logueado, lo lleva al dashboard. Si no, al login.
-    path('', lambda request: redirect('gestion:dashboard' if request.user.is_authenticated else 'login'), name='root'),
+    # Cada rol tiene su propia casa (el tablero es solo del administrador):
+    # de eso se encarga dashboard_redirect.
+    path('', lambda request: redirect('gestion:dashboard_redirect' if request.user.is_authenticated else 'login'), name='root'),
 
     # Movemos toda la aplicación 'gestion' a un prefijo '/app/'
     path('app/', include('gestion.urls')),

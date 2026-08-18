@@ -180,7 +180,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'gestion:dashboard' # A dónde ir después de loguearse
+LOGIN_REDIRECT_URL = 'gestion:dashboard_redirect' # A dónde ir después de loguearse (cada rol a su casa)
 LOGOUT_REDIRECT_URL = 'login' # A dónde ir después de cerrar sesión
 
 

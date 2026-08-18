@@ -365,7 +365,7 @@
 
     <div class="sidebar-scroll">
     <ul class="nav flex-column">
-        {% if es_asesor %}
+        {% if es_administrador %}
         <li class="nav-section">Panel</li>
         <li>
             <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if 'dashboard' == request.resolver_match.view_name %}active{% endif %}">
