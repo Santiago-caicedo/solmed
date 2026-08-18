@@ -1,9 +1,10 @@
 """
 Vistas del plan de trabajo diario.
 
-Acceso: SOLO gestión (superusuario, Administradores, Asesores), igual que el
-resto de la operación — el plan dice quién es cada cliente y qué hace cada
-persona. Se reutilizan los mixins de gestión.
+Acceso: ÚNICAMENTE el superusuario y el rol Administradores (decisión del
+usuario, ago-2026) — ni siquiera los asesores: el plan reparte a TODO el
+personal y registra sus novedades de recursos humanos (incapacidades,
+licencias, descargos...). Se reutilizan los mixins de gestión.
 """
 import base64
 import datetime
@@ -22,7 +23,7 @@ from django.views.generic import ListView
 from weasyprint import HTML
 
 from gestion.models import Recorrido, Vehiculo
-from gestion.views import AsesorRequiredMixin, PaginadoMixin
+from gestion.views import AdministradorRequiredMixin, PaginadoMixin
 
 from .forms import AsignacionForm, NovedadForm
 from .models import Asignacion, Novedad, PlanDia
@@ -125,7 +126,7 @@ def _tablero(fecha):
     return plan, grupos
 
 
-class PlanDiaView(AsesorRequiredMixin, View):
+class PlanDiaView(AdministradorRequiredMixin, View):
     """El plan de UN día: tablero de formación + registro de actividades y novedades."""
     template_name = 'planes/plan_dia.html'
 
@@ -218,7 +219,7 @@ class PlanDiaView(AsesorRequiredMixin, View):
         return redirect(volver)
 
 
-class EliminarAsignacionView(AsesorRequiredMixin, View):
+class EliminarAsignacionView(AdministradorRequiredMixin, View):
     """Quita una fila del plan (se asignó mal). Solo POST."""
     def post(self, request, pk):
         asignacion = get_object_or_404(Asignacion, pk=pk)
@@ -228,7 +229,7 @@ class EliminarAsignacionView(AsesorRequiredMixin, View):
         return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
 
 
-class EliminarNovedadView(AsesorRequiredMixin, View):
+class EliminarNovedadView(AdministradorRequiredMixin, View):
     """Borra una novedad registrada por error. Solo POST."""
     def post(self, request, pk):
         novedad = get_object_or_404(Novedad, pk=pk)
@@ -238,7 +239,7 @@ class EliminarNovedadView(AsesorRequiredMixin, View):
         return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
 
 
-class HistorialPlanesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+class HistorialPlanesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     """El registro: un renglón por día planeado, con sus conteos."""
     model = PlanDia
     template_name = 'planes/historial.html'
@@ -250,7 +251,7 @@ class HistorialPlanesView(AsesorRequiredMixin, PaginadoMixin, ListView):
             n_asignaciones=Count('asignaciones')).order_by('-fecha')
 
 
-class HistorialNovedadesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     """El registro completo de novedades, filtrable por persona y tipo."""
     model = Novedad
     template_name = 'planes/novedades.html'
@@ -322,7 +323,7 @@ def _pdf_plan(fecha, request):
     return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
 
 
-class PlanPDFView(AsesorRequiredMixin, View):
+class PlanPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del plan de un día."""
     def get(self, request, fecha):
         try:

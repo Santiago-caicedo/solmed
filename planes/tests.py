@@ -62,23 +62,26 @@ class BasePlan(TestCase):
 
 
 class AccesoAlPlanTests(BasePlan):
-    """El plan dice quién es cada cliente y qué hace cada persona: solo gestión."""
+    """
+    El plan es SOLO de administradores (decisión del usuario, ago-2026):
+    reparte a todo el personal y registra sus novedades de recursos humanos.
+    Ni siquiera los asesores entran.
+    """
 
     def urls(self):
         return [reverse('planes:plan_dia'), reverse('planes:historial'),
                 reverse('planes:novedades'),
                 reverse('planes:plan_pdf', args=[self.hoy.isoformat()])]
 
-    def test_gestion_si_entra(self):
-        for usuario in (self.asesor, self.admin,
-                        self.persona('root', superusuario=True)):
+    def test_solo_el_superusuario_y_el_administrador_entran(self):
+        for usuario in (self.admin, self.persona('root', superusuario=True)):
             self.entrar(usuario)
             for url in self.urls():
                 with self.subTest(usuario=usuario.username, url=url):
                     self.assertEqual(self.client.get(url).status_code, 200)
 
-    def test_ningun_otro_rol_entra(self):
-        for usuario in (self.conductor,
+    def test_ningun_otro_rol_entra_ni_el_asesor(self):
+        for usuario in (self.asesor, self.conductor,
                         self.persona('plani', 'Planificadores'),
                         self.persona('talento', 'Talento Humano'),
                         self.persona('siso', 'SISO')):
@@ -87,6 +90,12 @@ class AccesoAlPlanTests(BasePlan):
                 with self.subTest(usuario=usuario.username, url=url):
                     self.assertEqual(self.client.get(url).status_code, 403)
 
+    def test_el_bloqueo_no_depende_del_metodo(self):
+        self.entrar(self.asesor)
+        url = reverse('planes:plan_dia')
+        for metodo in (self.client.get, self.client.post, self.client.head):
+            self.assertEqual(metodo(url).status_code, 403)
+
     def test_sin_sesion_va_al_login(self):
         for url in self.urls():
             with self.subTest(url=url):
@@ -94,19 +103,23 @@ class AccesoAlPlanTests(BasePlan):
                 self.assertEqual(respuesta.status_code, 302)
                 self.assertIn('/login/', respuesta.url)
 
-    def test_el_menu_se_lo_ofrece_a_gestion_y_a_nadie_mas(self):
-        self.entrar(self.asesor)
+    def test_el_menu_solo_se_lo_ofrece_al_administrador(self):
+        self.entrar(self.admin)
         self.assertContains(self.client.get(self.url), 'Plan de trabajo')
+        # El asesor ni lo ve en el menú (miramos una página que sí puede abrir).
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')),
+                               'Plan de trabajo')
         self.entrar(self.conductor)
-        respuesta = self.client.get(reverse('gestion:dashboard_conductor'))
-        self.assertNotContains(respuesta, 'Plan de trabajo')
+        self.assertNotContains(self.client.get(reverse('gestion:dashboard_conductor')),
+                               'Plan de trabajo')
 
 
 class TableroTests(BasePlan):
     """La formación del día: todo el personal, agrupado, con lo suyo."""
 
     def contexto(self, fecha=None):
-        self.entrar(self.asesor)
+        self.entrar(self.admin)
         url = self.url + (f'?fecha={fecha.isoformat()}' if fecha else '')
         return self.client.get(url).context
 
@@ -156,7 +169,7 @@ class TableroTests(BasePlan):
         self.assertEqual(filas['Carlos Pérez']['servicios'], [])
 
     def test_el_contador_de_formacion_cuenta_bien(self):
-        self.entrar(self.asesor)
+        self.entrar(self.admin)
         self.asignar([self.conductor], 'LAVADA', [self.camion])
         contexto = self.contexto()
         conductores = [g for g in contexto['grupos'] if g['cargo'] == 'Conductores'][0]
@@ -170,7 +183,7 @@ class AsignacionesTests(BasePlan):
 
     def setUp(self):
         super().setUp()
-        self.entrar(self.asesor)
+        self.entrar(self.admin)
 
     def test_una_actividad_se_asigna_a_varias_personas_de_un_solo_envio(self):
         self.asignar([self.conductor, self.ayudante], 'LAVADA', [self.camion])
@@ -178,10 +191,10 @@ class AsignacionesTests(BasePlan):
         self.assertEqual(PlanDia.objects.count(), 1, "un solo plan por día")
         plan = PlanDia.objects.get()
         self.assertEqual(plan.fecha, self.hoy)
-        self.assertEqual(plan.creado_por, self.asesor)
+        self.assertEqual(plan.creado_por, self.admin)
         for asignacion in Asignacion.objects.all():
             self.assertEqual(asignacion.placas, 'WHB123')
-            self.assertEqual(asignacion.registrado_por, self.asesor)
+            self.assertEqual(asignacion.registrado_por, self.admin)
 
     def test_dos_altas_del_mismo_dia_comparten_el_plan(self):
         self.asignar([self.conductor], 'TECNOMECANICA', [self.camion])
@@ -259,7 +272,7 @@ class NovedadesTests(BasePlan):
 
     def setUp(self):
         super().setUp()
-        self.entrar(self.asesor)
+        self.entrar(self.admin)
 
     def registrar(self, **extra):
         datos = {'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
@@ -273,7 +286,7 @@ class NovedadesTests(BasePlan):
         fin = self.hoy + datetime.timedelta(days=10)
         self.registrar(fecha_fin=fin.isoformat())
         novedad = Novedad.objects.get()
-        self.assertEqual(novedad.registrado_por, self.asesor)
+        self.assertEqual(novedad.registrado_por, self.admin)
 
         intermedio = self.hoy + datetime.timedelta(days=5)
         self.assertIn(novedad, Novedad.del_dia(intermedio))
@@ -330,7 +343,7 @@ class PdfYRegistroTests(BasePlan):
 
     def setUp(self):
         super().setUp()
-        self.entrar(self.asesor)
+        self.entrar(self.admin)
 
     def test_el_pdf_del_dia_se_descarga_generado_al_momento(self):
         self.asignar([self.conductor], 'LAVADA', [self.camion])

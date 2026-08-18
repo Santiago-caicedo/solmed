@@ -412,12 +412,18 @@
             </a>
         </li>
         {% endif %}
-        {% if es_asesor %}
+        {% if es_administrador %}
+        {% comment %}
+        El plan de trabajo es SOLO de administradores: reparte a todo el
+        personal y registra sus novedades de recursos humanos.
+        {% endcomment %}
         <li>
             <a href="{% url 'planes:plan_dia' %}" class="nav-link {% if request.resolver_match.namespace == 'planes' %}active{% endif %}">
                 <i class="bi bi-journal-check"></i>Plan de trabajo
             </a>
         </li>
+        {% endif %}
+        {% if es_asesor %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar-plus"></i>Programación
