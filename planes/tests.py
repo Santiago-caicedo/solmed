@@ -214,18 +214,11 @@ class AsignacionesTests(BasePlan):
                 self.asignar([self.conductor], tipo)
                 self.assertFalse(Asignacion.objects.filter(tipo=tipo).exists())
 
-    def test_la_disposicion_final_exige_una_orden_que_exista(self):
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion],
-                     orden_numero='99999')
-        self.assertFalse(Asignacion.objects.exists())
-
-        cliente = Cliente.objects.create(nombre='Cliente X', identificacion='900')
-        orden = OrdenServicio.objects.create(
-            cliente=cliente, asesor=self.asesor, direccion_servicio='x',
-            descripcion='y')
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion],
-                     orden_numero=str(orden.numero_orden))
-        self.assertEqual(Asignacion.objects.get().orden, orden)
+    def test_la_disposicion_solo_admite_camiones_cargados(self):
+        self.assertFalse(self.camion.cargado)
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
+        self.assertFalse(Asignacion.objects.exists(),
+                         "un camión vacío no tiene nada que disponer")
 
     def test_el_acompanamiento_y_otra_actividad_exigen_el_detalle(self):
         for tipo in ('ACOMPANAMIENTO', 'OTRA'):
@@ -266,6 +259,119 @@ class AsignacionesTests(BasePlan):
         self.asignar([self.ayudante], 'APOYO_DISPOSICION', [self.camion],
                      hora='14:30')
         self.assertEqual(Asignacion.objects.get().hora, datetime.time(14, 30))
+
+
+class DisposicionDesdeElPlanTests(BasePlan):
+    """
+    La descarga de un camión solo ocurre aquí: asignándole a alguien la
+    disposición (decisión del usuario, ago-2026). El picker ofrece únicamente
+    camiones cargados y la orden no se digita: la hereda de la carga.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.cliente = Cliente.objects.create(nombre='Cliente X', identificacion='900')
+        self.orden = self._orden_que_carga(self.camion)
+
+    def _orden_que_carga(self, vehiculo):
+        """Un servicio que deja el camión cargado (sin disposición)."""
+        from gestion.models import Dispositor, Programacion, ProgramacionCuadrilla
+        destino, _ = Dispositor.objects.get_or_create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, defaults={'tipo': 'INTERNO'})
+        programacion = Programacion.objects.create(
+            cliente=self.cliente, fecha=self.hoy,
+            requiere_disposicion_final='NO', dispositor_final=destino)
+        ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor, vehiculo=vehiculo)
+        orden = programacion.convertir_en_orden(self.admin)
+        vehiculo.refresh_from_db()
+        assert vehiculo.cargado
+        return orden
+
+    def test_asignar_la_disposicion_descarga_el_camion(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
+        self.camion.refresh_from_db()
+        self.assertFalse(self.camion.cargado)
+        self.assertEqual(self.camion.cargado_detalle, '')
+
+    def test_la_orden_no_se_digita_la_hereda_de_la_carga(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
+        self.assertEqual(Asignacion.objects.get().orden, self.orden)
+
+    def test_el_movimiento_registra_responsable_orden_y_gestor(self):
+        from gestion.models import Dispositor, MovimientoCargaVehiculo
+        gestor = Dispositor.objects.create(nombre='Relleno Doña Juana')
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion],
+                     dispositor=gestor.pk)
+        movimiento = MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').get()
+        self.assertEqual(movimiento.orden, self.orden)
+        self.assertEqual(movimiento.dispositor, gestor)
+        self.assertEqual(movimiento.registrado_por, self.admin)
+        self.assertIn('Carlos Pérez', movimiento.nota)
+        self.assertIn(f"{self.hoy:%d/%m/%Y}", movimiento.nota)
+
+    def test_asignarla_a_dos_personas_descarga_el_camion_una_sola_vez(self):
+        from gestion.models import MovimientoCargaVehiculo
+        self.asignar([self.conductor, self.ayudante], 'DISPOSICION_FINAL',
+                     [self.camion])
+        self.assertEqual(Asignacion.objects.count(), 2, "cada uno tiene su fila")
+        self.assertEqual(
+            MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').count(), 1)
+
+    def test_no_se_puede_disponer_un_camion_vacio(self):
+        vacio = Vehiculo.objects.create(placa='VAC000', marca='m', modelo='2020',
+                                        capacidad='1')
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [vacio])
+        self.assertFalse(Asignacion.objects.filter(vehiculos=vacio).exists())
+
+    def test_la_disposicion_se_asigna_de_a_un_camion(self):
+        otro = Vehiculo.objects.create(placa='OTR222', marca='m', modelo='2020',
+                                       capacidad='1')
+        self._orden_que_carga(otro)
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion, otro])
+        self.assertFalse(Asignacion.objects.exists(),
+                         "cada camión lleva su propia orden")
+
+    def test_quitar_la_asignacion_devuelve_el_camion_a_cargado(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
+        asignacion = Asignacion.objects.get()
+        self.client.post(reverse('planes:eliminar_asignacion', args=[asignacion.pk]),
+                         {'fecha': self.hoy.isoformat()})
+        self.camion.refresh_from_db()
+        self.assertTrue(self.camion.cargado,
+                        "si la disposición no se hizo, el residuo sigue ahí")
+        self.assertIn(str(self.orden.numero_orden), self.camion.cargado_detalle)
+
+    def test_quitar_a_uno_de_dos_encargados_no_recarga_el_camion(self):
+        self.asignar([self.conductor, self.ayudante], 'DISPOSICION_FINAL',
+                     [self.camion])
+        una = Asignacion.objects.first()
+        self.client.post(reverse('planes:eliminar_asignacion', args=[una.pk]),
+                         {'fecha': self.hoy.isoformat()})
+        self.camion.refresh_from_db()
+        self.assertFalse(self.camion.cargado, "el otro sigue encargado de disponerlo")
+
+    def test_el_tablero_ofrece_la_placa_con_la_orden_que_la_cargo(self):
+        contexto = self.client.get(self.url).context
+        placa = [v for v in contexto['vehiculos'] if v.pk == self.camion.pk][0]
+        self.assertTrue(placa.cargado)
+        self.assertEqual(placa.orden_carga, self.orden.numero_orden)
+
+    def test_la_pantalla_marca_cuales_placas_van_cargadas(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn('data-cargado="1"', contenido)
+        self.assertIn(f'cargado por la orden #{self.orden.numero_orden}', contenido)
+
+    def test_la_disposicion_sale_en_el_plan_y_en_su_pdf(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
+        contexto = self.client.get(self.url).context
+        fila = [f for g in contexto['grupos'] for f in g['filas']
+                if f['persona'] == self.conductor][0]
+        self.assertEqual(fila['asignaciones'][0].tipo, 'DISPOSICION_FINAL')
+        respuesta = self.client.get(
+            reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
 
 
 class HorasDeParticipacionTests(BasePlan):

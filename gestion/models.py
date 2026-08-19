@@ -266,6 +266,23 @@ class Vehiculo(models.Model):
     def __str__(self):
         return f"{self.marca} {self.modelo} ({self.placa})"
 
+    @property
+    def carga_actual(self):
+        """
+        El movimiento de CARGA que dejó el camión en este estado, o None si
+        está vacío. De ahí sale la orden que lo cargó y desde cuándo espera
+        disposición (lo que el plan de trabajo le muestra al asesor).
+        """
+        if not self.cargado:
+            return None
+        return self.movimientos_carga.filter(accion='CARGA').first()
+
+    @property
+    def orden_que_cargo(self):
+        """La orden que dejó cargado el camión (None si fue carga manual)."""
+        movimiento = self.carga_actual
+        return movimiento.orden if movimiento is not None else None
+
     def documentos_por_vencer(self, dias=None):
         """
         Devuelve los documentos vencidos o próximos a vencer (dentro de `dias`,
@@ -1657,16 +1674,18 @@ class Programacion(models.Model):
             v.cargado_detalle = nota
             v.save(update_fields=['cargado', 'cargado_detalle'])
             MovimientoCargaVehiculo.objects.create(
-                vehiculo=v, accion='CARGA', nota=nota, registrado_por=usuario)
+                vehiculo=v, accion='CARGA', nota=nota, orden=orden,
+                registrado_por=usuario)
 
         def descargar(v, nota, dispositor=None):
-            if not v.cargado:
-                return
+            # El movimiento se registra SIEMPRE, aunque el camión no estuviera
+            # marcado como cargado: la disposición ocurrió y es la trazabilidad
+            # del residuo (antes se perdía justo en el caso más común).
             v.cargado = False
             v.cargado_detalle = ''
             v.save(update_fields=['cargado', 'cargado_detalle'])
             MovimientoCargaVehiculo.objects.create(
-                vehiculo=v, accion='DESCARGA', nota=nota,
+                vehiculo=v, accion='DESCARGA', nota=nota, orden=orden,
                 dispositor=dispositor, registrado_por=usuario)
 
         if self.requiere_disposicion_final == 'SI':
@@ -2062,6 +2081,14 @@ class MovimientoCargaVehiculo(models.Model):
     nota = models.CharField(
         max_length=255,
         help_text="De dónde viene la carga o a dónde se dispuso.",
+    )
+    # La orden que cargó el camión (o la que lo descargó). Es la trazabilidad
+    # que el plan de trabajo muestra al asignar la disposición: "XYZ456,
+    # cargado por la orden #22207". SET_NULL para no bloquear el borrado de
+    # una orden desde el admin: el movimiento sobrevive como histórico.
+    orden = models.ForeignKey(
+        'OrdenServicio', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='movimientos_carga', verbose_name="Orden relacionada",
     )
     # Proveedor donde se dispuso el contenido (cuando aplica).
     dispositor = models.ForeignKey(

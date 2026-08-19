@@ -251,39 +251,36 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
             <div class="card-body">
                 {% if vehiculo.cargado %}
                 <p class="vh-carga-detalle">{{ vehiculo.cargado_detalle|default:"Sin detalle registrado." }}</p>
+                {% if vehiculo.orden_que_cargo %}
+                <p class="text-muted small mb-2">
+                    Lo cargó la
+                    <a href="{% url 'gestion:detalle_orden' vehiculo.orden_que_cargo.pk %}">orden #{{ vehiculo.orden_que_cargo.pk }}</a>.
+                </p>
+                {% endif %}
+                {% comment %}
+                La disposición NO se registra aquí: es trabajo de alguien, así
+                que se asigna en el plan de trabajo y de ahí sale el camión
+                vacío, con responsable y fecha.
+                {% endcomment %}
+                {% if es_administrador %}
+                <a href="{% url 'planes:plan_dia' %}" class="btn btn-success btn-sm w-100">
+                    <i class="bi bi-journal-check me-1"></i>Asignar su disposición en el plan
+                </a>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    La disposición se asigna en el plan de trabajo.
+                </p>
+                {% endif %}
                 {% else %}
                 <p class="text-muted small mb-2">No tiene contenido pendiente de disposición.</p>
-                {% endif %}
-
                 {% if es_asesor %}
-                <button class="btn btn-sm w-100 {% if vehiculo.cargado %}btn-success{% else %}btn-outline-danger{% endif %}"
+                <button class="btn btn-sm w-100 btn-outline-danger"
                         type="button" data-bs-toggle="collapse" data-bs-target="#form-carga">
-                    {% if vehiculo.cargado %}
-                    <i class="bi bi-check2-circle me-1"></i>Registrar la disposición
-                    {% else %}
                     <i class="bi bi-exclamation-octagon me-1"></i>Marcar como cargado
-                    {% endif %}
                 </button>
                 <div class="collapse mt-2" id="form-carga">
                     <form method="post" action="{% url 'gestion:marcar_carga_vehiculo' vehiculo.pk %}" class="vh-form">
                         {% csrf_token %}
-                        {% if vehiculo.cargado %}
-                        <input type="hidden" name="accion" value="DESCARGA">
-                        <label class="form-label small mb-1">¿A dónde se dispuso el contenido? <span class="text-danger">*</span></label>
-                        <input type="text" name="nota" class="form-control form-control-sm mb-2" required
-                               placeholder="Ej: relleno sanitario, vale N° 123">
-                        <label class="form-label small mb-1">Proveedor <span class="text-muted">(opcional)</span></label>
-                        <select name="dispositor" class="form-select form-select-sm mb-2">
-                            <option value="">--- Sin proveedor / otro ---</option>
-                            {% for p in proveedores_disposicion %}
-                            <option value="{{ p.pk }}">{{ p.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                        <button class="btn btn-success btn-sm w-100"
-                                onclick="return confirm('¿Confirmas que el contenido de {{ vehiculo.placa }} ya se dispuso?');">
-                            Registrar la disposición
-                        </button>
-                        {% else %}
                         <input type="hidden" name="accion" value="CARGA">
                         <label class="form-label small mb-1">¿De dónde viene la carga? <span class="text-danger">*</span></label>
                         <input type="text" name="nota" class="form-control form-control-sm mb-2" required
@@ -292,9 +289,9 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
                                 onclick="return confirm('¿Marcar {{ vehiculo.placa }} como cargado, pendiente de disposición?');">
                             Marcar como cargado
                         </button>
-                        {% endif %}
                     </form>
                 </div>
+                {% endif %}
                 {% endif %}
 
                 {% if movimientos_carga %}

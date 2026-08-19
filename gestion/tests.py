@@ -478,6 +478,33 @@ class CargaDeVehiculosTests(BaseCRM):
             cliente=self.cli, conductor=self.conductor, vehiculo=self.camion, **extra)
         return programacion.convertir_en_orden(self.asesor)
 
+    def test_la_disposicion_deja_constancia_aunque_el_camion_no_estuviera_cargado(self):
+        """
+        Antes no se registraba nada si el camión no venía marcado: la
+        trazabilidad del residuo se perdía justo en el caso más común.
+        """
+        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
+        self.assertFalse(self.camion.cargado)
+        orden = self._convertir(requiere_disposicion_final='SI',
+                                dispositor_final=proveedor)
+        movimiento = self.camion.movimientos_carga.get()
+        self.assertEqual(movimiento.accion, 'DESCARGA')
+        self.assertEqual(movimiento.dispositor, proveedor)
+        self.assertEqual(movimiento.orden, orden, "el movimiento sabe de qué orden viene")
+
+    def test_el_movimiento_de_carga_recuerda_la_orden_que_lo_cargo(self):
+        destino = Dispositor.objects.create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
+        orden = self._convertir(requiere_disposicion_final='NO',
+                                dispositor_final=destino)
+        self.camion.refresh_from_db()
+        self.assertEqual(self.camion.carga_actual.orden, orden)
+        self.assertEqual(self.camion.orden_que_cargo, orden)
+
+    def test_un_camion_vacio_no_tiene_orden_que_lo_cargo(self):
+        self.assertIsNone(self.camion.carga_actual)
+        self.assertIsNone(self.camion.orden_que_cargo)
+
     def test_la_disposicion_con_proveedor_descarga_el_camion(self):
         proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
         self.camion.cargado = True
@@ -551,29 +578,28 @@ class CargaDeVehiculosTests(BaseCRM):
         self.assertFalse(self.camion.cargado)
         self.assertFalse(MovimientoCargaVehiculo.objects.exists())
 
-    def test_descargar_a_mano_exige_la_nota_de_trazabilidad(self):
+    def test_el_expediente_del_vehiculo_ya_no_descarga(self):
+        """
+        La disposición es trabajo de alguien: se asigna en el plan de trabajo
+        (decisión del usuario, ago-2026). El botón del expediente se retiró.
+        """
         self.camion.cargado = True
+        self.camion.cargado_detalle = 'Orden #22207'
         self.camion.save()
         self.entrar(self.asesor)
         self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'DESCARGA', 'nota': '   '})
+                         {'accion': 'DESCARGA', 'nota': 'Se dispuso en planta'})
         self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "sin nota no se descarga")
+        self.assertTrue(self.camion.cargado, "solo el plan de trabajo descarga")
         self.assertFalse(MovimientoCargaVehiculo.objects.exists())
 
-    def test_descargar_a_mano_registra_el_movimiento_con_su_proveedor(self):
-        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        self.camion.cargado = True
-        self.camion.save()
+    def test_marcar_carga_a_mano_exige_la_nota_de_trazabilidad(self):
         self.entrar(self.asesor)
         self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'DESCARGA', 'nota': 'Se dispuso en planta',
-                          'dispositor': proveedor.pk})
+                         {'accion': 'CARGA', 'nota': '   '})
         self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        movimiento = MovimientoCargaVehiculo.objects.get()
-        self.assertEqual(movimiento.dispositor, proveedor)
-        self.assertEqual(movimiento.nota, 'Se dispuso en planta')
+        self.assertFalse(self.camion.cargado, "sin nota no se registra la carga")
+        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
 
     def test_marcar_carga_a_mano_deja_el_camion_pendiente(self):
         self.entrar(self.asesor)

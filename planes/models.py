@@ -19,7 +19,7 @@ derivado de datos, igual que la encuesta de cierre.
 from django.conf import settings
 from django.db import models
 
-from gestion.models import OrdenServicio, Proveedor, Vehiculo
+from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 
 
 class PlanDia(models.Model):
@@ -71,9 +71,13 @@ class Asignacion(models.Model):
     ]
 
     # Qué campos pide cada actividad (el formato físico los trae por fila):
-    #   vehiculos: 'uno' | 'varios' | None — si la actividad lleva placa(s).
-    #   orden:     lleva el número de la orden de servicio (disposición final).
+    #   vehiculos: 'uno' | 'varios' | 'cargados' | None — si lleva placa(s).
+    #              'cargados' = SOLO camiones con residuo pendiente: asignar la
+    #              actividad los DESCARGA (es la única vía para hacerlo) y la
+    #              orden sale de la carga, no se digita.
+    #   orden:     lleva el número de la orden de servicio (se digita).
     #   proveedor: lleva el proveedor externo (con opción de crearlo).
+    #   dispositor:lleva el gestor donde se dispuso (opcional).
     #   hora:      lleva hora (los apoyos).
     #   detalle:   True = el detalle es OBLIGATORIO (acompañamiento / otra).
     CAMPOS_POR_TIPO = {
@@ -85,7 +89,7 @@ class Asignacion(models.Model):
         'COMPRA_REPUESTOS':    {'vehiculos': 'varios'},
         'MONTALLANTAS':        {'vehiculos': 'varios'},
         'TRASTEO':             {},
-        'DISPOSICION_FINAL':   {'vehiculos': 'uno', 'orden': True},
+        'DISPOSICION_FINAL':   {'vehiculos': 'cargados', 'dispositor': True},
         'DISPOSICION_SOLMED':  {},
         'ACOMPANAMIENTO':      {'detalle': True},
         'RECOGER_VEHICULO':    {'vehiculos': 'uno'},
@@ -116,6 +120,12 @@ class Asignacion(models.Model):
         Proveedor, on_delete=models.PROTECT, null=True, blank=True,
         related_name='asignaciones_plan', verbose_name="Proveedor externo",
     )
+    # A dónde se llevó el residuo (disposición final). Es el gestor autorizado,
+    # no el proveedor de bienes y servicios: son catálogos distintos.
+    dispositor = models.ForeignKey(
+        Dispositor, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='asignaciones_plan', verbose_name="Gestor de disposición",
+    )
     hora = models.TimeField(null=True, blank=True)
     detalle = models.CharField(max_length=255, blank=True, verbose_name="Descripción")
     registrado_por = models.ForeignKey(
@@ -144,6 +154,54 @@ class Asignacion(models.Model):
     @property
     def campos(self):
         return self.CAMPOS_POR_TIPO.get(self.tipo, {})
+
+    @property
+    def descarga_vehiculos(self):
+        """¿Esta actividad es la que dispone el residuo (y descarga el camión)?"""
+        return self.campos.get('vehiculos') == 'cargados'
+
+    def aplicar_descarga(self, vehiculo, personas):
+        """
+        Deja el camión vacío porque el plan asignó su disposición. Es la ÚNICA
+        vía para descargar a mano (el botón del expediente se retiró): así el
+        residuo siempre sale del sistema con un responsable y una fecha.
+        El movimiento conserva la ORDEN que lo había cargado.
+        """
+        from gestion.models import MovimientoCargaVehiculo
+        nota = (f"Plan del {self.plan.fecha:%d/%m/%Y}: dispuesto por "
+                f"{', '.join(personas)}")
+        if self.detalle:
+            nota += f" · {self.detalle}"
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=vehiculo, accion='DESCARGA', nota=nota[:255],
+            orden=self.orden, dispositor=self.dispositor,
+            registrado_por=self.registrado_por,
+        )
+        vehiculo.cargado = False
+        vehiculo.cargado_detalle = ''
+        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
+
+    def deshacer_descarga(self):
+        """
+        Quitar la asignación devuelve el camión a CARGADO: si la disposición no
+        se hizo, el residuo sigue ahí. Se registra el movimiento para que el
+        historial no mienta.
+        """
+        from gestion.models import MovimientoCargaVehiculo
+        vehiculo = self.vehiculos.first()
+        if vehiculo is None or vehiculo.cargado:
+            return
+        nota = (f"Se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
+                f"disposición asignada a {self.persona_nombre}")
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=vehiculo, accion='CARGA', nota=nota[:255], orden=self.orden,
+            registrado_por=self.registrado_por,
+        )
+        vehiculo.cargado = True
+        vehiculo.cargado_detalle = (
+            f"Orden #{self.orden_id}: sigue pendiente de disposición"
+            if self.orden_id else "Pendiente de disposición")
+        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
 
 
 class Novedad(models.Model):

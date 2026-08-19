@@ -1050,10 +1050,13 @@ class ActualizarClienteView(ClienteFormMixin, AsesorRequiredMixin, UpdateView):
 
 class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
     """
-    Marca a mano la CARGA o la DESCARGA (disposición) de un camión, desde su
-    expediente. Complementa el flujo automático de las órdenes: sirve cuando el
-    residuo se dispone por fuera de una orden o el estado quedó mal. La nota es
-    obligatoria y todo queda en el historial (MovimientoCargaVehiculo).
+    Marca a mano que un camión quedó CARGADO, desde su expediente: sirve
+    cuando el residuo entró por fuera de una orden. La nota es obligatoria y
+    queda en el historial (MovimientoCargaVehiculo).
+
+    DESCARGAR ya NO se hace aquí (decisión del usuario, ago-2026): la
+    disposición es trabajo de alguien, así que se registra asignándola en el
+    PLAN DE TRABAJO. Así el residuo nunca sale del sistema sin responsable.
     """
     def post(self, request, pk):
         from .models import Dispositor, MovimientoCargaVehiculo
@@ -1062,7 +1065,15 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
         nota = request.POST.get('nota', '').strip()
         destino = redirect('gestion:detalle_vehiculo', pk=pk)
 
-        if accion not in ('CARGA', 'DESCARGA'):
+        if accion == 'DESCARGA':
+            messages.error(
+                request,
+                "La descarga se registra en el plan de trabajo: asígnale a "
+                "alguien la disposición de este camión y ahí queda con su "
+                "responsable y su fecha."
+            )
+            return destino
+        if accion != 'CARGA':
             messages.error(request, "Acción no válida.")
             return destino
         if not nota:
@@ -1072,10 +1083,7 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
                 "viene la carga). Es la trazabilidad del residuo."
             )
             return destino
-        if accion == 'DESCARGA' and not vehiculo.cargado:
-            messages.info(request, f"El camión {vehiculo.placa} no está marcado como cargado.")
-            return destino
-        if accion == 'CARGA' and vehiculo.cargado:
+        if vehiculo.cargado:
             messages.info(
                 request,
                 f"El camión {vehiculo.placa} ya está marcado como cargado "
@@ -1083,23 +1091,18 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
             )
             return destino
 
-        dispositor = None
-        if accion == 'DESCARGA':
-            dispositor = Dispositor.objects.filter(
-                pk=request.POST.get('dispositor') or 0, tipo='PROVEEDOR').first()
-            vehiculo.cargado = False
-            vehiculo.cargado_detalle = ''
-            mensaje = f"Camión {vehiculo.placa} marcado como descargado."
-        else:
-            vehiculo.cargado = True
-            vehiculo.cargado_detalle = f"Carga manual: {nota}"
-            mensaje = f"Camión {vehiculo.placa} marcado como CARGADO, pendiente de disposición."
+        vehiculo.cargado = True
+        vehiculo.cargado_detalle = f"Carga manual: {nota}"
         vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
         MovimientoCargaVehiculo.objects.create(
-            vehiculo=vehiculo, accion=accion, nota=nota,
-            dispositor=dispositor, registrado_por=request.user,
+            vehiculo=vehiculo, accion='CARGA', nota=nota,
+            registrado_por=request.user,
         )
-        messages.success(request, mensaje)
+        messages.success(
+            request,
+            f"Camión {vehiculo.placa} marcado como CARGADO, pendiente de "
+            f"disposición. Asígnale la disposición en el plan de trabajo."
+        )
         return destino
 
 

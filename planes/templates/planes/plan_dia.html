@@ -65,6 +65,9 @@
 .pt-sel input{ display:none; }
 .pt-sel label:has(input:checked){ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); font-weight:600; }
 .pt-sel .cargo-mini{ flex-basis:100%; font-family:var(--mono); font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin-top:.25rem; }
+.pt-carga{ color:var(--err); font-weight:600; }
+.pt-sel label.oculta{ display:none; }
+.pt-aviso-carga{ display:none; }
 .pt-campo{ display:none; }
 .pt-campo.visible{ display:block; }
 .pt-panel .form-label{ font-size:.78rem; margin-bottom:.2rem; color:var(--ink-2); }
@@ -193,11 +196,32 @@
 
                         <div class="pt-campo" id="campo-vehiculos">
                             <div class="pt-etq" id="etq-placas">Placa</div>
-                            <div class="pt-sel">
+                            <div class="pt-sel" id="sel-placas">
                                 {% for v in vehiculos %}
-                                <label><input type="checkbox" name="vehiculos" value="{{ v.pk }}"><span class="mono">{{ v.placa }}</span>{% if v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}</label>
+                                <label data-cargado="{% if v.cargado %}1{% else %}0{% endif %}">
+                                    <input type="checkbox" name="vehiculos" value="{{ v.pk }}">
+                                    <span class="mono">{{ v.placa }}</span>{% if v.cargado %} · <span class="pt-carga">cargado{% if v.orden_carga %} por la orden #{{ v.orden_carga }}{% endif %}</span>{% elif v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}
+                                </label>
                                 {% endfor %}
                             </div>
+                            <div class="form-text pt-aviso-carga" id="aviso-cargados" style="font-size:.72rem">
+                                Solo aparecen los camiones con residuo pendiente. Asignar esta
+                                actividad los deja vacíos: es la única forma de descargarlos.
+                            </div>
+                            <div class="form-text pt-aviso-carga" id="aviso-sin-cargados"
+                                 style="font-size:.72rem; display:none">
+                                Ahora mismo ningún camión tiene residuo pendiente de disposición.
+                            </div>
+                        </div>
+
+                        <div class="pt-campo" id="campo-dispositor">
+                            <div class="pt-etq">Gestor de disposición <span class="text-muted">(opcional)</span></div>
+                            <select name="dispositor" class="form-select form-select-sm">
+                                <option value="">--- Dónde se dispuso ---</option>
+                                {% for g in gestores %}
+                                <option value="{{ g.pk }}">{{ g.nombre }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
 
                         <div class="pt-campo" id="campo-orden">
@@ -307,14 +331,32 @@
     // --- Campos según la actividad elegida ---
     var CAMPOS = JSON.parse(document.getElementById('campos-tipo').textContent);
     var selTipo = document.getElementById('sel-tipo');
+    var ETIQUETA_PLACA = { varios: 'Placas', cargados: 'Camión a disponer' };
     function pinta() {
         var spec = CAMPOS[selTipo.value] || {};
+        var soloCargados = spec.vehiculos === 'cargados';
         document.getElementById('campo-vehiculos').classList.toggle('visible', !!spec.vehiculos);
-        document.getElementById('etq-placas').textContent = spec.vehiculos === 'varios' ? 'Placas' : 'Placa';
+        document.getElementById('etq-placas').textContent =
+            ETIQUETA_PLACA[spec.vehiculos] || 'Placa';
         document.getElementById('campo-orden').classList.toggle('visible', !!spec.orden);
         document.getElementById('campo-proveedor').classList.toggle('visible', !!spec.proveedor);
+        document.getElementById('campo-dispositor').classList.toggle('visible', !!spec.dispositor);
         document.getElementById('campo-hora').classList.toggle('visible', !!spec.hora);
         document.getElementById('detalle-opcional').classList.toggle('d-none', !!spec.detalle);
+
+        // Disponer solo tiene sentido sobre un camión con residuo: se ocultan
+        // los vacíos y se desmarca lo que ya no aplica (el servidor lo valida
+        // igual, esto es para no ofrecer lo imposible).
+        var visibles = 0;
+        document.querySelectorAll('#sel-placas label').forEach(function (l) {
+            var oculta = soloCargados && l.dataset.cargado !== '1';
+            l.classList.toggle('oculta', oculta);
+            if (oculta) { l.querySelector('input').checked = false; } else { visibles++; }
+        });
+        document.getElementById('aviso-cargados').style.display =
+            soloCargados && visibles ? 'block' : 'none';
+        document.getElementById('aviso-sin-cargados').style.display =
+            soloCargados && !visibles ? 'block' : 'none';
     }
     selTipo.addEventListener('change', pinta);
     pinta();

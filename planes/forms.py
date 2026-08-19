@@ -2,7 +2,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from gestion.models import OrdenServicio, Proveedor, Vehiculo
+from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 
 from .models import Asignacion, Novedad
 
@@ -20,6 +20,9 @@ class AsignacionForm(forms.Form):
     orden_numero = forms.CharField(required=False, max_length=10)
     proveedor = forms.ModelChoiceField(
         queryset=Proveedor.objects.filter(activo=True), required=False)
+    dispositor = forms.ModelChoiceField(
+        queryset=Dispositor.objects.filter(activo=True, tipo='PROVEEDOR'),
+        required=False)
     detalle = forms.CharField(required=False, max_length=255)
 
     def __init__(self, data=None, personas_ids=None, vehiculos_ids=None, **kwargs):
@@ -46,15 +49,28 @@ class AsignacionForm(forms.Form):
             self.add_error(None, "Marca al menos una persona para asignarle la actividad.")
 
         # ¿Con cuál placa? — solo si la actividad la pide.
-        if campos.get('vehiculos'):
+        cleaned['orden'] = None
+        if campos.get('vehiculos') == 'cargados':
+            # Disponer solo tiene sentido sobre un camión CON residuo, y la
+            # orden no se digita: es la que lo dejó cargado.
+            self.vehiculos = list(Vehiculo.objects.filter(
+                pk__in=self.vehiculos_ids, cargado=True))
+            if not self.vehiculos:
+                self.add_error(None, "Elige el camión cargado que se va a disponer. "
+                                     "Solo aparecen los que tienen residuo pendiente.")
+            elif len(self.vehiculos) > 1:
+                self.add_error(None, "La disposición se asigna de a un camión: "
+                                     "cada uno lleva su propia orden.")
+            else:
+                cleaned['orden'] = self.vehiculos[0].orden_que_cargo
+        elif campos.get('vehiculos'):
             self.vehiculos = list(Vehiculo.objects.filter(pk__in=self.vehiculos_ids))
             if not self.vehiculos:
                 self.add_error(None, f"«{etiqueta}» necesita la placa del vehículo.")
         else:
             self.vehiculos = []
 
-        # La orden de la disposición final: número que exista en el sistema.
-        cleaned['orden'] = None
+        # La orden que se digita (actividades que la piden a mano).
         if campos.get('orden'):
             numero = (cleaned.get('orden_numero') or '').strip()
             if not numero.isdigit():
@@ -73,21 +89,34 @@ class AsignacionForm(forms.Form):
             cleaned['hora'] = None
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
+        if not campos.get('dispositor'):
+            cleaned['dispositor'] = None
         return cleaned
 
     def crear(self, plan, usuario):
-        """Crea una asignación por persona. Devuelve cuántas."""
+        """
+        Crea una asignación por persona (el mismo trabajo suele ir en pareja).
+        Si la actividad dispone el residuo, el camión se descarga UNA vez —no
+        una por persona— y queda el movimiento con su orden y su responsable.
+        """
+        creadas = []
         for persona in self.personas:
             asignacion = Asignacion.objects.create(
                 plan=plan, persona=persona, tipo=self.cleaned_data['tipo'],
                 orden=self.cleaned_data['orden'],
                 proveedor=self.cleaned_data['proveedor'],
+                dispositor=self.cleaned_data['dispositor'],
                 hora=self.cleaned_data['hora'],
                 detalle=(self.cleaned_data.get('detalle') or '').strip(),
                 registrado_por=usuario,
             )
             asignacion.vehiculos.set(self.vehiculos)
-        return len(self.personas)
+            creadas.append(asignacion)
+
+        if creadas and creadas[0].descarga_vehiculos and self.vehiculos:
+            nombres = [a.persona_nombre for a in creadas]
+            creadas[0].aplicar_descarga(self.vehiculos[0], nombres)
+        return len(creadas)
 
 
 class NovedadForm(forms.ModelForm):

@@ -22,7 +22,7 @@ from django.views import View
 from django.views.generic import ListView
 from weasyprint import HTML
 
-from gestion.models import Manifiesto, Recorrido, Vehiculo
+from gestion.models import Dispositor, Manifiesto, Recorrido, Vehiculo
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin
 
 from .forms import AsignacionForm, NovedadForm
@@ -190,9 +190,22 @@ class PlanDiaView(AdministradorRequiredMixin, View):
             'campos_tipo': campos_tipo,
             'tipos_actividad': Asignacion.TIPO_CHOICES,
             # TODAS las placas (también las que están en taller: la
-            # tecnomecánica o el mantenimiento son justo para esas).
-            'vehiculos': Vehiculo.objects.order_by('placa'),
+            # tecnomecánica o el mantenimiento son justo para esas). Cada una
+            # sabe si lleva residuo y qué orden la cargó: la actividad de
+            # disposición solo ofrece esas, y es la única vía para descargar.
+            'vehiculos': self._placas(),
+            'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR'),
         })
+
+    @staticmethod
+    def _placas():
+        vehiculos = list(Vehiculo.objects.order_by('placa').prefetch_related(
+            'movimientos_carga'))
+        for v in vehiculos:
+            movimiento = v.carga_actual
+            v.orden_carga = movimiento.orden_id if movimiento is not None else None
+            v.detalle_carga = (v.cargado_detalle or '') if v.cargado else ''
+        return vehiculos
 
     def post(self, request):
         fecha = _fecha_de(request)
@@ -248,10 +261,30 @@ class PlanDiaView(AdministradorRequiredMixin, View):
 
 
 class EliminarAsignacionView(AdministradorRequiredMixin, View):
-    """Quita una fila del plan (se asignó mal). Solo POST."""
+    """
+    Quita una fila del plan (se asignó mal). Si era la disposición de un
+    camión y no queda nadie más encargado de ella, el camión vuelve a estar
+    CARGADO: si la disposición no se hizo, el residuo sigue ahí.
+    """
     def post(self, request, pk):
         asignacion = get_object_or_404(Asignacion, pk=pk)
         fecha = asignacion.plan.fecha
+        vehiculo = asignacion.vehiculos.first()
+        descargaba = asignacion.descarga_vehiculos and vehiculo is not None
+        # ¿Queda alguien más con esa misma disposición en el plan del día?
+        acompanantes = (
+            Asignacion.objects.filter(plan=asignacion.plan, tipo=asignacion.tipo,
+                                      vehiculos=vehiculo)
+            .exclude(pk=asignacion.pk).exists()
+            if descargaba else False
+        )
+        if descargaba and not acompanantes:
+            asignacion.deshacer_descarga()
+            messages.warning(
+                request,
+                f"El camión {vehiculo.placa} vuelve a quedar CARGADO: se quitó "
+                f"del plan la disposición que tenía asignada."
+            )
         asignacion.delete()
         messages.success(request, "Asignación quitada del plan.")
         return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
