@@ -611,6 +611,20 @@ class Recorrido(models.Model):
         return nombre(self.ayudante), nombre(self.ayudante2)
 
     @property
+    def va_sin_ayudante(self):
+        """
+        El servicio se programó a propósito SIN ayudante (el asesor lo marcó
+        en la cuadrilla). Distinto de que falte asignarlo: por eso se muestra.
+        """
+        if self.ayudante_id or self.ayudante2_id:
+            return False
+        programacion = getattr(self.orden, 'programacion_origen', None)
+        if programacion is None:
+            return False
+        cuadrilla = programacion.cuadrillas.filter(vehiculo=self.vehiculo_id).first()
+        return bool(cuadrilla and cuadrilla.conductor_solo)
+
+    @property
     def personas_asignadas(self):
         """Lista [(persona, es_conductor)] del personal del recorrido, para plantillas."""
         personas = []
@@ -1728,6 +1742,7 @@ class ProgramacionCuadrilla(models.Model):
         # Inicio del turno
         ('INICIA_CLIENTE', 'Inicia turno donde el cliente'),
         ('INICIA_BODEGA', 'Inicia en bodega'),
+        ('INICIA_BODEGA_TARDE', 'Ingresa tarde a bodega (el conductor llegó tarde)'),
         ('INICIA_PARQUEADERO', 'Inicia en parqueadero'),
         ('PUNTO_ENCUENTRO', 'Punto de encuentro'),
         # Fin del turno
@@ -1745,6 +1760,9 @@ class ProgramacionCuadrilla(models.Model):
     # sube desde un enlace con token que le llega por correo (no tiene usuario).
     NOVEDADES_CON_FOTO = (
         'INICIA_CLIENTE', 'TERMINA_CLIENTE', 'INICIA_PARQUEADERO', 'PUNTO_ENCUENTRO',
+        # El ingreso tarde se sustenta con la foto de la hora de llegada: es la
+        # evidencia de que la demora no fue del ayudante sino del conductor.
+        'INICIA_BODEGA_TARDE',
     )
     # Días que el enlace del ayudante sigue sirviendo después del servicio.
     DIAS_VIGENCIA_ACCESO = 7
@@ -1757,6 +1775,12 @@ class ProgramacionCuadrilla(models.Model):
     vehiculo = models.ForeignKey(
         Vehiculo, on_delete=models.PROTECT, related_name='cuadrillas',
         null=True, blank=True, verbose_name="Placa / vehículo"
+    )
+    # El servicio se presta SIN ayudante y así estaba previsto. Es distinto de
+    # dejar el campo vacío: eso no dice si va solo o si falta asignarlo. Se
+    # marca a propósito para que quede en el registro del servicio.
+    conductor_solo = models.BooleanField(
+        default=False, verbose_name="El conductor va solo (sin ayudante)"
     )
     ayudante = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,

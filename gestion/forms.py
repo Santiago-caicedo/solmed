@@ -956,11 +956,13 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
     class Meta:
         model = ProgramacionCuadrilla
         # Las novedades se manejan aparte (CSV); no van en Meta.fields.
-        fields = ['conductor', 'vehiculo', 'ayudante', 'ayudante2',
+        fields = ['conductor', 'vehiculo', 'conductor_solo', 'ayudante', 'ayudante2',
                   'apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo']
         widgets = {
             'conductor': forms.Select(attrs={'class': 'form-select'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'conductor_solo': forms.CheckboxInput(
+                attrs={'class': 'form-check-input', 'role': 'switch'}),
             'ayudante': forms.Select(attrs={'class': 'form-select'}),
             'ayudante2': forms.Select(attrs={'class': 'form-select'}),
             'apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
@@ -998,6 +1000,15 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         a1, a2 = cleaned.get('ayudante'), cleaned.get('ayudante2')
         if a1 and a2 and a1 == a2:
             self.add_error('ayudante2', 'El segundo ayudante no puede ser el mismo que el primero.')
+
+        # "Va solo" y "lleva ayudante" se contradicen: el registro tiene que
+        # decir una sola cosa sobre cómo se prestó el servicio.
+        if cleaned.get('conductor_solo') and (a1 or a2):
+            self.add_error(
+                'conductor_solo',
+                'Marcaste que el conductor va solo, pero le asignaste ayudante. '
+                'Desmarca la casilla o quita al ayudante.'
+            )
         # Novedades solo si hay ese ayudante.
         if not a1:
             cleaned['ayudante_novedad'] = []

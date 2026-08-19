@@ -1666,6 +1666,124 @@ class ValidacionesDeProgramacionTests(BaseCRM):
 
 
 # ============================================================
+#  NOVEDADES DEL AYUDANTE Y SERVICIO SIN AYUDANTE (pedido de la clienta)
+# ============================================================
+class SinAyudanteYNovedadesTests(BaseCRM):
+    """
+    Dos cosas que faltaban en el formato: dejar constancia de que el conductor
+    va solo, y la evidencia del ingreso tarde a bodega cuando la demora fue del
+    conductor.
+    """
+
+    def setUp(self):
+        self.cli = self.cliente()
+        self.camion = self.vehiculo()
+        self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
+        self.con_ss(self.conductor)
+        self.ayudante = self.persona('ayudante', 'Ayudantes', 'Luis', 'Gómez')
+        self.asesor = self.persona('asesor', 'Asesores')
+
+    def cuadrilla(self, **extra):
+        datos = {'cuadrilla-conductor': self.conductor.pk,
+                 'cuadrilla-vehiculo': self.camion.pk}
+        datos.update(extra)
+        return ProgramacionCuadrillaForm(datos, prefix='cuadrilla')
+
+    # ---------- El conductor va solo ----------
+
+    def test_se_puede_dejar_constancia_de_que_el_conductor_va_solo(self):
+        form = self.cuadrilla(**{'cuadrilla-conductor_solo': 'on'})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.cleaned_data['conductor_solo'])
+
+    def test_va_solo_y_con_ayudante_se_contradicen(self):
+        form = self.cuadrilla(**{'cuadrilla-conductor_solo': 'on',
+                                 'cuadrilla-ayudante': self.ayudante.pk})
+        self.assertFalse(form.is_valid())
+        self.assertIn('conductor_solo', form.errors)
+
+    def test_dejar_el_ayudante_vacio_sin_marcar_nada_sigue_valiendo(self):
+        """No se obliga a marcarlo: la casilla informa, no estorba."""
+        form = self.cuadrilla()
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.cleaned_data['conductor_solo'])
+
+    def test_el_expediente_de_la_orden_dice_que_va_solo(self):
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=timezone.localdate())
+        ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor,
+            vehiculo=self.camion, conductor_solo=True)
+        orden = programacion.convertir_en_orden(self.asesor)
+        recorrido = orden.recorridos.get()
+
+        self.assertTrue(recorrido.va_sin_ayudante)
+        self.entrar(self.asesor)
+        self.assertContains(
+            self.client.get(reverse('gestion:detalle_orden', args=[orden.pk])),
+            'El conductor va solo')
+
+    def test_un_servicio_con_ayudante_no_dice_que_va_solo(self):
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=timezone.localdate())
+        ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor,
+            vehiculo=self.camion, ayudante=self.ayudante)
+        recorrido = programacion.convertir_en_orden(self.asesor).recorridos.get()
+        self.assertFalse(recorrido.va_sin_ayudante)
+
+    def test_sin_ayudante_y_sin_marcar_no_afirma_nada(self):
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=timezone.localdate())
+        ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor,
+            vehiculo=self.camion)
+        recorrido = programacion.convertir_en_orden(self.asesor).recorridos.get()
+        self.assertFalse(recorrido.va_sin_ayudante,
+                         "vacío no es lo mismo que «va solo»")
+
+    # ---------- Ingreso tarde a bodega ----------
+
+    def test_el_ingreso_tarde_a_bodega_es_una_novedad_que_pide_foto(self):
+        self.assertIn('INICIA_BODEGA_TARDE',
+                      dict(ProgramacionCuadrilla.NOVEDAD_CHOICES))
+        self.assertIn('INICIA_BODEGA_TARDE',
+                      ProgramacionCuadrilla.NOVEDADES_CON_FOTO)
+
+    def test_iniciar_en_bodega_normal_sigue_sin_pedir_foto(self):
+        self.assertNotIn('INICIA_BODEGA', ProgramacionCuadrilla.NOVEDADES_CON_FOTO)
+
+    def test_al_marcarla_se_le_pide_la_foto_al_ayudante(self):
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=timezone.localdate())
+        cuadrilla = ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor,
+            vehiculo=self.camion, ayudante=self.ayudante,
+            ayudante_novedad='INICIA_BODEGA,INICIA_BODEGA_TARDE')
+        pedidas = {f['codigo'] for f in cuadrilla.fotos_pedidas(1)}
+        self.assertEqual(pedidas, {'INICIA_BODEGA_TARDE'},
+                         "solo el ingreso tarde exige evidencia")
+
+    def test_el_ayudante_la_ve_y_sube_su_evidencia_desde_su_enlace(self):
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=timezone.localdate())
+        cuadrilla = ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor,
+            vehiculo=self.camion, ayudante=self.ayudante,
+            ayudante_novedad='INICIA_BODEGA_TARDE')
+        url = reverse('gestion:acceso_ayudante', args=[cuadrilla.token_ayudante])
+
+        respuesta = self.client.get(url)
+        self.assertContains(respuesta, 'Ingresa tarde a bodega')
+
+        self.client.post(url, {'novedad': 'INICIA_BODEGA_TARDE',
+                               'fotos': [imagen('llegada.png')]})
+        foto = FotoAyudante.objects.get()
+        self.assertEqual(foto.novedad, 'INICIA_BODEGA_TARDE')
+        self.assertEqual(foto.persona, self.ayudante)
+
+
+# ============================================================
 #  CREAR LA PROGRAMACIÓN (crear = generar la orden)
 # ============================================================
 class CrearProgramacionTests(BaseCRM):

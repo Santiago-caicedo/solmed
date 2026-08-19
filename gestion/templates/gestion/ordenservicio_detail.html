@@ -152,6 +152,13 @@ en el número pedido y las que estorben se corren un puesto.
                             {% empty %}
                             <span class="text-muted small"><i class="bi bi-person-dash me-1"></i>Sin personal asignado</span>
                             {% endfor %}
+                            {% if recorrido.va_sin_ayudante %}
+                            <span class="rc-persona" title="Así se programó el servicio">
+                                <i class="bi bi-person-dash"></i>
+                                <span>El conductor va solo</span>
+                                <small>sin ayudante</small>
+                            </span>
+                            {% endif %}
                         </div>
 
                         {% comment %}
