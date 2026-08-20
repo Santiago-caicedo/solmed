@@ -35,7 +35,8 @@ from django.utils import timezone
 
 from .forms import (
     DocumentoPersonalForm, EncuestaConductorForm, OrdenHistoricaForm, PagoForm,
-    ProgramacionCuadrillaForm, ProgramacionForm, roles_asignables,
+    PersonaSinAccesoForm, ProgramacionCuadrillaForm, ProgramacionForm,
+    roles_asignables,
 )
 from .models import (
     Bascula, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
@@ -1467,7 +1468,7 @@ class PersonalYExpedienteTests(BaseCRM):
     def test_un_ayudante_se_registra_sin_acceso_al_sistema(self):
         self.entrar(self.asesor)
         self.client.post(reverse('gestion:crear_persona'), {
-            'first_name': 'Luis', 'last_name': 'Gómez', 'email': '',
+            'first_name': 'Luis', 'last_name': 'Gómez', 'email': 'luis@correo.co',
             'grupo': self.grupo('Ayudantes').pk, 'numero_documento': '1098765432',
         })
         ayudante = User.objects.get(first_name='Luis', last_name='Gómez')
@@ -1475,6 +1476,46 @@ class PersonalYExpedienteTests(BaseCRM):
         self.assertFalse(ayudante.has_usable_password())
         self.assertTrue(ayudante.username, "se le genera un identificador interno")
         self.assertEqual(ayudante.perfil.numero_documento, '1098765432')
+
+    def test_el_correo_es_obligatorio_para_todo_el_personal(self):
+        """
+        Sin correo la persona queda incomunicada: al conductor no le llega el
+        aviso de su servicio y al ayudante —que no tiene usuario— no le llega
+        su enlace con token, que es su única entrada.
+        """
+        from .forms import ActualizarUsuarioForm, CrearUsuarioForm
+
+        # Rol con acceso, al crear.
+        form = CrearUsuarioForm({
+            'username': 'nuevo', 'first_name': 'Ana', 'last_name': 'Ruiz',
+            'email': '', 'password1': CLAVE, 'password2': CLAVE,
+            'grupo': self.grupo('Conductores').pk}, autor=self.asesor)
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+
+        # Ayudante (sin acceso), al crear.
+        form = PersonaSinAccesoForm({
+            'first_name': 'Luis', 'last_name': 'Gómez', 'email': '',
+            'grupo': self.grupo('Ayudantes').pk}, autor=self.asesor)
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+
+        # Y al EDITAR tampoco se le puede borrar (era el hueco de antes).
+        form = ActualizarUsuarioForm({
+            'username': self.conductor.username, 'first_name': 'Carlos',
+            'last_name': 'Pérez', 'email': '', 'is_active': 'on',
+            'grupo': self.grupo('Conductores').pk},
+            instance=self.conductor, autor=self.asesor)
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+
+    def test_un_ayudante_no_se_registra_sin_correo(self):
+        self.entrar(self.asesor)
+        self.client.post(reverse('gestion:crear_persona'), {
+            'first_name': 'Sin', 'last_name': 'Correo', 'email': '',
+            'grupo': self.grupo('Ayudantes').pk, 'numero_documento': '999',
+        })
+        self.assertFalse(User.objects.filter(first_name='Sin').exists())
 
     def test_retirar_a_alguien_le_quita_el_acceso_y_lo_saca_de_las_asignaciones(self):
         self.con_ss(self.conductor)

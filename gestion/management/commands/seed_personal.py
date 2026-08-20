@@ -95,6 +95,12 @@ class Command(BaseCommand):
                       'cargo': cargo, 'direccion': direccion},
         )
 
+    @staticmethod
+    def _correo(nombre, apellido):
+        """Correo de ejemplo: el sistema lo exige a todo el personal."""
+        from django.utils.text import slugify
+        return f"{slugify(nombre)}.{slugify(apellido)}@solmed.com"
+
     def _persona_por_cedula(self, cedula):
         """Persona ya sembrada con esa cédula (para no duplicarla al re-correr)."""
         perfil = PerfilPersona.objects.filter(
@@ -121,6 +127,7 @@ class Command(BaseCommand):
             username=f'c_{cedula}',
             defaults={'first_name': nombre, 'last_name': apellido, 'is_active': True},
         )
+        usuario.email = self._correo(nombre, apellido)
         if creado:
             usuario.set_password('Solmed.2026')
         usuario.first_name, usuario.last_name = nombre, apellido
@@ -144,6 +151,7 @@ class Command(BaseCommand):
             usuario = User(username=generar_username(nombre, apellido, cedula))
             usuario.set_unusable_password()
         usuario.first_name, usuario.last_name = nombre, apellido
+        usuario.email = self._correo(nombre, apellido)
         usuario.is_active = False
         usuario.save()
         usuario.groups.set([Group.objects.get(name='Ayudantes')])

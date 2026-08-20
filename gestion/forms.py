@@ -548,7 +548,10 @@ class PersonaSinAccesoForm(RolLimitadoMixin, forms.ModelForm):
         labels = {
             'first_name': 'Nombres',
             'last_name': 'Apellidos',
-            'email': 'Correo (opcional)',
+            'email': 'Correo electrónico',
+        }
+        help_texts = {
+            'email': 'Por ahí le llega el enlace de su servicio y de sus fotos.',
         }
         widgets = {
             'first_name': forms.TextInput(attrs={'class': 'form-control'}),
@@ -560,7 +563,11 @@ class PersonaSinAccesoForm(RolLimitadoMixin, forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['first_name'].required = True
         self.fields['last_name'].required = True
-        self.fields['email'].required = False
+        # El correo es OBLIGATORIO para todo el personal (decisión del usuario,
+        # ago-2026). El ayudante no tiene usuario ni contraseña: su enlace con
+        # token es la ÚNICA forma de ver su servicio y subir sus fotos, así que
+        # sin correo queda incomunicado.
+        self.fields['email'].required = True
         if self.instance.pk:
             grupo_actual = self.instance.groups.first()
             if grupo_actual:
@@ -596,6 +603,14 @@ class PerfilPersonaForm(forms.ModelForm):
 
 
 class ActualizarUsuarioForm(RolLimitadoMixin, forms.ModelForm):
+    # El correo no se puede borrar al editar: es por donde el sistema le avisa
+    # a la persona (ver PersonaSinAccesoForm).
+    email = forms.EmailField(
+        label="Correo electrónico", required=True,
+        help_text="Por ahí le llega el aviso de su servicio.",
+        widget=forms.EmailInput(attrs={'class': 'form-control'}),
+    )
+
     grupo = forms.ModelChoiceField(
         label="Rol", queryset=Group.objects.all(), required=True,
         widget=forms.Select(attrs={'class': 'form-select'})
