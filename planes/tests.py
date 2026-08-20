@@ -688,3 +688,162 @@ class PdfYRegistroTests(BasePlan):
     def test_una_fecha_mal_escrita_cae_en_hoy(self):
         respuesta = self.client.get(self.url, {'fecha': 'basura'})
         self.assertEqual(respuesta.context['fecha'], self.hoy)
+
+
+class ImportarDisposicionesTests(BasePlan):
+    """
+    El comando que carga en el plan las disposiciones que ya se hicieron pero
+    nunca se registraron (venían en un Excel). Resuelve datos abreviados
+    —placa de 3 letras, nombre de pila, «SOLO» sin ayudante— contra la base.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        self.carpeta = tempfile.mkdtemp()
+        self.cli = Cliente.objects.create(nombre='CREPES & WAFFLES', identificacion='900')
+        self.orden = OrdenServicio.objects.create(
+            cliente=self.cli, asesor=self.admin, direccion_servicio='x', descripcion='y')
+        # El conductor y el ayudante de BasePlan se llaman Carlos Pérez y Luis Gómez.
+
+    def csv(self, *filas, cabecera='FECHA,CLIENTE,VEHÍCULO,ORDEN,CONDUCTOR,AYUDANTE'):
+        import os
+        ruta = os.path.join(self.carpeta, 'disposiciones.csv')
+        with open(ruta, 'w', encoding='utf-8-sig') as f:
+            f.write(cabecera + '\n')
+            for fila in filas:
+                f.write(fila + '\n')
+        return ruta
+
+    def correr(self, ruta, **opciones):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('importar_disposiciones', ruta, stdout=salida, stderr=salida, **opciones)
+        return salida.getvalue()
+
+    def fila(self, **cambios):
+        datos = {'fecha': '02/08/2026', 'cliente': 'CREPES', 'vehiculo': 'WHB',
+                 'orden': f'#{self.orden.pk}', 'conductor': 'CARLOS', 'ayudante': 'LUIS'}
+        datos.update(cambios)
+        return ','.join([datos['fecha'], datos['cliente'], datos['vehiculo'],
+                         datos['orden'], datos['conductor'], datos['ayudante']])
+
+    # ---------- vista previa ----------
+
+    def test_por_defecto_no_escribe_nada(self):
+        salida = self.correr(self.csv(self.fila()))
+        self.assertIn('Vista previa', salida)
+        self.assertFalse(Asignacion.objects.exists())
+        self.assertFalse(PlanDia.objects.exists())
+
+    # ---------- lo que deja ----------
+
+    def test_registra_la_disposicion_para_el_conductor_y_su_ayudante(self):
+        self.correr(self.csv(self.fila()), confirmar=True)
+        plan = PlanDia.objects.get()
+        self.assertEqual(plan.fecha, datetime.date(2026, 8, 2))
+        asignaciones = Asignacion.objects.all()
+        self.assertEqual(asignaciones.count(), 2)
+        for a in asignaciones:
+            self.assertEqual(a.tipo, 'DISPOSICION_FINAL')
+            self.assertEqual(a.orden, self.orden)
+            self.assertEqual(a.placas, 'WHB123')
+        self.assertCountEqual([a.persona for a in asignaciones],
+                              [self.conductor, self.ayudante])
+
+    def test_solo_significa_sin_ayudante(self):
+        self.correr(self.csv(self.fila(ayudante='SOLO')), confirmar=True)
+        self.assertEqual(Asignacion.objects.count(), 1)
+        self.assertEqual(Asignacion.objects.get().persona, self.conductor)
+
+    def test_el_movimiento_queda_fechado_el_dia_real_no_el_de_la_importacion(self):
+        from django.utils import timezone as tz
+        from gestion.models import MovimientoCargaVehiculo
+        self.correr(self.csv(self.fila()), confirmar=True)
+        movimiento = MovimientoCargaVehiculo.objects.get()
+        self.assertEqual(movimiento.accion, 'DESCARGA')
+        self.assertEqual(movimiento.orden, self.orden)
+        self.assertEqual(tz.localtime(movimiento.fecha).date(), datetime.date(2026, 8, 2))
+        self.assertIn('histórico', movimiento.nota)
+
+    def test_un_solo_movimiento_por_disposicion_aunque_vayan_dos_personas(self):
+        from gestion.models import MovimientoCargaVehiculo
+        self.correr(self.csv(self.fila()), confirmar=True)
+        self.assertEqual(Asignacion.objects.count(), 2)
+        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
+
+    def test_no_toca_el_estado_de_carga_de_hoy(self):
+        """El histórico no decide la foto de hoy; el comando lo advierte."""
+        self.camion.cargado = True
+        self.camion.cargado_detalle = 'Orden #22999'
+        self.camion.save()
+        salida = self.correr(self.csv(self.fila()), confirmar=True)
+        self.camion.refresh_from_db()
+        self.assertTrue(self.camion.cargado)
+        self.assertIn('no se tocó', salida)
+        self.assertIn(self.camion.placa, salida)
+
+    def test_correrlo_dos_veces_no_duplica(self):
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+        salida = self.correr(ruta, confirmar=True)
+        self.assertEqual(Asignacion.objects.count(), 2)
+        self.assertEqual(PlanDia.objects.count(), 1)
+        self.assertIn('ya estaban', salida)
+
+    def test_varias_disposiciones_del_mismo_dia_comparten_el_plan(self):
+        otra = OrdenServicio.objects.create(
+            cliente=self.cli, asesor=self.admin, direccion_servicio='x', descripcion='y')
+        self.correr(self.csv(self.fila(),
+                             self.fila(orden=f'#{otra.pk}', ayudante='SOLO')),
+                    confirmar=True)
+        self.assertEqual(PlanDia.objects.count(), 1)
+        self.assertEqual(Asignacion.objects.count(), 3)
+
+    # ---------- lo que no deja pasar ----------
+
+    def test_una_orden_que_no_existe_frena_la_importacion(self):
+        from django.core.management.base import CommandError
+        with self.assertRaises(CommandError):
+            self.correr(self.csv(self.fila(orden='#99999')), confirmar=True)
+        self.assertFalse(Asignacion.objects.exists())
+
+    def test_una_placa_ambigua_frena_la_importacion(self):
+        from django.core.management.base import CommandError
+        Vehiculo.objects.create(placa='WHB999', marca='m', modelo='2020', capacidad='1')
+        with self.assertRaises(CommandError) as caso:
+            self.correr(self.csv(self.fila(vehiculo='WHB')), confirmar=True)
+        self.assertFalse(Asignacion.objects.exists())
+
+    def test_un_nombre_que_no_esta_frena_la_importacion(self):
+        from django.core.management.base import CommandError
+        with self.assertRaises(CommandError):
+            self.correr(self.csv(self.fila(conductor='FULANO')), confirmar=True)
+        self.assertFalse(Asignacion.objects.exists())
+
+    def test_con_omitir_errores_entra_lo_que_si_resolvio(self):
+        self.correr(self.csv(self.fila(), self.fila(conductor='FULANO')),
+                    confirmar=True, omitir_errores=True)
+        self.assertEqual(Asignacion.objects.count(), 2)
+
+    def test_el_nombre_se_busca_dentro_de_su_rol(self):
+        """OSCAR puede ser un conductor y otro OSCAR un ayudante."""
+        conductor = self.persona('oscarc', 'Conductores', 'OSCAR', 'PEÑA')
+        ayudante = self.persona('oscara', 'Ayudantes', 'OSCAR', 'TAMAYO')
+        self.correr(self.csv(self.fila(conductor='OSCAR', ayudante='OSCAR')),
+                    confirmar=True)
+        personas = {a.persona for a in Asignacion.objects.all()}
+        self.assertEqual(personas, {conductor, ayudante})
+
+    def test_avisa_si_el_cliente_del_csv_no_es_el_de_la_orden(self):
+        salida = self.correr(self.csv(self.fila(cliente='OTRO CLIENTE')))
+        self.assertIn('OJO', salida)
+        self.assertIn('CREPES & WAFFLES', salida)
+
+    def test_un_csv_sin_las_columnas_necesarias_no_corre(self):
+        from django.core.management.base import CommandError
+        ruta = self.csv('02/08/2026,CREPES', cabecera='FECHA,CLIENTE')
+        with self.assertRaises(CommandError) as caso:
+            self.correr(ruta)
+        self.assertIn('faltan columnas', str(caso.exception))

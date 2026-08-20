@@ -265,3 +265,6 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/django,python
+
+# Archivos de bloqueo que deja Excel al abrir un libro
+~$*
