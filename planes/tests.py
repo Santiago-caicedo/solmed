@@ -822,27 +822,34 @@ class ImportarDisposicionesTests(BasePlan):
             self.correr(self.csv(self.fila(conductor='FULANO')), confirmar=True)
         self.assertFalse(Asignacion.objects.exists())
 
-    def test_si_la_persona_esta_con_otro_rol_el_error_lo_dice(self):
+    def test_quien_esta_con_otro_rol_se_acepta_pero_se_avisa(self):
         """
-        Pasó de verdad al importar: OSCAR venía como conductor en el Excel
-        pero en el sistema está registrado como ayudante. El error tiene que
-        decirlo, no limitarse a «no se llama así».
+        Pasó de verdad al importar: OSCAR venía como conductor en el Excel y
+        en el sistema está registrado como ayudante. Ese día llevó el camión,
+        así que la fila entra —el histórico manda— pero avisando.
         """
-        from django.core.management.base import CommandError
-        self.persona('oscar', 'Ayudantes', 'OSCAR DARIO', 'BALDOVINO')
-        with self.assertRaises(CommandError):
-            self.correr(self.csv(self.fila(conductor='OSCAR')), confirmar=True)
-        salida = self.correr(self.csv(self.fila(conductor='OSCAR')),
-                             omitir_errores=True)
-        self.assertIn('OSCAR DARIO BALDOVINO', salida)
-        self.assertIn('Ayudantes', salida)
+        oscar = self.persona('oscar', 'Ayudantes', 'OSCAR DARIO', 'BALDOVINO')
+        salida = self.correr(self.csv(self.fila(conductor='OSCAR', ayudante='SOLO')),
+                             confirmar=True)
+        self.assertIn('OJO', salida)
+        self.assertIn('está registrado como Ayudantes', salida)
+        self.assertEqual(Asignacion.objects.get().persona, oscar)
 
-    def test_si_la_persona_esta_retirada_el_error_lo_dice(self):
-        retirado = self.persona('jefferson', 'Ayudantes', 'JEFFERSON', 'MURILLO')
+    def test_quien_ya_se_retiro_tambien_entra_avisando(self):
+        """En agosto trabajaba; que hoy esté retirado no borra lo que hizo."""
+        retirado = self.persona('jeferson', 'Ayudantes', 'JEFERSON', 'MURILLO')
         PerfilPersona.objects.filter(usuario=retirado).update(retirado=True)
-        salida = self.correr(self.csv(self.fila(ayudante='JEFFERSON')),
-                             omitir_errores=True)
+        salida = self.correr(self.csv(self.fila(ayudante='JEFERSON')), confirmar=True)
         self.assertIn('retirado', salida)
+        self.assertIn(retirado, [a.persona for a in Asignacion.objects.all()])
+
+    def test_un_nombre_ambiguo_fuera_del_rol_sigue_frenando(self):
+        from django.core.management.base import CommandError
+        self.persona('juan1', 'Ayudantes', 'JUAN', 'PEREZ')
+        self.persona('juan2', 'Ayudantes', 'JUAN', 'GOMEZ')
+        with self.assertRaises(CommandError):
+            self.correr(self.csv(self.fila(conductor='JUAN')), confirmar=True)
+        self.assertFalse(Asignacion.objects.exists())
 
     def test_si_no_existe_el_error_lista_los_que_si_hay(self):
         salida = self.correr(self.csv(self.fila(conductor='PEDRO')),

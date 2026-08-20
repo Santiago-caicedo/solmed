@@ -127,19 +127,26 @@ class Command(BaseCommand):
                 f"«{crudo}» coincide con varios {rol.lower()}: {nombres}. "
                 f"Escribe el nombre completo en el archivo.")
 
-        # No está entre los de ese rol: se busca en TODA la gente para explicar
-        # el porqué, que es lo que de verdad sirve para arreglar el archivo.
+        # No está entre los de ese rol. Se busca en TODA la gente: en el
+        # histórico pasa —un ayudante que ese día llevó el camión, alguien que
+        # ya se retiró— así que se acepta, pero AVISANDO, para que quien
+        # importa lo vea en la vista previa antes de confirmar.
         otros = coincide(self._todos)
-        if otros:
-            detalles = []
-            for u in otros:
-                roles = ', '.join(u.groups.values_list('name', flat=True)) or 'sin rol'
-                retirado = ' y está retirado' if getattr(
-                    getattr(u, 'perfil', None), 'retirado', False) else ''
-                detalles.append(f"{u.get_full_name() or u.username} está como "
-                                f"{roles}{retirado}")
+        if len(otros) == 1:
+            persona = otros[0]
+            roles = ', '.join(persona.groups.values_list('name', flat=True)) or 'sin rol'
+            retirado = ', retirado' if getattr(
+                getattr(persona, 'perfil', None), 'retirado', False) else ''
+            self._avisos_fila.append(
+                f"«{crudo}» va como {singular}, pero está registrado como "
+                f"{roles}{retirado}: se asignó a "
+                f"{persona.get_full_name() or persona.username}")
+            return persona
+        if len(otros) > 1:
+            nombres = ', '.join(u.get_full_name() or u.username for u in otros)
             raise ValueError(
-                f"«{crudo}» no está entre los {rol.lower()}: " + '; '.join(detalles))
+                f"«{crudo}» no está entre los {rol.lower()} y coincide con "
+                f"varias personas: {nombres}. Escribe el nombre completo.")
 
         disponibles = ', '.join(sorted(
             (u.first_name or u.username).split(' ')[0] for u in self._personal[rol]))
@@ -195,6 +202,7 @@ class Command(BaseCommand):
 
         listas, errores, avisos = [], [], []
         for numero, fila in enumerate(filas, start=2):   # 1 es la cabecera
+            self._avisos_fila = []
             try:
                 datos = {
                     'fecha': self._fecha(self._campo(fila, 'FECHA')),
@@ -209,6 +217,8 @@ class Command(BaseCommand):
             except ValueError as e:
                 errores.append(f"fila {numero}: {e}")
                 continue
+
+            avisos.extend(f"fila {numero}: {a}" for a in self._avisos_fila)
 
             # El cliente no se guarda: sirve para cazar una orden mal escrita.
             cliente = _limpiar(self._campo(fila, 'CLIENTE'))
