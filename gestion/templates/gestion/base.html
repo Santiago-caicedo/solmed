@@ -73,6 +73,8 @@
     hr{ border-color:var(--line); opacity:1; }
     .mono{ font-family:var(--mono); }
     .eyebrow{ font-family:var(--mono); text-transform:uppercase; letter-spacing:.12em; font-size:.68rem; color:var(--ink-3); font-weight:500; }
+    /* Campo obligatorio: el asterisco lo pone marcarObligatorios() al cargar. */
+    .obligatorio{ color:var(--err); font-weight:600; margin-left:.15rem; }
 
     /* ===================== SIDEBAR (command rail) ===================== */
     .sidebar{
@@ -566,6 +568,41 @@
     bd.addEventListener('click', close);
     sb.querySelectorAll('.nav-link').forEach(function(a){ a.addEventListener('click', close); });
 })();
+// Asterisco rojo en los campos obligatorios.
+// Se marca desde el navegador y no plantilla por plantilla: el atributo
+// `required` ya lo pone Django en el control, y `campo.labels` da su etiqueta
+// por la asociación nativa for/id, sin depender de cómo esté anidado el HTML.
+// Se saltan los radios y casillas (Django marca `required` en CADA opción, y
+// se asteriscarían los "Sí"/"No" uno por uno).
+(function(){
+    function marcarObligatorios(raiz){
+        (raiz || document).querySelectorAll(
+            'form [required]:not([type=radio]):not([type=checkbox])'
+        ).forEach(function(campo){
+            var etiqueta = campo.labels && campo.labels[0];
+            if (!etiqueta) return;
+            // Ya lo trae puesto a mano en la plantilla: no duplicar.
+            if (etiqueta.querySelector('.obligatorio, .text-danger')) return;
+            if (etiqueta.textContent.trim().endsWith('*')) return;
+            var marca = document.createElement('span');
+            marca.className = 'obligatorio';
+            marca.setAttribute('aria-hidden', 'true');
+            marca.title = 'Campo obligatorio';
+            marca.textContent = '*';
+            etiqueta.appendChild(marca);
+        });
+    }
+    marcarObligatorios();
+    // Los formularios que crecen solos (sedes, terceros, contactos) añaden
+    // filas después de cargar la página: se vuelven a marcar.
+    document.addEventListener('click', function(e){
+        if (e.target.closest('[data-agregar-fila], .js-agregar-fila')) {
+            setTimeout(marcarObligatorios, 0);
+        }
+    });
+    window.marcarObligatorios = marcarObligatorios;
+})();
+
 // Toasts: cerrar y auto-ocultar
 (function(){
     var stack = document.getElementById('toastStack');

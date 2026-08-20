@@ -57,7 +57,7 @@
     font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
     border-bottom:2px solid transparent; }
 .pt-tabs button.activa{ color:var(--brand-700); border-bottom-color:var(--brand); }
-.pt-etq{ font-family:var(--mono); font-size:.66rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin:.65rem 0 .3rem; }
+.pt-etq{ display:block; font-family:var(--mono); font-size:.66rem; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin:.65rem 0 .3rem; }
 .pt-sel{ display:flex; flex-wrap:wrap; gap:.3rem; max-height:170px; overflow-y:auto; padding:.1rem; }
 .pt-sel label{ display:inline-flex; align-items:center; gap:.3rem; font-size:.76rem; padding:.2rem .55rem; margin:0;
     border:1px solid var(--line); border-radius:99px; background:var(--panel-2); color:var(--ink-2); cursor:pointer; user-select:none; }
@@ -186,7 +186,7 @@
                             {% endfor %}
                         </div>
 
-                        <div class="pt-etq">Actividad</div>
+                        <label class="pt-etq" for="sel-tipo">Actividad</label>
                         <select name="tipo" id="sel-tipo" class="form-select form-select-sm" required>
                             <option value="">--- Elige la actividad ---</option>
                             {% for valor, etiqueta in tipos_actividad %}
@@ -263,13 +263,13 @@
                     <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
-                        <div class="pt-etq">Persona</div>
+                        <label class="pt-etq" for="{{ form_novedad.persona.id_for_label }}">Persona</label>
                         {{ form_novedad.persona }}
-                        <div class="pt-etq">Novedad</div>
+                        <label class="pt-etq" for="{{ form_novedad.tipo.id_for_label }}">Novedad</label>
                         {{ form_novedad.tipo }}
                         <div class="row g-2 mt-0">
                             <div class="col-6">
-                                <div class="pt-etq">Desde</div>
+                                <label class="pt-etq" for="{{ form_novedad.fecha_inicio.id_for_label }}">Desde</label>
                                 {{ form_novedad.fecha_inicio }}
                             </div>
                             <div class="col-6">

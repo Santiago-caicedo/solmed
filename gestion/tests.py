@@ -3275,6 +3275,50 @@ class PantallasPrincipalesTests(BaseCRM):
                 self.assertEqual(
                     self.client.get(reverse(nombre, args=args)).status_code, 200)
 
+    def test_las_etiquetas_de_los_campos_obligatorios_estan_asociadas(self):
+        """
+        El asterisco rojo lo pone `marcarObligatorios()` en el navegador
+        resolviendo `campo.labels`, que depende de la asociación for/id. Un
+        campo obligatorio con la etiqueta suelta (un div, o un label sin `for`)
+        se quedaría sin marcar y sin poder pincharse.
+        """
+        from html.parser import HTMLParser
+
+        class Extractor(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.etiquetados = set()
+                self.requeridos = []
+
+            def handle_starttag(self, tag, attrs):
+                a = dict(attrs)
+                if tag == 'label' and a.get('for'):
+                    self.etiquetados.add(a['for'])
+                elif tag in ('input', 'select', 'textarea') and 'required' in a:
+                    if a.get('type') not in ('radio', 'checkbox') and a.get('id'):
+                        self.requeridos.append(a['id'])
+
+        self.entrar(self.admin)      # ya existe en setUp
+        self.cliente()
+        self.vehiculo()
+        pantallas = [
+            reverse('gestion:crear_persona'),
+            reverse('gestion:crear_programacion'),
+            reverse('gestion:crear_cliente'),
+            reverse('gestion:crear_vehiculo'),
+            reverse('gestion:crear_proveedor'),
+            reverse('planes:plan_dia'),
+        ]
+        for url in pantallas:
+            with self.subTest(pantalla=url):
+                extractor = Extractor()
+                extractor.feed(self.client.get(url).content.decode())
+                self.assertTrue(extractor.requeridos, "la pantalla no tiene obligatorios")
+                huerfanos = [i for i in extractor.requeridos
+                             if i not in extractor.etiquetados]
+                self.assertEqual(huerfanos, [],
+                                 "campos obligatorios sin etiqueta asociada")
+
     def test_los_reportes_responden_a_cada_tipo(self):
         self.servicio_completo()
         self.entrar(self.admin)
@@ -3316,6 +3360,15 @@ class PlantillasTests(TestCase):
                     if '{#' in linea and '#}' not in linea.split('{#', 1)[1]:
                         rotos.append(f"{os.path.basename(ruta)}:{numero}")
         self.assertEqual(rotos, [], "esos comentarios se verán como texto en la página")
+
+    def test_la_consola_marca_sola_los_campos_obligatorios(self):
+        """El marcado vive en la base: no hay que tocar cada plantilla."""
+        base = open(os.path.join('gestion', 'templates', 'gestion', 'base.html'),
+                    encoding='utf-8').read()
+        self.assertIn('marcarObligatorios', base)
+        self.assertIn('.obligatorio{', base)
+        # No debe asteriscar cada opción de un grupo de radios/casillas.
+        self.assertIn(':not([type=radio]):not([type=checkbox])', base)
 
     def test_ningun_javascript_asume_que_los_widgets_son_listas(self):
         sospechosos = []
