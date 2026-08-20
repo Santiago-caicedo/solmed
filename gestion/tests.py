@@ -2763,7 +2763,10 @@ class CentroDeCorreosTests(BaseCRM):
 #  DOCUMENTACIÓN INTERNA DE SOLMED
 # ============================================================
 class DocumentacionSolmedTests(BaseCRM):
-    """Una sola versión vigente por documento: cargar otro REEMPLAZA al anterior."""
+    """
+    Una sola versión vigente por documento: cargar otro REEMPLAZA al anterior.
+    La pantalla es el índice del expediente: dice cuánto está cargado y qué falta.
+    """
 
     def setUp(self):
         self.asesor = self.persona('asesor', 'Asesores')
@@ -2776,6 +2779,40 @@ class DocumentacionSolmedTests(BaseCRM):
                                     'fecha': '', 'entidad': '', 'descripcion': ''})
         self.assertEqual(DocumentoInterno.objects.filter(tipo='RIT').count(), 1)
         self.assertFalse(DocumentoInterno.objects.filter(pk=viejo.pk).exists())
+
+    def test_la_pantalla_dice_cuantos_documentos_tiene_el_expediente(self):
+        DocumentoInterno.objects.create(tipo='RIT', archivo=archivo('rit.pdf'))
+        contexto = self.client.get(self.url).context
+        resumen = contexto['resumen']
+        self.assertEqual(resumen['completos'], 1)
+        self.assertEqual(resumen['total'], len(contexto['secciones']))
+        self.assertFalse(resumen['vacio'])
+        faltantes = [s['label'] for s in resumen['faltan']]
+        self.assertIn('RUT completo', faltantes)
+        self.assertNotIn('RIT', faltantes)
+
+    def test_con_el_expediente_vacio_invita_a_empezar_en_vez_de_listar_todo(self):
+        contexto = self.client.get(self.url).context
+        self.assertTrue(contexto['resumen']['vacio'])
+        self.assertContains(self.client.get(self.url),
+                            'Todavía no hay ningún documento cargado')
+
+    def test_solo_nombra_unos_pocos_faltantes(self):
+        """Con muchos sin cargar, enumerarlos repetiría la lista de abajo."""
+        contexto = self.client.get(self.url).context
+        resumen = contexto['resumen']
+        self.assertLessEqual(len(resumen['faltan_nombrados']), 4)
+        self.assertEqual(len(resumen['faltan_nombrados']) + resumen['faltan_resto'],
+                         len(resumen['faltan']))
+
+    def test_cada_documento_muestra_su_tipo_y_desde_cuando_esta(self):
+        DocumentoInterno.objects.create(tipo='RIT', archivo=archivo('rit.pdf'))
+        seccion = [s for s in self.client.get(self.url).context['secciones']
+                   if s['tipo'] == 'RIT'][0]
+        documento = seccion['docs'][0]
+        self.assertEqual(documento.extension, 'PDF')
+        self.assertEqual(documento.antiguedad, 'cargado hoy')
+        self.assertTrue(seccion['completo'])
 
     def test_la_certificacion_bancaria_se_reemplaza_por_banco_no_entre_cuentas(self):
         self.client.post(self.url, {

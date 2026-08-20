@@ -5160,32 +5160,74 @@ class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
 class DocumentacionSolmedView(AsesorRequiredMixin, View):
     template_name = 'gestion/documentacion.html'
 
+    @staticmethod
+    def _detalle(documento):
+        """Lo que la fila del índice muestra de cada archivo, sin tocar el storage."""
+        # OJO: nada de consultar el TAMAÑO. En S3 cada `.size` es una petición
+        # de red, y esta pantalla lista todo el expediente de una.
+        nombre = os.path.basename(documento.archivo.name or '')
+        extension = os.path.splitext(nombre)[1].lstrip('.').upper()
+        dias = (timezone.localdate() - documento.fecha_subida.date()).days
+        if dias <= 0:
+            antiguedad = 'cargado hoy'
+        elif dias == 1:
+            antiguedad = 'cargado ayer'
+        elif dias < 31:
+            antiguedad = f'cargado hace {dias} días'
+        elif dias < 365:
+            meses = dias // 30
+            antiguedad = f'cargado hace {meses} mes{"es" if meses != 1 else ""}'
+        else:
+            anios = dias // 365
+            antiguedad = f'cargado hace {anios} año{"s" if anios != 1 else ""}'
+        documento.extension = extension or 'archivo'
+        documento.antiguedad = antiguedad
+        return documento
+
     def _context(self):
         from .models import DocumentoInterno
-        docs = list(DocumentoInterno.objects.all())
+        docs = [self._detalle(d) for d in DocumentoInterno.objects.all()]
         por_tipo = {}
         for d in docs:
             por_tipo.setdefault(d.tipo, []).append(d)
-        # Una tarjeta por tipo fijo, en el orden de las opciones del modelo. La
-        # documentación ADICIONAL (nombre libre) va en su propia sección arriba.
+        # Una fila del índice por tipo fijo, en el orden de las opciones del
+        # modelo. La documentación ADICIONAL (nombre libre) va en su propio
+        # bloque, porque no forma parte del expediente obligatorio.
         secciones = []
         for tipo, label in DocumentoInterno.TIPO_CHOICES:
             if tipo == DocumentoInterno.TIPO_ADICIONAL:
                 continue
+            cargados = por_tipo.get(tipo, [])
             secciones.append({
                 'tipo': tipo,
                 'label': label,
-                'docs': por_tipo.get(tipo, []),
+                'docs': cargados,
                 'con_fecha': tipo in DocumentoInterno.TIPOS_CON_FECHA,
                 'es_bancaria': tipo == DocumentoInterno.TIPO_MULTIPLE,
                 'multiple': tipo == DocumentoInterno.TIPO_MULTIPLE,
+                'completo': bool(cargados),
             })
         adicionales = sorted(por_tipo.get(DocumentoInterno.TIPO_ADICIONAL, []),
                              key=lambda d: d.descripcion.lower())
+
+        # Estado del expediente: la pregunta que trae a esta pantalla es
+        # "¿qué papel de la empresa me falta?". Se nombran los que faltan, pero
+        # solo mientras sean pocos: con el expediente vacío, enumerarlos todos
+        # repetiría la lista de abajo en vez de decir por dónde empezar.
+        faltan = [s for s in secciones if not s['completo']]
+        MAX_NOMBRADOS = 4
         return {
             'secciones': secciones,
             'adicionales': adicionales,
             'entidades_bancarias': DocumentoInterno.ENTIDADES_BANCARIAS,
+            'resumen': {
+                'total': len(secciones),
+                'completos': len(secciones) - len(faltan),
+                'faltan': faltan,
+                'faltan_nombrados': faltan[:MAX_NOMBRADOS],
+                'faltan_resto': max(len(faltan) - MAX_NOMBRADOS, 0),
+                'vacio': not any(s['completo'] for s in secciones),
+            },
         }
 
     def get(self, request):
