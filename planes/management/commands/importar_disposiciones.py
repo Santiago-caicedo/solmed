@@ -96,21 +96,56 @@ class Command(BaseCommand):
             raise ValueError(f"ninguna placa contiene «{crudo}»")
         if len(candidatos) > 1:
             placas = ', '.join(v.placa for v in candidatos)
-            raise ValueError(f"«{crudo}» coincide con varias placas ({placas})")
+            raise ValueError(f"«{crudo}» coincide con varias placas: {placas}")
         return candidatos[0]
 
+    # Cómo se nombra cada rol en los mensajes (en singular).
+    SINGULAR = {'Conductores': 'conductor', 'Ayudantes': 'ayudante'}
+
     def _persona(self, crudo, rol):
+        """
+        Encuentra a la persona por un fragmento de su nombre, DENTRO de su rol.
+        Si no aparece, el error dice por qué: casi siempre está con otro rol,
+        retirada, o escrita distinto — y con eso se corrige el archivo sin
+        tener que ir a buscar a la base.
+        """
+        singular = self.SINGULAR.get(rol, rol.lower())
         fragmento = _limpiar(crudo)
         if not fragmento:
-            raise ValueError(f"falta el {rol.lower()}")
-        candidatos = [u for u in self._personal[rol]
-                      if fragmento in _limpiar(f"{u.first_name} {u.last_name}")]
-        if not candidatos:
-            raise ValueError(f"ningún {rol.lower()} se llama «{crudo}»")
+            raise ValueError(f"falta el {singular}")
+
+        def coincide(personas):
+            return [u for u in personas
+                    if fragmento in _limpiar(f"{u.first_name} {u.last_name}")]
+
+        candidatos = coincide(self._personal[rol])
+        if len(candidatos) == 1:
+            return candidatos[0]
         if len(candidatos) > 1:
             nombres = ', '.join(u.get_full_name() or u.username for u in candidatos)
-            raise ValueError(f"«{crudo}» coincide con varios {rol.lower()}es ({nombres})")
-        return candidatos[0]
+            raise ValueError(
+                f"«{crudo}» coincide con varios {rol.lower()}: {nombres}. "
+                f"Escribe el nombre completo en el archivo.")
+
+        # No está entre los de ese rol: se busca en TODA la gente para explicar
+        # el porqué, que es lo que de verdad sirve para arreglar el archivo.
+        otros = coincide(self._todos)
+        if otros:
+            detalles = []
+            for u in otros:
+                roles = ', '.join(u.groups.values_list('name', flat=True)) or 'sin rol'
+                retirado = ' y está retirado' if getattr(
+                    getattr(u, 'perfil', None), 'retirado', False) else ''
+                detalles.append(f"{u.get_full_name() or u.username} está como "
+                                f"{roles}{retirado}")
+            raise ValueError(
+                f"«{crudo}» no está entre los {rol.lower()}: " + '; '.join(detalles))
+
+        disponibles = ', '.join(sorted(
+            (u.first_name or u.username).split(' ')[0] for u in self._personal[rol]))
+        raise ValueError(
+            f"«{crudo}» no está registrado como {singular}. "
+            f"Hay estos: {disponibles or 'ninguno'}")
 
     def _leer(self, ruta):
         try:
@@ -147,6 +182,10 @@ class Command(BaseCommand):
             grupo = Group.objects.filter(name=rol).first()
             self._personal[rol] = list(
                 grupo.user_set.exclude(perfil__retirado=True) if grupo else [])
+        # Todo el personal (incluidos retirados y otros roles): solo se usa
+        # para explicar por qué un nombre no resolvió.
+        self._todos = list(User.objects.exclude(is_superuser=True)
+                           .select_related('perfil').prefetch_related('groups'))
 
         autor = None
         if opciones['usuario']:

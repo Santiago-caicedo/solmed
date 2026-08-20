@@ -822,6 +822,34 @@ class ImportarDisposicionesTests(BasePlan):
             self.correr(self.csv(self.fila(conductor='FULANO')), confirmar=True)
         self.assertFalse(Asignacion.objects.exists())
 
+    def test_si_la_persona_esta_con_otro_rol_el_error_lo_dice(self):
+        """
+        Pasó de verdad al importar: OSCAR venía como conductor en el Excel
+        pero en el sistema está registrado como ayudante. El error tiene que
+        decirlo, no limitarse a «no se llama así».
+        """
+        from django.core.management.base import CommandError
+        self.persona('oscar', 'Ayudantes', 'OSCAR DARIO', 'BALDOVINO')
+        with self.assertRaises(CommandError):
+            self.correr(self.csv(self.fila(conductor='OSCAR')), confirmar=True)
+        salida = self.correr(self.csv(self.fila(conductor='OSCAR')),
+                             omitir_errores=True)
+        self.assertIn('OSCAR DARIO BALDOVINO', salida)
+        self.assertIn('Ayudantes', salida)
+
+    def test_si_la_persona_esta_retirada_el_error_lo_dice(self):
+        retirado = self.persona('jefferson', 'Ayudantes', 'JEFFERSON', 'MURILLO')
+        PerfilPersona.objects.filter(usuario=retirado).update(retirado=True)
+        salida = self.correr(self.csv(self.fila(ayudante='JEFFERSON')),
+                             omitir_errores=True)
+        self.assertIn('retirado', salida)
+
+    def test_si_no_existe_el_error_lista_los_que_si_hay(self):
+        salida = self.correr(self.csv(self.fila(conductor='PEDRO')),
+                             omitir_errores=True)
+        self.assertIn('no está registrado como conductor', salida)
+        self.assertIn('Carlos', salida, "debe listar los conductores que sí hay")
+
     def test_con_omitir_errores_entra_lo_que_si_resolvio(self):
         self.correr(self.csv(self.fila(), self.fila(conductor='FULANO')),
                     confirmar=True, omitir_errores=True)
