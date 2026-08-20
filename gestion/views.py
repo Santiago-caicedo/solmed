@@ -2289,6 +2289,28 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
                         'faltan': [p['etiqueta'] for p in pendientes],
                     })
         context['evidencias_ayudantes'] = evidencias
+
+        # A qué correo le llega el enlace a CADA ayudante, con su botón de
+        # reenviar — el mismo aviso que ya tenía el conductor. Va en la tarjeta
+        # del recorrido, así que existe aunque al ayudante no le falten fotos
+        # (antes el reenvío solo aparecía en Evidencias mientras faltaran).
+        # El destinatario es el ayudante de la CUADRILLA: su token vive ahí.
+        if programacion is not None:
+            cuadrillas = list(programacion.cuadrillas.all())
+            for recorrido in self.object.recorridos.all():
+                cuadrilla = next(
+                    (c for c in cuadrillas if c.vehiculo_id == recorrido.vehiculo_id),
+                    cuadrillas[0] if cuadrillas else None)
+                avisos = []
+                if cuadrilla is not None:
+                    for slot in (1, 2):
+                        persona = cuadrilla.ayudante_de(slot)
+                        if persona is not None:
+                            avisos.append({'persona': persona,
+                                           'cuadrilla': cuadrilla, 'slot': slot})
+                # Se cuelga del objeto: la plantilla itera estas mismas
+                # instancias (vienen del prefetch de la orden).
+                recorrido.avisos_ayudantes = avisos
         # ¿Los soportes exigidos (báscula / fotos) ya están completos?
         orden = self.object
         context['soportes_ok'] = (
@@ -2391,7 +2413,7 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
                             request,
                             f"Correo reenviado a "
                             f"{ayudante.get_full_name() or ayudante.username} "
-                            f"con su enlace para subir las fotos del servicio."
+                            f"({ayudante.email}) con el enlace de su servicio."
                         )
                         if not cuadrilla.acceso_vigente:
                             messages.warning(

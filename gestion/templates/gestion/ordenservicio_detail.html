@@ -195,6 +195,41 @@ en el número pedido y las que estorben se corren un puesto.
                         </div>
                         {% endif %}
 
+                        {% comment %}
+                        El mismo aviso, por cada ayudante: a qué correo le llega
+                        su enlace personal y el botón para reenviárselo (sirve
+                        aunque no tenga fotos pendientes).
+                        {% endcomment %}
+                        {% for aviso in recorrido.avisos_ayudantes %}
+                        <div class="rc-aviso">
+                            <i class="bi bi-envelope"></i>
+                            {% if aviso.persona.email %}
+                            <span class="tx">Se le avisa a
+                                <strong>{{ aviso.persona.email }}</strong>
+                                <small>({{ aviso.persona.get_full_name|default:aviso.persona.username }} · ayudante)</small>
+                            </span>
+                            <form method="post" class="ms-auto">
+                                {% csrf_token %}
+                                <input type="hidden" name="submit_reenviar_ayudante" value="1">
+                                <input type="hidden" name="cuadrilla" value="{{ aviso.cuadrilla.pk }}">
+                                <input type="hidden" name="slot" value="{{ aviso.slot }}">
+                                <button class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-envelope-arrow-up me-1"></i>Reenviar correo al ayudante
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="tx text-danger">
+                                {{ aviso.persona.get_full_name|default:aviso.persona.username }}
+                                (ayudante) no tiene correo registrado: no recibe su enlace.
+                            </span>
+                            <a href="{% url 'gestion:editar_cuenta_persona' aviso.persona.pk %}"
+                               class="btn btn-sm btn-outline-secondary ms-auto">
+                                <i class="bi bi-pencil me-1"></i>Registrarle el correo
+                            </a>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+
                         {# --- Documentos del recorrido --- #}
                         <div class="rc-docs">
                             <div class="rc-doc">

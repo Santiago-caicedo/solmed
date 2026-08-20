@@ -3452,6 +3452,50 @@ class ExpedienteDeLaOrdenTests(BaseCRM):
         self.assertIn(str(self.cuadrilla.token_ayudante), cuerpo)
         self.assertNotIn(self.cli.nombre, cuerpo, "al ayudante no le llega el cliente")
 
+    def test_el_expediente_muestra_el_correo_de_cada_ayudante_con_su_boton(self):
+        """El mismo aviso del conductor, ahora también por cada ayudante."""
+        segundo = self.persona('ayudante2', 'Ayudantes', 'Iván', 'Mora')
+        self.cuadrilla.ayudante2 = segundo
+        self.cuadrilla.save()
+        respuesta = self.client.get(self.url)
+        contenido = respuesta.content.decode()
+        self.assertIn(self.ayudante.email, contenido)
+        self.assertIn(segundo.email, contenido)
+        self.assertEqual(contenido.count('Reenviar correo al ayudante'), 2)
+
+    def test_reenviar_al_ayudante_sirve_aunque_no_tenga_fotos_pendientes(self):
+        """Antes el botón solo existía mientras faltaran fotos."""
+        self.cuadrilla.ayudante_novedad = ''   # sin novedades: nada de fotos
+        self.cuadrilla.save()
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'Reenviar correo al ayudante')
+
+        mail.outbox.clear()
+        self.client.post(self.url, {'submit_reenviar_ayudante': '1',
+                                    'cuadrilla': self.cuadrilla.pk, 'slot': '1'})
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        cuerpo = correo.body + ' '.join(str(a) for a, _ in correo.alternatives)
+        self.assertEqual(correo.to, [self.ayudante.email])
+        self.assertIn(str(self.cuadrilla.token_ayudante), cuerpo)
+
+    def test_un_ayudante_sin_correo_ofrece_registrarselo(self):
+        self.ayudante.email = ''
+        self.ayudante.save()
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'no tiene correo registrado')
+        self.assertContains(
+            respuesta,
+            reverse('gestion:editar_cuenta_persona', args=[self.ayudante.pk]))
+
+    def test_sin_ayudantes_no_salen_filas_de_aviso_de_ayudante(self):
+        self.cuadrilla.ayudante = None
+        self.cuadrilla.save()
+        self.recorrido.ayudante = None
+        self.recorrido.save()
+        self.assertNotContains(self.client.get(self.url),
+                               'Reenviar correo al ayudante')
+
     def test_se_adjuntan_documentos_a_la_orden(self):
         self.client.post(self.url, {'submit_documento': '1',
                                     'archivo': archivo('anexo.pdf'),
