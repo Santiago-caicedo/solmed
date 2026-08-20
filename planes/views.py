@@ -332,29 +332,63 @@ class HistorialPlanesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
 
 
 class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
-    """El registro completo de novedades, filtrable por persona y tipo."""
+    """
+    El registro completo de novedades, filtrable por trabajador, tipo de
+    novedad y FECHA. El filtro de fechas trabaja por CRUCE, no por igualdad:
+    una novedad que va del 14 al 25 aparece si se consulta el 20, o del 18 al
+    21 — que es como se pregunta de verdad ("¿quién estaba incapacitado esa
+    semana?"). Sin fecha final, la novedad vale solo su día de inicio.
+    """
     model = Novedad
     template_name = 'planes/novedades.html'
     context_object_name = 'novedades'
 
+    @staticmethod
+    def _fecha(crudo):
+        try:
+            return datetime.datetime.strptime(crudo, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return None
+
     def get_queryset(self):
-        qs = Novedad.objects.select_related('persona', 'registrado_por')
+        from django.db.models import Q
+        from django.db.models.functions import Coalesce
+
+        qs = (Novedad.objects.select_related('persona', 'registrado_por')
+              # El último día que cubre la novedad: su fecha final o, si no
+              # tiene, la de inicio (las de un solo día).
+              .annotate(fin_efectivo=Coalesce('fecha_fin', 'fecha_inicio')))
         q = self.request.GET.get('q', '').strip()
         tipo = self.request.GET.get('tipo', '')
+        desde = self._fecha(self.request.GET.get('desde'))
+        hasta = self._fecha(self.request.GET.get('hasta'))
+
         if q:
-            from django.db.models import Q
             qs = qs.filter(Q(persona__first_name__icontains=q)
                            | Q(persona__last_name__icontains=q)
-                           | Q(persona__username__icontains=q))
+                           | Q(persona__username__icontains=q)
+                           | Q(persona__perfil__numero_documento__icontains=q))
         if tipo:
             qs = qs.filter(tipo=tipo)
+        if desde:
+            qs = qs.filter(fin_efectivo__gte=desde)
+        if hasta:
+            qs = qs.filter(fecha_inicio__lte=hasta)
         return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['q'] = self.request.GET.get('q', '')
-        context['tipo_sel'] = self.request.GET.get('tipo', '')
-        context['tipos'] = Novedad.TIPO_CHOICES
+        filtros = {campo: self.request.GET.get(campo, '')
+                   for campo in ('q', 'tipo', 'desde', 'hasta')}
+        context.update({
+            'filtros': filtros,
+            # Nombres viejos, por si alguna plantilla los usa.
+            'q': filtros['q'],
+            'tipo_sel': filtros['tipo'],
+            'tipos': Novedad.TIPO_CHOICES,
+            'hay_filtros': any(filtros.values()),
+            'hoy': timezone.localdate(),
+        })
         return context
 
 

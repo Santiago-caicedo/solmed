@@ -532,6 +532,107 @@ class NovedadesTests(BasePlan):
                          ['INCAPACIDAD_EPS'])
 
 
+class FiltrosDelRegistroDeNovedadesTests(BasePlan):
+    """
+    El histórico se filtra por trabajador, novedad y FECHA. Las fechas
+    trabajan por cruce: una novedad que abarca varios días aparece si
+    cualquiera de ellos cae en el rango consultado.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.url = reverse('planes:novedades')
+        # Vacaciones del día 10 al 20 (rango largo).
+        self.vacaciones = Novedad.objects.create(
+            persona=self.conductor, tipo='VACACIONES',
+            fecha_inicio=datetime.date(2026, 8, 10),
+            fecha_fin=datetime.date(2026, 8, 20), registrado_por=self.admin)
+        # Una cita médica de un solo día, el 15.
+        self.cita = Novedad.objects.create(
+            persona=self.ayudante, tipo='PERMISO_CITA_MEDICA',
+            fecha_inicio=datetime.date(2026, 8, 15), registrado_por=self.admin)
+        # Una incapacidad vieja, en julio.
+        self.vieja = Novedad.objects.create(
+            persona=self.conductor, tipo='INCAPACIDAD_EPS',
+            fecha_inicio=datetime.date(2026, 7, 1),
+            fecha_fin=datetime.date(2026, 7, 5), registrado_por=self.admin)
+
+    def filtrar(self, **parametros):
+        contexto = self.client.get(self.url, parametros).context
+        return list(contexto['novedades'])
+
+    def test_sin_filtros_salen_todas(self):
+        self.assertEqual(len(self.filtrar()), 3)
+
+    def test_un_dia_dentro_del_rango_trae_la_novedad_larga(self):
+        """Se consulta el 14 y las vacaciones del 10 al 20 deben aparecer."""
+        resultado = self.filtrar(desde='2026-08-14', hasta='2026-08-14')
+        self.assertEqual(resultado, [self.vacaciones])
+
+    def test_un_rango_que_cruza_trae_las_que_se_solapan(self):
+        resultado = self.filtrar(desde='2026-08-15', hasta='2026-08-16')
+        self.assertCountEqual(resultado, [self.vacaciones, self.cita])
+
+    def test_un_rango_por_fuera_no_trae_nada(self):
+        self.assertEqual(self.filtrar(desde='2026-09-01', hasta='2026-09-30'), [])
+
+    def test_solo_desde_trae_lo_que_termina_de_esa_fecha_en_adelante(self):
+        resultado = self.filtrar(desde='2026-08-01')
+        self.assertCountEqual(resultado, [self.vacaciones, self.cita])
+        self.assertNotIn(self.vieja, resultado)
+
+    def test_solo_hasta_trae_lo_que_empieza_antes_de_esa_fecha(self):
+        resultado = self.filtrar(hasta='2026-07-31')
+        self.assertEqual(resultado, [self.vieja])
+
+    def test_una_novedad_de_un_solo_dia_se_encuentra_por_su_fecha(self):
+        """La cita del 15 (sin fecha final) aparece al consultar ese día."""
+        resultado = self.filtrar(desde='2026-08-15', hasta='2026-08-15')
+        self.assertIn(self.cita, resultado)
+        self.assertIn(self.vacaciones, resultado, "el 15 cae dentro del 10–20")
+        self.assertNotIn(self.vieja, resultado)
+
+    def test_esa_misma_cita_no_aparece_el_dia_siguiente(self):
+        resultado = self.filtrar(desde='2026-08-16', hasta='2026-08-16')
+        self.assertNotIn(self.cita, resultado, "sin fecha final vale un solo día")
+        self.assertIn(self.vacaciones, resultado)
+
+    def test_la_fecha_se_combina_con_el_trabajador_y_la_novedad(self):
+        resultado = self.filtrar(desde='2026-08-01', hasta='2026-08-31',
+                                 q='Carlos')
+        self.assertEqual(resultado, [self.vacaciones])
+
+        resultado = self.filtrar(desde='2026-08-01', hasta='2026-08-31',
+                                 tipo='PERMISO_CITA_MEDICA')
+        self.assertEqual(resultado, [self.cita])
+
+    def test_se_busca_al_trabajador_por_su_cedula(self):
+        self.conductor.perfil.numero_documento = '1098765432'
+        self.conductor.perfil.save()
+        resultado = self.filtrar(q='10987')
+        self.assertCountEqual(resultado, [self.vacaciones, self.vieja])
+
+    def test_una_fecha_mal_escrita_se_ignora_en_vez_de_reventar(self):
+        self.assertEqual(len(self.filtrar(desde='no-es-fecha')), 3)
+
+    def test_los_filtros_puestos_se_devuelven_a_la_pantalla(self):
+        contexto = self.client.get(self.url, {'q': 'Carlos', 'tipo': 'VACACIONES',
+                                              'desde': '2026-08-01',
+                                              'hasta': '2026-08-31'}).context
+        self.assertEqual(contexto['filtros'], {
+            'q': 'Carlos', 'tipo': 'VACACIONES',
+            'desde': '2026-08-01', 'hasta': '2026-08-31'})
+        self.assertTrue(contexto['hay_filtros'])
+
+    def test_la_pantalla_ofrece_los_cuatro_filtros(self):
+        contenido = self.client.get(self.url).content.decode()
+        for campo in ('name="q"', 'name="tipo"', 'name="desde"', 'name="hasta"'):
+            with self.subTest(campo=campo):
+                self.assertIn(campo, contenido)
+        self.assertIn('Vigentes hoy', contenido)
+
+
 class PdfYRegistroTests(BasePlan):
     """El documento del día y el historial."""
 
