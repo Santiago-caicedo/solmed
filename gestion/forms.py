@@ -1056,7 +1056,10 @@ class DocumentoPersonalForm(forms.ModelForm):
 
     # Documentos cuya validez se controla por la vigencia (fecha de vencimiento)
     # que se pone a mano al cargarlos. La seguridad social ya NO depende del mes.
-    TIPOS_REQUIEREN_VIGENCIA = ('SEGURIDAD_SOCIAL',)
+    # La cobertura se controla por su vigencia: sin fecha, la alerta no
+    # volvería nunca (la ARL del nuevo cubre hasta que llegue su primera
+    # planilla, y ahí debe volver a pedirse).
+    TIPOS_REQUIEREN_VIGENCIA = DocumentoPersonal.TIPOS_COBERTURA
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

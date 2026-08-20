@@ -1925,11 +1925,20 @@ class DocumentoPersonal(models.Model):
     DIAS_ALERTA_VENCIMIENTO = 20
     # La seguridad social se renueva CADA MES: con la antelación general
     # estaría en alerta 20 de 30 días. Se avisa a los 3 días del vencimiento.
-    DIAS_ALERTA_SEGURIDAD_SOCIAL = 3
+    DIAS_ALERTA_COBERTURA = 3
+    # Nombre viejo, conservado por compatibilidad.
+    DIAS_ALERTA_SEGURIDAD_SOCIAL = DIAS_ALERTA_COBERTURA
+
+    # Documentos que acreditan la COBERTURA de la persona. Cualquiera de los
+    # dos vigente la deja al día: al que acaba de ingresar todavía no se le
+    # puede cargar la planilla del mes, pero sí su afiliación a la ARL, que es
+    # lo que lo cubre desde el primer día (pedido de la clienta, ago-2026).
+    TIPOS_COBERTURA = ('SEGURIDAD_SOCIAL', 'ARL')
 
     TIPO_CHOICES = [
         ('CEDULA', 'Cédula de ciudadanía'),
         ('SEGURIDAD_SOCIAL', 'Seguridad social (EPS/ARL/Pensión)'),
+        ('ARL', 'Afiliación a ARL (personal nuevo)'),
         ('LICENCIA', 'Licencia de conducción'),
         ('CURSO_ALTURAS', 'Certificado curso de alturas'),
         ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
@@ -1979,8 +1988,8 @@ class DocumentoPersonal(models.Model):
     @property
     def dias_alerta(self):
         """Antelación del aviso según el tipo (la SS mensual avisa a 3 días)."""
-        if self.tipo == 'SEGURIDAD_SOCIAL':
-            return self.DIAS_ALERTA_SEGURIDAD_SOCIAL
+        if self.tipo in self.TIPOS_COBERTURA:
+            return self.DIAS_ALERTA_COBERTURA
         return self.DIAS_ALERTA_VENCIMIENTO
 
     @property

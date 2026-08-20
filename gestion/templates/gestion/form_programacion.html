@@ -1317,7 +1317,7 @@ function revisarDocumentos() {
     if (bloqueosSS.length > 0) {
         html += '<div class="alert alert-danger">'
             + '<strong><i class="bi bi-x-octagon-fill me-1"></i> No se puede guardar: '
-            + 'falta la seguridad social vigente de personal asignado.</strong>'
+            + 'falta la seguridad social (o la ARL) vigente de personal asignado.</strong>'
             + '<ul class="mb-0 mt-1">';
         bloqueosSS.forEach(function (b) {
             html += '<li>' + esc(b.rol) + ' <strong>' + esc(b.nombre) + '</strong>'

@@ -47,8 +47,8 @@ from .models import (
 )
 from .renumeracion import plan_reubicacion, reubicar_orden
 from .views import (
-    _acta_lista_para_firmar, _pendientes_orden, _resolver_adjunto_correo,
-    _ss_vigente, _puede_programarse,
+    _acta_lista_para_firmar, _cobertura_vigente, _pendientes_orden,
+    _resolver_adjunto_correo, _ss_vigente, _puede_programarse,
 )
 
 
@@ -1092,6 +1092,114 @@ class EncuestaDeCierreTests(BaseCRM):
 
 
 # ============================================================
+#  COBERTURA DEL PERSONAL: SEGURIDAD SOCIAL **O** ARL
+#  (pedido de la clienta: al que acaba de ingresar solo se le puede cargar
+#   la afiliación a la ARL, y no debe salir en rojo por eso)
+# ============================================================
+class CoberturaConARLTests(BaseCRM):
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.nuevo = self.persona('nuevo', 'Conductores', 'Nuevo', 'Ingreso')
+        self.camion = self.vehiculo()
+        self.cli = self.cliente()
+
+    def dar_arl(self, persona, dias=30):
+        return DocumentoPersonal.objects.create(
+            usuario=persona, tipo='ARL', archivo=archivo('arl.pdf'),
+            fecha_vencimiento=timezone.localdate() + datetime.timedelta(days=dias))
+
+    def test_la_arl_vigente_deja_al_trabajador_nuevo_al_dia(self):
+        self.dar_arl(self.nuevo)
+        docs = list(self.nuevo.documentos_personales.all())
+        self.assertIsNotNone(_cobertura_vigente(docs))
+
+    def test_sin_ninguno_de_los_dos_sigue_faltando(self):
+        self.assertIsNone(_cobertura_vigente(
+            list(self.nuevo.documentos_personales.all())))
+
+    def test_una_arl_vencida_no_cubre(self):
+        self.dar_arl(self.nuevo, dias=-1)
+        self.assertIsNone(_cobertura_vigente(
+            list(self.nuevo.documentos_personales.all())))
+
+    def test_la_ficha_ya_no_le_reclama_la_seguridad_social(self):
+        self.entrar(self.asesor)
+        url = reverse('gestion:ficha_persona', args=[self.nuevo.pk])
+        self.assertIn('Seguridad social o ARL vigente',
+                      self.client.get(url).context['faltan_requeridos'])
+
+        self.dar_arl(self.nuevo)
+        contexto = self.client.get(url).context
+        self.assertNotIn('Seguridad social o ARL vigente', contexto['faltan_requeridos'])
+        self.assertTrue(contexto['ss_al_dia'])
+        self.assertEqual(contexto['ss_vigente_doc'].tipo, 'ARL')
+
+    def test_el_listado_de_personal_deja_de_marcarlo(self):
+        self.dar_arl(self.nuevo)
+        self.entrar(self.asesor)
+        usuarios = {u.username: u for u in
+                    self.client.get(reverse('gestion:lista_personal')).context['usuarios']}
+        self.assertNotIn('Seguridad social o ARL vigente',
+                         usuarios['nuevo'].doc_faltan or [])
+
+    def test_con_la_arl_ya_se_le_puede_programar_un_servicio(self):
+        """La exigencia al programar es estar cubierto, no la planilla."""
+        self.entrar(self.asesor)
+        datos = {
+            'fecha': timezone.localdate().isoformat(), 'cliente': self.cli.pk,
+            'hora_ingreso_bodega': '', 'sitio_inicio': '', 'hora_servicio': '',
+            'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 1',
+            'observaciones_servicio': '', 'paleada': '', 'bascula': '',
+            'bascula_sitio': '', 'registro_fotografico': '', 'responsable_sg': '',
+            'requiere_disposicion_final': '', 'dispositor_final': '',
+            'destino_sin_disposicion': '', 'trasiego_vehiculo': '',
+            'nombre_contacto_recibe': '',
+            'cuadrilla-conductor': self.nuevo.pk, 'cuadrilla-vehiculo': self.camion.pk,
+            'cuadrilla-ayudante': '', 'cuadrilla-ayudante2': '',
+        }
+        respuesta = self.client.post(reverse('gestion:crear_programacion'), datos)
+        self.assertEqual(respuesta.status_code, 200, "sin cobertura no debe pasar")
+        self.assertFalse(OrdenServicio.objects.exists())
+
+        self.dar_arl(self.nuevo)
+        self.client.post(reverse('gestion:crear_programacion'), datos)
+        self.assertTrue(OrdenServicio.objects.exists(),
+                        "con la ARL vigente ya se puede programar")
+
+    def test_la_arl_exige_su_vigencia_al_cargarla(self):
+        form = DocumentoPersonalForm(
+            {'tipo': 'ARL', 'periodo': '', 'descripcion': '', 'fecha_vencimiento': ''},
+            {'archivo': archivo('arl.pdf')})
+        self.assertFalse(form.is_valid())
+        self.assertIn('fecha_vencimiento', form.errors)
+
+    def test_la_arl_avisa_con_la_misma_antelacion_que_la_seguridad_social(self):
+        self.assertEqual(DocumentoPersonal(tipo='ARL').dias_alerta, 3)
+
+    def test_la_seguridad_social_manda_sobre_la_arl_cuando_ya_existe(self):
+        """Al mes siguiente entra la planilla y esa es la que rige."""
+        self.dar_arl(self.nuevo, dias=5)
+        ss = self.con_ss(self.nuevo, dias=40)
+        self.assertEqual(_cobertura_vigente(
+            list(self.nuevo.documentos_personales.all())), ss)
+
+    def test_el_historial_de_cobertura_muestra_las_dos(self):
+        self.dar_arl(self.nuevo)
+        self.con_ss(self.nuevo)
+        self.entrar(self.asesor)
+        contexto = self.client.get(reverse(
+            'gestion:historial_seguridad_social', args=[self.nuevo.pk])).context
+        self.assertEqual(contexto['total'], 2)
+        self.assertTrue(contexto['al_dia'])
+
+    def test_el_correo_ofrece_la_arl_con_su_vigencia(self):
+        arl = self.dar_arl(self.nuevo)
+        resuelto = _resolver_adjunto_correo(f'personal:{arl.pk}')
+        self.assertIn('ARL', resuelto['linea'])
+
+
+# ============================================================
 #  ACCESO POR ROL
 # ============================================================
 class AccesoPorRolTests(BaseCRM):
@@ -1405,7 +1513,7 @@ class PersonalYExpedienteTests(BaseCRM):
         contexto = self.client.get(
             reverse('gestion:ficha_persona', args=[self.conductor.pk])).context
         faltan = contexto['faltan_requeridos']
-        self.assertIn('Seguridad social vigente', faltan)
+        self.assertIn('Seguridad social o ARL vigente', faltan)
         self.assertIn('Cédula de ciudadanía', faltan)
         self.assertIn('Licencia de conducción', faltan)
         self.assertFalse(contexto['ss_al_dia'])

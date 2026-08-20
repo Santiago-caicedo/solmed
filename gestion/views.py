@@ -3012,10 +3012,15 @@ class ConciliarOrdenView(AsesorRequiredMixin, View):
 DOCUMENTOS_ESTANDAR = [
     ('CEDULA', 'Cédula de ciudadanía'),
     ('SEGURIDAD_SOCIAL', 'Seguridad social vigente'),
+    ('ARL', 'Afiliación a ARL (personal nuevo)'),
     ('LICENCIA', 'Licencia de conducción'),
     ('CURSO_ALTURAS', 'Certificado curso de alturas'),
     ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
 ]
+
+# Cómo se nombra cada requisito cuando FALTA. La cobertura se cumple con
+# cualquiera de los dos documentos, así que al reclamarla se dicen ambos.
+FALTANTE_ETIQUETA = {'SEGURIDAD_SOCIAL': 'Seguridad social o ARL vigente'}
 
 
 def _documentos_requeridos_por_rol(nombres_grupos):
@@ -3045,7 +3050,7 @@ GRUPOS_SIN_ACCESO = {'Ayudantes'}
 # Documentos que llevan fecha de vigencia (se puede fijar/editar con el botón
 # "Vigencia" del expediente). La seguridad social ahora se controla por vigencia
 # manual (ya no por el mes calendario).
-TIPOS_CON_VIGENCIA = {'SEGURIDAD_SOCIAL', 'LICENCIA', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
+TIPOS_CON_VIGENCIA = {'SEGURIDAD_SOCIAL', 'ARL', 'LICENCIA', 'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
 
 
 def _grupo_es_sin_acceso(grupo):
@@ -3081,20 +3086,26 @@ def _documentos_aplicables_por_rol(nombres_grupos):
     return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in aplicables]
 
 
-def _ss_vigente(docs):
+def _cobertura_vigente(docs):
     """
-    Seguridad social vigente de una persona: la de mayor fecha de vencimiento
-    entre las que aún no han vencido. La vigencia se fija a mano al cargarla, así
-    que ya NO se usa el mes calendario. Devuelve el DocumentoPersonal o None.
+    El documento que acredita a la persona cubierta HOY: su seguridad social o,
+    en su defecto, su afiliación a la ARL (al que acaba de ingresar todavía no
+    se le puede cargar la planilla del mes — pedido de la clienta, ago-2026).
+    Devuelve el de mayor vigencia entre los que no han vencido, o None.
+    La vigencia se fija a mano al cargarlo; no depende del mes calendario.
     `docs` es la lista de sus documentos (ya cargada).
     """
     candidatas = [
         d for d in docs
-        if d.tipo == 'SEGURIDAD_SOCIAL' and d.vigente
+        if d.tipo in DocumentoPersonal.TIPOS_COBERTURA and d.vigente
     ]
     if not candidatas:
         return None
     return max(candidatas, key=lambda d: d.fecha_vencimiento)
+
+
+# Nombre anterior, cuando la cobertura era solo la seguridad social.
+_ss_vigente = _cobertura_vigente
 
 
 def _estado_documentos_personal():
@@ -3131,7 +3142,7 @@ def _estado_documentos_personal():
                 continue
             if tipo == 'SEGURIDAD_SOCIAL':
                 if ss_doc is None:
-                    faltan.append('Seguridad social vigente')
+                    faltan.append(FALTANTE_ETIQUETA['SEGURIDAD_SOCIAL'])
             elif tipo not in subidos:
                 faltan.append(tipo_label[tipo])
         # Cursos vigentes (no obligatorios en el expediente, pero exigibles
@@ -3180,11 +3191,14 @@ def _validar_cursos_cuadrilla(form, cuadrilla_form):
 
 
 def _tiene_ss_vigente(persona):
-    """True si la persona tiene una seguridad social con vigencia sin vencer."""
+    """
+    True si la persona está cubierta: seguridad social o afiliación a ARL con
+    vigencia sin vencer. Es lo que se exige para poder programarla.
+    """
     if persona is None:
         return True
     return persona.documentos_personales.filter(
-        tipo='SEGURIDAD_SOCIAL',
+        tipo__in=DocumentoPersonal.TIPOS_COBERTURA,
         fecha_vencimiento__gte=timezone.localdate(),
     ).exists()
 
@@ -3332,8 +3346,9 @@ def _validar_ss_cuadrilla(form, cuadrilla_form):
         nombre = persona.get_full_name() or persona.username
         cuadrilla_form.add_error(
             campo,
-            f"{nombre} no tiene seguridad social vigente. Se enviará al cliente, "
-            f"así que debe estar al día: cárgala con su vigencia en el expediente."
+            f"{nombre} no tiene seguridad social ni afiliación a ARL vigente. "
+            f"Se enviará al cliente, así que debe estar al día: cárgala con su "
+            f"vigencia en el expediente (al personal nuevo le basta la ARL)."
         )
     return todo_ok
 
@@ -3415,15 +3430,15 @@ def _docs_de_persona(usuario, docs=None):
     if docs is None:
         docs = list(usuario.documentos_personales.all())
     out = []
-    ss = _ss_vigente(docs)
+    ss = _cobertura_vigente(docs)
     if ss is not None:
         out.append({
             'token': f'personal:{ss.pk}',
-            'label': f"Seguridad social (vigente hasta "
+            'label': f"{tipo_label[ss.tipo]} (vigente hasta "
                      f"{ss.fecha_vencimiento.strftime('%d/%m/%Y')})",
         })
     for d in docs:
-        if d.tipo == 'SEGURIDAD_SOCIAL':
+        if ss is not None and d.pk == ss.pk:
             continue
         etiqueta = (d.descripcion if d.tipo == 'OTRO' and d.descripcion
                     else tipo_label[d.tipo])
@@ -4782,9 +4797,9 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         grupos = set(persona.groups.values_list('name', flat=True))
         requeridos = _documentos_requeridos_por_rol(grupos)
 
-        # Seguridad social vigente (por fecha de vencimiento, no por mes).
-        ss_vigente = _ss_vigente(docs)
-        ss_todos = por_tipo.get('SEGURIDAD_SOCIAL', [])
+        # Cobertura vigente: seguridad social o, si no hay, afiliación a ARL.
+        ss_vigente = _cobertura_vigente(docs)
+        ss_todos = [d for d in docs if d.tipo in DocumentoPersonal.TIPOS_COBERTURA]
         # La más reciente cargada (para avisar cuál está vencida si no hay vigente).
         ss_ultima = max(
             ss_todos,
@@ -4797,7 +4812,7 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         slots = []
         for tipo, label in _documentos_aplicables_por_rol(grupos):
             if tipo == 'SEGURIDAD_SOCIAL':
-                # Cargada = existe una con vigencia sin vencer (manual, no por mes).
+                # Cubierta = hay seguridad social O afiliación a ARL vigente.
                 doc = ss_vigente
             else:
                 lista = por_tipo.get(tipo, [])
@@ -4806,14 +4821,17 @@ class FichaPersonaView(PersonalRequiredMixin, View):
                 'tipo': tipo, 'label': label, 'doc': doc,
                 'cargado': doc is not None,
                 'requerido': tipo in requeridos,
-                'es_ss': tipo == 'SEGURIDAD_SOCIAL',
+                'es_ss': tipo in DocumentoPersonal.TIPOS_COBERTURA,
                 'es_licencia': tipo == 'LICENCIA',
                 'es_curso': tipo in ('CURSO_ALTURAS', 'CURSO_CONFINADOS'),
                 'con_vigencia': tipo in TIPOS_CON_VIGENCIA,
             })
 
         otros = por_tipo.get('OTRO', [])
-        faltan_requeridos = [s['label'] for s in slots if s['requerido'] and not s['cargado']]
+        faltan_requeridos = [
+            FALTANTE_ETIQUETA.get(s['tipo'], s['label'])
+            for s in slots if s['requerido'] and not s['cargado']
+        ]
 
         perfil = _perfil_de(persona)
         return {
@@ -4829,6 +4847,8 @@ class FichaPersonaView(PersonalRequiredMixin, View):
             'sin_acceso': _persona_sin_acceso(persona),
             'dias_alerta': DocumentoPersonal.DIAS_ALERTA_VENCIMIENTO,
             'ss_al_dia': ss_vigente is not None,
+            # Con cuál documento está cubierta (seguridad social o ARL).
+            'ss_vigente_doc': ss_vigente,
             'slots': slots,
             # Hay seguridad social cargada pero ninguna vigente (todas vencidas).
             'ss_vencida': ss_vigente is None and ss_ultima is not None,
@@ -4969,7 +4989,8 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
 
     def _context(self, persona, pagina=None):
         documentos = list(
-            persona.documentos_personales.filter(tipo='SEGURIDAD_SOCIAL')
+            persona.documentos_personales.filter(
+                tipo__in=DocumentoPersonal.TIPOS_COBERTURA)
             .order_by('-fecha_vencimiento', '-fecha_subida')
         )
         # El resumen (al día / total) se calcula sobre TODO el historial; la
@@ -5003,7 +5024,11 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
         if frenar is not None:
             return frenar
         datos = request.POST.copy()
-        datos['tipo'] = 'SEGURIDAD_SOCIAL'
+        # Desde el historial se carga la seguridad social; la ARL se sube desde
+        # su propia casilla del expediente.
+        datos.setdefault('tipo', 'SEGURIDAD_SOCIAL')
+        if datos['tipo'] not in DocumentoPersonal.TIPOS_COBERTURA:
+            datos['tipo'] = 'SEGURIDAD_SOCIAL'
         form = DocumentoPersonalForm(datos, request.FILES)
         if form.is_valid():
             documento = form.save(commit=False)
