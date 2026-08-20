@@ -3217,6 +3217,31 @@ class ListadosTests(BaseCRM):
                                   {'q': str(mia.pk)}).context['ordenes']
         self.assertEqual([o.pk for o in ordenes], [mia.pk])
 
+    def test_la_lista_de_ordenes_no_ofrece_crear_nada(self):
+        """
+        Es una pantalla de seguimiento: se persiguen órdenes, no se crean.
+        Programar vive en su propia sección; la orden histórica, en su URL.
+        """
+        respuesta = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertNotContains(respuesta, reverse('gestion:crear_programacion'))
+        self.assertNotContains(respuesta, reverse('gestion:orden_historica'))
+
+    def test_programar_y_la_orden_historica_siguen_existiendo(self):
+        """Se quitaron los botones de la lista de órdenes, no las pantallas."""
+        for nombre in ('gestion:crear_programacion', 'gestion:orden_historica'):
+            with self.subTest(pantalla=nombre):
+                self.assertEqual(self.client.get(reverse(nombre)).status_code, 200)
+
+    def test_desde_programacion_se_llega_a_las_dos_formas_de_crear(self):
+        """
+        Al quitarlas de la lista de órdenes, la programación queda como la
+        puerta: la orden histórica se quedaría sin ningún acceso en la
+        interfaz si no estuviera aquí.
+        """
+        respuesta = self.client.get(reverse('gestion:lista_programaciones'))
+        self.assertContains(respuesta, reverse('gestion:crear_programacion'))
+        self.assertContains(respuesta, reverse('gestion:orden_historica'))
+
     def test_la_lista_de_ordenes_filtra_por_estado_pago_y_conciliacion(self):
         pendiente = self._orden(self.cli)
         conciliada = self._orden(self.cli)

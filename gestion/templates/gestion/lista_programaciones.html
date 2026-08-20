@@ -6,9 +6,19 @@
         <h1 class="mb-0">Programación</h1>
         <small class="text-muted">Planeación anticipada. Al confirmar se genera la orden de servicio.</small>
     </div>
-    <a href="{% url 'gestion:crear_programacion' %}" class="btn btn-primary">
-        <i class="bi bi-plus-circle me-1"></i> Nueva Programación
-    </a>
+    {% comment %}
+    La orden histórica (actas que se llenaron en papel) vive aquí: no es una
+    programación, pero es la otra forma de que entre una orden al sistema, y
+    desde la lista de órdenes se quitó el botón.
+    {% endcomment %}
+    <div class="d-flex gap-2">
+        <a href="{% url 'gestion:orden_historica' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-archive me-1"></i> Orden histórica
+        </a>
+        <a href="{% url 'gestion:crear_programacion' %}" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i> Nueva Programación
+        </a>
+    </div>
 </div>
 
 <div class="card shadow mb-4">
