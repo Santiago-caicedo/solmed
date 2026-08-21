@@ -1,0 +1,178 @@
+{% comment %}
+La hoja del día de una persona (fragmento que carga el popup del tablero).
+Responde dos cosas: quién es y si sus papeles están al día —la misma pregunta
+que el expediente le hace al camión— y qué le tocó ese día, en detalle.
+Los estilos viven aquí porque el fragmento se inyecta ya renderizado.
+{% endcomment %}
+<style>
+.fp-cab{
+    display:flex; align-items:center; gap:.9rem;
+    background:linear-gradient(180deg,var(--g-800) 0%,var(--g-900) 100%);
+    color:#fff; padding:1.05rem 1.25rem;
+}
+.fp-mono{
+    flex:0 0 auto; width:48px; height:48px; border-radius:var(--r-md);
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:1.05rem; font-weight:600; letter-spacing:.04em;
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14);
+}
+.fp-cab .quien{ min-width:0; }
+.fp-cab .nom{ font-size:1.05rem; font-weight:600; line-height:1.2; }
+.fp-cab .dat{
+    font-family:var(--mono); font-size:.72rem; color:#8A97A5; margin-top:.2rem;
+    display:flex; flex-wrap:wrap; gap:.15rem .6rem;
+}
+.fp-cab .cargo{
+    margin-left:auto; flex:0 0 auto; align-self:flex-start;
+    font-family:var(--mono); font-size:.62rem; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--brand);
+    border:1px solid rgba(156,190,48,.35); border-radius:99px; padding:.15rem .55rem;
+}
+
+.fp-cuerpo{ padding:1.1rem 1.25rem 1.25rem; }
+.fp-t{
+    font-family:var(--mono); font-size:.66rem; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-3); margin:0 0 .45rem;
+}
+.fp-t + .fp-t, .fp-bloque + .fp-bloque{ margin-top:1.15rem; }
+
+/* Papeles: una línea por documento que le importa a ese cargo. */
+.fp-papel{
+    display:flex; align-items:center; gap:.55rem; padding:.32rem 0;
+    border-bottom:1px solid var(--line-2); font-size:.82rem;
+}
+.fp-papel:last-child{ border-bottom:0; }
+.fp-papel .punto{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+.fp-papel .est{ margin-left:auto; font-family:var(--mono); font-size:.74rem; }
+.fp-papel.n-ok .punto{ background:var(--ok); }        .fp-papel.n-ok .est{ color:var(--ok); }
+.fp-papel.n-aviso .punto{ background:var(--warn); }   .fp-papel.n-aviso .est{ color:var(--warn); font-weight:600; }
+.fp-papel.n-alto .punto{ background:var(--err); }     .fp-papel.n-alto .est{ color:var(--err); font-weight:600; }
+.fp-papel.n-falta .punto{ background:var(--ink-3); }  .fp-papel.n-falta .est{ color:var(--ink-3); }
+
+/* Lo que le tocó: una tarjeta por cosa, con su franja de color al borde. */
+.fp-item{
+    border:1px solid var(--line-2); border-left:3px solid var(--ink-3);
+    border-radius:var(--r-sm); padding:.6rem .75rem; margin-bottom:.5rem;
+    background:var(--panel-2);
+}
+.fp-item:last-child{ margin-bottom:0; }
+.fp-item.i-servicio{ border-left-color:var(--ok); }
+.fp-item.i-actividad{ border-left-color:var(--steel); }
+.fp-item.i-novedad{ border-left-color:var(--warn); }
+.fp-item .qué{ display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap; }
+.fp-item .titulo{ font-weight:600; font-size:.86rem; color:var(--ink); }
+.fp-item .horas{
+    margin-left:auto; font-family:var(--mono); font-size:.78rem; font-weight:600;
+    color:var(--ink-2); white-space:nowrap;
+}
+.fp-item .horas.prog{ font-weight:500; color:var(--ink-3); }
+.fp-item .detalle{
+    font-size:.78rem; color:var(--ink-2); margin-top:.25rem;
+    display:flex; flex-wrap:wrap; gap:.15rem .5rem; align-items:center;
+}
+.fp-item .detalle .sep{ color:var(--line); }
+.fp-item .detalle a{ font-weight:600; }
+.fp-item .quien-lo-puso{ font-size:.72rem; color:var(--ink-3); margin-top:.3rem; }
+.fp-vacio{ color:var(--ink-3); font-size:.84rem; padding:.5rem 0; }
+.fp-pie{ margin-top:1.15rem; padding-top:.75rem; border-top:1px solid var(--line-2); font-size:.82rem; }
+</style>
+
+<div class="fp-cab">
+    <span class="fp-mono">{{ persona.first_name|slice:":1"|upper }}{{ persona.last_name|slice:":1"|upper }}</span>
+    <div class="quien">
+        <div class="nom">{{ persona.get_full_name|default:persona.username }}</div>
+        <div class="dat">
+            {% if perfil.numero_documento %}<span>CC {{ perfil.numero_documento }}</span>{% endif %}
+            {% if perfil.telefono %}<span>{{ perfil.telefono }}</span>{% endif %}
+            {% if persona.email %}<span>{{ persona.email }}</span>{% endif %}
+        </div>
+    </div>
+    <span class="cargo">{{ cargo }}</span>
+</div>
+
+<div class="fp-cuerpo">
+    {% comment %}
+    Los papeles primero: al asignarle trabajo a alguien, lo que se necesita
+    saber antes que nada es si está en condiciones de hacerlo.
+    {% endcomment %}
+    <div class="fp-bloque">
+        <h6 class="fp-t">Sus papeles</h6>
+        {% for papel in papeles %}
+        <div class="fp-papel n-{{ papel.nivel }}">
+            <span class="punto"></span>
+            <span>{{ papel.nombre }}</span>
+            <span class="est">{{ papel.texto }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="fp-bloque">
+        <h6 class="fp-t">
+            Su día · {{ fecha|date:"l j \d\e F"|capfirst }}{% if fecha == hoy %} · hoy{% endif %}
+        </h6>
+
+        {% for s in servicios %}
+        <div class="fp-item i-servicio">
+            <div class="qué">
+                <span class="titulo">En servicio</span>
+                {% if s.horas %}<span class="horas {% if 'prog.' in s.horas %}prog{% endif %}">{{ s.horas }}</span>{% endif %}
+            </div>
+            <div class="detalle">
+                <a href="{% url 'gestion:detalle_orden' s.orden %}">Orden #{{ s.orden }}</a>
+                <span class="sep">·</span><span class="mono">{{ s.placa }}</span>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% for a in asignaciones %}
+        <div class="fp-item i-actividad">
+            <div class="qué">
+                <span class="titulo">{{ a.get_tipo_display }}</span>
+                {% if a.hora %}<span class="horas">{{ a.hora|time:"H:i" }}</span>{% endif %}
+            </div>
+            <div class="detalle">
+                {% if a.placas %}<span class="mono">{{ a.placas }}</span>{% endif %}
+                {% if a.orden_id %}{% if a.placas %}<span class="sep">·</span>{% endif %}
+                <a href="{% url 'gestion:detalle_orden' a.orden_id %}">Orden #{{ a.orden_id }}</a>{% endif %}
+                {% if a.dispositor %}<span class="sep">·</span><span>{{ a.dispositor.nombre }}</span>{% endif %}
+                {% if a.proveedor %}<span class="sep">·</span><span>{{ a.proveedor }}</span>{% endif %}
+                {% if a.detalle %}<span class="sep">·</span><span>{{ a.detalle }}</span>{% endif %}
+            </div>
+            {% if a.registrado_por %}
+            <div class="quien-lo-puso">
+                La asignó {% firstof a.registrado_por.get_full_name a.registrado_por.username %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% for n in novedades %}
+        <div class="fp-item i-novedad">
+            <div class="qué">
+                <span class="titulo">{{ n.get_tipo_display }}</span>
+                {% if n.hora %}<span class="horas">{{ n.hora|time:"H:i" }}</span>{% endif %}
+            </div>
+            <div class="detalle">
+                {% comment %}
+                La fecha solo aporta cuando la novedad abarca varios días: si es
+                de un solo día, ya es el día de esta ficha.
+                {% endcomment %}
+                {% if n.fecha_fin %}
+                <span class="mono">del {{ n.fecha_inicio|date:"d/m/Y" }} al {{ n.fecha_fin|date:"d/m/Y" }}</span>
+                {% endif %}
+                {% if n.detalle %}{% if n.fecha_fin %}<span class="sep">·</span>{% endif %}<span>{{ n.detalle }}</span>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if not servicios and not asignaciones and not novedades %}
+        <p class="fp-vacio">Ese día no tiene nada asignado.</p>
+        {% endif %}
+    </div>
+
+    <div class="fp-pie">
+        <a href="{% url 'gestion:ficha_persona' persona.pk %}">
+            Ver su expediente completo <i class="bi bi-arrow-right"></i>
+        </a>
+    </div>
+</div>

@@ -37,6 +37,12 @@
 .pt-fila.st-libre .pt-avatar{ background:var(--panel-2); color:var(--ink-3); border:1px dashed var(--line); }
 .pt-fila .quien{ flex:1 1 auto; min-width:0; }
 .pt-fila .nombre{ font-weight:600; font-size:.84rem; color:var(--ink); }
+.pt-fila button.nombre{
+    border:0; background:none; padding:0; text-align:left;
+    border-bottom:1px dotted var(--ink-3);
+}
+.pt-fila button.nombre:hover{ color:var(--steel); border-bottom-color:var(--steel); }
+.pt-fila button.nombre:focus-visible{ outline:2px solid var(--steel); outline-offset:2px; }
 .pt-chips{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.25rem; }
 .pt-chip{ display:inline-flex; align-items:center; gap:.35rem; font-size:.74rem; padding:.14rem .5rem;
     border-radius:99px; border:1px solid var(--line); background:var(--panel-2); color:var(--ink-2); }
@@ -118,7 +124,12 @@
             <div class="pt-fila {% if fila.servicios %}st-servicio{% elif fila.asignaciones %}st-actividad{% elif fila.novedades %}st-novedad{% else %}st-libre{% endif %}">
                 <div class="pt-avatar">{{ fila.nombre|slice:":1"|upper }}</div>
                 <div class="quien">
+                    {% if fila.con_plan %}
+                    <button type="button" class="nombre nombre-ficha" data-ficha="{{ fila.persona.pk }}"
+                            title="Ver su hoja del día">{{ fila.nombre }}</button>
+                    {% else %}
                     <div class="nombre">{{ fila.nombre }}</div>
+                    {% endif %}
                     <div class="pt-chips">
                         {% for s in fila.servicios %}
                         <span class="pt-chip c-servicio"><i class="bi bi-truck"></i> En servicio · <span class="mono">Orden #{{ s.orden }} · {{ s.placa }}{% if s.horas %} · {{ s.horas }}{% endif %}</span></span>
@@ -314,6 +325,23 @@
     </div>
 </div>
 
+{% comment %}
+Un solo modal para todo el tablero: la ficha se pide al abrirlo, en vez de
+dejar veinte fichas ocultas en la página.
+{% endcomment %}
+<div class="modal fade" id="modal-ficha" tabindex="-1" aria-labelledby="modal-ficha-t" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content" style="border:0; overflow:hidden;">
+            <h2 class="visually-hidden" id="modal-ficha-t">Hoja del día de la persona</h2>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                    aria-label="Cerrar" style="position:absolute; top:1rem; right:1rem; z-index:2;"></button>
+            <div id="ficha-cuerpo" aria-live="polite">
+                <div class="p-4 text-center text-muted">Cargando…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{ campos_tipo|json_script:"campos-tipo" }}
 <script>
 (function () {
@@ -360,6 +388,34 @@
     }
     selTipo.addEventListener('change', pinta);
     pinta();
+
+    // --- La hoja del día: se pide al abrir, no viene con la página ---
+    (function () {
+        var caja = document.getElementById('modal-ficha');
+        var cuerpo = document.getElementById('ficha-cuerpo');
+        if (!caja || !cuerpo) return;
+        var modal = new bootstrap.Modal(caja);
+        var fecha = '{{ fecha|date:"Y-m-d" }}';
+
+        document.querySelectorAll('.nombre-ficha').forEach(function (boton) {
+            boton.addEventListener('click', function () {
+                cuerpo.innerHTML = '<div class="p-4 text-center text-muted">Cargando…</div>';
+                modal.show();
+                fetch('/app/plan/ficha/' + boton.dataset.ficha + '/?fecha=' + fecha,
+                      { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (r) {
+                        if (!r.ok) { throw new Error(r.status); }
+                        return r.text();
+                    })
+                    .then(function (html) { cuerpo.innerHTML = html; })
+                    .catch(function () {
+                        cuerpo.innerHTML = '<div class="p-4 text-center text-muted">' +
+                            'No se pudo cargar la hoja de esta persona. Cierra y vuelve a intentarlo.' +
+                            '</div>';
+                    });
+            });
+        });
+    })();
 
     // --- El botón "+" de una fila marca a esa persona en el panel ---
     document.querySelectorAll('.btn-asignar').forEach(function (b) {

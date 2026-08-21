@@ -260,6 +260,89 @@ class PlanDiaView(AdministradorRequiredMixin, View):
         return redirect(volver)
 
 
+class FichaPersonaPlanView(AdministradorRequiredMixin, View):
+    """
+    La hoja del día de UNA persona, para el popup del tablero: quién es, si su
+    documentación está al día, y todo lo que tiene ese día (servicios con sus
+    horas, actividades del plan y novedades).
+
+    Se sirve como fragmento y bajo demanda —una petición por persona al abrir
+    el popup— en vez de incrustar una ficha oculta por cada fila del tablero.
+    """
+    template_name = 'planes/ficha_persona.html'
+
+    def get(self, request, pk):
+        from gestion.models import DocumentoPersonal
+        from gestion.views import _cobertura_vigente
+
+        persona = get_object_or_404(User, pk=pk)
+        fecha = _fecha_de(request)
+        documentos = list(persona.documentos_personales.all())
+        roles = set(persona.groups.values_list('name', flat=True))
+
+        return render(request, self.template_name, {
+            'persona': persona,
+            'perfil': getattr(persona, 'perfil', None),
+            'fecha': fecha,
+            'hoy': timezone.localdate(),
+            'cargo': _cargo_de(persona),
+            'papeles': self._papeles(documentos, roles, _cobertura_vigente),
+            'servicios': _servicios_del_dia(fecha).get(persona.pk, []),
+            'asignaciones': (
+                Asignacion.objects
+                .filter(plan__fecha=fecha, persona=persona)
+                .select_related('orden', 'proveedor', 'dispositor', 'registrado_por')
+                .prefetch_related('vehiculos')),
+            'novedades': [n for n in Novedad.del_dia(fecha) if n.persona_id == persona.pk],
+        })
+
+    @staticmethod
+    def _papeles(documentos, roles, cobertura_vigente):
+        """
+        Los papeles que le importan a ESE cargo, con su estado. Es la misma
+        pregunta que el expediente le hace al camión —¿puede salir?— aplicada
+        a la persona: cobertura siempre, licencia si conduce, cursos si es
+        ayudante (opcionales, solo se muestran si los tiene).
+        """
+        from gestion.models import DocumentoPersonal
+
+        def estado(documento):
+            if documento is None:
+                return {'nivel': 'falta', 'texto': 'sin cargar'}
+            if documento.vencido:
+                return {'nivel': 'alto',
+                        'texto': f"venció el {documento.fecha_vencimiento:%d/%m/%Y}"}
+            if documento.por_vencer:
+                dias = documento.dias_restantes
+                return {'nivel': 'aviso',
+                        'texto': f"vence en {dias} día{'s' if dias != 1 else ''}"}
+            if documento.fecha_vencimiento:
+                return {'nivel': 'ok',
+                        'texto': f"vigente hasta {documento.fecha_vencimiento:%d/%m/%Y}"}
+            return {'nivel': 'ok', 'texto': 'cargado'}
+
+        def ultimo(tipo):
+            candidatos = [d for d in documentos if d.tipo == tipo]
+            return max(candidatos, key=lambda d: d.fecha_vencimiento or datetime.date.min,
+                       default=None)
+
+        cobertura = cobertura_vigente(documentos) or ultimo('SEGURIDAD_SOCIAL') or ultimo('ARL')
+        papeles = [{
+            'nombre': (cobertura.get_tipo_display() if cobertura
+                       else 'Seguridad social o ARL'),
+            **estado(cobertura),
+        }]
+        if 'Conductores' in roles:
+            papeles.append({'nombre': 'Licencia de conducción', **estado(ultimo('LICENCIA'))})
+        if 'Ayudantes' in roles:
+            for tipo in ('CURSO_ALTURAS', 'CURSO_CONFINADOS'):
+                curso = ultimo(tipo)
+                if curso is not None:      # los cursos son opcionales
+                    papeles.append({'nombre': dict(DocumentoPersonal.TIPO_CHOICES)[tipo],
+                                    **estado(curso)})
+        return papeles
+
+
 class EliminarAsignacionView(AdministradorRequiredMixin, View):
     """
     Quita una fila del plan (se asignó mal). Si era la disposición de un

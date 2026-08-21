@@ -20,6 +20,12 @@ from .models import Asignacion, Novedad, PlanDia
 CLAVE = 'Solmed.Pruebas.2026'
 
 
+def archivo(nombre='documento.pdf', contenido=b'%PDF-1.4 prueba'):
+    """Un archivo cualquiera para los campos FileField."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    return SimpleUploadedFile(nombre, contenido, content_type='application/pdf')
+
+
 class BasePlan(TestCase):
     """Escenario mínimo: gestión, personal operativo y un vehículo."""
 
@@ -882,3 +888,150 @@ class ImportarDisposicionesTests(BasePlan):
         with self.assertRaises(CommandError) as caso:
             self.correr(ruta)
         self.assertIn('faltan columnas', str(caso.exception))
+
+
+class FichaDelDiaTests(BasePlan):
+    """
+    El popup del tablero: al pinchar a alguien con plan, su hoja del día —
+    quién es, si sus papeles están al día y todo lo que tiene asignado.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.cli = Cliente.objects.create(nombre='Cliente X', identificacion='900')
+        self.orden = OrdenServicio.objects.create(
+            cliente=self.cli, asesor=self.admin, direccion_servicio='x', descripcion='y')
+        self.url = reverse('planes:ficha_persona', args=[self.conductor.pk])
+
+    def ficha(self, persona=None, fecha=None):
+        url = reverse('planes:ficha_persona', args=[(persona or self.conductor).pk])
+        return self.client.get(url, {'fecha': (fecha or self.hoy).isoformat()})
+
+    # ---------- acceso ----------
+
+    def test_la_ficha_es_solo_del_administrador(self):
+        for usuario in (self.asesor, self.conductor):
+            with self.subTest(usuario=usuario.username):
+                self.entrar(usuario)
+                self.assertEqual(self.ficha().status_code, 403)
+
+    def test_sin_sesion_no_se_abre(self):
+        self.client.logout()
+        respuesta = self.ficha()
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn('/login/', respuesta.url)
+
+    # ---------- quién es ----------
+
+    def test_muestra_los_datos_de_la_persona(self):
+        perfil = PerfilPersona.objects.get(usuario=self.conductor)
+        perfil.numero_documento = '1098765432'
+        perfil.telefono = '300 123 4567'
+        perfil.save()
+        respuesta = self.ficha()
+        self.assertContains(respuesta, 'Carlos Pérez')
+        self.assertContains(respuesta, '1098765432')
+        self.assertContains(respuesta, '300 123 4567')
+        self.assertContains(respuesta, 'Conductores')
+
+    def test_los_papeles_dicen_su_estado(self):
+        from gestion.models import DocumentoPersonal
+        DocumentoPersonal.objects.create(
+            usuario=self.conductor, tipo='SEGURIDAD_SOCIAL', archivo=archivo(),
+            fecha_vencimiento=self.hoy + datetime.timedelta(days=40))
+        DocumentoPersonal.objects.create(
+            usuario=self.conductor, tipo='LICENCIA', archivo=archivo(),
+            fecha_vencimiento=self.hoy + datetime.timedelta(days=10))
+        papeles = {p['nombre']: p for p in self.ficha().context['papeles']}
+        self.assertEqual(papeles['Seguridad social (EPS/ARL/Pensión)']['nivel'], 'ok')
+        self.assertEqual(papeles['Licencia de conducción']['nivel'], 'aviso')
+        self.assertIn('vence en 10 días', papeles['Licencia de conducción']['texto'])
+
+    def test_un_papel_vencido_sale_en_alto_y_uno_que_falta_lo_dice(self):
+        from gestion.models import DocumentoPersonal
+        DocumentoPersonal.objects.create(
+            usuario=self.conductor, tipo='SEGURIDAD_SOCIAL', archivo=archivo(),
+            fecha_vencimiento=self.hoy - datetime.timedelta(days=3))
+        papeles = {p['nombre']: p for p in self.ficha().context['papeles']}
+        self.assertEqual(papeles['Seguridad social (EPS/ARL/Pensión)']['nivel'], 'alto')
+        self.assertEqual(papeles['Licencia de conducción']['nivel'], 'falta')
+
+    def test_al_conductor_se_le_pide_licencia_y_al_ayudante_no(self):
+        nombres = [p['nombre'] for p in self.ficha().context['papeles']]
+        self.assertIn('Licencia de conducción', nombres)
+        nombres = [p['nombre'] for p in self.ficha(self.ayudante).context['papeles']]
+        self.assertNotIn('Licencia de conducción', nombres)
+
+    # ---------- qué le tocó ----------
+
+    def test_trae_el_servicio_del_dia_con_sus_horas(self):
+        from gestion.models import Manifiesto
+        recorrido = Recorrido.objects.create(
+            orden=self.orden, vehiculo=self.camion, conductor=self.conductor,
+            fecha_recorrido=self.hoy)
+        Manifiesto.objects.create(
+            recorrido=recorrido, hora_salida_solmed=datetime.time(6, 30),
+            hora_llegada_solmed=datetime.time(15, 45))
+        respuesta = self.ficha()
+        servicio = respuesta.context['servicios'][0]
+        self.assertEqual(servicio['orden'], self.orden.pk)
+        self.assertEqual(servicio['horas'], '06:30–15:45')
+        self.assertContains(respuesta, 'En servicio')
+
+    def test_trae_las_actividades_con_su_placa_y_su_orden(self):
+        from gestion.models import Dispositor
+        gestor = Dispositor.objects.create(nombre='Relleno Doña Juana')
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        a = Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='DISPOSICION_FINAL',
+            orden=self.orden, dispositor=gestor, registrado_por=self.admin)
+        a.vehiculos.set([self.camion])
+        respuesta = self.ficha()
+        self.assertEqual(list(respuesta.context['asignaciones']), [a])
+        self.assertContains(respuesta, 'Disposición final')
+        self.assertContains(respuesta, self.camion.placa)
+        self.assertContains(respuesta, 'Relleno Doña Juana')
+        self.assertContains(respuesta, 'La asignó')
+
+    def test_trae_las_novedades_vigentes_de_ese_dia(self):
+        Novedad.objects.create(
+            persona=self.conductor, tipo='VACACIONES',
+            fecha_inicio=self.hoy - datetime.timedelta(days=2),
+            fecha_fin=self.hoy + datetime.timedelta(days=5), registrado_por=self.admin)
+        respuesta = self.ficha()
+        self.assertEqual(len(respuesta.context['novedades']), 1)
+        self.assertContains(respuesta, 'Vacaciones')
+
+    def test_solo_trae_lo_de_esa_persona_y_ese_dia(self):
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        Asignacion.objects.create(plan=plan, persona=self.ayudante, tipo='TRASTEO',
+                                  registrado_por=self.admin)
+        otro_dia = PlanDia.objects.create(
+            fecha=self.hoy + datetime.timedelta(days=1), creado_por=self.admin)
+        Asignacion.objects.create(plan=otro_dia, persona=self.conductor,
+                                  tipo='TRASTEO', registrado_por=self.admin)
+        self.assertEqual(list(self.ficha().context['asignaciones']), [])
+
+    def test_un_dia_sin_nada_lo_dice(self):
+        self.assertContains(self.ficha(), 'no tiene nada asignado')
+
+    # ---------- el disparador en el tablero ----------
+
+    def test_solo_es_pinchable_quien_tiene_plan(self):
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        Asignacion.objects.create(plan=plan, persona=self.conductor, tipo='TRASTEO',
+                                  registrado_por=self.admin)
+        contenido = self.client.get(self.url_tablero()).content.decode()
+        # Por el atributo del disparador: la clase también aparece en el JS,
+        # y `data-persona` lo usa el botón «+» de asignar.
+        self.assertEqual(contenido.count('nombre-ficha" data-ficha'), 1)
+        self.assertIn(f'data-ficha="{self.conductor.pk}"', contenido)
+        self.assertNotIn(f'data-ficha="{self.ayudante.pk}"', contenido)
+
+    def test_el_tablero_trae_el_modal_una_sola_vez(self):
+        contenido = self.client.get(self.url_tablero()).content.decode()
+        self.assertEqual(contenido.count('id="modal-ficha"'), 1)
+
+    def url_tablero(self):
+        return reverse('planes:plan_dia')
