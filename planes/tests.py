@@ -656,6 +656,29 @@ class PdfYRegistroTests(BasePlan):
                       respuesta['Content-Disposition'])
         self.assertTrue(respuesta.content.startswith(b'%PDF'))
 
+    def test_en_el_pdf_el_servicio_se_nombra_por_su_orden_y_su_cliente(self):
+        """
+        En el plan impreso, «Servicio programado» no le decía nada al equipo:
+        va el número de la orden y a quién se le presta.
+        """
+        cliente = Cliente.objects.create(nombre='ALIMENTOS DEL VALLE',
+                                         identificacion='900')
+        orden = OrdenServicio.objects.create(
+            cliente=cliente, asesor=self.admin, direccion_servicio='x',
+            descripcion='y')
+        Recorrido.objects.create(orden=orden, vehiculo=self.camion,
+                                 conductor=self.conductor, fecha_recorrido=self.hoy)
+
+        servicio = self.client.get(self.url).context['grupos']
+        fila = [f for g in servicio for f in g['filas']
+                if f['persona'] == self.conductor][0]
+        self.assertEqual(fila['servicios'][0]['cliente'], 'ALIMENTOS DEL VALLE')
+
+        respuesta = self.client.get(
+            reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
+
     def test_el_pdf_sale_aunque_el_dia_este_vacio(self):
         respuesta = self.client.get(
             reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))

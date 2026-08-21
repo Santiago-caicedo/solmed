@@ -45,6 +45,8 @@ Se genera al descargar; la fuente de datos es la misma del tablero.
     .mono { font-family: "Courier New", monospace; font-size: 8.2pt; font-weight: bold; }
     .cargo { font-size: 7pt; color: #51606E; text-transform: uppercase; letter-spacing: .4px; }
     .servicio { color: #2E7D46; font-weight: bold; }
+    /* A quién se le presta el servicio, bajo el número de la orden. */
+    .cliente { font-weight: normal; color: #51606E; font-size: 7.4pt; margin-top: 1pt; }
     .vacio { text-align: center; color: #8A97A5; padding: 8pt; }
 
     /* --- Sin plan / observaciones / firma --- */
@@ -90,7 +92,10 @@ Se genera al descargar; la fuente de datos es la misma del tablero.
         <tr>
             <td class="cargo">{{ f.cargo }}</td>
             <td>{{ f.nombre }}</td>
-            <td {% if f.actividad == 'Servicio programado' %}class="servicio"{% endif %}>{{ f.actividad }}</td>
+            <td {% if f.es_servicio %}class="servicio"{% endif %}>
+                {{ f.actividad }}
+                {% if f.cliente %}<div class="cliente">{{ f.cliente }}</div>{% endif %}
+            </td>
             <td class="mono">{{ f.placa|default:"—" }}</td>
             <td>{{ f.detalle|default:"" }}</td>
         </tr>

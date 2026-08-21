@@ -96,13 +96,15 @@ def _servicios_del_dia(fecha):
     recorridos = (
         Recorrido.objects.filter(fecha_recorrido=fecha)
         .exclude(orden__estado_orden='CANCELADA')
-        .select_related('vehiculo', 'orden', 'orden__programacion_origen')
+        .select_related('vehiculo', 'orden', 'orden__cliente',
+                        'orden__programacion_origen')
     )
     # El acta es OneToOne y puede no existir: se trae aparte en un solo query.
     actas = {a.recorrido_id: a for a in Manifiesto.objects.filter(
         recorrido__fecha_recorrido=fecha)}
     for r in recorridos:
         servicio = {'orden': r.orden_id, 'placa': r.vehiculo.placa,
+                    'cliente': r.orden.cliente.nombre,
                     'horas': _horario_de(r, actas.get(r.pk))}
         for persona_id in (r.conductor_id, r.ayudante_id, r.ayudante2_id):
             if persona_id:
@@ -495,11 +497,15 @@ def _pdf_plan(fecha, request):
         for fila in grupo['filas']:
             base = {'cargo': grupo['cargo'], 'nombre': fila['nombre']}
             for servicio in fila['servicios']:
-                detalle = f"Orden #{servicio['orden']}"
-                if servicio['horas']:
-                    detalle += f" · {servicio['horas']}"
-                filas.append({**base, 'actividad': 'Servicio programado',
-                              'placa': servicio['placa'], 'detalle': detalle})
+                # En el plan impreso, el servicio se nombra por la ORDEN y el
+                # CLIENTE que se va a atender: "Servicio programado" no decía
+                # nada que el equipo pudiera usar.
+                filas.append({**base,
+                              'actividad': f"Orden #{servicio['orden']}",
+                              'cliente': servicio['cliente'],
+                              'es_servicio': True,
+                              'placa': servicio['placa'],
+                              'detalle': servicio['horas']})
             for a in fila['asignaciones']:
                 detalle = ' · '.join(filter(None, [
                     f"Orden #{a.orden_id}" if a.orden_id else '',
