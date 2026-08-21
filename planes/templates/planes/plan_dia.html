@@ -126,6 +126,7 @@
                 <div class="quien">
                     {% if fila.con_plan %}
                     <button type="button" class="nombre nombre-ficha" data-ficha="{{ fila.persona.pk }}"
+                            data-bs-toggle="modal" data-bs-target="#modal-ficha"
                             title="Ver su hoja del día">{{ fila.nombre }}</button>
                     {% else %}
                     <div class="nombre">{{ fila.nombre }}</div>
@@ -390,30 +391,33 @@ dejar veinte fichas ocultas en la página.
     pinta();
 
     // --- La hoja del día: se pide al abrir, no viene con la página ---
+    // El popup lo abre Bootstrap por data-bs-toggle, y aquí solo se escucha su
+    // evento para traer el contenido. A propósito NO se usa el objeto
+    // `bootstrap`: este bloque se pinta ANTES del bundle, y nombrarlo revienta
+    // con "bootstrap is not defined" (ya pasó con el globo de la lista de
+    // órdenes). addEventListener no necesita que el bundle esté cargado.
     (function () {
         var caja = document.getElementById('modal-ficha');
         var cuerpo = document.getElementById('ficha-cuerpo');
         if (!caja || !cuerpo) return;
-        var modal = new bootstrap.Modal(caja);
         var fecha = '{{ fecha|date:"Y-m-d" }}';
 
-        document.querySelectorAll('.nombre-ficha').forEach(function (boton) {
-            boton.addEventListener('click', function () {
-                cuerpo.innerHTML = '<div class="p-4 text-center text-muted">Cargando…</div>';
-                modal.show();
-                fetch('/app/plan/ficha/' + boton.dataset.ficha + '/?fecha=' + fecha,
-                      { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-                    .then(function (r) {
-                        if (!r.ok) { throw new Error(r.status); }
-                        return r.text();
-                    })
-                    .then(function (html) { cuerpo.innerHTML = html; })
-                    .catch(function () {
-                        cuerpo.innerHTML = '<div class="p-4 text-center text-muted">' +
-                            'No se pudo cargar la hoja de esta persona. Cierra y vuelve a intentarlo.' +
-                            '</div>';
-                    });
-            });
+        caja.addEventListener('show.bs.modal', function (evento) {
+            var boton = evento.relatedTarget;
+            if (!boton || !boton.dataset.ficha) return;
+            cuerpo.innerHTML = '<div class="p-4 text-center text-muted">Cargando…</div>';
+            fetch('/app/plan/ficha/' + boton.dataset.ficha + '/?fecha=' + fecha,
+                  { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) {
+                    if (!r.ok) { throw new Error(r.status); }
+                    return r.text();
+                })
+                .then(function (html) { cuerpo.innerHTML = html; })
+                .catch(function () {
+                    cuerpo.innerHTML = '<div class="p-4 text-center text-muted">' +
+                        'No se pudo cargar la hoja de esta persona. Cierra y vuelve a intentarlo.' +
+                        '</div>';
+                });
         });
     })();
 

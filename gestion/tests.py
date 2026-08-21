@@ -3432,6 +3432,29 @@ class PlantillasTests(TestCase):
         # No debe asteriscar cada opción de un grupo de radios/casillas.
         self.assertIn(':not([type=radio]):not([type=checkbox])', base)
 
+    def test_ningun_bloque_de_contenido_usa_el_objeto_bootstrap(self):
+        """
+        `base.html` carga el bundle de Bootstrap DESPUÉS del bloque de
+        contenido, así que nombrar `bootstrap` ahí revienta con "bootstrap is
+        not defined". Ya pasó dos veces (el globo de la lista de órdenes y el
+        popup del plan). Si hace falta el objeto, va en {% block scripts %};
+        casi siempre basta con data-bs-toggle y escuchar su evento.
+        """
+        # Solo el OBJETO: sus clases van en mayúscula (bootstrap.Modal), así
+        # que no se confunde con las URLs del CDN (bootstrap.min.css).
+        uso = re.compile(r'\bbootstrap\.[A-Z]')
+        culpables = []
+        for ruta in self.plantillas():
+            contenido = open(ruta, encoding='utf-8').read()
+            encontrado = uso.search(contenido)
+            if encontrado is None:
+                continue
+            bloque = contenido.find('{% block scripts %}')
+            if bloque == -1 or encontrado.start() < bloque:
+                culpables.append(os.path.basename(ruta))
+        self.assertEqual(culpables, [],
+                         "usan el objeto bootstrap antes de que exista")
+
     def test_ningun_javascript_asume_que_los_widgets_son_listas(self):
         sospechosos = []
         patrones = (re.compile(r"closest\(\s*['\"]li['\"]"),
