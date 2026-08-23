@@ -19,6 +19,7 @@ import base64
 import datetime
 import glob
 import io
+import json
 import os
 import re
 import shutil
@@ -3574,6 +3575,87 @@ class DiagnosticoDeCorreoTests(BaseCRM):
             salida = self.correr()
         self.assertIn('EMAIL_PORT=587', salida)
         self.assertIn('EMAIL_USE_TLS=True', salida)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                   EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
+                   EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+class DiagnosticoDeRedDelCorreoTests(BaseCRM):
+    """
+    `--red` responde la pregunta que el «time out» esconde: ¿el servidor no
+    alcanza el correo, o lo está buscando en la dirección equivocada? Las dos
+    se ven idénticas desde la aplicación y se arreglan de forma muy distinta,
+    así que cada escenario tiene que llevar a su remedio y no al del vecino.
+    """
+    RUTA = 'gestion.management.commands.diagnosticar_correo.Command._pedir'
+
+    def correr(self, aqui, publicas, alcanzables, mi_ip='3.3.3.3'):
+        from io import StringIO
+        from django.core.management import call_command
+
+        def pedir(_self, url, cabeceras=None):
+            if 'checkip' in url:
+                return f"{mi_ip}\n"
+            return json.dumps({'Answer': [{'type': 1, 'data': ip} for ip in publicas]})
+
+        def conectar(destino, timeout=None, **kwargs):
+            if destino[0] in alcanzables:
+                return MagicMock()
+            raise socket.timeout('agotado')
+
+        salida = StringIO()
+        with patch(self.RUTA, autospec=True, side_effect=pedir), \
+                patch('socket.getaddrinfo',
+                      return_value=[(2, 1, 6, '', (ip, 0)) for ip in aqui]), \
+                patch('socket.create_connection', side_effect=conectar):
+            call_command('diagnosticar_correo', '--red', stdout=salida, stderr=salida)
+        return salida.getvalue()
+
+    def test_si_resuelve_a_una_ip_muerta_manda_a_corregir_la_resolucion(self):
+        """El caso real de ago-2026: el servidor apunta a IPs que no atienden."""
+        salida = self.correr(aqui=['9.9.9.9'], publicas=['4.4.4.4'],
+                             alcanzables={'4.4.4.4', 'google.com'})
+        self.assertIn('No coinciden', salida)
+        self.assertIn('/etc/hosts', salida)
+        self.assertIn('4.4.4.4  mail.ejemplo.com', salida,
+                      "el remedio debe traer la IP que sí contesta, no la muerta")
+        self.assertNotIn('habilitar esta IP', salida,
+                         "no es bloqueo del hosting: no debe mandar a pedir permisos")
+
+    def test_si_ninguna_ip_responde_pero_hay_internet_apunta_al_hosting(self):
+        salida = self.correr(aqui=['4.4.4.4'], publicas=['4.4.4.4'],
+                             alcanzables={'google.com'}, mi_ip='54.1.2.3')
+        self.assertIn('habilitar esta IP', salida)
+        self.assertIn('54.1.2.3', salida, "sin la IP pública el hosting no puede ayudar")
+        self.assertNotIn('/etc/hosts', salida)
+
+    def test_sin_internet_no_culpa_al_correo(self):
+        salida = self.correr(aqui=['4.4.4.4'], publicas=['4.4.4.4'], alcanzables=set())
+        self.assertIn('no está saliendo a internet', salida)
+        self.assertNotIn('habilitar esta IP', salida)
+
+    def test_cuando_la_red_esta_bien_manda_a_revisar_las_credenciales(self):
+        salida = self.correr(aqui=['4.4.4.4'], publicas=['4.4.4.4'],
+                             alcanzables={'4.4.4.4', 'google.com'})
+        self.assertIn('La red está bien', salida)
+        self.assertIn('credenciales', salida)
+
+    def test_no_revienta_si_no_se_puede_consultar_el_dns_publico(self):
+        """Un diagnóstico que se cae en el servidor no diagnostica nada."""
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        with patch(self.RUTA, autospec=True, return_value=None), \
+                patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('4.4.4.4', 0))]), \
+                patch('socket.create_connection', side_effect=socket.timeout('agotado')):
+            call_command('diagnosticar_correo', '--red', stdout=salida, stderr=salida)
+        self.assertIn('no se pudo consultar', salida.getvalue())
+
+    def test_no_imprime_la_contraseña(self):
+        with override_settings(EMAIL_HOST_PASSWORD='secreto-que-no-debe-salir'):
+            salida = self.correr(aqui=['4.4.4.4'], publicas=['4.4.4.4'],
+                                 alcanzables={'4.4.4.4', 'google.com'})
+        self.assertNotIn('secreto-que-no-debe-salir', salida)
 
 
 # ============================================================

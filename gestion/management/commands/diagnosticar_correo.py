@@ -6,13 +6,18 @@ el DNS, el puerto, el saludo del servidor SMTP y las credenciales— y al final
 dice qué hacer con lo que encontró.
 
     python manage.py diagnosticar_correo
+    python manage.py diagnosticar_correo --red
     python manage.py diagnosticar_correo --enviar tucorreo@ejemplo.com
 
 No imprime la contraseña: solo si está puesta y cuántos caracteres tiene.
 """
+import json
 import smtplib
 import socket
 import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from django.conf import settings
 from django.core.mail import EmailMessage
@@ -22,6 +27,15 @@ from django.utils import timezone
 ESPERA = 8          # segundos por intento: lo suficiente sin dejar colgado a nadie
 PUERTOS_ALTERNOS = (587, 465, 25)
 
+# Se le pregunta a resolutores públicos por HTTPS (DNS-over-HTTPS) en vez de por
+# el puerto 53: así funciona sin instalar «dig» y sin depender del DNS local,
+# que es justamente lo que se quiere poner a prueba.
+RESOLUTORES_PUBLICOS = (
+    ('Google', 'https://dns.google/resolve?name={nombre}&type=A'),
+    ('Cloudflare', 'https://cloudflare-dns.com/dns-query?name={nombre}&type=A'),
+)
+DONDE_VER_MI_IP = 'https://checkip.amazonaws.com'
+
 
 class Command(BaseCommand):
     help = "Diagnostica el envío de correo: configuración, DNS, puerto, SMTP y credenciales."
@@ -29,6 +43,13 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--enviar', default=None, metavar='CORREO',
                             help='Si todo lo demás pasa, manda un correo de prueba ahí.')
+        parser.add_argument('--red', action='store_true',
+                            help='Compara lo que resuelve esta máquina contra lo que '
+                                 'resuelve el DNS público y prueba cada dirección. '
+                                 'Separa «el servidor no llega» de «apunta a otro lado».')
+        parser.add_argument('--probar', default=None, metavar='HOST[:PUERTO]',
+                            help='Solo prueba si se alcanza ese destino y termina. '
+                                 'Sirve para comparar contra otra máquina.')
 
     # ---------- utilidades de salida ----------
 
@@ -42,8 +63,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.ERROR(f"  ✗ {texto}"))
         return False
 
-    def _nota(self, texto):
-        self.stdout.write(f"    {texto}")
+    def _nota(self, texto=''):
+        self.stdout.write(f"    {texto}" if texto else "")
 
     # ---------- los pasos ----------
 
@@ -235,7 +256,176 @@ class Command(BaseCommand):
 
     # ---------- el comando ----------
 
+    def _pedir(self, url, cabeceras=None):
+        """Trae una URL y devuelve el texto, o None si no se pudo."""
+        peticion = urllib.request.Request(url, headers=cabeceras or {})
+        try:
+            with urllib.request.urlopen(peticion, timeout=ESPERA) as respuesta:
+                return respuesta.read().decode('utf-8', 'replace')
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+
+    def _dns_publico(self, nombre):
+        """Qué direcciones da el DNS público para ese nombre, por resolutor."""
+        resultado = {}
+        for quien, plantilla in RESOLUTORES_PUBLICOS:
+            crudo = self._pedir(
+                plantilla.format(nombre=urllib.parse.quote(nombre)),
+                {'accept': 'application/dns-json'})
+            if crudo is None:
+                resultado[quien] = None
+                continue
+            try:
+                datos = json.loads(crudo)
+            except ValueError:
+                resultado[quien] = None
+                continue
+            # type 1 = registro A; los CNAME intermedios no interesan aquí.
+            resultado[quien] = sorted(
+                r['data'] for r in datos.get('Answer', ()) if r.get('type') == 1)
+        return resultado
+
+    def _resuelve_aqui(self, nombre):
+        try:
+            return sorted({d[4][0] for d in socket.getaddrinfo(nombre, None)})
+        except socket.gaierror:
+            return []
+
+    def _red(self):
+        """
+        La pregunta que separa las dos causas del «time out»: ¿esta máquina no
+        alcanza el correo, o lo está buscando en una dirección equivocada?
+        Para responderla hace falta un tercero —el DNS público— porque el DNS
+        de la máquina es sospechoso y no puede ser juez de sí mismo.
+        """
+        nombre, puerto = settings.EMAIL_HOST, settings.EMAIL_PORT
+        if not nombre:
+            return self._mal("Falta EMAIL_HOST en el .env: no hay nombre que revisar.")
+
+        self._titulo(f"1. ¿A qué dirección apunta {nombre} aquí?")
+        aqui = self._resuelve_aqui(nombre)
+        if aqui:
+            self._nota(f"esta máquina  {', '.join(aqui)}")
+        else:
+            self._mal("Esta máquina no resuelve el nombre.")
+
+        self._titulo("2. ¿Y según el DNS público?")
+        publicas = set()
+        for quien, direcciones in self._dns_publico(nombre).items():
+            if direcciones is None:
+                self._nota(f"{quien:<13} no se pudo consultar")
+            elif direcciones:
+                publicas.update(direcciones)
+                self._nota(f"{quien:<13} {', '.join(direcciones)}")
+            else:
+                self._nota(f"{quien:<13} sin registro A")
+
+        coinciden = publicas and set(aqui) == publicas
+        if publicas and aqui and not coinciden:
+            self._mal("No coinciden: esta máquina busca el correo en otra parte.")
+        elif coinciden:
+            self._ok("Coinciden: el nombre se está resolviendo bien.")
+
+        self._titulo(f"3. ¿Cuáles responden en el puerto {puerto}?")
+        candidatas = sorted(set(aqui) | publicas)
+        responden = []
+        for ip in candidatas:
+            de_donde = []
+            if ip in aqui:
+                de_donde.append('local')
+            if ip in publicas:
+                de_donde.append('público')
+            if self._probar_puerto(ip, puerto):
+                responden.append(ip)
+                self._ok(f"{ip}  responde        (DNS {'+'.join(de_donde)})")
+            else:
+                self._mal(f"{ip}  no responde     (DNS {'+'.join(de_donde)})")
+
+        hay_internet = self._probar_puerto('google.com', 443)
+        self._nota(f"salida a internet (google.com:443): {'SÍ' if hay_internet else 'NO'}")
+        mi_ip = (self._pedir(DONDE_VER_MI_IP) or '').strip()
+
+        # ---------- qué hacer con lo anterior ----------
+        self._titulo("Qué significa")
+        utiles = [ip for ip in responden if ip not in aqui]
+
+        if responden and set(responden) & set(aqui):
+            self.stdout.write(self.style.SUCCESS(
+                "  La red está bien: el correo se alcanza desde aquí."))
+            self._nota("Si el envío igual falla, ya no es la red: corre el diagnóstico")
+            self._nota("completo (sin --red) para revisar credenciales y cifrado.")
+        elif utiles:
+            self.stdout.write(self.style.WARNING(
+                "  El correo SÍ se alcanza, pero no en la dirección que resuelve esta máquina."))
+            self._nota("El problema es de resolución, no de bloqueo. Se fija el nombre a mano:")
+            self._nota("")
+            self._nota(f'  echo "{utiles[0]}  {nombre}" | sudo tee -a /etc/hosts')
+            self._nota(f"  python manage.py diagnosticar_correo --enviar tucorreo@ejemplo.com")
+            self._nota("")
+            self._nota("Es un parche: lo de fondo se corrige en la zona DNS del dominio.")
+        elif not hay_internet:
+            self.stdout.write(self.style.ERROR(
+                "  Esta máquina no está saliendo a internet: eso explica todo lo demás."))
+        else:
+            self.stdout.write(self.style.WARNING(
+                "  Hay internet, pero ninguna dirección del correo responde."))
+            self._nota("Queda una sola explicación: el hosting no acepta conexiones")
+            self._nota("SMTP desde esta máquina. Es común — los proveedores filtran")
+            self._nota("rangos de nube completos para frenar spam.")
+            self._nota("")
+            self._nota(f"Escríbeles pidiendo habilitar esta IP para SMTP: {mi_ip or '(no se pudo consultar)'}")
+
+        if mi_ip:
+            self._nota("")
+            self._nota(f"IP pública de esta máquina: {mi_ip}")
+        return bool(responden)
+
+    def _solo_probar(self, destino):
+        """
+        Prueba un destino suelto. Con el nombre resuelve primero y prueba cada
+        IP por separado: así se ve si el problema es a dónde apunta el DNS o
+        si de plano no se llega al servidor.
+        """
+        host, _, puerto = destino.partition(':')
+        puerto = int(puerto) if puerto.isdigit() else settings.EMAIL_PORT
+        self._titulo(f"¿Se alcanza {host}:{puerto} desde esta máquina?")
+
+        try:
+            socket.inet_aton(host)
+            direcciones = [host]
+        except OSError:
+            try:
+                direcciones = sorted({d[4][0] for d in socket.getaddrinfo(host, None)})
+                self._nota(f"{host} → {', '.join(direcciones)}")
+            except socket.gaierror as e:
+                self._mal(f"No resuelve «{host}» ({e}).")
+                return
+
+        alcanzadas = []
+        for ip in direcciones:
+            if self._probar_puerto(ip, puerto):
+                alcanzadas.append(ip)
+                self._ok(f"{ip}:{puerto} responde")
+            else:
+                self._mal(f"{ip}:{puerto} no responde")
+        self._titulo("Resumen")
+        if alcanzadas:
+            self.stdout.write(self.style.SUCCESS(
+                f"  Esta máquina sí llega a {', '.join(alcanzadas)}."))
+        else:
+            self.stdout.write(self.style.WARNING(
+                "  Esta máquina no llega a ninguna de esas direcciones."))
+
     def handle(self, *args, **opciones):
+        if opciones['probar']:
+            self._solo_probar(opciones['probar'])
+            return
+        if opciones['red']:
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                "\nDIAGNÓSTICO DE RED DEL CORREO"))
+            self._red()
+            return
+
         self.stdout.write(self.style.MIGRATE_HEADING(
             "\nDIAGNÓSTICO DEL CORREO"))
 
