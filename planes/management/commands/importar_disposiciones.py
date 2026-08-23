@@ -29,6 +29,15 @@ Vista previa por defecto; escribe solo con --confirmar:
     python manage.py importar_disposiciones disposiciones.csv
     python manage.py importar_disposiciones disposiciones.csv --confirmar
     python manage.py importar_disposiciones disposiciones.csv --confirmar --usuario ana
+
+Y si se importó lo que no era, se revierte con lo mismo:
+
+    python manage.py importar_disposiciones disposiciones.csv --deshacer
+    python manage.py importar_disposiciones disposiciones.csv --deshacer --confirmar
+
+Deshacer solo toca lo que ESTE comando creó: las asignaciones marcadas como
+«Registro histórico» de esas órdenes, sus movimientos de carga, y los planes
+del día que queden sin nada. Lo que se haya agregado a mano se respeta.
 """
 import csv
 import datetime
@@ -42,6 +51,9 @@ from django.utils import timezone
 from gestion.models import MovimientoCargaVehiculo, OrdenServicio, Vehiculo
 from planes.models import Asignacion, PlanDia
 
+# Marca con la que se reconoce lo que creó esta importación, para poder
+# revertirla sin llevarse por delante lo que alguien registró a mano.
+MARCA = 'Registro histórico'
 SIN_AYUDANTE = {'', 'SOLO', 'SOLO.', 'NINGUNO', 'N/A', '-'}
 FORMATOS_FECHA = ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d/%m/%y')
 
@@ -65,6 +77,8 @@ class Command(BaseCommand):
                             help='Usuario al que se le atribuye el registro (username).')
         parser.add_argument('--omitir-errores', action='store_true',
                             help='Importa las filas que sí resolvieron y salta las demás.')
+        parser.add_argument('--deshacer', action='store_true',
+                            help='Revierte lo que esta importación creó para ese archivo.')
 
     # ---------- resolución de cada columna ----------
 
@@ -230,6 +244,9 @@ class Command(BaseCommand):
             datos['fila'] = numero
             listas.append(datos)
 
+        if opciones['deshacer']:
+            return self._deshacer(listas, errores, opciones['confirmar'])
+
         self._informar(listas, errores, avisos)
 
         if errores and not opciones['omitir_errores']:
@@ -250,6 +267,69 @@ class Command(BaseCommand):
             f"\nListo: {creadas} disposición(es) registrada(s) en el plan."
             + (f" {repetidas} ya estaban y se dejaron como estaban." if repetidas else "")))
         self._estado_actual(listas)
+
+    # ---------- deshacer ----------
+
+    def _deshacer(self, listas, errores, confirmar):
+        """
+        Quita lo que esta importación dejó: las asignaciones que llevan su
+        marca, los movimientos de carga que creó y los planes del día que
+        queden vacíos. Nada más: lo que alguien haya registrado a mano en esos
+        días se queda donde está.
+        """
+        from gestion.models import MovimientoCargaVehiculo
+
+        ordenes = {d['orden'].pk for d in listas}
+        fechas = {d['fecha'] for d in listas}
+        if errores:
+            self.stdout.write(self.style.WARNING(
+                f"{len(errores)} fila(s) del archivo no se pudieron leer; se "
+                f"revierte lo que corresponde a las demás."))
+        if not ordenes:
+            raise CommandError("Ninguna fila del archivo resolvió: no hay qué deshacer.")
+
+        asignaciones = Asignacion.objects.filter(
+            tipo='DISPOSICION_FINAL', detalle=MARCA,
+            orden_id__in=ordenes, plan__fecha__in=fechas
+        ).select_related('persona', 'orden', 'plan')
+        movimientos = MovimientoCargaVehiculo.objects.filter(
+            accion='DESCARGA', orden_id__in=ordenes,
+            nota__icontains=MARCA.lower()
+        ).select_related('vehiculo', 'orden')
+
+        self.stdout.write(self.style.MIGRATE_HEADING("\nSe va a quitar del plan:"))
+        for a in asignaciones:
+            self.stdout.write(
+                f"  {a.plan.fecha:%d/%m/%Y}  Orden #{a.orden_id:<6} "
+                f"{a.persona_nombre}")
+        self.stdout.write(
+            f"  → {asignaciones.count()} asignación(es) y "
+            f"{movimientos.count()} movimiento(s) de carga")
+
+        if not asignaciones.exists() and not movimientos.exists():
+            self.stdout.write(self.style.WARNING(
+                "No hay nada de esta importación en la base."))
+            return
+        if not confirmar:
+            self.stdout.write(self.style.WARNING(
+                "\nVista previa: no se borró nada. Repite con --confirmar."))
+            return
+
+        with transaction.atomic():
+            quitadas = asignaciones.count()
+            borrados = movimientos.count()
+            asignaciones.delete()
+            movimientos.delete()
+            # Los planes del día que quedaron sin nada (ni asignaciones ni
+            # observaciones) los creó esta importación: se van con ella.
+            vacios = [p for p in PlanDia.objects.filter(fecha__in=fechas)
+                      if not p.asignaciones.exists() and not p.notas.strip()]
+            for plan in vacios:
+                plan.delete()
+
+        self.stdout.write(self.style.SUCCESS(
+            f"\nListo: se quitaron {quitadas} asignación(es), {borrados} "
+            f"movimiento(s) y {len(vacios)} plan(es) de día que quedaron vacíos."))
 
     # ---------- salida ----------
 
@@ -307,7 +387,7 @@ class Command(BaseCommand):
                 asignacion = Asignacion.objects.create(
                     plan=plan, persona=persona, tipo='DISPOSICION_FINAL',
                     orden=d['orden'], registrado_por=autor,
-                    detalle='Registro histórico')
+                    detalle=MARCA)
                 asignacion.vehiculos.set([d['vehiculo']])
                 nuevas.append(asignacion)
                 creadas += 1
@@ -327,7 +407,7 @@ class Command(BaseCommand):
             vehiculo=d['vehiculo'], accion='DESCARGA', orden=d['orden'],
             registrado_por=autor,
             nota=(f"Plan del {d['fecha']:%d/%m/%Y}: dispuesto por {nombres} "
-                  f"· registro histórico")[:255],
+                  f"· {MARCA.lower()}")[:255],
         )
         momento = timezone.make_aware(
             datetime.datetime.combine(d['fecha'], datetime.time(12, 0)),

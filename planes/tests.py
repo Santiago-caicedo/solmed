@@ -830,6 +830,79 @@ class ImportarDisposicionesTests(BasePlan):
         self.assertEqual(PlanDia.objects.count(), 1)
         self.assertEqual(Asignacion.objects.count(), 3)
 
+    # ---------- deshacer ----------
+
+    def test_deshacer_quita_lo_que_la_importacion_creo(self):
+        from gestion.models import MovimientoCargaVehiculo
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+        self.assertEqual(Asignacion.objects.count(), 2)
+
+        self.correr(ruta, deshacer=True, confirmar=True)
+        self.assertFalse(Asignacion.objects.exists())
+        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
+        self.assertFalse(PlanDia.objects.exists(),
+                         "el plan del día que quedó vacío se va con ella")
+
+    def test_deshacer_por_defecto_no_borra_nada(self):
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+        salida = self.correr(ruta, deshacer=True)
+        self.assertIn('Vista previa', salida)
+        self.assertEqual(Asignacion.objects.count(), 2)
+
+    def test_deshacer_respeta_lo_que_se_puso_a_mano(self):
+        """La reversa es de ESTA importación, no del plan de esos días."""
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+        plan = PlanDia.objects.get()
+        plan.notas = 'Reunión a las 7'
+        plan.save()
+        a_mano = Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='LAVADA',
+            registrado_por=self.admin, detalle='puesto a mano')
+        a_mano.vehiculos.set([self.camion])
+
+        self.correr(ruta, deshacer=True, confirmar=True)
+
+        self.assertEqual(list(Asignacion.objects.all()), [a_mano])
+        plan.refresh_from_db()
+        self.assertEqual(plan.notas, 'Reunión a las 7')
+
+    def test_deshacer_dos_veces_no_se_queja(self):
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+        self.correr(ruta, deshacer=True, confirmar=True)
+        salida = self.correr(ruta, deshacer=True, confirmar=True)
+        self.assertIn('No hay nada de esta importación', salida)
+
+    def test_deshacer_no_toca_disposiciones_registradas_desde_el_plan(self):
+        """
+        Una disposición asignada de verdad desde el tablero no lleva la marca
+        del importador, así que la reversa la deja en paz.
+        """
+        from gestion.models import Dispositor, Programacion, ProgramacionCuadrilla
+        ruta = self.csv(self.fila())
+        self.correr(ruta, confirmar=True)
+
+        # Una disposición hecha por la vía normal, sobre un camión cargado.
+        destino, _ = Dispositor.objects.get_or_create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, defaults={'tipo': 'INTERNO'})
+        otro = Vehiculo.objects.create(placa='OTR999', marca='m', modelo='2020',
+                                       capacidad='1')
+        programacion = Programacion.objects.create(
+            cliente=self.cli, fecha=self.hoy, requiere_disposicion_final='NO',
+            dispositor_final=destino)
+        ProgramacionCuadrilla.objects.create(
+            programacion=programacion, conductor=self.conductor, vehiculo=otro)
+        programacion.convertir_en_orden(self.admin)
+        self.entrar(self.admin)      # el tablero exige sesión
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', [otro])
+        de_verdad = Asignacion.objects.exclude(detalle='Registro histórico').get()
+
+        self.correr(ruta, deshacer=True, confirmar=True)
+        self.assertIn(de_verdad, Asignacion.objects.all())
+
     # ---------- lo que no deja pasar ----------
 
     def test_una_orden_que_no_existe_frena_la_importacion(self):
