@@ -22,6 +22,7 @@ import io
 import os
 import re
 import shutil
+import socket
 import tempfile
 from decimal import Decimal
 from unittest.mock import patch
@@ -3465,6 +3466,68 @@ class PlantillasTests(TestCase):
                 sospechosos.append(os.path.basename(ruta))
         self.assertEqual(sospechosos, [],
                          "los RadioSelect/CheckboxSelectMultiple son div>label>input")
+
+
+# ============================================================
+#  DIAGNÓSTICO DEL CORREO
+# ============================================================
+class DiagnosticoDeCorreoTests(BaseCRM):
+    """
+    El comando que dice por qué no salen los correos. No debe reventar ni
+    filtrar la contraseña, y tiene que reconocer una configuración incompleta.
+    """
+
+    def correr(self, **opciones):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('diagnosticar_correo', stdout=salida, stderr=salida, **opciones)
+        return salida.getvalue()
+
+    def test_avisa_cuando_la_app_no_esta_configurada_para_enviar(self):
+        """En las pruebas el backend es de memoria: debe decirlo, no fallar."""
+        salida = self.correr()
+        self.assertIn('NO está configurada para enviar por SMTP', salida)
+        self.assertIn('EMAIL_HOST', salida)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_HOST_USER='x@y.co',
+                       EMAIL_HOST_PASSWORD='')
+    def test_señala_la_contraseña_vacia(self):
+        salida = self.correr()
+        self.assertIn('VACÍA', salida)
+        self.assertIn('.env', salida)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_HOST_USER='x@y.co',
+                       EMAIL_HOST_PASSWORD='secreto-que-no-debe-salir')
+    def test_nunca_imprime_la_contraseña(self):
+        # El DNS se finge: las pruebas no salen a internet (y sin esto tardan
+        # lo que tarde el resolutor en rendirse).
+        with patch('socket.getaddrinfo', side_effect=socket.gaierror('sin DNS')):
+            salida = self.correr()
+        self.assertNotIn('secreto-que-no-debe-salir', salida)
+        self.assertIn('caracteres', salida, "solo dice cuántos caracteres tiene")
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='servidor.que.no.existe.solmed',
+                       EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+    def test_un_servidor_que_no_resuelve_se_reporta_como_dns(self):
+        with patch('socket.getaddrinfo', side_effect=socket.gaierror('sin DNS')):
+            salida = self.correr()
+        self.assertIn('No resuelve', salida)
+        self.assertIn('DNS', salida)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
+                       EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+    def test_un_puerto_cerrado_es_el_time_out_y_lo_explica(self):
+        """El caso del servidor: resuelve, pero nada llega al puerto."""
+        with patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('1.2.3.4', 0))]), \
+             patch('socket.create_connection', side_effect=socket.timeout('agotado')):
+            salida = self.correr()
+        self.assertIn('time out', salida)
+        self.assertIn('SALIDA', salida, "debe señalar el grupo de seguridad")
 
 
 # ============================================================
