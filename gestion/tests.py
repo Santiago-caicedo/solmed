@@ -25,7 +25,7 @@ import shutil
 import socket
 import tempfile
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import Group, User
 from django.core import mail
@@ -3518,16 +3518,62 @@ class DiagnosticoDeCorreoTests(BaseCRM):
         self.assertIn('No resuelve', salida)
         self.assertIn('DNS', salida)
 
+    def _con_red(self, alcanzables):
+        """
+        Finge la red: `alcanzables` son los hosts que sí contestan. Sirve para
+        recrear los tres escenarios que se ven igual desde la aplicación —un
+        «time out»— pero que se arreglan de forma distinta.
+        """
+        def conectar(destino, timeout=None, **kwargs):
+            if destino[0] in alcanzables:
+                return MagicMock()
+            raise socket.timeout('agotado')
+        return patch('socket.create_connection', side_effect=conectar)
+
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
                        EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
                        EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
-    def test_un_puerto_cerrado_es_el_time_out_y_lo_explica(self):
-        """El caso del servidor: resuelve, pero nada llega al puerto."""
+    def test_si_no_sale_ni_a_internet_lo_dice_primero(self):
         with patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('1.2.3.4', 0))]), \
-             patch('socket.create_connection', side_effect=socket.timeout('agotado')):
+                self._con_red(set()):
             salida = self.correr()
         self.assertIn('time out', salida)
+        self.assertIn('no está sacando tráfico a internet', salida)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
+                       EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+    def test_si_ningun_puerto_de_correo_sale_señala_el_bloqueo_de_salida(self):
+        """Hay internet, pero ni siquiera se alcanza otro servidor de correo."""
+        with patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('1.2.3.4', 0))]), \
+                self._con_red({'google.com'}):
+            salida = self.correr()
         self.assertIn('SALIDA', salida, "debe señalar el grupo de seguridad")
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
+                       EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+    def test_si_otro_correo_si_sale_el_problema_es_el_destino(self):
+        """La EC2 puede abrir puertos de correo: el que no contesta es el destino."""
+        with patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('1.2.3.4', 0))]), \
+                self._con_red({'google.com', 'smtp.gmail.com'}):
+            salida = self.correr()
+        self.assertIn('el bloqueo no es de la EC2', salida)
+        self.assertIn('DNS', salida)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+                       EMAIL_HOST='mail.ejemplo.com', EMAIL_PORT=465,
+                       EMAIL_HOST_USER='x@y.co', EMAIL_HOST_PASSWORD='clave')
+    def test_si_atiende_en_otro_puerto_dice_como_cambiarlo(self):
+        def conectar(destino, timeout=None, **kwargs):
+            if destino[1] == 587:
+                return MagicMock()
+            raise socket.timeout('agotado')
+        with patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('1.2.3.4', 0))]), \
+                patch('socket.create_connection', side_effect=conectar):
+            salida = self.correr()
+        self.assertIn('EMAIL_PORT=587', salida)
+        self.assertIn('EMAIL_USE_TLS=True', salida)
 
 
 # ============================================================

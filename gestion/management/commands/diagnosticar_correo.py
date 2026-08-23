@@ -79,8 +79,8 @@ class Command(BaseCommand):
         self._titulo("2. ¿El servidor resuelve el nombre del correo?")
         try:
             info = socket.getaddrinfo(settings.EMAIL_HOST, None)
-            direcciones = sorted({d[4][0] for d in info})
-            self._ok(f"{settings.EMAIL_HOST} → {', '.join(direcciones)}")
+            self._direcciones = sorted({d[4][0] for d in info})
+            self._ok(f"{settings.EMAIL_HOST} → {', '.join(self._direcciones)}")
             return True
         except socket.gaierror as e:
             self._mal(f"No resuelve «{settings.EMAIL_HOST}» ({e}).")
@@ -98,20 +98,37 @@ class Command(BaseCommand):
         self._mal(f"El puerto {settings.EMAIL_PORT} no responde: por esto sale el «time out».")
         otros = [p for p in PUERTOS_ALTERNOS if p != settings.EMAIL_PORT]
         self._nota("Probando los otros puertos de correo, por si cambió:")
-        disponibles = []
+        disponibles = [p for p in otros if self._probar_puerto(settings.EMAIL_HOST, p)]
         for puerto in otros:
-            if self._probar_puerto(settings.EMAIL_HOST, puerto):
-                disponibles.append(puerto)
-                self._nota(f"  · {puerto}: SÍ responde")
-            else:
-                self._nota(f"  · {puerto}: tampoco")
+            self._nota(f"  · {puerto}: {'SÍ responde' if puerto in disponibles else 'tampoco'}")
         if disponibles:
+            self._puerto_alterno = disponibles[0]
             self._nota(f"El servidor de correo atiende en {disponibles}: es cambio de "
                        f"puerto, se corrige en el .env (ver el resumen del final).")
+            return False
+
+        # Ningún puerto de correo responde. Aquí se separan dos causas que se
+        # ven igual desde afuera: que esta máquina no pueda sacar tráfico por
+        # esos puertos, o que el destino en concreto no conteste.
+        self._nota("")
+        self._nota("Ninguno responde. Separando las dos causas posibles:")
+        internet = self._probar_puerto('google.com', 443)
+        self._nota(f"  · salida a internet (google.com:443): "
+                   f"{'SÍ' if internet else 'NO'}")
+        correo_ajeno = self._probar_puerto('smtp.gmail.com', 465)
+        self._nota(f"  · otro servidor de correo (smtp.gmail.com:465): "
+                   f"{'SÍ' if correo_ajeno else 'NO'}")
+        for ip in getattr(self, '_direcciones', []):
+            alcanza = self._probar_puerto(ip, settings.EMAIL_PORT)
+            self._nota(f"  · directo a {ip}:{settings.EMAIL_PORT}: "
+                       f"{'SÍ' if alcanza else 'NO'}")
+
+        if not internet:
+            self._causa = 'sin_internet'
+        elif correo_ajeno:
+            self._causa = 'destino'
         else:
-            self._nota("Ningún puerto de correo responde: o el servidor de correo "
-                       "está caído, o la salida está bloqueada (grupo de seguridad "
-                       "de la EC2 → reglas de SALIDA).")
+            self._causa = 'puertos_bloqueados'
         return False
 
     @staticmethod
@@ -171,6 +188,51 @@ class Command(BaseCommand):
         self._ok(f"Enviado a {destinatario}. Revisa la bandeja (y el correo no deseado).")
         return True
 
+    def _remedio_puerto(self):
+        """Qué hacer, según cuál de las causas quedó en pie."""
+        if getattr(self, '_puerto_alterno', None):
+            puerto = self._puerto_alterno
+            cifrado = ("EMAIL_USE_SSL=True y EMAIL_USE_TLS=False" if puerto == 465
+                       else "EMAIL_USE_SSL=False y EMAIL_USE_TLS=True")
+            return [
+                f"El correo atiende en el puerto {puerto}, no en el "
+                f"{settings.EMAIL_PORT}. En /opt/solmed/.env:",
+                f"  EMAIL_PORT={puerto}",
+                f"  {cifrado}",
+                "Y recarga Apache: sudo systemctl reload apache2",
+            ]
+        causa = getattr(self, '_causa', None)
+        if causa == 'sin_internet':
+            return [
+                "Esta máquina no está sacando tráfico a internet: ni siquiera",
+                "abre google.com:443. Revisa la red de la instancia (tabla de",
+                "rutas, NAT, grupo de seguridad) antes de mirar el correo.",
+            ]
+        if causa == 'destino':
+            return [
+                "La máquina SÍ puede abrir puertos de correo hacia afuera",
+                "(smtp.gmail.com:465 responde), pero mail.vadomdata.com no",
+                "contesta en ninguno. O sea que el bloqueo no es de la EC2:",
+                "  1. Pregúntale al proveedor si el servidor de correo está",
+                "     arriba y si bloqueó la IP de esta instancia (los hosting",
+                "     suelen bloquear IPs de nube por abuso).",
+                "  2. Ojo con el DNS: comprueba a qué IP resuelve aquí y",
+                "     compárala con la de otra máquina donde el correo sí sale.",
+                "     Si difieren, esta instancia está resolviendo a un servidor",
+                "     equivocado.",
+            ]
+        return [
+            "La máquina abre internet (google.com:443 responde) pero NINGÚN",
+            "puerto de correo, ni siquiera hacia otro proveedor. Eso es un",
+            "bloqueo de salida para esos puertos:",
+            "  1. Grupo de seguridad de la EC2 → reglas de SALIDA: debe permitir",
+            "     el puerto 465 (y 587) hacia 0.0.0.0/0.",
+            "  2. Revisa también las ACL de red de la subred.",
+            "  3. AWS bloquea el 25 por defecto; el 465 y el 587 no deberían",
+            "     estarlo salvo que alguien restringiera la salida.",
+            "Y recarga Apache al terminar.",
+        ]
+
     # ---------- el comando ----------
 
     def handle(self, *args, **opciones):
@@ -210,15 +272,7 @@ class Command(BaseCommand):
                 "El servidor no resuelve el nombre del correo. Comprueba el nombre",
                 "y el DNS de la máquina (cat /etc/resolv.conf).",
             ],
-            '_puerto': [
-                "Nada llega al servidor de correo. En orden:",
-                "  1. Grupo de seguridad de la EC2 → reglas de SALIDA: debe permitir",
-                "     el puerto de correo hacia 0.0.0.0/0.",
-                "  2. Pregúntale al proveedor si el servidor sigue en ese puerto.",
-                "  3. Si atiende en 587: en el .env pon EMAIL_PORT=587,",
-                "     EMAIL_USE_SSL=False y EMAIL_USE_TLS=True.",
-                "Y recarga Apache al terminar.",
-            ],
+            '_puerto': self._remedio_puerto(),
             '_smtp': [
                 "Se llega al servidor pero no deja entrar. Revisa usuario y",
                 "contraseña en el .env, y que la cuenta siga activa.",
