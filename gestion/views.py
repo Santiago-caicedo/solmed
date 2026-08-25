@@ -277,6 +277,13 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
             'cargados': sum(1 for v in vehiculos if v.cargado),
         }
         context['flota'] = flota
+        # Órdenes cuyo residuo sigue en un camión (carga sin saldar): la
+        # tarjeta lleva a la lista filtrada y se descargan desde el plan.
+        context['ordenes_sin_disponer'] = (
+            OrdenServicio.objects.filter(
+                movimientos_carga__accion='CARGA',
+                movimientos_carga__descarga__isnull=True)
+            .distinct().count())
         context['vehiculos_con_alerta'] = [v for v in vehiculos if v.tiene_alerta_documentos]
         context['vehiculos_cargados'] = sorted(
             (v for v in vehiculos if v.cargado), key=lambda v: v.placa
@@ -475,6 +482,7 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         estado_filtro = self.request.GET.get('estado')
         pago_filtro = self.request.GET.get('pago')
         conciliacion_filtro = self.request.GET.get('conciliacion')
+        disposicion_filtro = self.request.GET.get('disposicion')
 
         # Búsqueda por texto
         if query:
@@ -495,6 +503,14 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         if conciliacion_filtro:
             queryset = queryset.filter(estado_conciliacion=conciliacion_filtro)
 
+        # Órdenes SIN DISPONER: su residuo sigue en un camión (tienen una
+        # CARGA sin saldar en el historial). Es a donde navega la tarjeta
+        # del tablero; se saldan desde el plan de trabajo.
+        if disposicion_filtro == 'SIN_DISPONER':
+            queryset = queryset.filter(
+                movimientos_carga__accion='CARGA',
+                movimientos_carga__descarga__isnull=True).distinct()
+
         return queryset
 
     # --- MÉTODO NUEVO PARA PASAR DATOS EXTRAS A LA PLANTILLA ---
@@ -509,6 +525,7 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         context['current_estado'] = self.request.GET.get('estado', '')
         context['current_pago'] = self.request.GET.get('pago', '')
         context['current_conciliacion'] = self.request.GET.get('conciliacion', '')
+        context['current_disposicion'] = self.request.GET.get('disposicion', '')
         # Lo que le falta a cada orden de ESTA página, como guía de seguimiento.
         # Se cuelga del propio objeto: en la plantilla no hay forma de buscar
         # en un diccionario por clave.

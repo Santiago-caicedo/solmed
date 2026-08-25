@@ -703,6 +703,50 @@ class CargasAcumuladasTests(BaseCRM):
                          [vieja, nueva],
                          "el destino debe la orden arrastrada Y la del trasiego")
 
+    def test_el_tablero_cuenta_las_ordenes_sin_disponer(self):
+        primera, segunda = self._cargar(), self._cargar()
+        admin = self.persona('admin_t', 'Administradores')
+        self.entrar(admin)
+        contexto = self.client.get(reverse('gestion:dashboard')).context
+        self.assertEqual(contexto['ordenes_sin_disponer'], 2)
+        # Se salda una → la cifra baja: cuenta pendientes, no historia.
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=primera)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
+        carga.save(update_fields=['descarga'])
+        contexto = self.client.get(reverse('gestion:dashboard')).context
+        self.assertEqual(contexto['ordenes_sin_disponer'], 1)
+
+    def test_la_lista_de_ordenes_filtra_las_sin_disponer(self):
+        pendiente = self._cargar()
+        dispuesta = self._cargar()
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=dispuesta)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
+        carga.save(update_fields=['descarga'])
+
+        self.entrar(self.asesor)
+        respuesta = self.client.get(reverse('gestion:lista_ordenes'),
+                                    {'disposicion': 'SIN_DISPONER'})
+        ordenes = list(respuesta.context['ordenes'])
+        self.assertEqual([o.pk for o in ordenes], [pendiente.pk],
+                         "solo la que tiene el residuo aún en el camión")
+        # Sin el filtro salen las dos.
+        respuesta = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertEqual(len(respuesta.context['ordenes']), 2)
+
+    def test_una_orden_con_dos_cargas_pendientes_sale_una_sola_vez(self):
+        """El distinct(): sin él, la orden se repetiría por cada carga."""
+        orden = self._cargar()
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=orden,
+            nota='segunda carga de la misma orden')
+        self.entrar(self.asesor)
+        respuesta = self.client.get(reverse('gestion:lista_ordenes'),
+                                    {'disposicion': 'SIN_DISPONER'})
+        self.assertEqual([o.pk for o in respuesta.context['ordenes']],
+                         [orden.pk])
+
     def test_la_carga_manual_se_acumula_sobre_un_camion_cargado(self):
         self._cargar()
         self.entrar(self.asesor)

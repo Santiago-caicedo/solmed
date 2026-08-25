@@ -14,7 +14,7 @@ siguen existiendo, solo se les quitó el botón de aquí.
 <div class="card shadow mb-4">
     <div class="card-body">
         <form method="get" action="{% url 'gestion:lista_ordenes' %}" class="row g-3 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label for="q" class="form-label">Buscar</label>
                 <input type="text" name="q" id="q" class="form-control" placeholder="N° de orden o cliente" value="{{ request.GET.q }}">
             </div>
@@ -27,13 +27,20 @@ siguen existiendo, solo se les quitó el botón de aquí.
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label for="conciliacion" class="form-label">Conciliación</label>
                 <select name="conciliacion" id="conciliacion" class="form-select">
                     <option value="">Todas</option>
                     {% for value, display in conciliacion_choices %}
                         <option value="{{ value }}" {% if current_conciliacion == value %}selected{% endif %}>{{ display }}</option>
                     {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="disposicion" class="form-label">Disposición</label>
+                <select name="disposicion" id="disposicion" class="form-select">
+                    <option value="">Todas</option>
+                    <option value="SIN_DISPONER" {% if current_disposicion == 'SIN_DISPONER' %}selected{% endif %}>Sin disponer</option>
                 </select>
             </div>
             <div class="col-md-2">

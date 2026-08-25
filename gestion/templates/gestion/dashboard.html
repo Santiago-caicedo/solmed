@@ -113,6 +113,11 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
         <div class="metric-value">{{ pendientes_conciliacion_count }}</div>
         <div class="metric-foot">Transporte - Cantidad pendiente</div>
     </a>
+    <a class="metric {% if ordenes_sin_disponer %}t-red{% else %}t-green{% endif %}" href="{% url 'gestion:lista_ordenes' %}?disposicion=SIN_DISPONER">
+        <div class="metric-eyebrow"><span>Sin disponer</span><i class="bi bi-truck"></i></div>
+        <div class="metric-value">{{ ordenes_sin_disponer }}</div>
+        <div class="metric-foot">Órdenes con el residuo aún en el camión</div>
+    </a>
     <a class="metric {% if actas_por_firmar %}t-amber{% else %}t-green{% endif %}" href="{% url 'gestion:lista_ordenes' %}?estado=EN_EJECUCION">
         <div class="metric-eyebrow"><span>Actas por firmar</span><i class="bi bi-pen"></i></div>
         <div class="metric-value">{{ actas_por_firmar }}</div>
