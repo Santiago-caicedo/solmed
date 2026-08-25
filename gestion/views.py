@@ -1083,25 +1083,20 @@ class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
                 "viene la carga). Es la trazabilidad del residuo."
             )
             return destino
-        if vehiculo.cargado:
-            messages.info(
-                request,
-                f"El camión {vehiculo.placa} ya está marcado como cargado "
-                f"({vehiculo.cargado_detalle})."
-            )
-            return destino
-
-        vehiculo.cargado = True
-        vehiculo.cargado_detalle = f"Carga manual: {nota}"
-        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
+        # Las cargas se ACUMULAN (cada una es un pendiente aparte), así que
+        # un camión ya cargado puede recibir otra: no se rechaza, se suma.
         MovimientoCargaVehiculo.objects.create(
-            vehiculo=vehiculo, accion='CARGA', nota=nota,
+            vehiculo=vehiculo, accion='CARGA', nota=f"Carga manual: {nota}",
             registrado_por=request.user,
         )
+        vehiculo.sincronizar_carga()
+        pendientes = vehiculo.cargas_pendientes.count()
         messages.success(
             request,
             f"Camión {vehiculo.placa} marcado como CARGADO, pendiente de "
-            f"disposición. Asígnale la disposición en el plan de trabajo."
+            f"disposición"
+            + (f" (acumula {pendientes} cargas sin disponer)" if pendientes > 1 else "")
+            + ". Asígnale la disposición en el plan de trabajo."
         )
         return destino
 

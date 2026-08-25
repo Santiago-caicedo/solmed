@@ -132,8 +132,8 @@ Los estilos viven aquí porque el fragmento se inyecta ya renderizado.
             </div>
             <div class="detalle">
                 {% if a.placas %}<span class="mono">{{ a.placas }}</span>{% endif %}
-                {% if a.orden_id %}{% if a.placas %}<span class="sep">·</span>{% endif %}
-                <a href="{% url 'gestion:detalle_orden' a.orden_id %}">Orden #{{ a.orden_id }}</a>{% endif %}
+                {% for num in a.ordenes_dispuestas %}{% if a.placas or not forloop.first %}<span class="sep">·</span>{% endif %}
+                <a href="{% url 'gestion:detalle_orden' num %}">Orden #{{ num }}</a>{% endfor %}
                 {% if a.dispositor %}<span class="sep">·</span><span>{{ a.dispositor.nombre }}</span>{% endif %}
                 {% if a.proveedor %}<span class="sep">·</span><span>{{ a.proveedor }}</span>{% endif %}
                 {% if a.detalle %}<span class="sep">·</span><span>{{ a.detalle }}</span>{% endif %}

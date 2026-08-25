@@ -132,6 +132,13 @@ class Asignacion(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
         related_name='asignaciones_registradas',
     )
+    # Las DESCARGAS que esta asignación registró (una por orden dispuesta).
+    # Con ellas se sabe QUÉ órdenes saldó esta disposición y se puede deshacer
+    # si la asignación se quita del plan.
+    descargas = models.ManyToManyField(
+        'gestion.MovimientoCargaVehiculo', blank=True,
+        related_name='asignaciones_plan', verbose_name="Descargas registradas",
+    )
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -156,52 +163,73 @@ class Asignacion(models.Model):
         return self.CAMPOS_POR_TIPO.get(self.tipo, {})
 
     @property
+    def ordenes_dispuestas(self):
+        """
+        Los números de orden que esta disposición saldó, para mostrarlos
+        ("#22207, #22211"). Si no hay descargas enlazadas, cae a la orden
+        suelta de la asignación (las demás actividades y el histórico viejo).
+        """
+        numeros = sorted({d.orden_id for d in self.descargas.all() if d.orden_id})
+        if numeros:
+            return numeros
+        return [self.orden_id] if self.orden_id else []
+
+    @property
+    def ordenes_texto(self):
+        return ', '.join(f"#{n}" for n in self.ordenes_dispuestas)
+
+    @property
     def descarga_vehiculos(self):
         """¿Esta actividad es la que dispone el residuo (y descarga el camión)?"""
         return self.campos.get('vehiculos') == 'cargados'
 
-    def aplicar_descarga(self, vehiculo, personas):
+    def aplicar_descarga(self, vehiculo, personas, cargas):
         """
-        Deja el camión vacío porque el plan asignó su disposición. Es la ÚNICA
-        vía para descargar a mano (el botón del expediente se retiró): así el
-        residuo siempre sale del sistema con un responsable y una fecha.
-        El movimiento conserva la ORDEN que lo había cargado.
+        Salda las cargas elegidas del camión porque el plan asignó su
+        disposición. Es la ÚNICA vía para descargar a mano (el botón del
+        expediente se retiró): así el residuo siempre sale del sistema con un
+        responsable y una fecha. Cada carga se salda con SU DESCARGA — una por
+        orden — y el camión conserva las que no se eligieron: un camión
+        acumula órdenes sin disponer y se van saldando por separado.
         """
         from gestion.models import MovimientoCargaVehiculo
-        nota = (f"Plan del {self.plan.fecha:%d/%m/%Y}: dispuesto por "
-                f"{', '.join(personas)}")
-        if self.detalle:
-            nota += f" · {self.detalle}"
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=vehiculo, accion='DESCARGA', nota=nota[:255],
-            orden=self.orden, dispositor=self.dispositor,
-            registrado_por=self.registrado_por,
-        )
-        vehiculo.cargado = False
-        vehiculo.cargado_detalle = ''
-        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
+        quien = f"dispuesto por {', '.join(personas)}"
+        for carga in cargas:
+            nota = (f"Plan del {self.plan.fecha:%d/%m/%Y}: "
+                    + (f"orden #{carga.orden_id} " if carga.orden_id else "carga manual ")
+                    + quien)
+            if self.detalle:
+                nota += f" · {self.detalle}"
+            movimiento = MovimientoCargaVehiculo.objects.create(
+                vehiculo=vehiculo, accion='DESCARGA', nota=nota[:255],
+                orden=carga.orden, dispositor=self.dispositor,
+                registrado_por=self.registrado_por,
+            )
+            carga.descarga = movimiento
+            carga.save(update_fields=['descarga'])
+            self.descargas.add(movimiento)
+        vehiculo.sincronizar_carga()
 
     def deshacer_descarga(self):
         """
-        Quitar la asignación devuelve el camión a CARGADO: si la disposición no
-        se hizo, el residuo sigue ahí. Se registra el movimiento para que el
-        historial no mienta.
+        Quitar la asignación revive SUS pendientes: si la disposición no se
+        hizo, ese residuo sigue en el camión. Cada orden vuelve como una CARGA
+        nueva — el historial no se borra, se compensa — y las cargas de otras
+        asignaciones no se tocan.
         """
         from gestion.models import MovimientoCargaVehiculo
         vehiculo = self.vehiculos.first()
-        if vehiculo is None or vehiculo.cargado:
+        if vehiculo is None:
             return
-        nota = (f"Se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
-                f"disposición asignada a {self.persona_nombre}")
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=vehiculo, accion='CARGA', nota=nota[:255], orden=self.orden,
-            registrado_por=self.registrado_por,
-        )
-        vehiculo.cargado = True
-        vehiculo.cargado_detalle = (
-            f"Orden #{self.orden_id}: sigue pendiente de disposición"
-            if self.orden_id else "Pendiente de disposición")
-        vehiculo.save(update_fields=['cargado', 'cargado_detalle'])
+        for descarga in self.descargas.all():
+            nota = ((f"Orden #{descarga.orden_id}: " if descarga.orden_id else "")
+                    + f"se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
+                    f"disposición asignada a {self.persona_nombre}")
+            MovimientoCargaVehiculo.objects.create(
+                vehiculo=vehiculo, accion='CARGA', nota=nota[:255],
+                orden=descarga.orden, registrado_por=self.registrado_por,
+            )
+        vehiculo.sincronizar_carga()
 
 
 class Novedad(models.Model):

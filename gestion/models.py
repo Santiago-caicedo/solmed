@@ -267,19 +267,55 @@ class Vehiculo(models.Model):
         return f"{self.marca} {self.modelo} ({self.placa})"
 
     @property
+    def cargas_pendientes(self):
+        """
+        Las CARGAS sin disposición de este camión, la más vieja primero. Cada
+        una conserva SU orden: un camión acumula varias órdenes sin disponer y
+        sigue prestando servicio; el plan de trabajo las salda una por una.
+        """
+        return (self.movimientos_carga
+                .filter(accion='CARGA', descarga__isnull=True)
+                .select_related('orden').order_by('fecha'))
+
+    @property
+    def ordenes_pendientes(self):
+        """Las órdenes sin disponer que viajan en el camión (para avisos)."""
+        return [m.orden for m in self.cargas_pendientes if m.orden_id]
+
+    def sincronizar_carga(self):
+        """
+        Recalcula el espejo `cargado`/`cargado_detalle` a partir de las cargas
+        pendientes. La verdad vive en los movimientos (una fila por orden); el
+        espejo existe para que listados, dashboard y filtros sigan simples.
+        """
+        pendientes = list(self.cargas_pendientes)
+        self.cargado = bool(pendientes)
+        if not pendientes:
+            self.cargado_detalle = ''
+        elif len(pendientes) == 1:
+            self.cargado_detalle = pendientes[0].nota[:255]
+        else:
+            ordenes = [f"#{m.orden_id}" for m in pendientes if m.orden_id]
+            sin_orden = len(pendientes) - len(ordenes)
+            partes = [f"{len(pendientes)} cargas sin disponer"]
+            if ordenes:
+                partes.append('órdenes ' + ', '.join(ordenes))
+            if sin_orden:
+                partes.append(f"{sin_orden} manual{'es' if sin_orden > 1 else ''}")
+            self.cargado_detalle = (': '.join(partes[:2])
+                                    + (f" y {partes[2]}" if len(partes) > 2 else ''))[:255]
+        self.save(update_fields=['cargado', 'cargado_detalle'])
+
+    @property
     def carga_actual(self):
-        """
-        El movimiento de CARGA que dejó el camión en este estado, o None si
-        está vacío. De ahí sale la orden que lo cargó y desde cuándo espera
-        disposición (lo que el plan de trabajo le muestra al asesor).
-        """
+        """La carga pendiente más reciente, o None si el camión está vacío."""
         if not self.cargado:
             return None
-        return self.movimientos_carga.filter(accion='CARGA').first()
+        return self.cargas_pendientes.last()
 
     @property
     def orden_que_cargo(self):
-        """La orden que dejó cargado el camión (None si fue carga manual)."""
+        """La orden de la última carga pendiente (None si fue carga manual)."""
         movimiento = self.carga_actual
         return movimiento.orden if movimiento is not None else None
 
@@ -1683,24 +1719,27 @@ class Programacion(models.Model):
         """
         detalle = f"Orden #{orden.numero_orden} del {self.fecha.strftime('%d/%m/%Y')}"
 
-        def cargar(v, nota):
-            v.cargado = True
-            v.cargado_detalle = nota
-            v.save(update_fields=['cargado', 'cargado_detalle'])
-            MovimientoCargaVehiculo.objects.create(
-                vehiculo=v, accion='CARGA', nota=nota, orden=orden,
+        def cargar(v, nota, orden_carga=orden):
+            # Cada carga es UN pendiente con SU orden: se acumulan (el camión
+            # puede venir cargado de antes y seguir prestando servicio).
+            movimiento = MovimientoCargaVehiculo.objects.create(
+                vehiculo=v, accion='CARGA', nota=nota, orden=orden_carga,
                 registrado_por=usuario)
+            v.sincronizar_carga()
+            return movimiento
 
         def descargar(v, nota, dispositor=None):
             # El movimiento se registra SIEMPRE, aunque el camión no estuviera
             # marcado como cargado: la disposición ocurrió y es la trazabilidad
             # del residuo (antes se perdía justo en el caso más común).
-            v.cargado = False
-            v.cargado_detalle = ''
-            v.save(update_fields=['cargado', 'cargado_detalle'])
-            MovimientoCargaVehiculo.objects.create(
+            # El camión vació completo, así que la descarga salda TODAS sus
+            # cargas pendientes (las órdenes acumuladas salieron con ella).
+            movimiento = MovimientoCargaVehiculo.objects.create(
                 vehiculo=v, accion='DESCARGA', nota=nota, orden=orden,
                 dispositor=dispositor, registrado_por=usuario)
+            v.cargas_pendientes.update(descarga=movimiento)
+            v.sincronizar_carga()
+            return movimiento
 
         if self.requiere_disposicion_final == 'SI':
             for v in vehiculos:
@@ -1717,10 +1756,20 @@ class Programacion(models.Model):
                 cargar(v, f"{detalle}: quedó cargado (sin disposición)")
         elif destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id:
             destino_v = self.trasiego_vehiculo
-            cargar(destino_v, f"{detalle}: recibió trasiego (sin disposición)")
             for v in vehiculos:
                 if v.pk != destino_v.pk:
-                    descargar(v, f"{detalle}: trasegó su contenido a {destino_v.placa}")
+                    # El pendiente sigue al material: lo que el camión debía de
+                    # antes ahora viaja en el destino, cada orden con su carga.
+                    arrastradas = list(v.cargas_pendientes)
+                    movimiento = descargar(
+                        v, f"{detalle}: trasegó su contenido a {destino_v.placa}")
+                    for vieja in arrastradas:
+                        cargar(destino_v,
+                               (f"Orden #{vieja.orden_id}: llegó por trasiego "
+                                f"desde {v.placa} (sin disposición)") if vieja.orden_id
+                               else f"Carga manual: llegó por trasiego desde {v.placa}",
+                               orden_carga=vieja.orden)
+            cargar(destino_v, f"{detalle}: recibió trasiego (sin disposición)")
         elif destino in Dispositor.TANQUES:
             for v in vehiculos:
                 descargar(v, f"{detalle}: contenido a {destino.title()} (tanques SOLMED)")
@@ -2131,6 +2180,16 @@ class MovimientoCargaVehiculo(models.Model):
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
         related_name='movimientos_carga_registrados',
+    )
+    # En una fila CARGA: la DESCARGA que dispuso ese residuo. Mientras sea NULL,
+    # esa carga (su orden) sigue PENDIENTE de disposición — un camión acumula
+    # varias y sigue prestando servicio; cada una se salda por separado desde el
+    # plan de trabajo. SET_NULL: si el histórico borra la descarga, sus cargas
+    # vuelven a quedar pendientes solas (nada queda saldado por un fantasma).
+    descarga = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='cargas_saldadas', verbose_name="Descarga que la saldó",
+        limit_choices_to={'accion': 'DESCARGA'},
     )
     fecha = models.DateTimeField(auto_now_add=True)
 

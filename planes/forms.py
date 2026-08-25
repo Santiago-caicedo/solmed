@@ -2,7 +2,8 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
+from gestion.models import (Dispositor, MovimientoCargaVehiculo, OrdenServicio,
+                            Proveedor, Vehiculo)
 
 from .models import Asignacion, Novedad
 
@@ -25,12 +26,15 @@ class AsignacionForm(forms.Form):
         required=False)
     detalle = forms.CharField(required=False, max_length=255)
 
-    def __init__(self, data=None, personas_ids=None, vehiculos_ids=None, **kwargs):
+    def __init__(self, data=None, personas_ids=None, vehiculos_ids=None,
+                 cargas_ids=None, **kwargs):
         super().__init__(data, **kwargs)
         self.personas_ids = [p for p in (personas_ids or []) if str(p).isdigit()]
         self.vehiculos_ids = [v for v in (vehiculos_ids or []) if str(v).isdigit()]
+        self.cargas_ids = [c for c in (cargas_ids or []) if str(c).isdigit()]
         self.personas = []
         self.vehiculos = []
+        self.cargas = []
 
     def clean(self):
         cleaned = super().clean()
@@ -51,18 +55,29 @@ class AsignacionForm(forms.Form):
         # ¿Con cuál placa? — solo si la actividad la pide.
         cleaned['orden'] = None
         if campos.get('vehiculos') == 'cargados':
-            # Disponer solo tiene sentido sobre un camión CON residuo, y la
-            # orden no se digita: es la que lo dejó cargado.
-            self.vehiculos = list(Vehiculo.objects.filter(
-                pk__in=self.vehiculos_ids, cargado=True))
-            if not self.vehiculos:
-                self.add_error(None, "Elige el camión cargado que se va a disponer. "
-                                     "Solo aparecen los que tienen residuo pendiente.")
-            elif len(self.vehiculos) > 1:
+            # Disponer se hace por CARGA: cada una es una orden sin disponer
+            # que el camión acumula, y aquí se eligen cuáles salen (la orden
+            # no se digita: viaja con su carga). Solo cargas aún pendientes.
+            self.cargas = list(
+                MovimientoCargaVehiculo.objects
+                .filter(pk__in=self.cargas_ids, accion='CARGA',
+                        descarga__isnull=True)
+                .select_related('vehiculo', 'orden'))
+            camiones = {c.vehiculo_id for c in self.cargas}
+            if not self.cargas:
+                self.add_error(None, "Marca cuál carga se va a disponer. Solo "
+                                     "aparecen las órdenes sin disponer de cada camión.")
+            elif len(camiones) > 1:
                 self.add_error(None, "La disposición se asigna de a un camión: "
-                                     "cada uno lleva su propia orden.")
+                                     "asigna otra actividad para el otro.")
             else:
-                cleaned['orden'] = self.vehiculos[0].orden_que_cargo
+                self.vehiculos = [self.cargas[0].vehiculo]
+                # Una sola orden entre las cargas → queda en la asignación;
+                # varias → la traza por orden vive en las descargas enlazadas.
+                ordenes = [c.orden for c in self.cargas if c.orden_id]
+                cleaned['orden'] = (ordenes[0]
+                                    if len({o.pk for o in ordenes}) == 1
+                                    else None)
         elif campos.get('vehiculos'):
             self.vehiculos = list(Vehiculo.objects.filter(pk__in=self.vehiculos_ids))
             if not self.vehiculos:
@@ -113,9 +128,13 @@ class AsignacionForm(forms.Form):
             asignacion.vehiculos.set(self.vehiculos)
             creadas.append(asignacion)
 
-        if creadas and creadas[0].descarga_vehiculos and self.vehiculos:
+        if creadas and creadas[0].descarga_vehiculos and self.cargas:
             nombres = [a.persona_nombre for a in creadas]
-            creadas[0].aplicar_descarga(self.vehiculos[0], nombres)
+            creadas[0].aplicar_descarga(self.vehiculos[0], nombres, self.cargas)
+            # La pareja comparte la misma disposición: todos enlazan las mismas
+            # descargas, y quitar a uno no la deshace mientras quede el otro.
+            for a in creadas[1:]:
+                a.descargas.set(creadas[0].descargas.all())
         return len(creadas)
 
 

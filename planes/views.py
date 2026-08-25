@@ -201,12 +201,12 @@ class PlanDiaView(AdministradorRequiredMixin, View):
 
     @staticmethod
     def _placas():
-        vehiculos = list(Vehiculo.objects.order_by('placa').prefetch_related(
-            'movimientos_carga'))
+        # Cada camión trae SUS cargas pendientes (una por orden sin disponer):
+        # la actividad de disposición las ofrece como casillas y se saldan por
+        # separado — un camión acumula varias y sigue prestando servicio.
+        vehiculos = list(Vehiculo.objects.order_by('placa'))
         for v in vehiculos:
-            movimiento = v.carga_actual
-            v.orden_carga = movimiento.orden_id if movimiento is not None else None
-            v.detalle_carga = (v.cargado_detalle or '') if v.cargado else ''
+            v.pendientes = list(v.cargas_pendientes)
         return vehiculos
 
     def post(self, request):
@@ -218,6 +218,7 @@ class PlanDiaView(AdministradorRequiredMixin, View):
                 request.POST,
                 personas_ids=request.POST.getlist('personas'),
                 vehiculos_ids=request.POST.getlist('vehiculos'),
+                cargas_ids=request.POST.getlist('cargas'),
             )
             if form.is_valid():
                 plan, _ = PlanDia.objects.get_or_create(
@@ -356,10 +357,12 @@ class EliminarAsignacionView(AdministradorRequiredMixin, View):
         fecha = asignacion.plan.fecha
         vehiculo = asignacion.vehiculos.first()
         descargaba = asignacion.descarga_vehiculos and vehiculo is not None
-        # ¿Queda alguien más con esa misma disposición en el plan del día?
+        # ¿Queda alguien más encargado de ESTA misma disposición? Compañero es
+        # quien comparte las mismas descargas (la pareja del trabajo), no
+        # cualquier otra disposición del mismo camión: ahora un camión puede
+        # tener varias, cada una saldando sus propias órdenes.
         acompanantes = (
-            Asignacion.objects.filter(plan=asignacion.plan, tipo=asignacion.tipo,
-                                      vehiculos=vehiculo)
+            Asignacion.objects.filter(descargas__in=asignacion.descargas.all())
             .exclude(pk=asignacion.pk).exists()
             if descargaba else False
         )
@@ -507,8 +510,10 @@ def _pdf_plan(fecha, request):
                               'placa': servicio['placa'],
                               'detalle': servicio['horas']})
             for a in fila['asignaciones']:
+                ordenes = a.ordenes_dispuestas
                 detalle = ' · '.join(filter(None, [
-                    f"Orden #{a.orden_id}" if a.orden_id else '',
+                    (f"Orden{'es' if len(ordenes) > 1 else ''} "
+                     + ', '.join(f'#{n}' for n in ordenes)) if ordenes else '',
                     a.proveedor.razon_social if a.proveedor_id else '',
                     a.hora.strftime('%H:%M') if a.hora else '',
                     a.detalle,

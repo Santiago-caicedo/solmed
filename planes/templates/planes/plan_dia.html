@@ -137,7 +137,7 @@
                         {% endfor %}
                         {% for a in fila.asignaciones %}
                         <span class="pt-chip c-actividad">
-                            {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.orden_id %} · <span class="mono">#{{ a.orden_id }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.hora|time:"H:i" }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
+                            {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.ordenes_texto %} · <span class="mono">{{ a.ordenes_texto }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.hora|time:"H:i" }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
                             <form method="post" action="{% url 'planes:eliminar_asignacion' a.pk %}">
                                 {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
                                 <button class="quitar" title="Quitar esta asignación"><i class="bi bi-x-lg"></i></button>
@@ -210,15 +210,39 @@
                             <div class="pt-etq" id="etq-placas">Placa</div>
                             <div class="pt-sel" id="sel-placas">
                                 {% for v in vehiculos %}
-                                <label data-cargado="{% if v.cargado %}1{% else %}0{% endif %}">
+                                <label data-normal="1">
                                     <input type="checkbox" name="vehiculos" value="{{ v.pk }}">
-                                    <span class="mono">{{ v.placa }}</span>{% if v.cargado %} · <span class="pt-carga">cargado{% if v.orden_carga %} por la orden #{{ v.orden_carga }}{% endif %}</span>{% elif v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}
+                                    <span class="mono">{{ v.placa }}</span>{% if v.cargado %} · <span class="pt-carga">{{ v.pendientes|length }} sin disponer</span>{% elif v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}
                                 </label>
                                 {% endfor %}
                             </div>
+                            {# En modo disposición se elige POR CARGA: cada una se salda por separado. #}
+                            <div id="sel-cargas" style="display:none">
+                                {% for v in vehiculos %}{% if v.pendientes %}
+                                <div class="pt-camion-cargas">
+                                    <div class="pt-etq" style="margin:.35rem 0 .2rem">
+                                        <span class="mono">{{ v.placa }}</span> ·
+                                        {{ v.pendientes|length }} carga{{ v.pendientes|length|pluralize }} sin disponer
+                                    </div>
+                                    <div class="pt-sel">
+                                        {% for c in v.pendientes %}
+                                        <label>
+                                            <input type="checkbox" name="cargas" value="{{ c.pk }}"
+                                                   data-camion="{{ v.pk }}">
+                                            {% if c.orden_id %}<span class="mono">#{{ c.orden_id }}</span>
+                                            {% if c.orden %} · {{ c.orden.cliente.nombre|truncatechars:22 }}{% endif %}
+                                            {% else %}carga manual{% endif %}
+                                            · {{ c.fecha|date:"d/m" }}
+                                        </label>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}{% endfor %}
+                            </div>
                             <div class="form-text pt-aviso-carga" id="aviso-cargados" style="font-size:.72rem">
-                                Solo aparecen los camiones con residuo pendiente. Asignar esta
-                                actividad los deja vacíos: es la única forma de descargarlos.
+                                Marca las órdenes que se van a disponer (de un solo camión).
+                                Cada una queda saldada con su propia descarga; las que no
+                                marques siguen pendientes en el camión.
                             </div>
                             <div class="form-text pt-aviso-carga" id="aviso-sin-cargados"
                                  style="font-size:.72rem; display:none">
@@ -373,22 +397,37 @@ dejar veinte fichas ocultas en la página.
         document.getElementById('campo-hora').classList.toggle('visible', !!spec.hora);
         document.getElementById('detalle-opcional').classList.toggle('d-none', !!spec.detalle);
 
-        // Disponer solo tiene sentido sobre un camión con residuo: se ocultan
-        // los vacíos y se desmarca lo que ya no aplica (el servidor lo valida
-        // igual, esto es para no ofrecer lo imposible).
-        var visibles = 0;
-        document.querySelectorAll('#sel-placas label').forEach(function (l) {
-            var oculta = soloCargados && l.dataset.cargado !== '1';
-            l.classList.toggle('oculta', oculta);
-            if (oculta) { l.querySelector('input').checked = false; } else { visibles++; }
+        // Disponer se elige POR CARGA (cada orden sin disponer del camión es
+        // una casilla): se cambia el selector de placas por el de cargas, y se
+        // desmarca lo que ya no aplica (el servidor lo valida igual).
+        var selPlacas = document.getElementById('sel-placas');
+        var selCargas = document.getElementById('sel-cargas');
+        var hayCargas = !!selCargas.querySelector('input');
+        selPlacas.style.display = soloCargados ? 'none' : '';
+        selCargas.style.display = soloCargados && hayCargas ? '' : 'none';
+        selCargas.querySelectorAll('input').forEach(function (c) {
+            if (!soloCargados) { c.checked = false; }
         });
+        if (soloCargados) {
+            selPlacas.querySelectorAll('input').forEach(function (c) { c.checked = false; });
+        }
         document.getElementById('aviso-cargados').style.display =
-            soloCargados && visibles ? 'block' : 'none';
+            soloCargados && hayCargas ? 'block' : 'none';
         document.getElementById('aviso-sin-cargados').style.display =
-            soloCargados && !visibles ? 'block' : 'none';
+            soloCargados && !hayCargas ? 'block' : 'none';
     }
     selTipo.addEventListener('change', pinta);
     pinta();
+
+    // Una disposición va de a un camión: marcar una carga suelta las de otros.
+    document.querySelectorAll('#sel-cargas input').forEach(function (c) {
+        c.addEventListener('change', function () {
+            if (!c.checked) { return; }
+            document.querySelectorAll('#sel-cargas input').forEach(function (otra) {
+                if (otra.dataset.camion !== c.dataset.camion) { otra.checked = false; }
+            });
+        });
+    });
 
     // --- La hoja del día: se pide al abrir, no viene con la página ---
     // El popup lo abre Bootstrap por data-bs-toggle, y aquí solo se escucha su
