@@ -671,17 +671,39 @@ class RecorridoForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Filtramos para que solo se puedan seleccionar vehículos operativos
-        self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
 
-        # Solo conductores/ayudantes ACTIVOS (los retirados no se pueden asignar).
-        self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
-        for campo in ('ayudante', 'ayudante2'):
-            self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
-            _mostrar_nombres(self.fields[campo])
+        # Una orden HISTÓRICA (anterior al consecutivo del sistema) se editó
+        # para completar el acta física: la pudo atender alguien que ya se
+        # retiró o un camión que ya no está operativo, así que se ofrece todo
+        # el personal y toda la flota. En las órdenes normales, solo activos.
+        historica = (self.instance.pk is not None and self.instance.orden_id
+                     and self.instance.orden_id < OrdenServicio.NUMERO_INICIAL)
 
-        # Mostrar el nombre en los desplegables, no el username (cédula del ayudante).
-        _mostrar_nombres(self.fields['conductor'])
+        if historica:
+            self.fields['vehiculo'].queryset = Vehiculo.objects.order_by('placa')
+            self.fields['conductor'].queryset = (
+                User.objects.filter(groups__name='Conductores')
+                .order_by('first_name', 'last_name'))
+            for campo in ('ayudante', 'ayudante2'):
+                self.fields[campo].queryset = (
+                    User.objects.filter(groups__name='Ayudantes')
+                    .order_by('first_name', 'last_name'))
+        else:
+            # Filtramos para que solo se puedan seleccionar vehículos operativos
+            self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+            # Solo conductores/ayudantes ACTIVOS (los retirados no se pueden asignar).
+            self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+            for campo in ('ayudante', 'ayudante2'):
+                self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+
+        # Mostrar el nombre en los desplegables, no el username (cédula del
+        # ayudante); en históricas, señalando a los retirados.
+        def etiqueta(u):
+            nombre = _nombre_persona(u)
+            retirado = getattr(getattr(u, 'perfil', None), 'retirado', False)
+            return f"{nombre} (retirado)" if historica and retirado else nombre
+        for campo in ('conductor', 'ayudante', 'ayudante2'):
+            self.fields[campo].label_from_instance = etiqueta
 
 
 

@@ -2532,6 +2532,78 @@ class OrdenHistoricaTests(BaseCRM):
         self.assertEqual(orden.bascula, 'PESAN')
         self.assertEqual(orden.registro_fotografico, 'SI')
 
+    def _historica(self, **campos):
+        """Una orden histórica ya archivada, para completarla después."""
+        self.client.post(reverse('gestion:orden_historica'),
+                         dict(self.datos(**campos), acta=archivo('acta.pdf')))
+        return OrdenServicio.objects.get(pk=campos.get('numero_orden', 21000))
+
+    def test_editar_el_recorrido_ofrece_tambien_al_personal_retirado(self):
+        """
+        Las históricas ya creadas se completan con Editar recorrido: la orden
+        es vieja, así que el desplegable trae retirados y toda la flota
+        (en las órdenes normales sigue saliendo solo lo activo).
+        """
+        retirado = self.persona('retirado', 'Conductores', 'Ex', 'Empleado')
+        retirado.perfil.retirado = True
+        retirado.perfil.save()
+        varado = self.vehiculo(placa='VRD001', estado='MANTENIMIENTO')
+
+        orden = self._historica()
+        recorrido = orden.recorridos.get()
+        respuesta = self.client.get(
+            reverse('gestion:editar_recorrido', args=[recorrido.pk]))
+        form = respuesta.context['form']
+        self.assertIn(retirado, form.fields['conductor'].queryset)
+        self.assertIn(varado, form.fields['vehiculo'].queryset)
+        self.assertIn('(retirado)',
+                      form.fields['conductor'].label_from_instance(retirado))
+
+        # Y guardarlo asigna la cuadrilla al recorrido histórico.
+        ayudante = self.persona('ayu_h', 'Ayudantes', 'Luis', 'Mora')
+        self.client.post(
+            reverse('gestion:editar_recorrido', args=[recorrido.pk]),
+            {'fecha_recorrido': '2024-05-10', 'vehiculo': self.camion.pk,
+             'conductor': retirado.pk, 'ayudante': ayudante.pk,
+             'ayudante2': '', 'descripcion': ''})
+        recorrido.refresh_from_db()
+        self.assertEqual(recorrido.conductor, retirado)
+        self.assertEqual(recorrido.ayudante, ayudante)
+
+    def test_una_orden_normal_sigue_sin_ofrecer_retirados(self):
+        retirado = self.persona('retirado2', 'Conductores', 'Ex', 'Empleado')
+        retirado.perfil.retirado = True
+        retirado.perfil.save()
+        conductor = self.persona('activo', 'Conductores', 'Juan', 'Vivo')
+        self.con_ss(conductor)
+        normal = BaseCRM.programacion(
+            cliente=self.cli, conductor=conductor,
+            vehiculo=self.camion).convertir_en_orden(self.asesor)
+        respuesta = self.client.get(reverse(
+            'gestion:editar_recorrido', args=[normal.recorridos.get().pk]))
+        self.assertNotIn(retirado,
+                         respuesta.context['form'].fields['conductor'].queryset)
+
+    def test_el_acta_digital_registra_novedades_en_una_historica(self):
+        """
+        Las novedades operacionales viven en el acta: el botón Llenar del
+        expediente de la orden también funciona para una histórica (crea su
+        acta digital junto al escaneo del físico).
+        """
+        orden = self._historica()
+        recorrido = orden.recorridos.get()
+        respuesta = self.client.post(
+            reverse('gestion:firmar_manifiesto_step', args=[recorrido.pk, 'paso3']),
+            {'tiempo_inicio_operativo': '07:00', 'tiempo_final_operativo': '11:00',
+             'nov-VARADA-marcada': 'on',
+             'nov-VARADA-observacion': 'Pinchazo en la vía',
+             'nov-VARADA-hora_inicio': '08:00', 'nov-VARADA-hora_final': '09:00'})
+        self.assertEqual(respuesta.status_code, 302)
+        acta = Manifiesto.objects.get(recorrido=recorrido)
+        novedad = acta.novedades_operacionales.get()
+        self.assertEqual(novedad.tipo, 'VARADA')
+        self.assertEqual(novedad.observacion, 'Pinchazo en la vía')
+
     def test_un_conductor_retirado_se_puede_registrar(self):
         """La orden es vieja: pudo atenderla alguien que ya no está."""
         retirado = self.persona('retirado', 'Conductores', 'Ex', 'Empleado')
