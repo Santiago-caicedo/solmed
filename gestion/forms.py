@@ -1006,26 +1006,54 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
             'ayudante2_apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, historica=False, **kwargs):
         super().__init__(*args, **kwargs)
-        # Solo vehículos operativos y personal ACTIVO (retirados excluidos).
-        self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-        self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
-        for campo in ('ayudante', 'ayudante2'):
-            self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
-            _mostrar_nombres(self.fields[campo])
-        # Placa de la que se apoya la disposición (solo vehículos operativos).
-        for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
-            self.fields[campo].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-            self.fields[campo].empty_label = '--- Elige la placa ---'
-        # Conductor y vehículo son obligatorios (la orden necesita ambos).
-        self.fields['conductor'].required = True
-        self.fields['vehiculo'].required = True
+        if historica:
+            # Se está completando una orden HISTÓRICA (acta física vieja): la
+            # pudo atender alguien ya retirado o un camión hoy fuera de
+            # servicio, así que se ofrece todo, y el conductor no se exige
+            # (se registra lo que el papel traiga).
+            self.fields['vehiculo'].queryset = Vehiculo.objects.order_by('placa')
+            self.fields['conductor'].queryset = (
+                User.objects.filter(groups__name='Conductores')
+                .order_by('first_name', 'last_name'))
+            for campo in ('ayudante', 'ayudante2'):
+                self.fields[campo].queryset = (
+                    User.objects.filter(groups__name='Ayudantes')
+                    .order_by('first_name', 'last_name'))
+            for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
+                self.fields[campo].queryset = Vehiculo.objects.order_by('placa')
+                self.fields[campo].empty_label = '--- Elige la placa ---'
+            self.fields['conductor'].required = False
+            self.fields['vehiculo'].required = True
+
+            def etiqueta(u):
+                nombre = _nombre_persona(u)
+                if getattr(getattr(u, 'perfil', None), 'retirado', False):
+                    return f"{nombre} (retirado)"
+                return nombre
+            for campo in ('conductor', 'ayudante', 'ayudante2'):
+                self.fields[campo].label_from_instance = etiqueta
+        else:
+            # Solo vehículos operativos y personal ACTIVO (retirados excluidos).
+            self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+            self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+            for campo in ('ayudante', 'ayudante2'):
+                self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+                _mostrar_nombres(self.fields[campo])
+            # Placa de la que se apoya la disposición (solo vehículos operativos).
+            for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
+                self.fields[campo].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
+                self.fields[campo].empty_label = '--- Elige la placa ---'
+            # Conductor y vehículo son obligatorios (la orden necesita ambos).
+            self.fields['conductor'].required = True
+            self.fields['vehiculo'].required = True
+            _mostrar_nombres(self.fields['conductor'])
         self.fields['vehiculo'].empty_label = '--- Elige la placa ---'
-        self.fields['conductor'].empty_label = '--- Elige el conductor ---'
+        self.fields['conductor'].empty_label = ('--- Sin conductor registrado ---'
+                                                if historica else '--- Elige el conductor ---')
         self.fields['ayudante'].empty_label = '--- Sin ayudante ---'
         self.fields['ayudante2'].empty_label = '--- Sin segundo ayudante ---'
-        _mostrar_nombres(self.fields['conductor'])
         # Novedades: valores iniciales desde el CSV guardado.
         if self.instance and self.instance.pk:
             self.initial['ayudante_novedad'] = _csv_a_lista(self.instance.ayudante_novedad)

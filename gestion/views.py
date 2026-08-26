@@ -667,19 +667,55 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
     checklist, cursos, disposición final, cuadrilla...). Al guardar, la orden y
     su recorrido se actualizan con lo corregido.
 
-    Las órdenes HISTÓRICAS no nacieron de una programación: esas conservan el
-    formulario corto de siempre.
+    Una orden HISTÓRICA no nació de una programación, pero se edita con el
+    MISMO formulario (decisión del usuario, ago-2026): al abrirla se arma su
+    programación —sembrada con lo que la orden ya sabe— y al guardar queda
+    enlazada como la de cualquier orden. En históricas no se valida SS ni
+    cursos (el servicio ya pasó, y pudo atenderlo personal hoy retirado).
     """
     template_name = 'gestion/form_programacion.html'
 
+    @staticmethod
+    def _es_historica(orden):
+        return orden.pk < OrdenServicio.NUMERO_INICIAL
+
     def _programacion(self, orden):
-        return getattr(orden, 'programacion_origen', None)
+        """La programación de la orden; para una histórica, una SIN GUARDAR
+        sembrada con los datos que la orden ya tiene."""
+        programacion = getattr(orden, 'programacion_origen', None)
+        if programacion is not None:
+            return programacion
+        if not self._es_historica(orden):
+            return None
+        recorrido = orden.recorridos.first()
+        return Programacion(
+            cliente=orden.cliente,
+            fecha=(recorrido.fecha_recorrido if recorrido
+                   else timezone.localdate()),
+            direccion=orden.direccion_servicio,
+            bascula=orden.bascula,
+            registro_fotografico=orden.registro_fotografico,
+            estado='CONVERTIDA',
+        )
+
+    def _cuadrilla(self, orden, programacion):
+        """La cuadrilla a editar; para una histórica sin programación guardada,
+        una SIN GUARDAR sembrada desde el recorrido."""
+        if programacion.pk:
+            return programacion.cuadrillas.first()
+        recorrido = orden.recorridos.first()
+        if recorrido is None:
+            return None
+        return ProgramacionCuadrilla(
+            conductor=recorrido.conductor, vehiculo=recorrido.vehiculo,
+            ayudante=recorrido.ayudante, ayudante2=recorrido.ayudante2)
 
     def _contexto(self, orden, programacion, form=None, cuadrilla_form=None):
         contexto = {
             'form': form or ProgramacionForm(instance=programacion),
             'cuadrilla_form': cuadrilla_form or ProgramacionCuadrillaForm(
-                prefix='cuadrilla', instance=programacion.cuadrillas.first()),
+                prefix='cuadrilla', instance=self._cuadrilla(orden, programacion),
+                historica=self._es_historica(orden)),
             'object': programacion,
             # La plantilla se comparte con la programación: esta bandera cambia
             # los textos y el botón de volver.
@@ -700,6 +736,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
     def post(self, request, pk):
         orden = get_object_or_404(OrdenServicio, pk=pk)
         programacion = self._programacion(orden)
+        historica = self._es_historica(orden)
 
         if programacion is None:
             form = OrdenServicioForm(request.POST, instance=orden)
@@ -713,26 +750,35 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
         form = ProgramacionForm(request.POST, instance=programacion)
         cuadrilla_form = ProgramacionCuadrillaForm(
             request.POST, prefix='cuadrilla',
-            instance=programacion.cuadrillas.first())
+            instance=self._cuadrilla(orden, programacion),
+            historica=historica)
         if not (form.is_valid() and cuadrilla_form.is_valid()):
             return render(request, self.template_name,
                           self._contexto(orden, programacion, form, cuadrilla_form))
 
         # Las mismas exigencias que al programar: sin SS vigente ni los cursos
-        # requeridos, no se guarda.
-        cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
-        ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
-        if not (cursos_ok and ss_ok):
-            messages.error(
-                request,
-                "No se guardó: revisa la documentación del personal asignado "
-                "(seguridad social vigente y cursos exigidos)."
-            )
-            return render(request, self.template_name,
-                          self._contexto(orden, programacion, form, cuadrilla_form))
+        # requeridos, no se guarda. En una HISTÓRICA no aplican: el servicio ya
+        # pasó y se registra lo que dice el acta física.
+        if not historica:
+            cursos_ok = _validar_cursos_cuadrilla(form, cuadrilla_form)
+            ss_ok = _validar_ss_cuadrilla(form, cuadrilla_form)
+            if not (cursos_ok and ss_ok):
+                messages.error(
+                    request,
+                    "No se guardó: revisa la documentación del personal asignado "
+                    "(seguridad social vigente y cursos exigidos)."
+                )
+                return render(request, self.template_name,
+                              self._contexto(orden, programacion, form, cuadrilla_form))
 
         with transaction.atomic():
-            programacion = form.save()
+            programacion = form.save(commit=False)
+            # Para la histórica: queda enlazada y convertida, como cualquiera.
+            programacion.estado = 'CONVERTIDA'
+            programacion.orden = orden
+            if programacion.creado_por_id is None:
+                programacion.creado_por = request.user
+            programacion.save()
             cuadrilla = cuadrilla_form.save(commit=False)
             cuadrilla.programacion = programacion
             cuadrilla.save()

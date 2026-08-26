@@ -2584,6 +2584,68 @@ class OrdenHistoricaTests(BaseCRM):
         self.assertNotIn(retirado,
                          respuesta.context['form'].fields['conductor'].queryset)
 
+    def test_editar_una_historica_abre_el_formulario_de_programacion(self):
+        """
+        Editar la histórica = el MISMO formulario de la programación (decisión
+        del usuario, ago-2026), con la cuadrilla y las novedades del ayudante.
+        Se siembra con lo que la orden ya sabe y ofrece retirados.
+        """
+        retirado = self.persona('retirado3', 'Conductores', 'Ex', 'Empleado')
+        retirado.perfil.retirado = True
+        retirado.perfil.save()
+        orden = self._historica()
+        respuesta = self.client.get(
+            reverse('gestion:actualizar_orden', args=[orden.pk]))
+        self.assertTemplateUsed(respuesta, 'gestion/form_programacion.html')
+        cuadrilla = respuesta.context['cuadrilla_form']
+        self.assertIn(retirado, cuadrilla.fields['conductor'].queryset)
+        self.assertFalse(cuadrilla.fields['conductor'].required,
+                         "el acta física puede no traer conductor")
+        self.assertEqual(respuesta.context['form'].instance.cliente, self.cli)
+
+    def test_guardar_la_edicion_crea_su_programacion_con_cuadrilla_y_novedades(self):
+        retirado = self.persona('retirado4', 'Conductores', 'Ex', 'Empleado')
+        retirado.perfil.retirado = True
+        retirado.perfil.save()
+        ayudante = self.persona('ayu_n', 'Ayudantes', 'Luis', 'Mora')
+        orden = self._historica()
+
+        respuesta = self.client.post(
+            reverse('gestion:actualizar_orden', args=[orden.pk]), {
+                'fecha': '2024-05-10', 'cliente': self.cli.pk,
+                'direccion': 'Calle 10 # 5-20',
+                'cuadrilla-conductor': retirado.pk,
+                'cuadrilla-vehiculo': self.camion.pk,
+                'cuadrilla-ayudante': ayudante.pk,
+                'cuadrilla-ayudante_novedad': ['INICIA_BODEGA', 'RETORNA_BODEGA'],
+            })
+        if respuesta.status_code != 302:
+            self.fail(f"no guardó: {respuesta.context['form'].errors} "
+                      f"{respuesta.context['cuadrilla_form'].errors}")
+
+        orden.refresh_from_db()
+        programacion = orden.programacion_origen
+        self.assertEqual(programacion.estado, 'CONVERTIDA')
+        cuadrilla = programacion.cuadrillas.get()
+        self.assertEqual(cuadrilla.conductor, retirado,
+                         "guardó al retirado sin exigirle seguridad social")
+        self.assertEqual(cuadrilla.ayudante_novedad, 'INICIA_BODEGA,RETORNA_BODEGA')
+        recorrido = orden.recorridos.get()
+        self.assertEqual(recorrido.conductor, retirado)
+        self.assertEqual(recorrido.ayudante, ayudante)
+        self.assertEqual(orden.estado_orden, 'FINALIZADA',
+                         "editar no le mueve el estado a la histórica")
+
+    def test_reeditar_la_historica_conserva_su_programacion(self):
+        """La segunda edición no crea otra programación: reutiliza la suya."""
+        orden = self._historica()
+        datos = {'fecha': '2024-05-10', 'cliente': self.cli.pk,
+                 'cuadrilla-vehiculo': self.camion.pk}
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]), datos)
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]),
+                         dict(datos, direccion='Otra dirección'))
+        self.assertEqual(Programacion.objects.filter(orden=orden).count(), 1)
+
     def test_el_acta_digital_registra_novedades_en_una_historica(self):
         """
         Las novedades operacionales viven en el acta: el botón Llenar del
