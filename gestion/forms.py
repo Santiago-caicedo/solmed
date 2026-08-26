@@ -1401,10 +1401,70 @@ class OrdenHistoricaForm(forms.Form):
             'class': 'form-control', 'accept': 'application/pdf,image/*'}),
         help_text="El escaneo o la foto del acta que se llenó en físico.",
     )
+    # --- Los mismos datos operativos de una orden normal. Todos opcionales:
+    # --- se registra lo que el acta física traiga, sin frenar el archivo.
+    direccion_servicio = forms.CharField(
+        required=False, max_length=255, label="Dirección del servicio",
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    conductor = forms.ModelChoiceField(
+        required=False, label="Conductor",
+        # Incluye retirados: la orden es vieja y pudo atenderla alguien que ya
+        # no está. Así el plan de trabajo histórico también lo recoge.
+        queryset=User.objects.filter(groups__name='Conductores')
+                             .order_by('first_name', 'last_name'),
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Sin conductor registrado ---',
+    )
+    ayudante = forms.ModelChoiceField(
+        required=False, label="Ayudante",
+        queryset=User.objects.filter(groups__name='Ayudantes')
+                             .order_by('first_name', 'last_name'),
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Sin ayudante ---',
+    )
+    ayudante2 = forms.ModelChoiceField(
+        required=False, label="Segundo ayudante",
+        queryset=User.objects.filter(groups__name='Ayudantes')
+                             .order_by('first_name', 'last_name'),
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        empty_label='--- Sin segundo ayudante ---',
+    )
+    bascula = forms.ChoiceField(
+        required=False, label="Báscula",
+        choices=[('', '--- Sin definir ---')] + OrdenServicio.BASCULA_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    bascula_adjunto = forms.FileField(
+        required=False, label="Soporte de báscula (foto o PDF)",
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control', 'accept': 'application/pdf,image/*'}),
+        help_text="El tiquete o la foto del pesaje, si el acta lo trae.",
+    )
+    registro_fotografico = forms.ChoiceField(
+        required=False, label="Registro fotográfico",
+        choices=[('', '--- Sin definir ---')] + OrdenServicio.SI_NO_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    registro_fotografico_adjunto = forms.FileField(
+        required=False, label="Registro fotográfico (foto)",
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control', 'accept': 'application/pdf,image/*'}),
+    )
     descripcion = forms.CharField(
         required=False, label="Descripción (opcional)",
         widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
     )
+
+    def clean(self):
+        cleaned = super().clean()
+        # Si llega el soporte sin marcar la báscula (o la foto sin el "Sí"),
+        # la marca se deduce del adjunto: el papel manda.
+        if cleaned.get('bascula_adjunto') and not cleaned.get('bascula'):
+            cleaned['bascula'] = 'PESAN'
+        if cleaned.get('registro_fotografico_adjunto') and not cleaned.get('registro_fotografico'):
+            cleaned['registro_fotografico'] = 'SI'
+        return cleaned
 
     def clean_numero_orden(self):
         numero = self.cleaned_data['numero_orden']

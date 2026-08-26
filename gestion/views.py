@@ -561,16 +561,25 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
                 numero_orden=datos['numero_orden'],
                 cliente=datos['cliente'],
                 asesor=self.request.user,
-                direccion_servicio='',
+                direccion_servicio=datos.get('direccion_servicio') or '',
                 descripcion=(datos['descripcion'] or
                              'Orden histórica: acta diligenciada en físico.'),
                 estado_orden='FINALIZADA',
                 estado_pago='PAGADO',
                 estado_conciliacion='NO_APLICA',
+                # Los datos operativos del acta física, si los trae: la orden
+                # histórica guarda lo mismo que una normal.
+                bascula=datos.get('bascula') or '',
+                bascula_adjunto=datos.get('bascula_adjunto'),
+                registro_fotografico=datos.get('registro_fotografico') or '',
+                registro_fotografico_adjunto=datos.get('registro_fotografico_adjunto'),
             )
             orden.save()
             Recorrido.objects.create(
                 orden=orden, vehiculo=datos['vehiculo'],
+                conductor=datos.get('conductor'),
+                ayudante=datos.get('ayudante'),
+                ayudante2=datos.get('ayudante2'),
                 fecha_recorrido=datos['fecha_servicio'], estado='COMPLETADO')
             DocumentoOrden.objects.create(
                 orden=orden, archivo=datos['acta'],

@@ -2499,6 +2499,49 @@ class OrdenHistoricaTests(BaseCRM):
                          dict(self.datos(), acta=archivo('acta.pdf')))
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_guarda_los_datos_operativos_que_traiga_el_acta(self):
+        """Báscula, registro fotográfico, dirección y cuadrilla (ago-2026)."""
+        conductor = self.persona('conductor_h', 'Conductores', 'Carlos', 'Pérez')
+        ayudante = self.persona('ayudante_h', 'Ayudantes', 'Luis', 'Mora')
+        self.client.post(reverse('gestion:orden_historica'), dict(
+            self.datos(), acta=archivo('acta.pdf'),
+            direccion_servicio='Calle 10 # 5-20',
+            conductor=conductor.pk, ayudante=ayudante.pk,
+            bascula='PESAN', bascula_adjunto=archivo('tiquete.pdf'),
+            registro_fotografico='SI',
+            registro_fotografico_adjunto=archivo('registro.pdf'),
+        ))
+        orden = OrdenServicio.objects.get(pk=21000)
+        self.assertEqual(orden.direccion_servicio, 'Calle 10 # 5-20')
+        self.assertEqual(orden.bascula, 'PESAN')
+        self.assertTrue(orden.bascula_adjunto)
+        self.assertEqual(orden.registro_fotografico, 'SI')
+        self.assertTrue(orden.registro_fotografico_adjunto)
+        recorrido = orden.recorridos.get()
+        self.assertEqual(recorrido.conductor, conductor)
+        self.assertEqual(recorrido.ayudante, ayudante)
+
+    def test_el_soporte_sin_la_marca_deduce_la_marca(self):
+        """Llega el tiquete pero no marcaron la báscula: el papel manda."""
+        self.client.post(reverse('gestion:orden_historica'), dict(
+            self.datos(), acta=archivo('acta.pdf'),
+            bascula_adjunto=archivo('tiquete.pdf'),
+            registro_fotografico_adjunto=archivo('registro.pdf'),
+        ))
+        orden = OrdenServicio.objects.get(pk=21000)
+        self.assertEqual(orden.bascula, 'PESAN')
+        self.assertEqual(orden.registro_fotografico, 'SI')
+
+    def test_un_conductor_retirado_se_puede_registrar(self):
+        """La orden es vieja: pudo atenderla alguien que ya no está."""
+        retirado = self.persona('retirado', 'Conductores', 'Ex', 'Empleado')
+        retirado.perfil.retirado = True
+        retirado.perfil.save()
+        form = OrdenHistoricaForm(
+            dict(self.datos(), conductor=retirado.pk),
+            {'acta': archivo('acta.pdf')})
+        self.assertTrue(form.is_valid(), form.errors)
+
 
 # ============================================================
 #  CONCILIACIÓN DE "TRANSPORTE - CANTIDAD"
