@@ -4314,6 +4314,80 @@ class TableroSoloAdministradoresTests(BaseCRM):
 #  CLIENTES, ÓRDENES, PROGRAMACIÓN Y VEHÍCULOS: SOLO GESTIÓN
 #  (decisión del usuario, ago-2026)
 # ============================================================
+class HistoricoDelClienteTests(BaseCRM):
+    """
+    La pantalla "ver histórico" del expediente del cliente: todas sus órdenes
+    de un año, con la regleta que filtra por mes. Solo gestión la ve (eso lo
+    barre SoloGestionVeLaOperacionTests, que la incluye en sus pantallas).
+    """
+
+    def setUp(self):
+        datos = self.servicio_completo()
+        self.__dict__.update(datos)
+        self.entrar(self.asesor)
+
+    def _orden_en(self, fecha, cliente=None):
+        # OJO: servicio_completo() puso la clave 'programacion' en self, así
+        # que el helper se llama por la CLASE (el tropiezo ya documentado).
+        nueva = BaseCRM.programacion(
+            cliente=cliente or self.cli, conductor=self.conductor,
+            vehiculo=self.camion, fecha=fecha)
+        return nueva.convertir_en_orden(self.asesor)
+
+    def url(self, cliente=None, **filtros):
+        base = reverse('gestion:historico_cliente', args=[(cliente or self.cli).pk])
+        return base, filtros
+
+    def test_muestra_el_anio_actual_con_todas_sus_ordenes(self):
+        base, _ = self.url()
+        contexto = self.client.get(base).context
+        self.assertEqual(contexto['anio'], timezone.localdate().year)
+        self.assertEqual(len(contexto['ordenes']), 1)
+
+    def test_filtra_por_mes(self):
+        hoy = timezone.localdate()
+        otro_mes = (hoy.replace(day=1) - datetime.timedelta(days=1))  # mes pasado
+        vieja = self._orden_en(otro_mes)
+        base, _ = self.url()
+        contexto = self.client.get(base, {'anio': otro_mes.year,
+                                          'mes': otro_mes.month}).context
+        ordenes = [o.pk for o in contexto['ordenes']]
+        self.assertIn(vieja.pk, ordenes)
+        if otro_mes.year == hoy.year:
+            self.assertNotIn(self.orden.pk, ordenes,
+                             "la del mes actual no sale al filtrar otro mes")
+
+    def test_la_regleta_cuenta_las_ordenes_de_cada_mes(self):
+        hoy = timezone.localdate()
+        self._orden_en(hoy)          # segunda orden del mes actual
+        base, _ = self.url()
+        contexto = self.client.get(base).context
+        del_mes = [m for m in contexto['meses'] if m['numero'] == hoy.month][0]
+        self.assertEqual(del_mes['total'], 2)
+        self.assertEqual(contexto['total_anio'],
+                         sum(m['total'] for m in contexto['meses']))
+
+    def test_no_mezcla_ordenes_de_otro_cliente(self):
+        ajeno = self.cliente(nombre='Otro SAS', identificacion='901')
+        ajena = self._orden_en(timezone.localdate(), cliente=ajeno)
+        base, _ = self.url()
+        contexto = self.client.get(base).context
+        self.assertNotIn(ajena.pk, [o.pk for o in contexto['ordenes']])
+
+    def test_un_mes_invalido_no_revienta(self):
+        base, _ = self.url()
+        for malo in ('99', 'abc', '0'):
+            with self.subTest(mes=malo):
+                respuesta = self.client.get(base, {'mes': malo})
+                self.assertEqual(respuesta.status_code, 200)
+
+    def test_el_expediente_enlaza_al_historico(self):
+        respuesta = self.client.get(
+            reverse('gestion:ficha_cliente', args=[self.cli.pk]))
+        self.assertIn(reverse('gestion:historico_cliente', args=[self.cli.pk]),
+                      respuesta.content.decode())
+
+
 class SoloGestionVeLaOperacionTests(BaseCRM):
     """
     La información del negocio —quién es el cliente, qué se le prestó, con qué
@@ -4340,6 +4414,7 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
             'clientes': reverse('gestion:lista_clientes'),
             'cliente nuevo': reverse('gestion:crear_cliente'),
             'expediente del cliente': reverse('gestion:ficha_cliente', args=[self.cli.pk]),
+            'histórico del cliente': reverse('gestion:historico_cliente', args=[self.cli.pk]),
             'órdenes': reverse('gestion:lista_ordenes'),
             'expediente de la orden': reverse('gestion:detalle_orden', args=[self.orden.pk]),
             'editar la orden': reverse('gestion:actualizar_orden', args=[self.orden.pk]),

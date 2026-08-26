@@ -1,0 +1,130 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Histórico de {{ cliente.nombre }}{% endblock %}
+{% block content %}
+{# Histórico de órdenes de UN cliente: la regleta del año filtra por mes. #}
+<style>
+.hc-meses{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.hc-mes{
+    display:flex; flex-direction:column; align-items:center; gap:.1rem;
+    min-width:64px; padding:.4rem .55rem; border-radius:var(--r-sm);
+    border:1px solid var(--line); background:var(--panel);
+    text-decoration:none; color:var(--ink-2); transition:border-color .12s ease;
+}
+.hc-mes:hover{ border-color:var(--steel); color:var(--ink); }
+.hc-mes .n{ font-family:var(--mono); font-weight:600; font-size:1rem; line-height:1; }
+.hc-mes .m{ font-family:var(--mono); font-size:.62rem; text-transform:uppercase; letter-spacing:.08em; }
+.hc-mes.vacio{ opacity:.45; }
+.hc-mes.activo{ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Histórico de órdenes</h2>
+        <div class="text-muted">{{ cliente.nombre }}</div>
+    </div>
+    <a href="{% url 'gestion:ficha_cliente' cliente.pk %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Volver al expediente
+    </a>
+</div>
+
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <form method="get" class="d-flex align-items-end gap-2 flex-wrap mb-3">
+            <div>
+                <label class="form-label" for="anio">Año</label>
+                <select name="anio" id="anio" class="form-select" onchange="this.form.submit()">
+                    {% for a in anios %}
+                    <option value="{{ a }}" {% if anio == a %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="text-muted small mb-2">
+                {{ total_anio }} orden{{ total_anio|pluralize:"es" }} en {{ anio }}{% if mes %}
+                · viendo {{ mes_nombre|lower }}{% endif %}
+            </div>
+        </form>
+
+        {# La regleta del año: un mes por casilla, con su conteo. #}
+        <div class="hc-meses">
+            <a class="hc-mes {% if not mes %}activo{% endif %}"
+               href="?anio={{ anio }}" title="Todo el año">
+                <span class="n">{{ total_anio }}</span><span class="m">Todo {{ anio }}</span>
+            </a>
+            {% for m in meses %}
+            <a class="hc-mes {% if m.activo %}activo{% elif not m.total %}vacio{% endif %}"
+               href="?anio={{ anio }}&mes={{ m.numero }}"
+               title="{{ m.nombre }}: {{ m.total }} orden{{ m.total|pluralize:'es' }}">
+                <span class="n">{{ m.total }}</span><span class="m">{{ m.nombre|slice:":3" }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-clipboard-check me-1"></i>
+            {% if mes %}{{ mes_nombre }} de {{ anio }}{% else %}Todo {{ anio }}{% endif %}
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>N° Orden</th>
+                        <th>Fecha del servicio</th>
+                        <th>Lugar</th>
+                        <th>Vehículo</th>
+                        <th>Acta</th>
+                        <th>Estado</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for orden in ordenes %}
+                    <tr>
+                        <td class="fw-bold">#{{ orden.numero_orden }}</td>
+                        <td>{{ orden.fecha_servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="small">{{ orden.direccion_servicio|default:"—"|truncatechars:40 }}</td>
+                        <td class="small">
+                            {% for r in orden.recorridos.all %}
+                                {% if r.vehiculo %}{{ r.vehiculo.placa }}{% if not forloop.last %}, {% endif %}{% endif %}
+                            {% empty %}—{% endfor %}
+                        </td>
+                        <td>
+                            {% for r in orden.recorridos.all %}
+                                {% if r.manifiesto.estado_firma == 'FIRMADO' %}
+                                <span class="badge bg-success"><i class="bi bi-check2"></i> Firmada</span>
+                                {% elif r.manifiesto %}
+                                <span class="badge bg-warning text-dark">Sin firmar</span>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            {% endfor %}
+                        </td>
+                        <td>
+                            <span class="badge {% if orden.estado_orden == 'FINALIZADA' %}bg-success{% elif orden.estado_orden == 'EN_EJECUCION' %}bg-info{% elif orden.estado_orden == 'CANCELADA' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                                {{ orden.get_estado_orden_display }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="{% url 'gestion:detalle_orden' orden.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            {% if mes %}Sin órdenes en {{ mes_nombre|lower }} de {{ anio }}.
+                            {% else %}Sin órdenes en {{ anio }}.{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
+    </div>
+</div>
+{% endblock %}

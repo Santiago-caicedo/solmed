@@ -943,6 +943,86 @@ class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
 
 # --- Vistas para Vehículos ---
+class HistoricoClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    """
+    El histórico completo de órdenes de UN cliente, pensado para revisarlo por
+    MES: se elige año y mes, y una regleta muestra cuántos servicios tuvo cada
+    mes del año elegido para saltar directo. Mismo acceso que la ficha del
+    cliente (solo gestión: administradores, asesores y superusuario).
+    """
+    model = OrdenServicio
+    template_name = 'gestion/historico_cliente.html'
+    context_object_name = 'ordenes'
+    paginate_by = 25
+
+    MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
+             'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+    def get_cliente(self):
+        if not hasattr(self, '_cliente'):
+            self._cliente = get_object_or_404(Cliente, pk=self.kwargs['pk'])
+        return self._cliente
+
+    def _anio_mes(self):
+        """El (año, mes) pedidos, saneados; mes None = todo el año."""
+        pedido = self.request.GET
+        try:
+            anio = int(pedido.get('anio', ''))
+        except ValueError:
+            anio = timezone.localdate().year
+        try:
+            mes = int(pedido.get('mes', ''))
+        except ValueError:
+            mes = None
+        return anio, (mes if mes and 1 <= mes <= 12 else None)
+
+    def get_queryset(self):
+        anio, mes = self._anio_mes()
+        qs = (OrdenServicio.objects
+              .filter(cliente=self.get_cliente(),
+                      recorridos__fecha_recorrido__year=anio)
+              .annotate(fecha_servicio=Min('recorridos__fecha_recorrido'))
+              .prefetch_related('recorridos__vehiculo', 'recorridos__manifiesto'))
+        if mes:
+            qs = qs.filter(recorridos__fecha_recorrido__month=mes)
+        return qs.order_by('-numero_orden').distinct()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        cliente = self.get_cliente()
+        anio, mes = self._anio_mes()
+
+        # Los años con servicio, para el selector (si no hay ninguno, el actual).
+        anios = sorted(
+            {f['anio'] for f in Recorrido.objects.filter(orden__cliente=cliente)
+             .annotate(anio=ExtractYear('fecha_recorrido')).values('anio')
+             if f['anio']}, reverse=True) or [anio]
+
+        # La regleta: cuántos servicios tuvo cada mes del año elegido. Cuenta
+        # ÓRDENES (no recorridos) para que cuadre con la tabla de abajo.
+        filas = (OrdenServicio.objects
+                 .filter(cliente=cliente, recorridos__fecha_recorrido__year=anio)
+                 .annotate(mes_servicio=Min('recorridos__fecha_recorrido__month'))
+                 .values_list('numero_orden', 'mes_servicio'))
+        conteo = {}
+        for _numero, mes_servicio in filas:
+            if mes_servicio:
+                conteo[mes_servicio] = conteo.get(mes_servicio, 0) + 1
+        meses = [{'numero': i + 1, 'nombre': nombre,
+                  'total': conteo.get(i + 1, 0), 'activo': (i + 1) == mes}
+                 for i, nombre in enumerate(self.MESES)]
+
+        context.update({
+            'cliente': cliente,
+            'anio': anio, 'mes': mes,
+            'mes_nombre': self.MESES[mes - 1] if mes else None,
+            'anios': anios,
+            'meses': meses,
+            'total_anio': sum(m['total'] for m in meses),
+        })
+        return context
+
+
 class ListaVehiculosView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Vehiculo
     template_name = 'gestion/lista_vehiculos.html'
