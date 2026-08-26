@@ -1425,7 +1425,7 @@ def _guardar_firma_cliente(manifiesto, firma_bytes, pk):
     manifiesto.firma_cliente.save(signature_file.name, signature_file, save=True)
 
 
-def _pdf_manifiesto(manifiesto, request):
+def _pdf_manifiesto(manifiesto, request=None):
     """
     Renderiza el acta (manifiesto) a PDF y devuelve los bytes. NO se guarda en
     el storage: se genera al momento de descargarla, así siempre sale con los
@@ -1452,7 +1452,8 @@ def _pdf_manifiesto(manifiesto, request):
         'logo_b64': logo_b64, 'firma_cliente_b64': firma_cliente_b64,
     }
     html_string = template.render(context)
-    html = HTML(string=html_string, base_url=request.build_absolute_uri())
+    html = HTML(string=html_string,
+                base_url=request.build_absolute_uri() if request else None)
     return html.write_pdf()
 
 
@@ -3432,6 +3433,24 @@ def _resolver_adjunto_correo(token):
                 'nombre': _nombre(doc.archivo.name, f"{etiqueta} - {doc.cliente.nombre}"),
                 'linea': f"- Cliente {doc.cliente.nombre}: {etiqueta} (ambiental)"}
 
+    if tipo == 'acta' and len(partes) == 2 and partes[1].isdigit():
+        # El acta firmada de una orden. No vive en el storage: se genera al
+        # MOMENTO DE ENVIAR (clave 'manifiesto'), igual que al descargarla,
+        # para que salga con los datos vigentes. Solo actas FIRMADAS: es lo
+        # que se le manda al cliente como constancia del servicio.
+        acta = (Manifiesto.objects
+                .select_related('recorrido__orden__cliente')
+                .filter(pk=partes[1], estado_firma='FIRMADO').first())
+        if not acta:
+            return None
+        orden = acta.recorrido.orden
+        fecha = acta.recorrido.fecha_recorrido
+        return {'manifiesto': acta,
+                'nombre': f"Acta de servicio {orden.numero_orden} - "
+                          f"{orden.cliente.nombre}.pdf".replace('/', '-'),
+                'linea': (f"- Acta de servicio firmada de la orden "
+                          f"#{orden.numero_orden} ({fecha:%d/%m/%Y})")}
+
     if tipo == 'cliente_correo' and len(partes) == 2 and partes[1].isdigit():
         doc = (DocumentoCorreoCliente.objects.select_related('cliente')
                .filter(pk=partes[1]).first())
@@ -3608,8 +3627,16 @@ PESO_MAX_ADJUNTOS = 18 * 1024 * 1024
 PESO_AVISO_ADJUNTOS = 15 * 1024 * 1024
 
 
+# Peso típico de un acta generada (logo + firma en base64). Se usa para el
+# medidor del redactor: generar el PDF real en cada medición sería carísimo;
+# el tope duro se valida al enviar, ya con los bytes verdaderos.
+PESO_ESTIMADO_ACTA = 400 * 1024
+
+
 def _peso_adjunto(resuelto):
     """Bytes del archivo de un token resuelto (0 si el storage no lo informa)."""
+    if 'manifiesto' in resuelto:
+        return PESO_ESTIMADO_ACTA
     try:
         return resuelto['archivo'].size
     except Exception:
@@ -3650,8 +3677,12 @@ def _armar_correo_envio(destinatarios, asunto, mensaje, resueltos, cliente,
     )
     correo.attach_alternative(html, 'text/html')
     for r in resueltos:
-        with r['archivo'].open('rb') as fh:
-            contenido = fh.read()
+        if 'manifiesto' in r:
+            # El acta no vive en el storage: se genera aquí, recién horneada.
+            contenido = _pdf_manifiesto(r['manifiesto'])
+        else:
+            with r['archivo'].open('rb') as fh:
+                contenido = fh.read()
         tipo = mimetypes.guess_type(r['nombre'])[0] or 'application/octet-stream'
         correo.attach(r['nombre'], contenido, tipo)
     return correo
@@ -3797,6 +3828,58 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
             if total > self.LIMITE:
                 mas[titulo] = total - self.LIMITE
         return JsonResponse({'grupos': grupos, 'mas': mas})
+
+
+class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
+    """
+    Las actas de servicio FIRMADAS de un cliente, para adjuntarlas en el
+    Centro de correos: al elegir el cliente en el redactor aparece este
+    apartado, filtrable por rango de fechas (la fecha del servicio).
+
+      ?cliente=<id>            obligatorio
+      ?desde=aaaa-mm-dd        opcional
+      ?hasta=aaaa-mm-dd        opcional
+
+    Devuelve {'items': [{token, label, detalle}], 'mas': cuántas quedaron
+    por fuera} — las más recientes primero, tope de 60.
+    """
+    LIMITE = 60
+
+    def get(self, request):
+        cliente_id = request.GET.get('cliente', '').strip()
+        if not cliente_id.isdigit():
+            return JsonResponse({'items': [], 'mas': 0})
+
+        def fecha(nombre):
+            try:
+                return datetime.date.fromisoformat(request.GET.get(nombre, ''))
+            except ValueError:
+                return None
+
+        qs = (Manifiesto.objects
+              .filter(estado_firma='FIRMADO',
+                      recorrido__orden__cliente_id=cliente_id)
+              .select_related('recorrido__orden', 'recorrido__vehiculo')
+              .order_by('-recorrido__fecha_recorrido', '-pk'))
+        desde, hasta = fecha('desde'), fecha('hasta')
+        if desde:
+            qs = qs.filter(recorrido__fecha_recorrido__gte=desde)
+        if hasta:
+            qs = qs.filter(recorrido__fecha_recorrido__lte=hasta)
+
+        total = qs.count()
+        items = []
+        for acta in qs[:self.LIMITE]:
+            recorrido = acta.recorrido
+            items.append({
+                'token': f'acta:{acta.pk}',
+                'label': f"Acta de servicio #{recorrido.orden.numero_orden}",
+                'detalle': ' · '.join(filter(None, [
+                    f"{recorrido.fecha_recorrido:%d/%m/%Y}",
+                    recorrido.vehiculo.placa if recorrido.vehiculo_id else '',
+                ])),
+            })
+        return JsonResponse({'items': items, 'mas': max(total - self.LIMITE, 0)})
 
 
 class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):

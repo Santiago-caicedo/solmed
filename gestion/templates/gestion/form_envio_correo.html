@@ -196,6 +196,34 @@
                 </div>
             </div>
 
+            {# ---------- Actas firmadas del cliente elegido, filtrables por fecha ---------- #}
+            <div class="card shadow mb-4 d-none" id="card-actas">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0"><i class="bi bi-file-earmark-check me-1"></i>Actas de servicio firmadas</h5>
+                    <span class="badge bg-secondary" id="actas-conteo"></span>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted small mb-2">
+                        Las actas firmadas de <strong id="actas-cliente"></strong>. Marca las que
+                        quieras adjuntar: el PDF se genera al enviar, con los datos vigentes.
+                    </p>
+                    <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+                        <div>
+                            <label class="form-label mb-1" for="actas-desde">Desde</label>
+                            <input type="date" id="actas-desde" class="form-control form-control-sm">
+                        </div>
+                        <div>
+                            <label class="form-label mb-1" for="actas-hasta">Hasta</label>
+                            <input type="date" id="actas-hasta" class="form-control form-control-sm">
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="actas-limpiar">
+                            Quitar fechas
+                        </button>
+                    </div>
+                    <div id="lista-actas"></div>
+                </div>
+            </div>
+
             {# ---------- Documentos a adjuntar (búsqueda bajo demanda) ---------- #}
             <div class="card shadow mb-4">
                 <div class="card-header d-flex align-items-center justify-content-between">
@@ -364,6 +392,7 @@
     var canasta = document.getElementById('canasta');
     var URL_BUSCAR = '{% url "gestion:buscar_docs_correo" %}';
     var URL_PESO = '{% url "gestion:peso_adjuntos_correo" %}';
+    var URL_ACTAS = '{% url "gestion:actas_firmadas_correo" %}';
 
     // Peso conocido de cada token (bytes). Se consulta al servidor SOLO lo que
     // entra a la canasta y no se conoce aún; los chips ya renderizados traen el
@@ -753,6 +782,7 @@
             if (destino) { destino.value = correo; autollenado = correo; }
         }
         pintarResumen();
+        cargarActas();
         if (!id) return;
         fetch(URL_BUSCAR + '?cliente=' + encodeURIComponent(id))
             .then(function (r) { return r.json(); })
@@ -763,6 +793,66 @@
             })
             .catch(function () { /* sin red no se fija la tarjeta; se puede buscar luego */ });
     }
+
+    // ---------- Actas firmadas del cliente (se adjuntan como los demás docs) ----------
+    var cardActas = document.getElementById('card-actas');
+    var listaActas = document.getElementById('lista-actas');
+
+    function pintarActas(data) {
+        listaActas.innerHTML = '';
+        if (!data.items.length) {
+            listaActas.innerHTML = '<div class="text-muted small py-2">' +
+                'Sin actas firmadas en ese rango.</div>';
+        }
+        data.items.forEach(function (acta) {
+            var etiqueta = acta.label + ' (' + acta.detalle + ')';
+            var fila = document.createElement('label');
+            fila.className = 'd-flex align-items-center gap-2 py-1 small';
+            fila.innerHTML =
+                '<input type="checkbox" class="form-check-input chk-adjunto mt-0">' +
+                '<span class="fw-semibold"></span><span class="text-muted"></span>';
+            var chk = fila.querySelector('input');
+            chk.setAttribute('data-token', acta.token);
+            chk.setAttribute('data-etiqueta', etiqueta);
+            chk.checked = enCanasta(acta.token);
+            fila.querySelector('.fw-semibold').textContent = acta.label;
+            fila.querySelector('.text-muted').textContent = acta.detalle;
+            listaActas.appendChild(fila);
+        });
+        document.getElementById('actas-conteo').textContent =
+            data.items.length + (data.mas ? ' de ' + (data.items.length + data.mas) : '') +
+            (data.items.length === 1 && !data.mas ? ' acta' : ' actas');
+        var aviso = document.createElement('div');
+        if (data.mas) {
+            aviso.className = 'text-muted small pt-1';
+            aviso.textContent = 'Hay ' + data.mas + ' más: acota el rango de fechas para verlas.';
+            listaActas.appendChild(aviso);
+        }
+    }
+
+    function cargarActas() {
+        var id = selCliente.value;
+        if (!id) { cardActas.classList.add('d-none'); return; }
+        var url = URL_ACTAS + '?cliente=' + encodeURIComponent(id)
+            + '&desde=' + encodeURIComponent(document.getElementById('actas-desde').value)
+            + '&hasta=' + encodeURIComponent(document.getElementById('actas-hasta').value);
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('actas-cliente').textContent =
+                    selCliente.options[selCliente.selectedIndex].text;
+                cardActas.classList.remove('d-none');
+                pintarActas(data);
+            })
+            .catch(function () { /* sin red el apartado no aparece; se reintenta al cambiar algo */ });
+    }
+    document.getElementById('actas-desde').addEventListener('change', cargarActas);
+    document.getElementById('actas-hasta').addEventListener('change', cargarActas);
+    document.getElementById('actas-limpiar').addEventListener('click', function () {
+        document.getElementById('actas-desde').value = '';
+        document.getElementById('actas-hasta').value = '';
+        cargarActas();
+    });
 
     // ---------- Eventos ----------
     document.addEventListener('change', function (e) {

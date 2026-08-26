@@ -3686,6 +3686,97 @@ class PlantillasTests(TestCase):
 # ============================================================
 #  DIAGNÓSTICO DEL CORREO
 # ============================================================
+class ActasEnElCentroDeCorreosTests(BaseCRM):
+    """
+    Al elegir el cliente en el redactor aparece el apartado de sus actas de
+    servicio FIRMADAS, filtrable por fecha, para adjuntarlas al correo. El PDF
+    no vive en el storage: se genera al enviar, con los datos vigentes.
+    """
+
+    def setUp(self):
+        datos = self.servicio_completo()
+        self.__dict__.update(datos)
+        self.entrar(self.asesor)
+        self.acta = Manifiesto.objects.create(
+            recorrido=self.recorrido, estado_firma='FIRMADO')
+
+    def _otra_orden(self, fecha, cliente=None, firmada=True):
+        nueva = BaseCRM.programacion(
+            cliente=cliente or self.cli, conductor=self.conductor,
+            vehiculo=self.camion, fecha=fecha)
+        orden = nueva.convertir_en_orden(self.asesor)
+        recorrido = orden.recorridos.first()
+        acta = Manifiesto.objects.create(
+            recorrido=recorrido,
+            estado_firma='FIRMADO' if firmada else 'PENDIENTE_FIRMA')
+        return orden, acta
+
+    def buscar(self, **filtros):
+        filtros.setdefault('cliente', self.cli.pk)
+        respuesta = self.client.get(reverse('gestion:actas_firmadas_correo'),
+                                    filtros)
+        return respuesta.json()
+
+    def test_el_token_del_acta_resuelve_con_orden_cliente_y_fecha(self):
+        resuelto = _resolver_adjunto_correo(f'acta:{self.acta.pk}')
+        self.assertIsNotNone(resuelto)
+        self.assertIn(str(self.orden.numero_orden), resuelto['nombre'])
+        self.assertIn(self.cli.nombre, resuelto['nombre'])
+        self.assertIn('firmada', resuelto['linea'])
+
+    def test_un_acta_sin_firmar_no_se_adjunta(self):
+        self.acta.estado_firma = 'PENDIENTE_FIRMA'
+        self.acta.save(update_fields=['estado_firma'])
+        self.assertIsNone(_resolver_adjunto_correo(f'acta:{self.acta.pk}'))
+
+    def test_el_apartado_lista_solo_las_firmadas_del_cliente(self):
+        self._otra_orden(timezone.localdate(), firmada=False)
+        ajeno = self.cliente(nombre='Otro SAS', identificacion='901')
+        self._otra_orden(timezone.localdate(), cliente=ajeno)
+
+        datos = self.buscar()
+        self.assertEqual([i['token'] for i in datos['items']],
+                         [f'acta:{self.acta.pk}'])
+        self.assertIn(f"#{self.orden.numero_orden}", datos['items'][0]['label'])
+
+    def test_el_apartado_filtra_por_rango_de_fechas(self):
+        hoy = timezone.localdate()
+        vieja_fecha = hoy - datetime.timedelta(days=40)
+        _vieja, acta_vieja = self._otra_orden(vieja_fecha)
+
+        # Solo lo viejo.
+        datos = self.buscar(hasta=(hoy - datetime.timedelta(days=30)).isoformat())
+        self.assertEqual([i['token'] for i in datos['items']],
+                         [f'acta:{acta_vieja.pk}'])
+        # Solo lo reciente.
+        datos = self.buscar(desde=(hoy - datetime.timedelta(days=5)).isoformat())
+        self.assertEqual([i['token'] for i in datos['items']],
+                         [f'acta:{self.acta.pk}'])
+        # Una fecha rota no revienta: se ignora.
+        datos = self.buscar(desde='no-es-fecha')
+        self.assertEqual(len(datos['items']), 2)
+
+    def test_el_peso_del_acta_se_estima_sin_generar_el_pdf(self):
+        from gestion.views import PESO_ESTIMADO_ACTA, _peso_adjunto
+        resuelto = _resolver_adjunto_correo(f'acta:{self.acta.pk}')
+        self.assertEqual(_peso_adjunto(resuelto), PESO_ESTIMADO_ACTA)
+
+    def test_el_correo_sale_con_el_pdf_del_acta_recien_generado(self):
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:crear_envio_correo'), {
+            'cliente': self.cli.pk, 'destinatarios': ['cliente@correo.co'],
+            'asunto': 'Acta del servicio', 'mensaje': '',
+            'adjuntos': [f'acta:{self.acta.pk}'],
+        })
+        registro = EnvioCorreo.objects.get()
+        self.assertEqual(registro.estado, 'ENVIADO')
+        nombre, contenido, tipo = mail.outbox[0].attachments[0]
+        self.assertIn('Acta de servicio', nombre)
+        self.assertEqual(tipo, 'application/pdf')
+        self.assertTrue(contenido.startswith(b'%PDF'),
+                        "el adjunto debe ser el PDF real, generado al enviar")
+
+
 class DiagnosticoDeCorreoTests(BaseCRM):
     """
     El comando que dice por qué no salen los correos. No debe reventar ni
