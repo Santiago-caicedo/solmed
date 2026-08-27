@@ -143,9 +143,9 @@ class Command(BaseCommand):
                        + (f", gestor {d.dispositor.nombre}" if d.dispositor_id else ''))
             if len(saldadas) > 1:
                 self.stdout.write(self.style.WARNING(
-                    "      ⚠ una sola descarga saldó varias órdenes: pasa cuando "
-                    "el camión\n        vacía completo (el servicio terminó en el "
-                    "gestor)"))
+                    "      ⚠ una sola descarga saldó varias órdenes: hoy eso solo "
+                    "pasa con el\n        TRASIEGO a otra placa. Si no fue un "
+                    "trasiego, revísala."))
 
     def handle(self, *args, **opciones):
         placa = (opciones['placa'] or '').strip() or None

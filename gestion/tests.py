@@ -670,21 +670,30 @@ class CargasAcumuladasTests(BaseCRM):
         self.assertIn(f"#{primera.numero_orden}", self.camion.cargado_detalle)
         self.assertIn(f"#{segunda.numero_orden}", self.camion.cargado_detalle)
 
-    def test_la_disposicion_de_un_servicio_salda_todo_lo_acumulado(self):
-        """El camión vació completo: lo viejo salió con esa descarga."""
+    def test_la_disposicion_de_un_servicio_no_salda_la_mora_del_camion(self):
+        """
+        Un servicio dispone SU residuo, no lo que el camión debía de antes.
+        Corregido en ago-2026: la regla anterior daba por dispuestas todas las
+        órdenes acumuladas y borró 13 pendientes reales de un golpe. Lo viejo
+        se salda una por una desde el plan de trabajo, con su responsable.
+        """
         vieja = self._cargar()
         proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
         programacion = self.programacion(
             cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
             requiere_disposicion_final='SI', dispositor_final=proveedor)
-        programacion.convertir_en_orden(self.asesor)
+        nueva = programacion.convertir_en_orden(self.asesor)
+
         self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
+        self.assertTrue(self.camion.cargado, "la orden vieja sigue debiéndose")
         carga_vieja = MovimientoCargaVehiculo.objects.get(accion='CARGA',
                                                           orden=vieja)
-        self.assertIsNotNone(carga_vieja.descarga,
-                             "la orden vieja quedó saldada por esa descarga")
-        self.assertEqual(carga_vieja.descarga.dispositor, proveedor)
+        self.assertIsNone(carga_vieja.descarga)
+        # La descarga sí queda registrada, como trazabilidad del servicio nuevo.
+        descarga = MovimientoCargaVehiculo.objects.get(accion='DESCARGA',
+                                                       orden=nueva)
+        self.assertEqual(descarga.dispositor, proveedor)
+        self.assertEqual(descarga.cargas_saldadas.count(), 0)
 
     def test_el_trasiego_arrastra_las_ordenes_pendientes_al_destino(self):
         """El pendiente sigue al material: cambia de placa, no de orden."""
@@ -835,9 +844,28 @@ class DiagnosticoDeCargasTests(BaseCRM):
         self.assertIn(f"#{orden.pk}: 2 cargas", salida)
 
     def test_avisa_cuando_una_descarga_saldo_varias_ordenes_de_golpe(self):
-        """Es lo que vacía un camión entero: conviene verlo explicado."""
+        """
+        Desde ago-2026 eso solo lo hace el TRASIEGO (el camión pasa todo su
+        contenido a otra placa). Si aparece en otro caso, algo anda mal.
+        """
         self._cargar()
         self._cargar()
+        destino = self.vehiculo(placa='DST111')
+        trasiego, _ = Dispositor.objects.get_or_create(
+            nombre=Dispositor.TRASIEGO_PLACA, defaults={'tipo': 'INTERNO'})
+        self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
+            requiere_disposicion_final='NO', dispositor_final=trasiego,
+            trasiego_vehiculo=destino
+        ).convertir_en_orden(self.asesor)
+
+        salida = self.correr()
+        self.assertIn('saldó 2 carga(s)', salida)
+        self.assertIn('TRASIEGO a otra placa', salida)
+
+    def test_una_disposicion_normal_no_salda_la_mora_del_camion(self):
+        """El bug de ago-2026: un servicio daba por dispuesto todo el camión."""
+        vieja = self._cargar()
         proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
         self.programacion(
             cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
@@ -845,9 +873,8 @@ class DiagnosticoDeCargasTests(BaseCRM):
         ).convertir_en_orden(self.asesor)
 
         salida = self.correr()
-        self.assertIn('saldó 2 carga(s)', salida)
-        self.assertIn('una sola descarga saldó varias órdenes', salida)
-        self.assertIn('Gestor Ambiental S.A.', salida)
+        self.assertIn('saldó 0 carga(s)', salida)
+        self.assertIn(f"#{vieja.pk}", salida, "la vieja sigue pendiente")
 
     def test_se_puede_mirar_un_solo_camion(self):
         otro = self.vehiculo(placa='OTR222')
@@ -867,6 +894,148 @@ class DiagnosticoDeCargasTests(BaseCRM):
         self.assertEqual(
             list(MovimientoCargaVehiculo.objects.values_list('pk', 'descarga_id')),
             antes)
+
+
+class RepararCargasPendientesTests(BaseCRM):
+    """
+    El comando que arregla el desajuste encontrado en producción (ago-2026):
+    disposiciones ajenas que saldaron la mora del camión, cargas viejas sin
+    su orden (anteriores a la migración 0062) y los duplicados que salieron
+    de registrarlas otra vez. Vista previa por defecto.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.conductor = self.persona('conductor', 'Conductores')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.camion = self.vehiculo()
+        self.dejar_cargado = Dispositor.objects.create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
+
+    def correr(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('reparar_cargas_pendientes', *args,
+                     stdout=salida, stderr=salida)
+        return salida.getvalue()
+
+    def _cargar(self):
+        return self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
+            requiere_disposicion_final='NO', dispositor_final=self.dejar_cargado
+        ).convertir_en_orden(self.asesor)
+
+    def _saldada_por_ajena(self):
+        """Recrea el bug: una carga saldada por la descarga de OTRA orden."""
+        vieja = self._cargar()
+        otra = self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
+        ).convertir_en_orden(self.asesor)
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=vieja)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', orden=otra,
+            nota=f"Orden #{otra.pk}: se dispuso con Gestor")
+        carga.save(update_fields=['descarga'])
+        self.camion.sincronizar_carga()
+        return vieja, carga
+
+    def test_revive_lo_que_saldo_una_disposicion_ajena(self):
+        vieja, carga = self._saldada_por_ajena()
+        salida = self.correr('--confirmar')
+        self.assertIn('revivida(s)', salida)
+        carga.refresh_from_db()
+        self.assertIsNone(carga.descarga, "vuelve a estar pendiente")
+        self.camion.refresh_from_db()
+        self.assertTrue(self.camion.cargado)
+        # La DESCARGA no se borra: es la trazabilidad del servicio nuevo.
+        self.assertTrue(MovimientoCargaVehiculo.objects.filter(
+            accion='DESCARGA').exists())
+
+    def test_no_revive_lo_saldado_por_su_propia_orden(self):
+        """Una disposición que saldó SU carga está bien saldada."""
+        orden = self._cargar()
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', orden=orden,
+            nota=f"Plan del 20/08/2026: orden #{orden.pk} dispuesto por Luis")
+        carga.save(update_fields=['descarga'])
+        salida = self.correr('--confirmar')
+        carga.refresh_from_db()
+        self.assertIsNotNone(carga.descarga, "sigue saldada")
+
+    def test_no_revive_lo_que_saldo_un_trasiego(self):
+        """El trasiego sí vacía el camión entero: su saldo es legítimo."""
+        vieja = self._cargar()
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=vieja)
+        otra = self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
+        ).convertir_en_orden(self.asesor)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', orden=otra,
+            nota=f"Orden #{otra.pk}: trasegó su contenido a DST111")
+        carga.save(update_fields=['descarga'])
+        self.correr('--confirmar')
+        carga.refresh_from_db()
+        self.assertIsNotNone(carga.descarga)
+
+    def test_relaciona_la_carga_huerfana_con_la_orden_de_su_nota(self):
+        orden = self._cargar()
+        # La original "vieja": sin enlace, como antes de la migración 0062.
+        original = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
+        original.orden = None
+        original.save(update_fields=['orden'])
+
+        salida = self.correr('--confirmar')
+        original.refresh_from_db()
+        self.assertEqual(original.orden_id, orden.pk)
+        self.assertIn(f"#{orden.pk}", salida)
+
+    def test_quita_el_duplicado_que_creo_el_registro_y_conserva_la_original(self):
+        """El caso completo del servidor: huérfana + duplicado del registro."""
+        orden = self._cargar()
+        original = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
+        original.orden = None
+        original.save(update_fields=['orden'])
+        # Lo que hizo registrar_cargas_pendientes al no ver la original.
+        duplicada = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=orden,
+            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado "
+                 f"(sin disposición) · reporte solmed")
+
+        salida = self.correr('--confirmar')
+        self.assertIn('1 duplicado(s) quitado(s)', salida)
+        self.assertFalse(MovimientoCargaVehiculo.objects.filter(
+            pk=duplicada.pk).exists(), "se borró la del registro")
+        original.refresh_from_db()
+        self.assertEqual(original.orden_id, orden.pk, "la original quedó enlazada")
+        self.assertIsNone(original.descarga, "y sigue pendiente")
+        self.assertEqual(
+            MovimientoCargaVehiculo.objects.filter(
+                accion='CARGA', descarga__isnull=True, orden=orden).count(), 1)
+
+    def test_un_duplicado_sin_la_marca_no_se_borra(self):
+        """Solo se borra lo que este flujo creó; lo demás se señala."""
+        orden = self._cargar()
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=orden,
+            nota='Carga registrada a mano por alguien')
+        salida = self.correr('--confirmar')
+        self.assertIn('sin la marca del registro, no se toca', salida)
+        self.assertEqual(MovimientoCargaVehiculo.objects.filter(
+            accion='CARGA', orden=orden).count(), 2)
+
+    def test_la_vista_previa_no_escribe(self):
+        vieja, carga = self._saldada_por_ajena()
+        salida = self.correr()
+        self.assertIn('VISTA PREVIA', salida)
+        carga.refresh_from_db()
+        self.assertIsNotNone(carga.descarga, "sin --confirmar no toca nada")
+
+    def test_sin_nada_que_reparar_lo_dice(self):
+        self._cargar()
+        self.assertIn('Nada por reparar', self.correr('--confirmar'))
 
 
 class RegistrarCargasPendientesTests(BaseCRM):

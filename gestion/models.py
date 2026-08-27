@@ -1728,16 +1728,25 @@ class Programacion(models.Model):
             v.sincronizar_carga()
             return movimiento
 
-        def descargar(v, nota, dispositor=None):
+        def descargar(v, nota, dispositor=None, saldar_todo=False):
             # El movimiento se registra SIEMPRE, aunque el camión no estuviera
             # marcado como cargado: la disposición ocurrió y es la trazabilidad
             # del residuo (antes se perdía justo en el caso más común).
-            # El camión vació completo, así que la descarga salda TODAS sus
-            # cargas pendientes (las órdenes acumuladas salieron con ella).
+            #
+            # Salda SOLO la carga de ESTA orden: un servicio dispone su propio
+            # residuo, no la mora acumulada del camión. Las órdenes que el
+            # camión debe de antes siguen debiéndose y se saldan una por una
+            # desde el plan de trabajo, con su responsable (ago-2026: la regla
+            # anterior saldaba todo el camión y borró 13 pendientes reales).
+            # `saldar_todo` es para el trasiego: ahí el camión sí se vacía
+            # entero, porque su contenido se pasa a otra placa.
             movimiento = MovimientoCargaVehiculo.objects.create(
                 vehiculo=v, accion='DESCARGA', nota=nota, orden=orden,
                 dispositor=dispositor, registrado_por=usuario)
-            v.cargas_pendientes.update(descarga=movimiento)
+            cargas = v.cargas_pendientes
+            if not saldar_todo:
+                cargas = cargas.filter(orden=orden)
+            cargas.update(descarga=movimiento)
             v.sincronizar_carga()
             return movimiento
 
@@ -1762,7 +1771,8 @@ class Programacion(models.Model):
                     # antes ahora viaja en el destino, cada orden con su carga.
                     arrastradas = list(v.cargas_pendientes)
                     movimiento = descargar(
-                        v, f"{detalle}: trasegó su contenido a {destino_v.placa}")
+                        v, f"{detalle}: trasegó su contenido a {destino_v.placa}",
+                        saldar_todo=True)
                     for vieja in arrastradas:
                         cargar(destino_v,
                                (f"Orden #{vieja.orden_id}: llegó por trasiego "
