@@ -1188,6 +1188,20 @@ class RegistrarCargasPendientesTests(BaseCRM):
         self.assertIn('Código', salida)
         self.assertFalse(MovimientoCargaVehiculo.objects.exists())
 
+    def test_deshacer_con_numeros_quita_solo_esas_ordenes(self):
+        """El caso #22227: el reporte viejo la traía, el nuevo ya no."""
+        otra = BaseCRM.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
+        ).convertir_en_orden(self.asesor)
+        self.correr(str(self.orden.pk), str(otra.pk), '--confirmar')
+
+        salida = self.correr('--deshacer', str(otra.pk), '--confirmar')
+        self.assertIn('1 quitada(s)', salida)
+        pendientes = MovimientoCargaVehiculo.objects.filter(
+            accion='CARGA', descarga__isnull=True)
+        self.assertEqual([c.orden_id for c in pendientes], [self.orden.pk],
+                         "la otra sigue pendiente: solo se quitó la pedida")
+
     def test_deshacer_quita_lo_suyo_y_respeta_lo_saldado(self):
         self.correr(str(self.orden.pk), '--confirmar')
         # Otra carga ajena al comando: la reversa no debe tocarla.

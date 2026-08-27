@@ -63,7 +63,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opciones):
         if opciones['deshacer']:
-            return self._deshacer(opciones['confirmar'])
+            return self._deshacer(opciones['confirmar'], opciones['ordenes'])
         esperado = {}
         if opciones['csv']:
             esperado = self._leer_csv(opciones['csv'])
@@ -256,11 +256,19 @@ class Command(BaseCommand):
 
     # ---------- deshacer ----------
 
-    def _deshacer(self, confirmar):
+    def _deshacer(self, confirmar, numeros=None):
+        """
+        Con números de orden, quita SOLO esas (p. ej. una que el reporte viejo
+        traía como pendiente y el nuevo ya no); sin números, todo lo del
+        comando. Siempre limitado a lo que él mismo creó (su marca) y siga
+        pendiente.
+        """
         cargas = (MovimientoCargaVehiculo.objects
                   .filter(accion='CARGA', nota__icontains=MARCA.lower(),
                           descarga__isnull=True)
                   .select_related('vehiculo', 'orden'))
+        if numeros:
+            cargas = cargas.filter(orden_id__in=numeros)
         saldadas = MovimientoCargaVehiculo.objects.filter(
             accion='CARGA', nota__icontains=MARCA.lower(),
             descarga__isnull=False).count()
