@@ -805,7 +805,7 @@ class RegistrarCargasPendientesTests(BaseCRM):
     def test_una_orden_ya_pendiente_no_se_duplica(self):
         self.correr(str(self.orden.pk), '--confirmar')
         salida = self.correr(str(self.orden.pk), '--confirmar')
-        self.assertIn('ya está pendiente', salida)
+        self.assertIn('Ya estaban pendientes', salida)
         self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
 
     def test_avisa_si_el_sistema_la_tenia_como_dispuesta(self):
@@ -819,6 +819,93 @@ class RegistrarCargasPendientesTests(BaseCRM):
         salida = self.correr(str(self.orden.pk), '99999', '--confirmar')
         self.assertIn('#99999: no existe', salida)
         self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
+
+    def csv(self, filas, cabecera=None):
+        """Escribe un listado como el que manda la empresa (separado por «;»)."""
+        import tempfile
+        cabecera = cabecera or ('Código;Cliente;Fecha;Descripción;'
+                                'Conductor;Acompañante;Vehículo')
+        ruta = tempfile.NamedTemporaryFile(
+            'w', suffix='.csv', delete=False, encoding='utf-8-sig')
+        ruta.write(cabecera + '\n' + '\n'.join(filas) + '\n')
+        ruta.close()
+        return ruta.name
+
+    def fila(self, orden=None, cliente=None, fecha=None, placa=None,
+             conductor='WILLIAM', acompanante='JULIO'):
+        orden = orden if orden is not None else self.orden
+        recorrido = orden.recorridos.first() if hasattr(orden, 'recorridos') else None
+        numero = getattr(orden, 'pk', orden)
+        return ';'.join([
+            f"#{numero}",
+            cliente if cliente is not None else self.cli.nombre,
+            fecha if fecha is not None else f"{recorrido.fecha_recorrido:%d/%m/%Y}",
+            'SIN DISPOSICIÓN DE:',
+            conductor, acompanante,
+            placa if placa is not None else self.camion.placa,
+        ])
+
+    def test_el_csv_registra_las_ordenes_de_la_columna_codigo(self):
+        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
+        self.assertIn(f"#{self.orden.pk}", salida)
+        carga = MovimientoCargaVehiculo.objects.get()
+        self.assertEqual(carga.orden, self.orden)
+        self.assertIsNone(carga.descarga)
+
+    def test_el_csv_avisa_cuando_el_listado_no_cuadra_con_el_sistema(self):
+        salida = self.correr('--csv', self.csv([self.fila(
+            cliente='OTRA EMPRESA SAS', placa='XXX999', fecha='01/01/2020')]))
+        self.assertIn('OTRA EMPRESA SAS', salida)
+        self.assertIn('XXX999', salida)
+        self.assertIn('manda el sistema', salida)
+        self.assertIn('01/01/2020', salida)
+        self.assertFalse(MovimientoCargaVehiculo.objects.exists(),
+                         "la vista previa no escribe")
+
+    def test_las_tildes_y_los_puntos_no_cuentan_como_diferencia(self):
+        self.cli.nombre = 'INMEL INGENIERIA S.A.S'
+        self.cli.save(update_fields=['nombre'])
+        salida = self.correr('--csv', self.csv([
+            self.fila(cliente='Inmel Ingeniería S A S')]))
+        self.assertNotIn('el listado dice cliente', salida)
+
+    def test_lo_que_ya_estaba_pendiente_se_lista_aparte_y_no_se_duplica(self):
+        self.correr('--csv', self.csv([self.fila()]), '--confirmar')
+        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
+        self.assertIn('Ya estaban pendientes', salida)
+        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
+
+    def test_señala_lo_pendiente_que_no_viene_en_la_lista_sin_tocarlo(self):
+        """Darlo por dispuesto exige un responsable: eso va por el plan."""
+        otra = BaseCRM.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
+        ).convertir_en_orden(self.asesor)
+        self.correr(str(otra.pk), '--confirmar')          # queda pendiente
+        manual = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', nota='Carga manual: extra')
+
+        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
+        self.assertIn('NO vienen en la lista', salida)
+        self.assertIn(f"#{otra.pk}", salida)
+        self.assertIn('sin orden (carga manual)', salida)
+        self.assertIn('PLAN DE TRABAJO', salida)
+        # Y siguen ahí: el comando no descarga nada.
+        for pendiente in (otra.pk, manual.pk):
+            with self.subTest(pendiente=pendiente):
+                self.assertTrue(MovimientoCargaVehiculo.objects.filter(
+                    accion='CARGA', descarga__isnull=True).exists())
+
+    def test_un_codigo_que_no_es_numero_se_omite_y_no_frena_el_resto(self):
+        salida = self.correr(
+            '--csv', self.csv(['#SIN-NUMERO;X;01/01/2026;;;;', self.fila()]),
+            '--confirmar')
+        self.assertIn('SIN-NUMERO', salida)
+        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
+
+    def test_un_archivo_sin_la_columna_codigo_se_rechaza(self):
+        salida = self.correr('--csv', self.csv(['1;2'], cabecera='A;B'))
+        self.assertIn('Código', salida)
+        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
 
     def test_deshacer_quita_lo_suyo_y_respeta_lo_saldado(self):
         self.correr(str(self.orden.pk), '--confirmar')
