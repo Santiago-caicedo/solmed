@@ -757,6 +757,118 @@ class CargasAcumuladasTests(BaseCRM):
                          "antes se rechazaba; ahora se suma como otro pendiente")
 
 
+class DiagnosticoDeCargasTests(BaseCRM):
+    """
+    La radiografía de las cargas pendientes. Nació de un desajuste real
+    (ago-2026): el listado de la empresa y el sistema no coincidían, y había
+    cargas sin orden —las creadas antes de que el movimiento guardara la
+    orden— que se habían duplicado al registrarlas de nuevo.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.conductor = self.persona('conductor', 'Conductores')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.camion = self.vehiculo()
+        self.dejar_cargado = Dispositor.objects.create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
+
+    def correr(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('diagnosticar_cargas', *args, stdout=salida, stderr=salida)
+        return salida.getvalue()
+
+    def _cargar(self, vehiculo=None):
+        return self.programacion(
+            cliente=self.cli, conductor=self.conductor,
+            vehiculo=vehiculo or self.camion,
+            requiere_disposicion_final='NO', dispositor_final=self.dejar_cargado
+        ).convertir_en_orden(self.asesor)
+
+    def test_dice_cuantas_debe_cada_camion(self):
+        orden = self._cargar()
+        salida = self.correr()
+        self.assertIn(self.camion.placa, salida)
+        self.assertIn('1 sin disponer', salida)
+        self.assertIn(f"#{orden.pk}", salida)
+
+    def test_una_carga_sin_orden_cuya_nota_repite_una_pendiente_es_duplicado(self):
+        """El caso real: la carga vieja perdió el enlace y se registró otra."""
+        orden = self._cargar()
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=None,
+            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado (sin disposición)")
+        salida = self.correr()
+        self.assertIn('DUPLICADO', salida)
+        self.assertIn(f"#{orden.pk}", salida)
+
+    def test_una_carga_sin_orden_que_no_se_repite_solo_perdio_el_enlace(self):
+        orden = self._cargar()
+        # Se salda la que tiene enlace: queda solo la huérfana.
+        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
+        carga.descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
+        carga.save(update_fields=['descarga'])
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=None,
+            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado")
+        salida = self.correr()
+        self.assertIn('perdió el enlace', salida)
+        self.assertNotIn('DUPLICADO', salida)
+
+    def test_una_carga_marcada_a_mano_se_reconoce_como_tal(self):
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=None,
+            nota='Carga manual: recogida sin orden')
+        salida = self.correr()
+        self.assertIn('se marcó a mano', salida)
+
+    def test_dos_cargas_pendientes_de_la_misma_orden_se_señalan(self):
+        orden = self._cargar()
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', orden=orden, nota='otra vez')
+        salida = self.correr()
+        self.assertIn('más de una carga pendiente', salida)
+        self.assertIn(f"#{orden.pk}: 2 cargas", salida)
+
+    def test_avisa_cuando_una_descarga_saldo_varias_ordenes_de_golpe(self):
+        """Es lo que vacía un camión entero: conviene verlo explicado."""
+        self._cargar()
+        self._cargar()
+        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
+        self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
+            requiere_disposicion_final='SI', dispositor_final=proveedor
+        ).convertir_en_orden(self.asesor)
+
+        salida = self.correr()
+        self.assertIn('saldó 2 carga(s)', salida)
+        self.assertIn('una sola descarga saldó varias órdenes', salida)
+        self.assertIn('Gestor Ambiental S.A.', salida)
+
+    def test_se_puede_mirar_un_solo_camion(self):
+        otro = self.vehiculo(placa='OTR222')
+        self._cargar()
+        self._cargar(vehiculo=otro)
+        salida = self.correr('--placa', otro.placa)
+        self.assertIn(otro.placa, salida)
+        self.assertNotIn(self.camion.placa, salida)
+
+    def test_una_placa_inventada_se_avisa(self):
+        self.assertIn('No existe el vehículo', self.correr('--placa', 'XXX000'))
+
+    def test_no_escribe_nada(self):
+        orden = self._cargar()
+        antes = list(MovimientoCargaVehiculo.objects.values_list('pk', 'descarga_id'))
+        self.correr()
+        self.assertEqual(
+            list(MovimientoCargaVehiculo.objects.values_list('pk', 'descarga_id')),
+            antes)
+
+
 class RegistrarCargasPendientesTests(BaseCRM):
     """
     El comando que registra el reporte de la empresa: órdenes cuyo residuo
