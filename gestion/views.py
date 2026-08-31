@@ -3,6 +3,7 @@ import json
 import re
 import mimetypes
 import os
+import unicodedata
 from django.conf import settings
 from django.core.mail import EmailMessage
 from django.http import Http404, HttpResponse, HttpResponseRedirect
@@ -5145,12 +5146,182 @@ def _recorridos_de(persona):
             .exclude(orden__estado_orden='CANCELADA'))
 
 
+def _periodo_centro(request):
+    """
+    El periodo del centro de control, saneado: un RANGO a la medida
+    (?desde=&hasta=) manda sobre el mes; si no, ?anio= y ?mes= (mes=todo, el
+    año entero; sin nada, el mes en curso). Devuelve
+    (anio, mes, inicio, fin, a_medida).
+    """
+    hoy = timezone.localdate()
+
+    def _fecha(clave):
+        try:
+            return datetime.datetime.strptime(
+                request.GET.get(clave, ''), '%Y-%m-%d').date()
+        except ValueError:
+            return None
+
+    desde, hasta = _fecha('desde'), _fecha('hasta')
+    if desde and hasta and desde <= hasta:
+        return desde.year, None, desde, hasta, True
+
+    try:
+        anio = int(request.GET.get('anio', ''))
+    except ValueError:
+        anio = hoy.year
+    if not 1900 <= anio <= 2999:          # un año disparatado revienta date()
+        anio = hoy.year
+    crudo = request.GET.get('mes', '')
+    if crudo == 'todo':
+        mes = None
+    else:
+        try:
+            mes = int(crudo)
+        except ValueError:
+            # Sin pedir nada se abre en el mes en curso; en otro año, el año entero.
+            mes = hoy.month if anio == hoy.year else None
+        if mes is not None and not 1 <= mes <= 12:
+            mes = None
+    if mes:
+        inicio = datetime.date(anio, mes, 1)
+        fin = datetime.date(anio, mes, calendar.monthrange(anio, mes)[1])
+    else:
+        inicio, fin = datetime.date(anio, 1, 1), datetime.date(anio, 12, 31)
+    return anio, mes, inicio, fin, False
+
+
+def _etiqueta_periodo(anio, mes, inicio, fin, a_medida):
+    """Cómo se nombra el periodo en pantalla, en el PDF y en el Excel."""
+    if a_medida:
+        return f"Del {inicio:%d/%m/%Y} al {fin:%d/%m/%Y}"
+    if mes:
+        return f"{HistoricoClienteView.MESES[mes - 1]} de {anio}"
+    return f"Año {anio}"
+
+
+def _mapa_periodo(inicio, fin, dias_servicio, dias_actividad, dias_novedad, hoy):
+    """
+    El periodo día por día: una fila por mes y una casilla por día, alineadas
+    por número de día. Cada casilla dice qué hubo ese día — servicio,
+    actividad, novedad, nada— y los días que aún no llegan salen punteados.
+    """
+    filas, mes_actual = [], None
+    for i in range((fin - inicio).days + 1):
+        dia = inicio + datetime.timedelta(days=i)
+        if mes_actual != (dia.year, dia.month):
+            mes_actual = (dia.year, dia.month)
+            filas.append({
+                'nombre': f"{HistoricoClienteView.MESES[dia.month - 1]} {dia.year}",
+                # Las casillas de los días que el periodo no cubre quedan vacías,
+                # así el día 1 de cada mes cae siempre en la misma columna.
+                'dias': [{'n': n, 'estado': 'fuera'} for n in range(1, 32)],
+            })
+        if dia in dias_servicio:
+            estado = 'servicio'
+        elif dia in dias_actividad:
+            estado = 'actividad'
+        elif dia in dias_novedad:
+            estado = 'novedad'
+        else:
+            estado = 'libre' if dia <= hoy else 'futuro'
+        filas[-1]['dias'][dia.day - 1]['estado'] = estado
+    return filas
+
+
+def _datos_centro_control(persona, inicio, fin):
+    """
+    Todo lo que el sistema le tiene registrado a la persona entre dos fechas:
+    los servicios en que participó, las actividades que le repartió el plan de
+    trabajo, sus novedades y el resumen del periodo. Es la MISMA fuente de la
+    pantalla, del PDF y del Excel, para que los tres digan lo mismo.
+    """
+    # planes.views importa los mixins de aquí: el import va adentro para no
+    # cerrar el círculo al cargar el módulo.
+    from planes.views import _horario_de
+
+    recorridos = list(
+        _recorridos_de(persona)
+        .filter(fecha_recorrido__range=(inicio, fin))
+        .select_related('vehiculo', 'orden', 'orden__cliente',
+                        'orden__programacion_origen')
+        .order_by('fecha_recorrido', 'id')
+    )
+    # El acta es OneToOne y puede no existir: se trae aparte en un query.
+    actas = {a.recorrido_id: a for a in
+             Manifiesto.objects.filter(recorrido__in=recorridos)}
+    servicios = [{
+        'recorrido': r,
+        'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
+        'horas': _horario_de(r, actas.get(r.pk)),
+    } for r in recorridos]
+
+    asignaciones = list(
+        Asignacion.objects
+        .filter(persona=persona, plan__fecha__range=(inicio, fin))
+        .select_related('plan', 'orden', 'proveedor', 'dispositor')
+        .prefetch_related('vehiculos')
+        .order_by('plan__fecha', 'id')
+    )
+
+    # Las novedades viven por RANGO (unas vacaciones se registran una vez):
+    # entran las que TOCAN el periodo, contando solo sus días dentro de él.
+    novedades, dias_novedad = [], set()
+    for n in (Novedad.objects
+              .filter(persona=persona)
+              .filter(Q(fecha_inicio__lte=fin)
+                      & (Q(fecha_fin__gte=inicio)
+                         | Q(fecha_fin__isnull=True, fecha_inicio__gte=inicio)))
+              .select_related('registrado_por')
+              .order_by('fecha_inicio', 'id')):
+        desde = max(n.fecha_inicio, inicio)
+        hasta = min(n.fecha_fin or n.fecha_inicio, fin)
+        cubiertos = (hasta - desde).days + 1 if hasta >= desde else 0
+        for i in range(cubiertos):
+            dias_novedad.add(desde + datetime.timedelta(days=i))
+        novedades.append({'novedad': n, 'dias_en_rango': cubiertos})
+
+    dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
+    dias_actividad = {a.plan.fecha for a in asignaciones}
+    # Los días sin registro se cuentan solo sobre lo TRANSCURRIDO: el resto
+    # del mes en curso todavía no es un día libre.
+    hoy = timezone.localdate()
+    ultimo = min(fin, hoy)
+    transcurridos = (ultimo - inicio).days + 1 if ultimo >= inicio else 0
+    ocupados = {d for d in (dias_servicio | dias_actividad | dias_novedad)
+                if inicio <= d <= ultimo}
+
+    return {
+        'inicio': inicio, 'fin': fin,
+        'servicios': servicios,
+        'asignaciones': asignaciones,
+        'novedades': novedades,
+        'n_servicios': len(servicios),
+        'dias_con_servicio': len(dias_servicio),
+        'n_actividades': len(asignaciones),
+        'dias_con_novedad': len(dias_novedad),
+        'dias_transcurridos': transcurridos,
+        'dias_sin_registro': max(transcurridos - len(ocupados), 0),
+        'sin_nada': not (servicios or asignaciones or novedades),
+        'mapa': _mapa_periodo(inicio, fin, dias_servicio, dias_actividad,
+                              dias_novedad, hoy),
+    }
+
+
+def _nombre_archivo_centro(persona, inicio, fin, extension):
+    """centro-de-control-juan-perez-2026-08-01_2026-08-31.pdf"""
+    crudo = (persona.get_full_name() or persona.username).lower()
+    limpio = re.sub(r'[^a-z0-9]+', '-', unicodedata.normalize('NFKD', crudo)
+                    .encode('ascii', 'ignore').decode()).strip('-')
+    return f"centro-de-control-{limpio}-{inicio:%Y-%m-%d}_{fin:%Y-%m-%d}.{extension}"
+
+
 class CentroControlPersonaView(AdministradorRequiredMixin, View):
     """
-    Centro de control de UNA persona: en un mes (o en todo el año), los
-    servicios en que participó, las actividades que le repartió el plan de
-    trabajo y sus novedades, con el resumen del periodo y una regleta de 12
-    meses para saltar de mes.
+    Centro de control de UNA persona: en un mes, en un año o en el rango de
+    fechas que se pida, los servicios en que participó, las actividades que le
+    repartió el plan de trabajo y sus novedades, con el resumen del periodo,
+    una regleta de 12 meses para saltar de mes y la descarga en PDF y Excel.
 
     SOLO administradores (decisión del usuario, ago-2026): reúne las novedades
     de recursos humanos —incapacidades, permisos, vacaciones— que ya son de
@@ -5161,76 +5332,7 @@ class CentroControlPersonaView(AdministradorRequiredMixin, View):
     # Los mismos nombres de mes que el histórico del cliente.
     MESES = HistoricoClienteView.MESES
 
-    def _anio_mes(self, request):
-        """El (año, mes) pedidos, saneados. mes None = todo el año."""
-        hoy = timezone.localdate()
-        try:
-            anio = int(request.GET.get('anio', ''))
-        except ValueError:
-            anio = hoy.year
-        crudo = request.GET.get('mes', '')
-        if crudo == 'todo':
-            return anio, None
-        try:
-            mes = int(crudo)
-        except ValueError:
-            # Sin pedir nada se abre en el mes en curso; en otro año, el año entero.
-            mes = hoy.month if anio == hoy.year else None
-        if mes is not None and not 1 <= mes <= 12:
-            mes = None
-        return anio, mes
-
-    def _rango(self, anio, mes):
-        if mes:
-            return (datetime.date(anio, mes, 1),
-                    datetime.date(anio, mes, calendar.monthrange(anio, mes)[1]))
-        return datetime.date(anio, 1, 1), datetime.date(anio, 12, 31)
-
-    def _servicios(self, persona, inicio, fin):
-        """Los servicios del periodo, con el papel que hizo y sus horas."""
-        # planes.views importa los mixins de aquí: el import va adentro para
-        # no cerrar el círculo al cargar el módulo.
-        from planes.views import _horario_de
-        recorridos = list(
-            _recorridos_de(persona)
-            .filter(fecha_recorrido__range=(inicio, fin))
-            .select_related('vehiculo', 'orden', 'orden__cliente',
-                            'orden__programacion_origen')
-            .order_by('fecha_recorrido', 'id')
-        )
-        # El acta es OneToOne y puede no existir: se trae aparte en un query.
-        actas = {a.recorrido_id: a for a in
-                 Manifiesto.objects.filter(recorrido__in=recorridos)}
-        return [{
-            'recorrido': r,
-            'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
-            'horas': _horario_de(r, actas.get(r.pk)),
-        } for r in recorridos]
-
-    def _novedades(self, persona, inicio, fin):
-        """
-        Las novedades que TOCAN el periodo (viven por rango: unas vacaciones
-        se registraron una vez y cubren varios días) y los días que cubren
-        dentro de él.
-        """
-        novedades = (Novedad.objects
-                     .filter(persona=persona)
-                     .filter(Q(fecha_inicio__lte=fin)
-                             & (Q(fecha_fin__gte=inicio)
-                                | Q(fecha_fin__isnull=True, fecha_inicio__gte=inicio)))
-                     .select_related('registrado_por')
-                     .order_by('fecha_inicio', 'id'))
-        filas, dias = [], set()
-        for n in novedades:
-            desde = max(n.fecha_inicio, inicio)
-            hasta = min(n.fecha_fin or n.fecha_inicio, fin)
-            cubiertos = (hasta - desde).days + 1 if hasta >= desde else 0
-            for i in range(cubiertos):
-                dias.add(desde + datetime.timedelta(days=i))
-            filas.append({'novedad': n, 'dias_en_rango': cubiertos})
-        return filas, dias
-
-    def _regleta(self, persona, anio, mes):
+    def _regleta(self, persona, anio, mes, a_medida):
         """Cuántos movimientos (servicios + actividades) tuvo cada mes del año."""
         conteo = {}
         fechas = [
@@ -5241,13 +5343,13 @@ class CentroControlPersonaView(AdministradorRequiredMixin, View):
         ]
         for f in fechas:
             conteo[f.month] = conteo.get(f.month, 0) + 1
-        return [{'numero': i + 1, 'nombre': nombre,
-                 'total': conteo.get(i + 1, 0), 'activo': (i + 1) == mes}
+        return [{'numero': i + 1, 'nombre': nombre, 'total': conteo.get(i + 1, 0),
+                 'activo': (i + 1) == mes and not a_medida}
                 for i, nombre in enumerate(self.MESES)]
 
     def _anios(self, persona, anio):
         """Los años en que la persona tiene algo registrado (para el selector)."""
-        años = {
+        anios = {
             *_recorridos_de(persona).annotate(a=ExtractYear('fecha_recorrido'))
             .values_list('a', flat=True),
             *Asignacion.objects.filter(persona=persona)
@@ -5255,57 +5357,204 @@ class CentroControlPersonaView(AdministradorRequiredMixin, View):
             *Novedad.objects.filter(persona=persona)
             .annotate(a=ExtractYear('fecha_inicio')).values_list('a', flat=True),
         }
-        años.discard(None)
-        años.add(anio)
-        return sorted(años, reverse=True)
+        anios.discard(None)
+        anios.add(anio)
+        return sorted(anios, reverse=True)
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        anio, mes = self._anio_mes(request)
-        inicio, fin = self._rango(anio, mes)
-
-        servicios = self._servicios(persona, inicio, fin)
-        asignaciones = list(
-            Asignacion.objects
-            .filter(persona=persona, plan__fecha__range=(inicio, fin))
-            .select_related('plan', 'orden', 'proveedor', 'dispositor')
-            .prefetch_related('vehiculos')
-            .order_by('plan__fecha', 'id')
-        )
-        novedades, dias_novedad = self._novedades(persona, inicio, fin)
-
-        dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
-        dias_actividad = {a.plan.fecha for a in asignaciones}
-        # Los días sin registro se cuentan solo sobre lo ya TRANSCURRIDO: el
-        # resto del mes en curso todavía no es un día libre.
-        hoy = timezone.localdate()
-        ultimo = min(fin, hoy)
-        transcurridos = (ultimo - inicio).days + 1 if ultimo >= inicio else 0
-        ocupados = {d for d in (dias_servicio | dias_actividad | dias_novedad)
-                    if inicio <= d <= ultimo}
-
+        anio, mes, inicio, fin, a_medida = _periodo_centro(request)
         perfil = _perfil_de(persona)
-        return render(request, self.template_name, {
+        contexto = _datos_centro_control(persona, inicio, fin)
+        contexto.update({
             'persona': persona,
             'perfil': perfil,
             'retirado': perfil.retirado,
             'anio': anio, 'mes': mes,
             'mes_nombre': self.MESES[mes - 1] if mes else None,
-            'inicio': inicio, 'fin': fin,
+            'a_medida': a_medida,
+            'periodo': _etiqueta_periodo(anio, mes, inicio, fin, a_medida),
             'anios': self._anios(persona, anio),
-            'meses': self._regleta(persona, anio, mes),
-            'servicios': servicios,
-            'asignaciones': asignaciones,
-            'novedades': novedades,
-            # Resumen del periodo.
-            'n_servicios': len(servicios),
-            'dias_con_servicio': len(dias_servicio),
-            'n_actividades': len(asignaciones),
-            'dias_con_novedad': len(dias_novedad),
-            'dias_transcurridos': transcurridos,
-            'dias_sin_registro': max(transcurridos - len(ocupados), 0),
-            'sin_nada': not (servicios or asignaciones or novedades),
+            'meses': self._regleta(persona, anio, mes, a_medida),
         })
+        return render(request, self.template_name, contexto)
+
+
+class CentroControlPDFView(AdministradorRequiredMixin, View):
+    """
+    El informe del periodo en PDF, con el lenguaje visual del formato físico
+    de SOLMED. Se genera al descargar (no se guarda): es un reporte interno
+    derivado de datos, como el plan de trabajo y la encuesta de cierre.
+    """
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        anio, mes, inicio, fin, a_medida = _periodo_centro(request)
+        contexto = _datos_centro_control(persona, inicio, fin)
+
+        logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+        with open(logo_path, 'rb') as imagen:
+            logo_b64 = ('data:image/png;base64,'
+                        + base64.b64encode(imagen.read()).decode('utf-8'))
+
+        perfil = _perfil_de(persona)
+        contexto.update({
+            'persona': persona,
+            'perfil': perfil,
+            'roles': ', '.join(persona.groups.values_list('name', flat=True)),
+            'periodo': _etiqueta_periodo(anio, mes, inicio, fin, a_medida),
+            'logo_b64': logo_b64,
+            'generado': timezone.localtime(),
+            'generado_por': request.user.get_full_name() or request.user.username,
+        })
+        html = get_template('gestion/centro_control_pdf.html').render(contexto)
+        respuesta = HttpResponse(
+            HTML(string=html, base_url=request.build_absolute_uri()).write_pdf(),
+            content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="{_nombre_archivo_centro(persona, inicio, fin, "pdf")}"')
+        return respuesta
+
+
+class CentroControlExcelView(AdministradorRequiredMixin, View):
+    """
+    El mismo informe en Excel, una hoja por bloque (resumen, servicios,
+    actividades y novedades) con encabezados fijos y filtros, para cruzarlo o
+    seguir trabajándolo en la oficina.
+    """
+    # Azul del formato físico de SOLMED, para que el libro se vea de la casa.
+    AZUL = '2C4D9E'
+    AZUL_SUAVE = 'EDF1FA'
+
+    def _hoja(self, libro, titulo, cabeceras, filas, anchos, fechas=()):
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        hoja = libro.create_sheet(titulo)
+        borde = Side(style='thin', color='D6DDEA')
+        hoja.append(cabeceras)
+        for celda in hoja[1]:
+            celda.font = Font(bold=True, color='FFFFFF', size=10)
+            celda.fill = PatternFill('solid', fgColor=self.AZUL)
+            celda.alignment = Alignment(horizontal='center', vertical='center',
+                                        wrap_text=True)
+        hoja.row_dimensions[1].height = 26
+        for fila in filas:
+            hoja.append(fila)
+        for i, ancho in enumerate(anchos, start=1):
+            hoja.column_dimensions[get_column_letter(i)].width = ancho
+        for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
+            for celda in fila:
+                celda.border = Border(bottom=borde, left=borde, right=borde)
+                celda.alignment = Alignment(vertical='center', wrap_text=True)
+                if n % 2 == 0:                      # cebra: se lee mejor de corrido
+                    celda.fill = PatternFill('solid', fgColor='F5F8FC')
+                # Las fechas van como FECHA de verdad, no como texto: así se
+                # ordenan y se filtran por rango en el mismo Excel.
+                if celda.column in fechas:
+                    celda.number_format = 'DD/MM/YYYY'
+                    celda.alignment = Alignment(horizontal='center', vertical='center')
+        hoja.sheet_view.showGridLines = False
+        hoja.freeze_panes = 'A2'
+        if filas:
+            hoja.auto_filter.ref = (
+                f"A1:{get_column_letter(len(cabeceras))}{len(filas) + 1}")
+        else:
+            hoja['A2'] = 'Sin registros en el periodo.'
+            hoja['A2'].font = Font(italic=True, color='7A8899')
+        return hoja
+
+    def get(self, request, pk):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        persona = get_object_or_404(User, pk=pk)
+        anio, mes, inicio, fin, a_medida = _periodo_centro(request)
+        datos = _datos_centro_control(persona, inicio, fin)
+        periodo = _etiqueta_periodo(anio, mes, inicio, fin, a_medida)
+        perfil = _perfil_de(persona)
+
+        libro = Workbook()
+        portada = libro.active
+        portada.title = 'Resumen'
+        portada.sheet_view.showGridLines = False
+        portada.column_dimensions['A'].width = 34
+        portada.column_dimensions['B'].width = 48
+        portada['A1'] = 'CENTRO DE CONTROL DEL EMPLEADO'
+        portada['A1'].font = Font(bold=True, size=14, color=self.AZUL)
+        portada.merge_cells('A1:B1')
+        renglones = [
+            ('Persona', persona.get_full_name() or persona.username),
+            ('Documento', perfil.numero_documento or '—'),
+            ('Cargo', perfil.cargo or ', '.join(
+                persona.groups.values_list('name', flat=True)) or '—'),
+            ('Estado', 'Retirado' if perfil.retirado else 'Activo'),
+            ('Periodo', periodo),
+            ('Generado', timezone.localtime().strftime('%d/%m/%Y %H:%M')),
+            ('Generado por', request.user.get_full_name() or request.user.username),
+            ('', ''),
+            ('Servicios', datos['n_servicios']),
+            ('Días con servicio', datos['dias_con_servicio']),
+            ('Actividades del plan', datos['n_actividades']),
+            ('Días con novedad', datos['dias_con_novedad']),
+            ('Días transcurridos', datos['dias_transcurridos']),
+            ('Días sin registro', datos['dias_sin_registro']),
+        ]
+        for etiqueta, valor in renglones:
+            portada.append([etiqueta, valor])
+        for fila in portada.iter_rows(min_row=2, max_col=1):
+            for celda in fila:
+                celda.font = Font(bold=True, color='51606E')
+                celda.fill = PatternFill('solid', fgColor=self.AZUL_SUAVE)
+                celda.alignment = Alignment(vertical='center')
+
+        self._hoja(
+            libro, 'Servicios',
+            ['Fecha', 'N° Orden', 'Participó como', 'Vehículo', 'Cliente',
+             'Horas', 'Estado', 'Dirección'],
+            [[s['recorrido'].fecha_recorrido,
+              s['recorrido'].orden.numero_orden, s['como'],
+              s['recorrido'].vehiculo.placa, s['recorrido'].orden.cliente.nombre,
+              s['horas'] or '—', s['recorrido'].get_estado_display(),
+              s['recorrido'].orden.direccion_servicio or '—']
+             for s in datos['servicios']],
+            [12, 11, 15, 12, 34, 16, 14, 34], fechas=(1,))
+
+        self._hoja(
+            libro, 'Actividades',
+            ['Fecha', 'Actividad', 'Placa(s)', 'Orden', 'Proveedor / gestor',
+             'Hora', 'Descripción'],
+            [[a.plan.fecha, a.get_tipo_display(),
+              a.placas or '—',
+              f"#{a.orden.numero_orden}" if a.orden else '—',
+              str(a.proveedor or a.dispositor or '—'),
+              a.hora.strftime('%H:%M') if a.hora else '—',
+              a.detalle or '—']
+             for a in datos['asignaciones']],
+            [12, 32, 16, 11, 30, 8, 40], fechas=(1,))
+
+        self._hoja(
+            libro, 'Novedades',
+            ['Novedad', 'Desde', 'Hasta', 'Días en el periodo', 'Hora',
+             'Detalle', 'Registró'],
+            [[f['novedad'].get_tipo_display(),
+              f['novedad'].fecha_inicio,
+              f['novedad'].fecha_fin or '—',
+              f['dias_en_rango'],
+              f['novedad'].hora.strftime('%H:%M') if f['novedad'].hora else '—',
+              f['novedad'].detalle or '—',
+              (f['novedad'].registrado_por.get_full_name()
+               or f['novedad'].registrado_por.username) if f['novedad'].registrado_por else '—']
+             for f in datos['novedades']],
+            [30, 12, 12, 18, 8, 40, 24], fechas=(2, 3))
+
+        flujo = BytesIO()
+        libro.save(flujo)
+        respuesta = HttpResponse(
+            flujo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="{_nombre_archivo_centro(persona, inicio, fin, "xlsx")}"')
+        return respuesta
 
 
 class EditarCuentaPersonaView(PersonalRequiredMixin, View):

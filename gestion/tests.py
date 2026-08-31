@@ -5412,3 +5412,137 @@ class CentroControlPersonaTests(BaseCRM):
         self.entrar(self.admin)
         self.assertEqual(
             self.client.get(self.url, self._mes()).context['n_servicios'], 0)
+
+
+class CentroControlPeriodoTests(BaseCRM):
+    """El periodo del centro de control: el mes de la regleta o un rango propio."""
+
+    def setUp(self):
+        self.hoy = timezone.localdate()
+        self.datos = self.servicio_completo()
+        self.conductor = self.datos['conductor']
+        self.url = reverse('gestion:centro_control_persona',
+                           args=[self.conductor.pk])
+        self.entrar(self.persona('jefa', 'Administradores'))
+
+    def test_un_rango_propio_manda_sobre_el_mes(self):
+        respuesta = self.client.get(self.url, {
+            'desde': self.hoy.strftime('%Y-%m-%d'),
+            'hasta': self.hoy.strftime('%Y-%m-%d'),
+        })
+        contexto = respuesta.context
+        self.assertTrue(contexto['a_medida'])
+        self.assertIsNone(contexto['mes'], "el rango apaga el mes de la regleta")
+        self.assertEqual(contexto['inicio'], self.hoy)
+        self.assertEqual(contexto['fin'], self.hoy)
+        self.assertEqual(contexto['n_servicios'], 1)
+
+    def test_un_rango_que_deja_fuera_el_servicio_no_lo_trae(self):
+        ayer = self.hoy - datetime.timedelta(days=1)
+        contexto = self.client.get(self.url, {
+            'desde': (ayer - datetime.timedelta(days=6)).strftime('%Y-%m-%d'),
+            'hasta': ayer.strftime('%Y-%m-%d'),
+        }).context
+        self.assertEqual(contexto['n_servicios'], 0)
+        self.assertEqual(contexto['dias_transcurridos'], 7)
+
+    def test_un_rango_al_reves_o_incompleto_vuelve_al_mes(self):
+        for pedido in ({'desde': '2026-08-31', 'hasta': '2026-08-01'},
+                       {'desde': '2026-08-01'},
+                       {'hasta': 'no-es-fecha'}):
+            with self.subTest(pedido=pedido):
+                contexto = self.client.get(self.url, pedido).context
+                self.assertFalse(contexto['a_medida'])
+                self.assertEqual(contexto['mes'], self.hoy.month)
+
+    def test_el_rango_cuenta_solo_los_dias_de_la_novedad_que_caen_dentro(self):
+        from planes.models import Novedad
+        Novedad.objects.create(
+            persona=self.conductor, tipo='VACACIONES',
+            fecha_inicio=self.hoy - datetime.timedelta(days=10),
+            fecha_fin=self.hoy + datetime.timedelta(days=10))
+        contexto = self.client.get(self.url, {
+            'desde': (self.hoy - datetime.timedelta(days=2)).strftime('%Y-%m-%d'),
+            'hasta': self.hoy.strftime('%Y-%m-%d'),
+        }).context
+        self.assertEqual(contexto['dias_con_novedad'], 3)
+        self.assertEqual(contexto['novedades'][0]['dias_en_rango'], 3)
+
+    def test_el_mapa_marca_cada_dia_con_lo_que_hubo(self):
+        contexto = self.client.get(self.url, {
+            'desde': self.hoy.strftime('%Y-%m-%d'),
+            'hasta': self.hoy.strftime('%Y-%m-%d'),
+        }).context
+        dias = contexto['mapa'][0]['dias']
+        self.assertEqual(dias[self.hoy.day - 1]['estado'], 'servicio')
+        # Los días que el periodo no cubre quedan en blanco, no en "libre".
+        otro = 0 if self.hoy.day != 1 else 2
+        self.assertEqual(dias[otro]['estado'], 'fuera')
+
+    def test_las_descargas_conservan_el_periodo_de_la_pantalla(self):
+        respuesta = self.client.get(self.url, {'anio': 2026, 'mes': 8})
+        pdf = reverse('gestion:centro_control_pdf', args=[self.conductor.pk])
+        self.assertContains(respuesta, f"{pdf}?anio=2026&amp;mes=8")
+
+
+class CentroControlDescargasTests(BaseCRM):
+    """El informe del periodo en PDF y en Excel, con el mismo acceso cerrado."""
+
+    def setUp(self):
+        self.datos = self.servicio_completo()
+        self.conductor = self.datos['conductor']
+        self.pdf = reverse('gestion:centro_control_pdf', args=[self.conductor.pk])
+        self.excel = reverse('gestion:centro_control_excel', args=[self.conductor.pk])
+        self.admin = self.persona('jefe', 'Administradores')
+
+    def test_solo_los_administradores_descargan(self):
+        for url in (self.pdf, self.excel):
+            for rol in ('Asesores', 'Talento Humano', 'Conductores'):
+                with self.subTest(url=url, rol=rol):
+                    self.entrar(self.persona(f'{rol[:4]}{url[-5]}', rol))
+                    self.assertEqual(self.client.get(url).status_code, 403)
+            self.client.logout()
+            self.assertIn('/login/', self.client.get(url).url)
+
+    def test_el_pdf_sale_con_su_nombre_de_archivo(self):
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.pdf, {'anio': timezone.localdate().year,
+                                               'mes': timezone.localdate().month})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta['Content-Type'], 'application/pdf')
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
+        self.assertIn('centro-de-control-carlos-perez',
+                      respuesta['Content-Disposition'])
+
+    def test_el_excel_trae_una_hoja_por_bloque_y_las_filas_del_periodo(self):
+        from openpyxl import load_workbook
+        from planes.models import Asignacion, PlanDia
+        plan = PlanDia.objects.create(fecha=timezone.localdate())
+        Asignacion.objects.create(plan=plan, persona=self.conductor, tipo='LAVADA')
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.excel)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn('spreadsheetml', respuesta['Content-Type'])
+        self.assertIn('.xlsx', respuesta['Content-Disposition'])
+
+        libro = load_workbook(io.BytesIO(respuesta.content))
+        self.assertEqual(libro.sheetnames,
+                         ['Resumen', 'Servicios', 'Actividades', 'Novedades'])
+        servicios = libro['Servicios']
+        self.assertEqual(servicios.max_row, 2, "cabecera + un servicio")
+        # La fecha va como fecha de verdad, para poder ordenar y filtrar.
+        self.assertEqual(servicios['A2'].value.date(), timezone.localdate())
+        self.assertEqual(servicios['B2'].value, self.datos['orden'].numero_orden)
+        self.assertEqual(libro['Actividades'].max_row, 2)
+        self.assertEqual(libro['Novedades']['A2'].value, 'Sin registros en el periodo.')
+
+    def test_el_excel_respeta_el_rango_pedido(self):
+        from openpyxl import load_workbook
+        self.entrar(self.admin)
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        respuesta = self.client.get(self.excel, {
+            'desde': (ayer - datetime.timedelta(days=3)).strftime('%Y-%m-%d'),
+            'hasta': ayer.strftime('%Y-%m-%d')})
+        libro = load_workbook(io.BytesIO(respuesta.content))
+        self.assertEqual(libro['Servicios']['A2'].value,
+                         'Sin registros en el periodo.')

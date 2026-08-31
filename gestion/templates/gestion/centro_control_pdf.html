@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Centro de control · {{ persona.get_full_name|default:persona.username }}</title>
+    {% comment %}
+       INFORME DE ACTIVIDAD DEL PERSONAL (centro de control del empleado).
+       Habla el mismo idioma del formato físico "ORDEN DE SERVICIO" (GO-F-04):
+       azul #2C4D9E, secciones de borde redondeado y bandas en versalitas. Lo
+       que el acta resuelve con casillas dibujadas, aquí lo resuelve el MAPA
+       DEL PERIODO: una casilla por día, que es la firma de este informe.
+       Se genera al descargarlo; no se guarda.
+    {% endcomment %}
+    <style>
+        @page {
+            size: letter portrait;
+            margin: 0.45in 0.5in 0.7in 0.5in;
+            @bottom-center {
+                content: "Cra. 69A No. 24 Sur - 17  ·  Tels.: (601) 403 2799 - (601) 679 2566  ·  info@solmed.com.co  ·  Bogotá, D.C.";
+                font-family: "Helvetica", Arial, sans-serif;
+                font-size: 6.4pt; color: #2C4D9E; font-weight: bold;
+            }
+            @bottom-right {
+                content: "Página " counter(page) " de " counter(pages);
+                font-family: "Helvetica", Arial, sans-serif;
+                font-size: 6.4pt; color: #2C4D9E;
+            }
+        }
+
+        body {
+            font-family: "Helvetica", Arial, sans-serif;
+            font-size: 7.6pt; color: #000; line-height: 1.25;
+        }
+
+        /* El impreso va en azul, como el papel de la casa */
+        .section { border: 1.4px solid #2C4D9E; border-radius: 8px;
+                   margin-bottom: 7px; overflow: hidden; }
+        .lbl { color: #2C4D9E; font-weight: bold; }
+
+        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        /* border-box: con table-layout fijo, el ancho en % debe INCLUIR el
+           relleno; si no, cada columna se pasa 10px y la tabla se sale. */
+        td, th { padding: 3px 5px; vertical-align: middle; word-wrap: break-word;
+                 box-sizing: border-box; }
+
+        .grid td, .grid th { border: 0.9px solid #2C4D9E; }
+        .grid tr:first-child > * { border-top: none; }
+        .grid tr:last-child > * { border-bottom: none; }
+        .grid tr > *:first-child { border-left: none; }
+        .grid tr > *:last-child { border-right: none; }
+
+        .band {
+            background: #EDF1FA; color: #2C4D9E; font-weight: bold;
+            text-transform: uppercase; letter-spacing: .5px; font-size: 7.4pt;
+            padding: 3px 7px;
+        }
+        .band .cuenta { float: right; font-weight: normal; letter-spacing: 0; }
+
+        /* ---- Cabecera ---- */
+        .header td { vertical-align: middle; }
+        .header .h-left { width: 27%; }
+        .header .h-mid { width: 43%; text-align: center; color: #2C4D9E; }
+        .header .h-mid .empresa { font-weight: bold; font-size: 9pt; }
+        .header .h-meta { width: 30%; }
+        .meta-box td { border: 0.9px solid #2C4D9E; font-size: 6.6pt; padding: 2px 5px; }
+
+        /* ---- Identidad del informe ---- */
+        .titulo {
+            color: #2C4D9E; font-weight: bold; font-size: 11.5pt;
+            letter-spacing: 1.2px; text-transform: uppercase;
+        }
+        .persona-box { border-left: 1.4px solid #2C4D9E; padding-left: 9px; }
+        .persona-box .nombre { font-size: 11pt; font-weight: bold; color: #000; }
+        .persona-box .meta { color: #2C4D9E; font-size: 6.9pt; }
+
+        /* ---- Resumen: una cifra por columna ---- */
+        .cifras td { text-align: center; border-left: 0.9px solid #C9D6EE; }
+        .cifras td:first-child { border-left: none; }
+        .cifras .v { font-size: 16pt; font-weight: bold; color: #2C4D9E; line-height: 1.05; }
+        .cifras .v.destacada { color: #C00000; }
+        .cifras .k { color: #2C4D9E; font-size: 6.4pt; text-transform: uppercase;
+                     letter-spacing: .5px; }
+        .cifras .n { color: #55637A; font-size: 6.2pt; }
+
+        /* ---- Mapa del periodo: una casilla por día ---- */
+        .mapa { padding: 6px 7px 3px 7px; }
+        .mapa table { table-layout: auto; }
+        .mapa .mes { color: #2C4D9E; font-weight: bold; font-size: 6.6pt;
+                     text-transform: uppercase; letter-spacing: .4px;
+                     white-space: nowrap; padding-right: 6px; }
+        .dia {
+            width: 15px; height: 13px; border: 0.8px solid #A9BCE0; border-radius: 2px;
+            text-align: center; font-size: 5.2pt; color: #7C8DA8; padding: 0;
+            line-height: 13px;
+        }
+        .dia.servicio  { background: #2C4D9E; border-color: #2C4D9E; color: #fff; font-weight: bold; }
+        .dia.actividad { background: #B9CBEC; border-color: #6C8CC9; color: #12285E; }
+        .dia.novedad   { background: #fff; border: 1.4px solid #C00000; color: #C00000; font-weight: bold; }
+        .dia.libre     { background: #fff; }
+        .dia.futuro    { background: #fff; border-style: dotted; color: #C3CCDA; }
+        .dia.fuera     { border: none; background: none; color: transparent; }
+        .leyenda { color: #2C4D9E; font-size: 6.3pt; padding: 4px 7px 0 7px; }
+        .leyenda .llave { display: inline-block; width: 9px; height: 9px;
+                          border: 0.8px solid #A9BCE0; border-radius: 2px;
+                          vertical-align: -1px; margin: 0 3px 0 10px; }
+        .leyenda .llave:first-child { margin-left: 0; }
+        .leyenda .servicio  { background: #2C4D9E; border-color: #2C4D9E; }
+        .leyenda .actividad { background: #B9CBEC; border-color: #6C8CC9; }
+        .leyenda .novedad   { border: 1.4px solid #C00000; }
+
+        /* ---- Tablas de detalle ---- */
+        .datos { font-size: 7.2pt; }
+        .datos thead th {
+            background: #EDF1FA; color: #2C4D9E; font-weight: bold; font-size: 6.6pt;
+            text-transform: uppercase; letter-spacing: .3px; text-align: left;
+        }
+        .datos tbody tr:nth-child(even) td { background: #F7F9FC; }
+        .datos td { border-top: 0.7px solid #DCE3F1; }
+        .datos .num { text-align: center; font-weight: bold; }
+        .datos .tenue { color: #55637A; }
+        .vacio { padding: 8px 7px; color: #55637A; font-style: italic; }
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+        .section { page-break-inside: auto; }
+
+        .firma { margin-top: 12px; color: #2C4D9E; font-size: 6.8pt; }
+        .firma .linea { border-top: 0.9px solid #2C4D9E; width: 210px; padding-top: 2px; }
+    </style>
+</head>
+<body>
+
+    {% comment %} ================= CABECERA ================= {% endcomment %}
+    <table class="header" style="margin-bottom: 6px;">
+        <tr>
+            <td class="h-left"><img src="{{ logo_b64 }}" style="max-width: 128px;"></td>
+            <td class="h-mid">
+                <span class="empresa">SOLUCIONES MEDIOAMBIENTALES S.A.S.</span><br>
+                <b>SOLMED S.A.S.</b> &nbsp;·&nbsp; NIT 830.514.597-2
+            </td>
+            <td class="h-meta">
+                <table class="meta-box">
+                    <tr><td><span class="lbl">DOCUMENTO:</span> Informe interno</td></tr>
+                    <tr><td><span class="lbl">GENERADO:</span> {{ generado|date:"d/m/Y H:i" }}</td></tr>
+                    <tr><td><span class="lbl">ELABORÓ:</span> {{ generado_por }}</td></tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+
+    {% comment %} ================= IDENTIDAD DEL INFORME ================= {% endcomment %}
+    <table style="margin-bottom: 7px;">
+        <tr>
+            <td style="width: 46%; vertical-align: bottom;">
+                <div class="titulo">Informe de<br>actividad del personal</div>
+                <div class="lbl" style="font-size: 7.4pt; margin-top: 3px;">{{ periodo }}</div>
+            </td>
+            <td style="width: 54%;">
+                <div class="persona-box">
+                    <div class="nombre">{{ persona.get_full_name|default:persona.username }}</div>
+                    <div class="meta">
+                        {% if perfil.numero_documento %}C.C. {{ perfil.numero_documento }} &nbsp;·&nbsp; {% endif %}
+                        {{ perfil.cargo|default:roles|default:"Sin cargo registrado" }}
+                        {% if perfil.retirado %}&nbsp;·&nbsp; RETIRADO{% if perfil.fecha_retiro %} el {{ perfil.fecha_retiro|date:"d/m/Y" }}{% endif %}{% endif %}
+                    </div>
+                    <div class="meta">
+                        Del {{ inicio|date:"d/m/Y" }} al {{ fin|date:"d/m/Y" }}
+                        {% if perfil.telefono %}&nbsp;·&nbsp; Tel. {{ perfil.telefono }}{% endif %}
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    {% comment %} ================= RESUMEN DEL PERIODO ================= {% endcomment %}
+    <div class="section">
+        <div class="band">Resumen del periodo</div>
+        <table class="cifras">
+            <tr>
+                <td>
+                    <div class="v destacada">{{ n_servicios }}</div>
+                    <div class="k">Servicios</div>
+                    <div class="n">en {{ dias_con_servicio }} día{{ dias_con_servicio|pluralize }}</div>
+                </td>
+                <td>
+                    <div class="v">{{ n_actividades }}</div>
+                    <div class="k">Actividades del plan</div>
+                    <div class="n">&nbsp;</div>
+                </td>
+                <td>
+                    <div class="v">{{ dias_con_novedad }}</div>
+                    <div class="k">Días con novedad</div>
+                    <div class="n">{{ novedades|length }} registrada{{ novedades|length|pluralize }}</div>
+                </td>
+                <td>
+                    <div class="v">{{ dias_sin_registro }}</div>
+                    <div class="k">Días sin registro</div>
+                    <div class="n">de {{ dias_transcurridos }} transcurrido{{ dias_transcurridos|pluralize }}</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    {% comment %} ================= MAPA DEL PERIODO ================= {% endcomment %}
+    <div class="section">
+        <div class="band">Mapa del periodo · un día, una casilla</div>
+        <div class="mapa">
+            <table>
+                {% for fila in mapa %}
+                <tr>
+                    <td class="mes">{{ fila.nombre }}</td>
+                    {% for d in fila.dias %}
+                    <td class="dia {{ d.estado }}">{{ d.n }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="leyenda" style="padding-bottom: 6px;">
+            <span class="llave servicio"></span>Servicio
+            <span class="llave actividad"></span>Actividad del plan
+            <span class="llave novedad"></span>Novedad
+            <span class="llave"></span>Sin registro
+        </div>
+    </div>
+
+    {% comment %} ================= SERVICIOS ================= {% endcomment %}
+    <div class="section">
+        <div class="band">Servicios <span class="cuenta">{{ n_servicios }} en el periodo</span></div>
+        {% if servicios %}
+        <table class="datos">
+            <thead>
+                <tr>
+                    <th style="width: 11%;">Fecha</th>
+                    <th style="width: 10%;">N° Orden</th>
+                    <th style="width: 15%;">Participó como</th>
+                    <th style="width: 11%;">Vehículo</th>
+                    <th style="width: 29%;">Cliente</th>
+                    <th style="width: 14%;">Horas</th>
+                    <th style="width: 10%;">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in servicios %}
+                <tr>
+                    <td>{{ s.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
+                    <td class="num">{{ s.recorrido.orden.numero_orden }}</td>
+                    <td>{{ s.como }}</td>
+                    <td>{{ s.recorrido.vehiculo.placa }}</td>
+                    <td>{{ s.recorrido.orden.cliente.nombre }}</td>
+                    <td class="tenue">{{ s.horas|default:"—" }}</td>
+                    <td class="tenue">{{ s.recorrido.get_estado_display }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="vacio">Sin servicios en el periodo.</div>
+        {% endif %}
+    </div>
+
+    {% comment %} ================= ACTIVIDADES DEL PLAN ================= {% endcomment %}
+    <div class="section">
+        <div class="band">Actividades del plan de trabajo <span class="cuenta">{{ n_actividades }} en el periodo</span></div>
+        {% if asignaciones %}
+        <table class="datos">
+            <thead>
+                <tr>
+                    <th style="width: 11%;">Fecha</th>
+                    <th style="width: 24%;">Actividad</th>
+                    <th style="width: 13%;">Placa(s)</th>
+                    <th style="width: 9%;">Orden</th>
+                    <th style="width: 19%;">Proveedor / gestor</th>
+                    <th style="width: 7%;">Hora</th>
+                    <th style="width: 17%;">Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in asignaciones %}
+                <tr>
+                    <td>{{ a.plan.fecha|date:"d/m/Y" }}</td>
+                    <td>{{ a.get_tipo_display }}</td>
+                    <td>{{ a.placas|default:"—" }}</td>
+                    <td class="num">{% if a.orden %}{{ a.orden.numero_orden }}{% else %}—{% endif %}</td>
+                    <td class="tenue">{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
+                    <td class="tenue">{{ a.hora|time:"H:i"|default:"—" }}</td>
+                    <td class="tenue">{{ a.detalle|default:"—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="vacio">Sin actividades asignadas en el periodo.</div>
+        {% endif %}
+    </div>
+
+    {% comment %} ================= NOVEDADES ================= {% endcomment %}
+    <div class="section">
+        <div class="band">Novedades <span class="cuenta">{{ dias_con_novedad }} día{{ dias_con_novedad|pluralize }} cubierto{{ dias_con_novedad|pluralize }}</span></div>
+        {% if novedades %}
+        <table class="datos">
+            <thead>
+                <tr>
+                    <th style="width: 24%;">Novedad</th>
+                    <th style="width: 11%;">Desde</th>
+                    <th style="width: 11%;">Hasta</th>
+                    <th style="width: 10%;">Días</th>
+                    <th style="width: 7%;">Hora</th>
+                    <th style="width: 22%;">Detalle</th>
+                    <th style="width: 15%;">Registró</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in novedades %}
+                <tr>
+                    <td>{{ f.novedad.get_tipo_display }}</td>
+                    <td>{{ f.novedad.fecha_inicio|date:"d/m/Y" }}</td>
+                    <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
+                    <td class="num">{{ f.dias_en_rango }}</td>
+                    <td class="tenue">{{ f.novedad.hora|time:"H:i"|default:"—" }}</td>
+                    <td class="tenue">{{ f.novedad.detalle|default:"—" }}</td>
+                    <td class="tenue">{% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="vacio">Sin novedades en el periodo.</div>
+        {% endif %}
+    </div>
+
+    <div class="firma">
+        <div style="height: 24px;"></div>
+        <div class="linea">Elaboró: {{ generado_por }} · {{ generado|date:"d/m/Y H:i" }}</div>
+    </div>
+</body>
+</html>

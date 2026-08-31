@@ -14,6 +14,9 @@ asgiref==3.9.1
 django-storages==1.14.4
 boto3==1.35.49
 
+# --- Generacion de Excel (informe del centro de control) ---
+openpyxl==3.1.5
+
 # --- Generacion de PDF (manifiestos y encuestas) ---
 weasyprint==66.0
 xhtml2pdf==0.2.17
