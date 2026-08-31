@@ -27,6 +27,12 @@
             <button class="btn btn-outline-dark"><i class="bi bi-person-dash me-1"></i> Marcar retirado</button>
             {% endif %}
         </form>
+        {% if es_administrador %}
+        {# Todo lo que se le tiene registrado mes a mes (solo administradores). #}
+        <a href="{% url 'gestion:centro_control_persona' persona.pk %}" class="btn btn-primary">
+            <i class="bi bi-speedometer2 me-1"></i> Centro de control
+        </a>
+        {% endif %}
         <a href="{% url 'gestion:lista_personal' %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i> Personal
         </a>

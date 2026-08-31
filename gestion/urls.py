@@ -129,6 +129,7 @@ urlpatterns = [
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),
+    path('personal/<int:pk>/centro/', views.CentroControlPersonaView.as_view(), name='centro_control_persona'),
     path('personal/<int:pk>/cuenta/', views.EditarCuentaPersonaView.as_view(), name='editar_cuenta_persona'),
     path('personal/<int:pk>/seguridad-social/', views.HistorialSeguridadSocialView.as_view(), name='historial_seguridad_social'),
     path('personal/<int:pk>/password/', views.CambiarPasswordPersonaView.as_view(), name='cambiar_password_persona'),

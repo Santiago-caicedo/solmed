@@ -1,3 +1,4 @@
+import calendar
 import json
 import re
 import mimetypes
@@ -35,6 +36,9 @@ from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, Foto
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
+# El plan de trabajo alimenta el centro de control del empleado. planes
+# importa gestion.models (no gestion.views), así que no hay círculo.
+from planes.models import Asignacion, Novedad
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
@@ -5129,6 +5133,179 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         else:
             messages.error(request, "No se pudo cargar el documento (revisa el archivo).")
         return redirect('gestion:ficha_persona', pk=pk)
+
+
+def _recorridos_de(persona):
+    """
+    Los recorridos en que participó la persona, conduciendo o de ayudante.
+    Las órdenes canceladas no cuentan: no se prestó el servicio.
+    """
+    return (Recorrido.objects
+            .filter(Q(conductor=persona) | Q(ayudante=persona) | Q(ayudante2=persona))
+            .exclude(orden__estado_orden='CANCELADA'))
+
+
+class CentroControlPersonaView(AdministradorRequiredMixin, View):
+    """
+    Centro de control de UNA persona: en un mes (o en todo el año), los
+    servicios en que participó, las actividades que le repartió el plan de
+    trabajo y sus novedades, con el resumen del periodo y una regleta de 12
+    meses para saltar de mes.
+
+    SOLO administradores (decisión del usuario, ago-2026): reúne las novedades
+    de recursos humanos —incapacidades, permisos, vacaciones— que ya son de
+    acceso restringido en el plan de trabajo; abrirlo al resto del módulo de
+    Personal las expondría por otra puerta.
+    """
+    template_name = 'gestion/centro_control_persona.html'
+    # Los mismos nombres de mes que el histórico del cliente.
+    MESES = HistoricoClienteView.MESES
+
+    def _anio_mes(self, request):
+        """El (año, mes) pedidos, saneados. mes None = todo el año."""
+        hoy = timezone.localdate()
+        try:
+            anio = int(request.GET.get('anio', ''))
+        except ValueError:
+            anio = hoy.year
+        crudo = request.GET.get('mes', '')
+        if crudo == 'todo':
+            return anio, None
+        try:
+            mes = int(crudo)
+        except ValueError:
+            # Sin pedir nada se abre en el mes en curso; en otro año, el año entero.
+            mes = hoy.month if anio == hoy.year else None
+        if mes is not None and not 1 <= mes <= 12:
+            mes = None
+        return anio, mes
+
+    def _rango(self, anio, mes):
+        if mes:
+            return (datetime.date(anio, mes, 1),
+                    datetime.date(anio, mes, calendar.monthrange(anio, mes)[1]))
+        return datetime.date(anio, 1, 1), datetime.date(anio, 12, 31)
+
+    def _servicios(self, persona, inicio, fin):
+        """Los servicios del periodo, con el papel que hizo y sus horas."""
+        # planes.views importa los mixins de aquí: el import va adentro para
+        # no cerrar el círculo al cargar el módulo.
+        from planes.views import _horario_de
+        recorridos = list(
+            _recorridos_de(persona)
+            .filter(fecha_recorrido__range=(inicio, fin))
+            .select_related('vehiculo', 'orden', 'orden__cliente',
+                            'orden__programacion_origen')
+            .order_by('fecha_recorrido', 'id')
+        )
+        # El acta es OneToOne y puede no existir: se trae aparte en un query.
+        actas = {a.recorrido_id: a for a in
+                 Manifiesto.objects.filter(recorrido__in=recorridos)}
+        return [{
+            'recorrido': r,
+            'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
+            'horas': _horario_de(r, actas.get(r.pk)),
+        } for r in recorridos]
+
+    def _novedades(self, persona, inicio, fin):
+        """
+        Las novedades que TOCAN el periodo (viven por rango: unas vacaciones
+        se registraron una vez y cubren varios días) y los días que cubren
+        dentro de él.
+        """
+        novedades = (Novedad.objects
+                     .filter(persona=persona)
+                     .filter(Q(fecha_inicio__lte=fin)
+                             & (Q(fecha_fin__gte=inicio)
+                                | Q(fecha_fin__isnull=True, fecha_inicio__gte=inicio)))
+                     .select_related('registrado_por')
+                     .order_by('fecha_inicio', 'id'))
+        filas, dias = [], set()
+        for n in novedades:
+            desde = max(n.fecha_inicio, inicio)
+            hasta = min(n.fecha_fin or n.fecha_inicio, fin)
+            cubiertos = (hasta - desde).days + 1 if hasta >= desde else 0
+            for i in range(cubiertos):
+                dias.add(desde + datetime.timedelta(days=i))
+            filas.append({'novedad': n, 'dias_en_rango': cubiertos})
+        return filas, dias
+
+    def _regleta(self, persona, anio, mes):
+        """Cuántos movimientos (servicios + actividades) tuvo cada mes del año."""
+        conteo = {}
+        fechas = [
+            *_recorridos_de(persona).filter(fecha_recorrido__year=anio)
+            .values_list('fecha_recorrido', flat=True),
+            *Asignacion.objects.filter(persona=persona, plan__fecha__year=anio)
+            .values_list('plan__fecha', flat=True),
+        ]
+        for f in fechas:
+            conteo[f.month] = conteo.get(f.month, 0) + 1
+        return [{'numero': i + 1, 'nombre': nombre,
+                 'total': conteo.get(i + 1, 0), 'activo': (i + 1) == mes}
+                for i, nombre in enumerate(self.MESES)]
+
+    def _anios(self, persona, anio):
+        """Los años en que la persona tiene algo registrado (para el selector)."""
+        años = {
+            *_recorridos_de(persona).annotate(a=ExtractYear('fecha_recorrido'))
+            .values_list('a', flat=True),
+            *Asignacion.objects.filter(persona=persona)
+            .annotate(a=ExtractYear('plan__fecha')).values_list('a', flat=True),
+            *Novedad.objects.filter(persona=persona)
+            .annotate(a=ExtractYear('fecha_inicio')).values_list('a', flat=True),
+        }
+        años.discard(None)
+        años.add(anio)
+        return sorted(años, reverse=True)
+
+    def get(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        anio, mes = self._anio_mes(request)
+        inicio, fin = self._rango(anio, mes)
+
+        servicios = self._servicios(persona, inicio, fin)
+        asignaciones = list(
+            Asignacion.objects
+            .filter(persona=persona, plan__fecha__range=(inicio, fin))
+            .select_related('plan', 'orden', 'proveedor', 'dispositor')
+            .prefetch_related('vehiculos')
+            .order_by('plan__fecha', 'id')
+        )
+        novedades, dias_novedad = self._novedades(persona, inicio, fin)
+
+        dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
+        dias_actividad = {a.plan.fecha for a in asignaciones}
+        # Los días sin registro se cuentan solo sobre lo ya TRANSCURRIDO: el
+        # resto del mes en curso todavía no es un día libre.
+        hoy = timezone.localdate()
+        ultimo = min(fin, hoy)
+        transcurridos = (ultimo - inicio).days + 1 if ultimo >= inicio else 0
+        ocupados = {d for d in (dias_servicio | dias_actividad | dias_novedad)
+                    if inicio <= d <= ultimo}
+
+        perfil = _perfil_de(persona)
+        return render(request, self.template_name, {
+            'persona': persona,
+            'perfil': perfil,
+            'retirado': perfil.retirado,
+            'anio': anio, 'mes': mes,
+            'mes_nombre': self.MESES[mes - 1] if mes else None,
+            'inicio': inicio, 'fin': fin,
+            'anios': self._anios(persona, anio),
+            'meses': self._regleta(persona, anio, mes),
+            'servicios': servicios,
+            'asignaciones': asignaciones,
+            'novedades': novedades,
+            # Resumen del periodo.
+            'n_servicios': len(servicios),
+            'dias_con_servicio': len(dias_servicio),
+            'n_actividades': len(asignaciones),
+            'dias_con_novedad': len(dias_novedad),
+            'dias_transcurridos': transcurridos,
+            'dias_sin_registro': max(transcurridos - len(ocupados), 0),
+            'sin_nada': not (servicios or asignaciones or novedades),
+        })
 
 
 class EditarCuentaPersonaView(PersonalRequiredMixin, View):

@@ -5225,3 +5225,190 @@ class CuentasSinModulosTests(BaseCRM):
         respuesta = self.client.get(reverse('gestion:sin_acceso'))
         self.assertEqual(respuesta.status_code, 302)
         self.assertIn('/login/', respuesta.url)
+
+
+# ============================================================
+#  CENTRO DE CONTROL DEL EMPLEADO
+# ============================================================
+class CentroControlPersonaTests(BaseCRM):
+    """
+    La pantalla que reúne, mes a mes, todo lo que el sistema le tiene
+    registrado a una persona: sus servicios, las actividades que le repartió
+    el plan de trabajo y sus novedades.
+    """
+
+    # Ningún rol fuera de la administración puede abrirla: trae novedades de
+    # recursos humanos, que ya son de acceso restringido en el plan.
+    ROLES_SIN_ACCESO = [
+        'Asesores', 'Planificadores', 'Conductores', 'Talento Humano',
+        'Director Técnico', 'SISO', 'Soldador - Armador',
+        'Auxiliares Administrativas', 'Administrativo', 'Ayudantes',
+    ]
+
+    def setUp(self):
+        from planes.models import Asignacion, Novedad, PlanDia
+        self.Asignacion, self.Novedad, self.PlanDia = Asignacion, Novedad, PlanDia
+        self.hoy = timezone.localdate()
+        self.datos = self.servicio_completo()
+        self.conductor = self.datos['conductor']
+        self.url = reverse('gestion:centro_control_persona',
+                           args=[self.conductor.pk])
+        self.admin = self.persona('jefe', 'Administradores')
+
+    def _mes(self, fecha=None):
+        fecha = fecha or self.hoy
+        return {'anio': fecha.year, 'mes': fecha.month}
+
+    # ---------- acceso ----------
+
+    def test_el_administrador_y_el_superusuario_entran(self):
+        for username, rol, superusuario in (('root2', None, True),
+                                            ('admin2', 'Administradores', False)):
+            with self.subTest(usuario=username):
+                self.entrar(self.persona(username, rol, superusuario=superusuario))
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_ningun_otro_rol_entra_ni_escribiendo_la_url(self):
+        for i, rol in enumerate(self.ROLES_SIN_ACCESO):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'otro{i}', rol))
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_sin_iniciar_sesion_va_al_login(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn('/login/', respuesta.url)
+
+    def test_el_boton_solo_sale_en_la_ficha_del_administrador(self):
+        ficha = reverse('gestion:ficha_persona', args=[self.conductor.pk])
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(ficha), self.url)
+        # Talento Humano administra el expediente, pero no ve el centro.
+        self.entrar(self.persona('th', 'Talento Humano'))
+        self.assertNotContains(self.client.get(ficha), self.url)
+
+    # ---------- contenido del mes ----------
+
+    def test_muestra_los_servicios_del_mes_con_su_orden_y_su_placa(self):
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        self.assertContains(respuesta, f"#{self.datos['orden'].numero_orden}")
+        self.assertContains(respuesta, self.datos['camion'].placa)
+        self.assertContains(respuesta, 'Conductor')
+        self.assertEqual(respuesta.context['n_servicios'], 1)
+
+    def test_el_ayudante_ve_los_servicios_en_que_acompano(self):
+        ayudante = self.persona('ayu', 'Ayudantes')
+        recorrido = self.datos['recorrido']
+        recorrido.ayudante = ayudante
+        recorrido.save()
+        self.entrar(self.admin)
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[ayudante.pk]),
+            self._mes())
+        self.assertEqual(respuesta.context['n_servicios'], 1)
+        self.assertEqual(respuesta.context['servicios'][0]['como'], 'Ayudante')
+
+    def test_otro_mes_no_trae_los_servicios_del_mes_en_curso(self):
+        self.entrar(self.admin)
+        otro = self.hoy.replace(day=1) - datetime.timedelta(days=1)
+        respuesta = self.client.get(self.url, {'anio': otro.year, 'mes': otro.month})
+        self.assertEqual(respuesta.context['n_servicios'], 0)
+        self.assertNotContains(respuesta, f"#{self.datos['orden'].numero_orden}")
+
+    def test_muestra_las_actividades_que_le_asigno_el_plan(self):
+        plan = self.PlanDia.objects.create(fecha=self.hoy)
+        asignacion = self.Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='LAVADA')
+        asignacion.vehiculos.add(self.datos['camion'])
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        self.assertEqual(respuesta.context['n_actividades'], 1)
+        self.assertContains(respuesta, 'Lavada de vehículo')
+
+    def test_una_novedad_de_varios_dias_cuenta_solo_los_del_mes(self):
+        # Vacaciones que arrancan el mes pasado y terminan el día 3 de este.
+        primero = self.hoy.replace(day=1)
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='VACACIONES',
+            fecha_inicio=primero - datetime.timedelta(days=5),
+            fecha_fin=primero + datetime.timedelta(days=2))
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        self.assertEqual(respuesta.context['dias_con_novedad'], 3)
+        self.assertEqual(respuesta.context['novedades'][0]['dias_en_rango'], 3)
+        self.assertContains(respuesta, 'Vacaciones')
+
+    def test_una_novedad_de_un_solo_dia_fuera_del_mes_no_entra(self):
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='PERMISO_PERSONAL',
+            fecha_inicio=self.hoy.replace(day=1) - datetime.timedelta(days=3))
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        self.assertEqual(respuesta.context['dias_con_novedad'], 0)
+
+    def test_no_mezcla_lo_de_otra_persona(self):
+        otro = self.persona('otro_conductor', 'Conductores')
+        plan = self.PlanDia.objects.create(fecha=self.hoy)
+        self.Asignacion.objects.create(plan=plan, persona=otro, tipo='TRASTEO')
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        self.assertEqual(respuesta.context['n_actividades'], 0)
+        self.assertEqual(respuesta.context['n_servicios'], 1)
+
+    # ---------- resumen y regleta ----------
+
+    def test_los_dias_sin_registro_solo_cuentan_lo_transcurrido(self):
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        # El mes en curso llega hasta hoy; el día del servicio no es libre.
+        self.assertEqual(respuesta.context['dias_transcurridos'], self.hoy.day)
+        self.assertEqual(respuesta.context['dias_sin_registro'], self.hoy.day - 1)
+
+    def test_la_regleta_cuenta_los_movimientos_de_cada_mes(self):
+        plan = self.PlanDia.objects.create(fecha=self.hoy)
+        self.Asignacion.objects.create(plan=plan, persona=self.conductor,
+                                       tipo='TRASTEO')
+        self.entrar(self.admin)
+        meses = self.client.get(self.url, self._mes()).context['meses']
+        actual = meses[self.hoy.month - 1]
+        self.assertTrue(actual['activo'])
+        self.assertEqual(actual['total'], 2, "un servicio y una actividad")
+        self.assertEqual(sum(m['total'] for m in meses), 2)
+
+    def test_todo_el_ano_reune_los_meses(self):
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, {'anio': self.hoy.year, 'mes': 'todo'})
+        self.assertIsNone(respuesta.context['mes'])
+        self.assertEqual(respuesta.context['inicio'],
+                         datetime.date(self.hoy.year, 1, 1))
+        self.assertEqual(respuesta.context['n_servicios'], 1)
+
+    def test_sin_pedir_nada_abre_en_el_mes_en_curso(self):
+        self.entrar(self.admin)
+        contexto = self.client.get(self.url).context
+        self.assertEqual(contexto['mes'], self.hoy.month)
+        self.assertEqual(contexto['anio'], self.hoy.year)
+
+    def test_un_mes_disparatado_no_revienta(self):
+        self.entrar(self.admin)
+        for pedido in ({'mes': '99'}, {'mes': 'abc'}, {'anio': 'ayer'},
+                       {'anio': '2026', 'mes': '0'}):
+            with self.subTest(pedido=pedido):
+                self.assertEqual(self.client.get(self.url, pedido).status_code, 200)
+
+    def test_una_persona_sin_nada_lo_dice_sin_romperse(self):
+        nadie = self.persona('recien', 'Ayudantes')
+        self.entrar(self.admin)
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[nadie.pk]), self._mes())
+        self.assertTrue(respuesta.context['sin_nada'])
+        self.assertContains(respuesta, 'No hay nada registrado')
+
+    def test_una_orden_cancelada_no_cuenta_como_servicio(self):
+        orden = self.datos['orden']
+        orden.estado_orden = 'CANCELADA'
+        orden.save()
+        self.entrar(self.admin)
+        self.assertEqual(
+            self.client.get(self.url, self._mes()).context['n_servicios'], 0)
