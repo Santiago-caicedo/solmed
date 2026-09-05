@@ -288,7 +288,16 @@
                         <input type="text" name="detalle" class="form-control form-control-sm"
                                maxlength="255" placeholder="Detalle para el plan impreso">
 
-                        <button name="submit_asignacion" value="1" class="btn btn-primary btn-sm w-100 mt-3">
+                        {# Marcada, cada asignado recibe su actividad al correo. #}
+                        <div class="form-check mt-3">
+                            <input class="form-check-input" type="checkbox" name="notificar"
+                                   value="1" id="notificar-asignacion">
+                            <label class="form-check-label" for="notificar-asignacion">
+                                Avisar por correo a los asignados
+                            </label>
+                        </div>
+
+                        <button name="submit_asignacion" value="1" class="btn btn-primary btn-sm w-100 mt-2">
                             <i class="bi bi-check-lg me-1"></i> Asignar al plan
                         </button>
                     </form>

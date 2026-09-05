@@ -25,6 +25,9 @@ class AsignacionForm(forms.Form):
         queryset=Dispositor.objects.filter(activo=True, tipo='PROVEEDOR'),
         required=False)
     detalle = forms.CharField(required=False, max_length=255)
+    # Marcada, se le avisa por correo a cada persona asignada (opcional:
+    # muchas actividades se reparten de viva voz en la formación).
+    notificar = forms.BooleanField(required=False)
 
     def __init__(self, data=None, personas_ids=None, vehiculos_ids=None,
                  cargas_ids=None, **kwargs):
@@ -135,7 +138,7 @@ class AsignacionForm(forms.Form):
             # descargas, y quitar a uno no la deshace mientras quede el otro.
             for a in creadas[1:]:
                 a.descargas.set(creadas[0].descargas.all())
-        return len(creadas)
+        return creadas
 
 
 class NovedadForm(forms.ModelForm):

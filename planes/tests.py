@@ -1371,3 +1371,70 @@ class RegistrarDisposicionesTests(TestCase):
         self.assertIn('registrar_cargas_pendientes', salida)
         self.orden_cargada(22240, 'WNO623')
         self.assertIn('✓ Sin disponer, como se espera: #22240', self.correr())
+
+
+class CorreoDeAsignacionTests(BasePlan):
+    """
+    La casilla «Avisar por correo a los asignados» del panel: marcada, cada
+    persona recibe su actividad al correo; sin marcar no sale nada; y ni la
+    falta de correo ni un fallo del SMTP frenan la asignación.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.conductor.email = 'conductor@solmed.co'
+        self.conductor.save()
+        self.ayudante.email = 'ayudante@solmed.co'
+        self.ayudante.save()
+
+    def test_sin_marcar_la_casilla_no_sale_ningun_correo(self):
+        from django.core import mail
+        self.asignar([self.conductor], 'LAVADA', vehiculos=[self.camion])
+        self.assertEqual(Asignacion.objects.count(), 1)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_marcada_avisa_a_cada_asignado_con_su_actividad(self):
+        from django.core import mail
+        respuesta = self.asignar([self.conductor, self.ayudante], 'LAVADA',
+                                 vehiculos=[self.camion], notificar='1')
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(len(mail.outbox), 2)
+        destinos = {m.to[0] for m in mail.outbox}
+        self.assertEqual(destinos, {'conductor@solmed.co', 'ayudante@solmed.co'})
+        correo = mail.outbox[0]
+        self.assertIn('Plan de trabajo', correo.subject)
+        self.assertIn('Lavada de vehículo', correo.subject)
+        self.assertIn('Lavada de vehículo', correo.body)
+        self.assertIn(self.camion.placa, correo.body)
+        self.assertIn(self.hoy.strftime('%d/%m/%Y'), correo.body)
+        # Versión HTML de marca adjunta.
+        html = correo.alternatives[0][0]
+        self.assertIn('SOLMED', html)
+        self.assertIn('Lavada de vehículo', html)
+
+    def test_sin_correo_registrado_avisa_pero_asigna_igual(self):
+        from django.core import mail
+        self.ayudante.email = ''
+        self.ayudante.save()
+        respuesta = self.asignar([self.conductor, self.ayudante], 'TRASTEO',
+                                 notificar='1')
+        self.assertEqual(Asignacion.objects.count(), 2)
+        self.assertEqual(len(mail.outbox), 1, "al que sí tiene correo")
+        mensajes = [str(m) for m in respuesta.wsgi_request._messages]
+        self.assertTrue(any('no tiene correo registrado' in m for m in mensajes))
+
+    def test_un_fallo_del_smtp_no_tumba_la_asignacion(self):
+        from unittest.mock import patch
+        with patch('django.core.mail.EmailMultiAlternatives.send',
+                   side_effect=OSError('sin red')):
+            respuesta = self.asignar([self.conductor], 'TRASTEO', notificar='1')
+        self.assertEqual(Asignacion.objects.count(), 1,
+                         "la actividad queda aunque el correo no salga")
+        mensajes = [str(m) for m in respuesta.wsgi_request._messages]
+        self.assertTrue(any('No salió el correo' in m for m in mensajes))
+
+    def test_la_casilla_esta_en_el_panel(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'name="notificar"')
+        self.assertContains(respuesta, 'Avisar por correo a los asignados')

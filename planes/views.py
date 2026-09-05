@@ -23,7 +23,7 @@ from django.views.generic import ListView
 from weasyprint import HTML
 
 from gestion.models import Dispositor, Manifiesto, Recorrido, Vehiculo
-from gestion.views import AdministradorRequiredMixin, PaginadoMixin
+from gestion.views import AdministradorRequiredMixin, PaginadoMixin, _reply_to
 
 from .forms import AsignacionForm, NovedadForm
 from .models import Asignacion, Novedad, PlanDia
@@ -156,6 +156,77 @@ def _tablero(fecha):
     return plan, grupos
 
 
+def _correo_asignacion(asignacion):
+    """
+    Le avisa por correo a la persona su actividad del plan (mismo diseño de
+    marca del correo de programación). Devuelve (enviado, aviso).
+    """
+    from django.core.mail import EmailMultiAlternatives
+
+    persona = asignacion.persona
+    nombre = persona.get_full_name() or persona.username
+    correo = (persona.email or '').strip()
+    if not correo:
+        return False, f"{nombre} no tiene correo registrado: no se le pudo avisar"
+
+    filas = [('Actividad', asignacion.get_tipo_display()),
+             ('Fecha', asignacion.plan.fecha.strftime('%d/%m/%Y'))]
+    if asignacion.hora:
+        filas.append(('Hora', asignacion.hora.strftime('%H:%M')))
+    if asignacion.placas:
+        filas.append(('Placa(s)', asignacion.placas))
+    if asignacion.ordenes_texto:
+        filas.append(('Orden(es)', asignacion.ordenes_texto))
+    if asignacion.proveedor:
+        filas.append(('Proveedor', str(asignacion.proveedor)))
+    if asignacion.dispositor:
+        filas.append(('Gestor', str(asignacion.dispositor)))
+    if asignacion.detalle:
+        filas.append(('Descripción', asignacion.detalle))
+
+    ctx = {
+        'primer_nombre': (persona.first_name or nombre).split(' ')[0],
+        'fecha': asignacion.plan.fecha,
+        'actividad': asignacion.get_tipo_display(),
+        'detalles': filas,
+    }
+    texto = [f"Hola, {ctx['primer_nombre']}.",
+             "Se te asignó una actividad en el plan de trabajo:", '']
+    texto += [f"  {etiqueta}: {valor}" for etiqueta, valor in filas]
+    mensaje = EmailMultiAlternatives(
+        subject=(f"SOLMED - Plan de trabajo del "
+                 f"{asignacion.plan.fecha:%d/%m/%Y}: {ctx['actividad']}"),
+        body="\n".join(texto),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[correo],
+        reply_to=_reply_to(),
+    )
+    mensaje.attach_alternative(
+        get_template('planes/correo_asignacion.html').render(ctx), 'text/html')
+    mensaje.send(fail_silently=False)
+    return True, None
+
+
+def _avisar_asignaciones(request, asignaciones):
+    """Manda el correo de cada asignación e informa el resultado sin frenar nada."""
+    avisadas = []
+    for asignacion in asignaciones:
+        try:
+            enviado, aviso = _correo_asignacion(asignacion)
+        except Exception as e:
+            messages.warning(
+                request,
+                f"No salió el correo de {asignacion.persona_nombre} ({e}); "
+                f"la actividad quedó asignada igual.")
+            continue
+        if enviado:
+            avisadas.append(asignacion.persona_nombre)
+        else:
+            messages.warning(request, aviso)
+    if avisadas:
+        messages.success(request, "Se avisó por correo a " + ", ".join(avisadas) + ".")
+
+
 class PlanDiaView(AdministradorRequiredMixin, View):
     """El plan de UN día: tablero de formación + registro de actividades y novedades."""
     template_name = 'planes/plan_dia.html'
@@ -223,10 +294,13 @@ class PlanDiaView(AdministradorRequiredMixin, View):
             if form.is_valid():
                 plan, _ = PlanDia.objects.get_or_create(
                     fecha=fecha, defaults={'creado_por': request.user})
-                n = form.crear(plan, request.user)
+                creadas = form.crear(plan, request.user)
+                n = len(creadas)
                 messages.success(
                     request,
                     f"Actividad asignada a {n} persona{'s' if n != 1 else ''}.")
+                if form.cleaned_data.get('notificar'):
+                    _avisar_asignaciones(request, creadas)
             else:
                 for lista in form.errors.values():
                     for error in lista:
