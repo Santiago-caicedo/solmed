@@ -1198,7 +1198,8 @@ class RegistrarDisposicionesTests(TestCase):
                 ('javier', 'Conductores', 'Javier', 'Rincón'),
                 ('alonso', 'Conductores', 'Alonso', 'Mora'),
                 ('oscar', 'Conductores', 'Oscar', 'Duarte'),
-                ('jefferson', 'Ayudantes', 'Jefferson', 'Rojas'),
+                # En el sistema real es JEFERSON (una F); el reporte trae doble F.
+                ('jefferson', 'Ayudantes', 'Jeferson', 'Villegas'),
                 ('julio', 'Ayudantes', 'Julio', 'Castro'),
                 ('david', 'Ayudantes', 'David', 'Lara')]
     PLACAS = ['OBC727', 'WGY347', 'WNO623', 'OBB178']

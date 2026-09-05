@@ -75,6 +75,14 @@ VIAJES = [
 PENDIENTES_ESPERADAS = {22240, 22247, 22251, 22254, 22257, 22265}
 
 
+# El reporte escribe algunos nombres distinto a como están en el sistema.
+# Se traduce ANTES de buscar (la búsqueda es por fragmento y «JEFFERSON» no
+# cabe dentro de «JEFERSON STIVEN VILLEGAS JIMENEZ», que es como está creado).
+ALIAS = {
+    'JEFFERSON': 'JEFERSON',
+}
+
+
 def _limpiar(texto):
     """Sin tildes, en mayúsculas y sin espacios de sobra, para comparar nombres."""
     texto = str(texto or '').strip().upper()
@@ -103,7 +111,7 @@ class Command(BaseCommand):
         rol (retirados incluidos: el histórico puede nombrarlos). Ambigüedad o
         ausencia son error: aquí no se adivina.
         """
-        fragmento = _limpiar(nombre)
+        fragmento = ALIAS.get(_limpiar(nombre), _limpiar(nombre))
         candidatos = [u for u in self._personal
                       if fragmento in _limpiar(f"{u.first_name} {u.last_name}")]
         if len(candidatos) == 1:
