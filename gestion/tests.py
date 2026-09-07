@@ -5733,3 +5733,119 @@ class ObservacionesAyudanteTests(BaseCRM):
         # El formulario de la cuadrilla va con prefijo en la página.
         self.assertContains(respuesta, 'name="cuadrilla-ayudante_observacion"')
         self.assertContains(respuesta, 'name="cuadrilla-ayudante2_observacion"')
+
+
+# ============================================================
+#  CARGAR LAS ÓRDENES VIEJAS (regla nueva de disposición)
+# ============================================================
+class CargarOrdenesViejasTests(BaseCRM):
+    """
+    El comando que recorre las órdenes anteriores a la regla nueva: marcadas
+    NO pero sin carga (la regla vieja no les dejó pendiente), para que
+    aparezcan en el plan de trabajo como las nuevas.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.conductor = self.persona('conductor', 'Conductores')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+
+    def _orden_vieja(self, placa, destino_nombre, con_descarga_vieja=False,
+                     respuesta='NO'):
+        """
+        Una orden como las dejaba la REGLA VIEJA: marcada NO con su destino,
+        pero sin carga (se borra la que la regla nueva crea al convertir).
+        """
+        destino = None
+        if destino_nombre:
+            destino = Dispositor.objects.get_or_create(
+                nombre=destino_nombre, defaults={'tipo': 'INTERNO'})[0]
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.conductor,
+            vehiculo=self.vehiculo(placa),
+            requiere_disposicion_final=respuesta, dispositor_final=destino)
+        orden = programacion.convertir_en_orden(self.asesor)
+        orden.movimientos_carga.filter(accion='CARGA').delete()
+        if con_descarga_vieja:
+            MovimientoCargaVehiculo.objects.create(
+                vehiculo=orden.recorridos.first().vehiculo, accion='DESCARGA',
+                nota='contenido a Tanque Subterráneo (tanques SOLMED)', orden=orden)
+        for r in orden.recorridos.all():
+            r.vehiculo.sincronizar_carga()
+        return orden
+
+    def correr(self, *argumentos):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('cargar_ordenes_viejas', *argumentos, stdout=salida)
+        return salida.getvalue()
+
+    def test_encuentra_las_no_sin_carga_y_la_vista_previa_no_escribe(self):
+        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
+        salida = self.correr()
+        self.assertIn(f"#{orden.numero_orden}", salida)
+        self.assertIn('Vista previa', salida)
+        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
+
+    def test_confirmar_crea_la_carga_fechada_el_dia_del_servicio(self):
+        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
+        self.correr('--confirmar')
+        carga = orden.movimientos_carga.get(accion='CARGA')
+        self.assertIsNone(carga.descarga)
+        self.assertIn('regla nueva de disposición', carga.nota)
+        self.assertEqual(timezone.localtime(carga.fecha).date(),
+                         orden.programacion_origen.fecha)
+        camion = orden.recorridos.first().vehiculo
+        camion.refresh_from_db()
+        self.assertTrue(camion.cargado, "ya aparece para el plan de trabajo")
+
+    def test_avisa_si_al_convertir_se_registro_una_salida(self):
+        self._orden_vieja('VIE222', Dispositor.TANQUES[0], con_descarga_vieja=True)
+        salida = self.correr()
+        self.assertIn('al convertir se registró', salida)
+        self.assertIn('tanques SOLMED', salida)
+
+    def test_no_toca_lo_que_no_es_suyo(self):
+        # Con carga (pendiente o saldada), con SÍ, cancelada o histórica: fuera.
+        con_carga = self.programacion(
+            cliente=self.cli, conductor=self.conductor,
+            vehiculo=self.vehiculo('OK1234'), requiere_disposicion_final='NO',
+            dispositor_final=Dispositor.objects.get_or_create(
+                nombre=Dispositor.SIN_DISPOSICION, defaults={'tipo': 'INTERNO'})[0],
+        ).convertir_en_orden(self.asesor)          # la regla nueva ya la cargó
+        con_si = self._orden_vieja('OK5678', None, respuesta='SI')
+        cancelada = self._orden_vieja('OK9012', Dispositor.SIN_DISPOSICION)
+        cancelada.estado_orden = 'CANCELADA'
+        cancelada.save()
+        salida = self.correr()
+        for orden in (con_carga, con_si, cancelada):
+            self.assertNotIn(f"#{orden.numero_orden}  ", salida)
+
+    def test_la_pregunta_en_blanco_solo_se_avisa(self):
+        orden = self._orden_vieja('VIE333', None, respuesta='')
+        salida = self.correr('--confirmar')
+        self.assertIn('SIN responder', salida)
+        self.assertIn(f"#{orden.numero_orden}", salida)
+        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
+
+    def test_con_numeros_solo_carga_esas(self):
+        una = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
+        otra = self._orden_vieja('VIE222', Dispositor.SIN_DISPOSICION)
+        self.correr(str(una.numero_orden), '--confirmar')
+        self.assertTrue(una.movimientos_carga.filter(accion='CARGA').exists())
+        self.assertFalse(otra.movimientos_carga.filter(accion='CARGA').exists())
+
+    def test_es_idempotente_y_deshacer_las_quita(self):
+        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
+        self.correr('--confirmar')
+        salida = self.correr('--confirmar')
+        self.assertIn('Ninguna', salida)
+        self.assertEqual(orden.movimientos_carga.filter(accion='CARGA').count(), 1)
+
+        self.correr('--deshacer', '--confirmar')
+        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
+        camion = orden.recorridos.first().vehiculo
+        camion.refresh_from_db()
+        self.assertFalse(camion.cargado)
