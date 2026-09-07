@@ -340,14 +340,43 @@ class DisposicionDesdeElPlanTests(BasePlan):
         self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[vacio])
         self.assertFalse(Asignacion.objects.filter(vehiculos=vacio).exists())
 
-    def test_la_disposicion_se_asigna_de_a_un_camion(self):
+    def test_un_viaje_puede_saldar_ordenes_de_placas_distintas(self):
+        """
+        Regla nueva (sep-2026): se marcan las ÓRDENES del viaje sin importar
+        el camión (así son los viajes reales). Cada descarga queda registrada
+        en el camión que llevaba esa carga, y la asignación lista todas las
+        placas involucradas.
+        """
+        otro = Vehiculo.objects.create(placa='OTR222', marca='m', modelo='2020',
+                                       capacidad='1')
+        ajena = self._orden_que_carga(otro)
+        self.asignar([self.conductor], 'DISPOSICION_FINAL',
+                     cargas=[self.camion, otro])
+        asignacion = Asignacion.objects.get()
+        self.assertEqual({v.placa for v in asignacion.vehiculos.all()},
+                         {self.camion.placa, 'OTR222'})
+        self.assertEqual(asignacion.descargas.count(), 2)
+        for descarga in asignacion.descargas.all():
+            esperado = otro if descarga.orden == ajena else self.camion
+            self.assertEqual(descarga.vehiculo, esperado,
+                             "la descarga vive en el camión de SU carga")
+        for camion in (self.camion, otro):
+            camion.refresh_from_db()
+            self.assertFalse(camion.cargado)
+
+    def test_quitar_un_viaje_mixto_revive_cada_carga_en_su_camion(self):
         otro = Vehiculo.objects.create(placa='OTR222', marca='m', modelo='2020',
                                        capacidad='1')
         self._orden_que_carga(otro)
         self.asignar([self.conductor], 'DISPOSICION_FINAL',
                      cargas=[self.camion, otro])
-        self.assertFalse(Asignacion.objects.exists(),
-                         "cada camión lleva su propia orden")
+        asignacion = Asignacion.objects.get()
+        self.client.post(reverse('planes:eliminar_asignacion', args=[asignacion.pk]),
+                         {'fecha': self.hoy.isoformat()})
+        for camion in (self.camion, otro):
+            camion.refresh_from_db()
+            self.assertTrue(camion.cargado,
+                            "cada residuo volvió al camión que lo llevaba")
 
     def test_quitar_la_asignacion_devuelve_el_camion_a_cargado(self):
         self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])

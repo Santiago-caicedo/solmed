@@ -801,6 +801,10 @@ class ProgramacionForm(forms.ModelForm):
             self.fields[campo].empty_label = '---------'
         # Disposición SÍ -> solo proveedores externos; NO -> destinos internos
         # (trasiegos / dejar carro cargado). Ambos parametrizables en el admin.
+        # La pregunta de disposición es OBLIGATORIA (decisión del usuario,
+        # sep-2026): de su respuesta depende que la orden quede o no sin
+        # disponer, así que no puede quedarse en blanco.
+        self.fields['requiere_disposicion_final'].required = True
         self.fields['dispositor_final'].queryset = Dispositor.objects.filter(
             activo=True, tipo='PROVEEDOR')
         self.fields['dispositor_final'].empty_label = '--- Elige el proveedor ---'
@@ -955,6 +959,10 @@ class ProgramacionForm(forms.ModelForm):
             else:
                 cleaned['trasiego_vehiculo'] = None
         else:
+            # Obligatoria: sin respuesta no se sabe si la orden queda pendiente.
+            if not self.has_error('requiere_disposicion_final'):
+                self.add_error('requiere_disposicion_final',
+                               'Responde si se realizará disposición final.')
             cleaned['dispositor_final'] = None
             cleaned['trasiego_vehiculo'] = None
         return cleaned

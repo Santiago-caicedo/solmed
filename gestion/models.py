@@ -1706,16 +1706,22 @@ class Programacion(models.Model):
 
     def _actualizar_carga_vehiculos(self, orden, vehiculos, usuario=None):
         """
-        Lleva el rastro de la carga pendiente de disposición:
-          - Disposición SÍ (proveedor): los camiones del servicio quedan vacíos.
-          - NO + "DEJAR CARRO CARGADO": los camiones del servicio quedan CARGADOS.
-          - NO + "TRASIEGO A PLACA": el camión destino queda CARGADO y los del
-            servicio vacíos (trasegaron su contenido).
-          - NO + trasiego a tanque: los camiones quedan vacíos (el contenido pasa
-            a los tanques de SOLMED; queda registrado en la programación para
-            estadística).
-        Si la pregunta quedó sin responder, no se toca nada.
-        Cada cambio deja su registro en el historial (MovimientoCargaVehiculo).
+        Lleva el rastro de la carga pendiente de disposición. El pendiente es
+        de LA ORDEN (decisión del usuario, sep-2026):
+
+          - Disposición SÍ (proveedor): la orden queda dispuesta al convertir,
+            con su gestor.
+          - NO: la orden queda SIN DISPONER **siempre**, sin importar el
+            destino elegido (dejar carro cargado, trasiego, tanques, no hay
+            disposición). El destino queda solo de referencia en la nota;
+            trasegar, pasar a tanques o disponer se registra DESPUÉS desde el
+            plan de trabajo, con su responsable y su fecha. (Antes cada
+            destino hacía efectos al convertir y la realidad iba por otro
+            lado: la conciliación del reporte de sep-2026 lo demostró.)
+
+        La pregunta es obligatoria en el formulario; si un dato viejo llega
+        sin respuesta, no se toca nada. Cada cambio deja su registro en el
+        historial (MovimientoCargaVehiculo).
         """
         detalle = f"Orden #{orden.numero_orden} del {self.fecha.strftime('%d/%m/%Y')}"
 
@@ -1728,7 +1734,7 @@ class Programacion(models.Model):
             v.sincronizar_carga()
             return movimiento
 
-        def descargar(v, nota, dispositor=None, saldar_todo=False):
+        def descargar(v, nota, dispositor=None):
             # El movimiento se registra SIEMPRE, aunque el camión no estuviera
             # marcado como cargado: la disposición ocurrió y es la trazabilidad
             # del residuo (antes se perdía justo en el caso más común).
@@ -1738,15 +1744,10 @@ class Programacion(models.Model):
             # camión debe de antes siguen debiéndose y se saldan una por una
             # desde el plan de trabajo, con su responsable (ago-2026: la regla
             # anterior saldaba todo el camión y borró 13 pendientes reales).
-            # `saldar_todo` es para el trasiego: ahí el camión sí se vacía
-            # entero, porque su contenido se pasa a otra placa.
             movimiento = MovimientoCargaVehiculo.objects.create(
                 vehiculo=v, accion='DESCARGA', nota=nota, orden=orden,
                 dispositor=dispositor, registrado_por=usuario)
-            cargas = v.cargas_pendientes
-            if not saldar_todo:
-                cargas = cargas.filter(orden=orden)
-            cargas.update(descarga=movimiento)
+            v.cargas_pendientes.filter(orden=orden).update(descarga=movimiento)
             v.sincronizar_carga()
             return movimiento
 
@@ -1756,37 +1757,20 @@ class Programacion(models.Model):
                           if self.dispositor_final_id else f"{detalle}: disposición final",
                           self.dispositor_final if self.dispositor_final_id else None)
             return
-        if self.requiere_disposicion_final != 'NO' or not self.dispositor_final_id:
+        if self.requiere_disposicion_final != 'NO':
             return
 
-        destino = self.dispositor_final.nombre
-        if destino == Dispositor.DEJAR_CARRO_CARGADO:
-            for v in vehiculos:
-                cargar(v, f"{detalle}: quedó cargado (sin disposición)")
-        elif destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id:
-            destino_v = self.trasiego_vehiculo
-            for v in vehiculos:
-                if v.pk != destino_v.pk:
-                    # El pendiente sigue al material: lo que el camión debía de
-                    # antes ahora viaja en el destino, cada orden con su carga.
-                    arrastradas = list(v.cargas_pendientes)
-                    movimiento = descargar(
-                        v, f"{detalle}: trasegó su contenido a {destino_v.placa}",
-                        saldar_todo=True)
-                    for vieja in arrastradas:
-                        cargar(destino_v,
-                               (f"Orden #{vieja.orden_id}: llegó por trasiego "
-                                f"desde {v.placa} (sin disposición)") if vieja.orden_id
-                               else f"Carga manual: llegó por trasiego desde {v.placa}",
-                               orden_carga=vieja.orden)
-            cargar(destino_v, f"{detalle}: recibió trasiego (sin disposición)")
-        elif destino in Dispositor.TANQUES:
-            for v in vehiculos:
-                descargar(v, f"{detalle}: contenido a {destino.title()} (tanques SOLMED)")
-        elif destino == Dispositor.SIN_DISPOSICION:
-            # El servicio no deja nada pendiente: si el camión venía cargado de
-            # antes, ese pendiente sigue siendo suyo (no se toca).
-            pass
+        # Con NO la orden queda SIN DISPONER siempre; el destino elegido va de
+        # referencia en la nota. Nada más se mueve aquí: el trasiego o el paso
+        # a tanques reales se registran desde el plan de trabajo.
+        destino = self.dispositor_final.nombre if self.dispositor_final_id else ''
+        if (destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id):
+            destino = destino.replace('------', self.trasiego_vehiculo.placa)
+        nota = f"{detalle}: quedó sin disponer"
+        if destino:
+            nota += f" · destino previsto: {destino}"
+        for v in vehiculos:
+            cargar(v, nota[:255])
 
 
 class ProgramacionCuadrilla(models.Model):

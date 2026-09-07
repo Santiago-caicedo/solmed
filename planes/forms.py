@@ -66,15 +66,15 @@ class AsignacionForm(forms.Form):
                 .filter(pk__in=self.cargas_ids, accion='CARGA',
                         descarga__isnull=True)
                 .select_related('vehiculo', 'orden'))
-            camiones = {c.vehiculo_id for c in self.cargas}
             if not self.cargas:
-                self.add_error(None, "Marca cuál carga se va a disponer. Solo "
-                                     "aparecen las órdenes sin disponer de cada camión.")
-            elif len(camiones) > 1:
-                self.add_error(None, "La disposición se asigna de a un camión: "
-                                     "asigna otra actividad para el otro.")
+                self.add_error(None, "Marca cuál orden se va a disponer. Solo "
+                                     "aparecen las que siguen sin disponer.")
             else:
-                self.vehiculos = [self.cargas[0].vehiculo]
+                # Un viaje puede saldar órdenes de placas distintas (así son
+                # los viajes reales); cada descarga queda en SU camión y la
+                # asignación lista todas las placas involucradas.
+                self.vehiculos = sorted({c.vehiculo for c in self.cargas},
+                                        key=lambda v: v.placa)
                 # Una sola orden entre las cargas → queda en la asignación;
                 # varias → la traza por orden vive en las descargas enlazadas.
                 ordenes = [c.orden for c in self.cargas if c.orden_id]
@@ -133,7 +133,12 @@ class AsignacionForm(forms.Form):
 
         if creadas and creadas[0].descarga_vehiculos and self.cargas:
             nombres = [a.persona_nombre for a in creadas]
-            creadas[0].aplicar_descarga(self.vehiculos[0], nombres, self.cargas)
+            # Cada carga se salda EN SU camión: el viaje puede mezclar placas.
+            por_camion = {}
+            for carga in self.cargas:
+                por_camion.setdefault(carga.vehiculo, []).append(carga)
+            for camion, cargas in por_camion.items():
+                creadas[0].aplicar_descarga(camion, nombres, cargas)
             # La pareja comparte la misma disposición: todos enlazan las mismas
             # descargas, y quitar a uno no la deshace mientras quede el otro.
             for a in creadas[1:]:

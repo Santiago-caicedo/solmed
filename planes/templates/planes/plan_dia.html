@@ -240,13 +240,13 @@
                                 {% endif %}{% endfor %}
                             </div>
                             <div class="form-text pt-aviso-carga" id="aviso-cargados" style="font-size:.72rem">
-                                Marca las órdenes que se van a disponer (de un solo camión).
-                                Cada una queda saldada con su propia descarga; las que no
-                                marques siguen pendientes en el camión.
+                                Marca las órdenes que salieron en el viaje, sin importar el
+                                camión. Cada una queda saldada con su propia descarga; las
+                                que no marques siguen sin disponer.
                             </div>
                             <div class="form-text pt-aviso-carga" id="aviso-sin-cargados"
                                  style="font-size:.72rem; display:none">
-                                Ahora mismo ningún camión tiene residuo pendiente de disposición.
+                                Ahora mismo no hay órdenes sin disponer.
                             </div>
                         </div>
 
@@ -393,7 +393,7 @@ dejar veinte fichas ocultas en la página.
     // --- Campos según la actividad elegida ---
     var CAMPOS = JSON.parse(document.getElementById('campos-tipo').textContent);
     var selTipo = document.getElementById('sel-tipo');
-    var ETIQUETA_PLACA = { varios: 'Placas', cargados: 'Camión a disponer' };
+    var ETIQUETA_PLACA = { varios: 'Placas', cargados: 'Órdenes sin disponer' };
     function pinta() {
         var spec = CAMPOS[selTipo.value] || {};
         var soloCargados = spec.vehiculos === 'cargados';
@@ -427,16 +427,6 @@ dejar veinte fichas ocultas en la página.
     }
     selTipo.addEventListener('change', pinta);
     pinta();
-
-    // Una disposición va de a un camión: marcar una carga suelta las de otros.
-    document.querySelectorAll('#sel-cargas input').forEach(function (c) {
-        c.addEventListener('change', function () {
-            if (!c.checked) { return; }
-            document.querySelectorAll('#sel-cargas input').forEach(function (otra) {
-                if (otra.dataset.camion !== c.dataset.camion) { otra.checked = false; }
-            });
-        });
-    });
 
     // --- La hoja del día: se pide al abrir, no viene con la página ---
     // El popup lo abre Bootstrap por data-bs-toggle, y aquí solo se escucha su

@@ -218,18 +218,19 @@ class Asignacion(models.Model):
         asignaciones no se tocan.
         """
         from gestion.models import MovimientoCargaVehiculo
-        vehiculo = self.vehiculos.first()
-        if vehiculo is None:
-            return
-        for descarga in self.descargas.all():
+        camiones = set()
+        for descarga in self.descargas.select_related('vehiculo'):
             nota = ((f"Orden #{descarga.orden_id}: " if descarga.orden_id else "")
                     + f"se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
                     f"disposición asignada a {self.persona_nombre}")
+            # En el camión de SU descarga: un viaje puede mezclar placas.
             MovimientoCargaVehiculo.objects.create(
-                vehiculo=vehiculo, accion='CARGA', nota=nota[:255],
+                vehiculo=descarga.vehiculo, accion='CARGA', nota=nota[:255],
                 orden=descarga.orden, registrado_por=self.registrado_por,
             )
-        vehiculo.sincronizar_carga()
+            camiones.add(descarga.vehiculo)
+        for camion in camiones:
+            camion.sincronizar_carga()
 
 
 class Novedad(models.Model):

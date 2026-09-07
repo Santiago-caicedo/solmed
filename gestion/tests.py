@@ -534,46 +534,69 @@ class CargaDeVehiculosTests(BaseCRM):
         self.assertIn(str(orden.numero_orden), self.camion.cargado_detalle)
         self.assertEqual(self.camion.movimientos_carga.first().accion, 'CARGA')
 
-    def test_el_trasiego_carga_la_placa_destino_y_descarga_la_del_servicio(self):
+    def test_el_trasiego_ya_no_mueve_nada_y_la_orden_queda_sin_disponer(self):
+        """
+        Regla nueva (sep-2026): con NO la orden queda pendiente SIEMPRE y el
+        destino elegido es solo referencia. El trasiego real se registra
+        después desde el plan de trabajo, no al convertir.
+        """
         destino = Dispositor.objects.create(
             nombre=Dispositor.TRASIEGO_PLACA, tipo='INTERNO')
         receptor = self.vehiculo('ABC987')
-        self.camion.cargado = True
-        self.camion.save()
 
-        self._convertir(requiere_disposicion_final='NO', dispositor_final=destino,
-                        trasiego_vehiculo=receptor)
+        orden = self._convertir(requiere_disposicion_final='NO',
+                                dispositor_final=destino,
+                                trasiego_vehiculo=receptor)
 
         self.camion.refresh_from_db()
         receptor.refresh_from_db()
-        self.assertTrue(receptor.cargado, "el camión que recibe queda cargado")
-        self.assertFalse(self.camion.cargado, "el del servicio trasegó su contenido")
-        self.assertEqual(receptor.movimientos_carga.first().accion, 'CARGA')
-        self.assertIn(receptor.placa, self.camion.movimientos_carga.first().nota)
+        self.assertFalse(receptor.cargado, "el destino no recibe nada al convertir")
+        self.assertEqual(receptor.movimientos_carga.count(), 0)
+        self.assertTrue(self.camion.cargado, "la orden queda sin disponer")
+        movimiento = self.camion.movimientos_carga.get()
+        self.assertEqual(movimiento.accion, 'CARGA')
+        self.assertEqual(movimiento.orden, orden)
+        # La placa prevista queda de referencia en la nota.
+        self.assertIn(receptor.placa, movimiento.nota)
+        self.assertIn('destino previsto', movimiento.nota)
 
-    def test_el_trasiego_a_tanques_descarga_el_camion(self):
+    def test_con_destino_a_tanques_la_orden_tambien_queda_sin_disponer(self):
+        """Regla nueva (sep-2026): pasar a tanques se registra desde el plan."""
         destino = Dispositor.objects.create(
             nombre=Dispositor.TANQUES[0], tipo='INTERNO')
-        self.camion.cargado = True
-        self.camion.save()
-        self._convertir(requiere_disposicion_final='NO', dispositor_final=destino)
+        orden = self._convertir(requiere_disposicion_final='NO',
+                                dispositor_final=destino)
         self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
+        self.assertTrue(self.camion.cargado)
+        movimiento = self.camion.movimientos_carga.get()
+        self.assertEqual((movimiento.accion, movimiento.orden), ('CARGA', orden))
 
-    def test_sin_disposicion_no_toca_el_estado_del_camion(self):
-        """«NO HAY DISPOSICIÓN»: el servicio pasa sin dejar nada pendiente."""
+    def test_con_no_la_orden_queda_sin_disponer_sea_cual_sea_el_destino(self):
+        """
+        Regla nueva (sep-2026): con NO la orden queda pendiente SIEMPRE,
+        incluso con «NO HAY DISPOSICIÓN» — el pendiente es de la orden, y
+        solo lo salda la actividad de disposición del plan de trabajo.
+        """
         destino = Dispositor.objects.create(
             nombre=Dispositor.SIN_DISPOSICION, tipo='INTERNO')
-        self.camion.cargado = True
-        self.camion.cargado_detalle = 'Pendiente viejo'
-        self.camion.save()
 
-        self._convertir(requiere_disposicion_final='NO', dispositor_final=destino)
+        orden = self._convertir(requiere_disposicion_final='NO',
+                                dispositor_final=destino)
 
         self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "el pendiente anterior sigue siendo suyo")
-        self.assertEqual(self.camion.cargado_detalle, 'Pendiente viejo')
-        self.assertFalse(self.camion.movimientos_carga.exists())
+        self.assertTrue(self.camion.cargado)
+        self.assertEqual(self.camion.carga_actual.orden, orden)
+        self.assertIn('quedó sin disponer', self.camion.movimientos_carga.get().nota)
+
+    def test_las_cargas_viejas_del_camion_no_se_tocan_al_convertir(self):
+        destino = Dispositor.objects.create(
+            nombre=Dispositor.SIN_DISPOSICION, tipo='INTERNO')
+        vieja = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', nota='Pendiente viejo')
+        self._convertir(requiere_disposicion_final='NO', dispositor_final=destino)
+        vieja.refresh_from_db()
+        self.assertIsNone(vieja.descarga, "lo que el camión debía sigue pendiente")
+        self.assertEqual(self.camion.cargas_pendientes.count(), 2)
 
     def test_si_la_pregunta_quedo_sin_responder_no_se_toca_nada(self):
         self._convertir()
@@ -695,8 +718,12 @@ class CargasAcumuladasTests(BaseCRM):
         self.assertEqual(descarga.dispositor, proveedor)
         self.assertEqual(descarga.cargas_saldadas.count(), 0)
 
-    def test_el_trasiego_arrastra_las_ordenes_pendientes_al_destino(self):
-        """El pendiente sigue al material: cambia de placa, no de orden."""
+    def test_el_trasiego_al_convertir_ya_no_arrastra_los_pendientes(self):
+        """
+        Regla nueva (sep-2026): al convertir nada se mueve entre placas. La
+        orden nueva queda sin disponer en el camión del servicio y lo que el
+        camión debía sigue igual; el trasiego real se registra desde el plan.
+        """
         vieja = self._cargar()
         destino = self.vehiculo(placa='DST111')
         trasiego, _ = Dispositor.objects.get_or_create(
@@ -707,10 +734,10 @@ class CargasAcumuladasTests(BaseCRM):
             trasiego_vehiculo=destino)
         nueva = programacion.convertir_en_orden(self.asesor)
         self.camion.refresh_from_db(); destino.refresh_from_db()
-        self.assertFalse(self.camion.cargado, "el fuente quedó vacío")
-        self.assertEqual([m.orden for m in destino.cargas_pendientes],
+        self.assertFalse(destino.cargado, "el destino no recibe nada al convertir")
+        self.assertEqual([m.orden for m in self.camion.cargas_pendientes],
                          [vieja, nueva],
-                         "el destino debe la orden arrastrada Y la del trasiego")
+                         "el camión del servicio debe la vieja Y la nueva")
 
     def test_el_tablero_cuenta_las_ordenes_sin_disponer(self):
         primera, segunda = self._cargar(), self._cargar()
@@ -845,23 +872,22 @@ class DiagnosticoDeCargasTests(BaseCRM):
 
     def test_avisa_cuando_una_descarga_saldo_varias_ordenes_de_golpe(self):
         """
-        Desde ago-2026 eso solo lo hace el TRASIEGO (el camión pasa todo su
-        contenido a otra placa). Si aparece en otro caso, algo anda mal.
+        Una descarga que salda varias cargas es histórico o anomalía (desde
+        sep-2026 el trasiego ya no vacía camiones al convertir): el
+        diagnóstico la muestra con su conteo para poder revisarla.
         """
-        self._cargar()
-        self._cargar()
-        destino = self.vehiculo(placa='DST111')
-        trasiego, _ = Dispositor.objects.get_or_create(
-            nombre=Dispositor.TRASIEGO_PLACA, defaults={'tipo': 'INTERNO'})
-        self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='NO', dispositor_final=trasiego,
-            trasiego_vehiculo=destino
-        ).convertir_en_orden(self.asesor)
+        una = self._cargar()
+        otra = self._cargar()
+        descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA',
+            nota='trasiego histórico a otra placa')
+        self.camion.cargas_pendientes.filter(
+            pk__in=[m.pk for m in self.camion.cargas_pendientes
+                    if m.orden in (una, otra)]).update(descarga=descarga)
+        self.camion.sincronizar_carga()
 
         salida = self.correr()
         self.assertIn('saldó 2 carga(s)', salida)
-        self.assertIn('TRASIEGO a otra placa', salida)
 
     def test_una_disposicion_normal_no_salda_la_mora_del_camion(self):
         """El bug de ago-2026: un servicio daba por dispuesto todo el camión."""
@@ -1751,8 +1777,8 @@ class CoberturaConARLTests(BaseCRM):
             'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 1',
             'observaciones_servicio': '', 'paleada': '', 'bascula': '',
             'bascula_sitio': '', 'registro_fotografico': '', 'responsable_sg': '',
-            'requiere_disposicion_final': '', 'dispositor_final': '',
-            'destino_sin_disposicion': '', 'trasiego_vehiculo': '',
+            'requiere_disposicion_final': 'NO', 'dispositor_final': '',
+            'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk, 'trasiego_vehiculo': '',
             'nombre_contacto_recibe': '',
             'cuadrilla-conductor': self.nuevo.pk, 'cuadrilla-vehiculo': self.camion.pk,
             'cuadrilla-ayudante': '', 'cuadrilla-ayudante2': '',
@@ -2230,18 +2256,27 @@ class ValidacionesDeProgramacionTests(BaseCRM):
             'sede_cliente': '', 'tercero': '', 'direccion': '',
             'observaciones_servicio': '', 'paleada': '', 'bascula': '',
             'bascula_sitio': '', 'registro_fotografico': '', 'responsable_sg': '',
-            'requiere_disposicion_final': '', 'dispositor_final': '',
-            'destino_sin_disposicion': '', 'trasiego_vehiculo': '',
+            'requiere_disposicion_final': 'NO', 'dispositor_final': '',
+            'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk, 'trasiego_vehiculo': '',
             'nombre_contacto_recibe': '',
         }
         datos.update(extra)
         return datos
 
-    def test_lo_minimo_es_la_fecha_y_el_cliente(self):
+    def test_lo_minimo_es_fecha_cliente_y_la_pregunta_de_disposicion(self):
         self.assertTrue(ProgramacionForm(self.datos()).is_valid())
         form = ProgramacionForm(self.datos(cliente=''))
         self.assertFalse(form.is_valid())
         self.assertIn('cliente', form.errors)
+
+    def test_la_pregunta_de_disposicion_es_obligatoria(self):
+        """
+        Regla nueva (sep-2026): de la respuesta depende que la orden quede o
+        no sin disponer, así que no puede quedarse en blanco.
+        """
+        form = ProgramacionForm(self.datos(requiere_disposicion_final=''))
+        self.assertFalse(form.is_valid())
+        self.assertIn('requiere_disposicion_final', form.errors)
 
     def test_una_sede_de_otro_cliente_no_pasa(self):
         otro = self.cliente('Otro cliente', identificacion='800-1')
@@ -2317,8 +2352,9 @@ class ValidacionesDeProgramacionTests(BaseCRM):
         self.assertFalse(form.is_valid())
         self.assertIn('dispositor_final', form.errors)
 
-    def test_la_disposicion_no_exige_decir_donde_queda_el_contenido(self):
-        form = ProgramacionForm(self.datos(requiere_disposicion_final='NO'))
+    def test_con_no_hay_que_decir_donde_queda_el_contenido(self):
+        form = ProgramacionForm(self.datos(requiere_disposicion_final='NO',
+                                           destino_sin_disposicion=''))
         self.assertFalse(form.is_valid())
         self.assertIn('destino_sin_disposicion', form.errors)
 
@@ -2551,8 +2587,8 @@ class CrearProgramacionTests(BaseCRM):
             'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 100 # 20-30',
             'observaciones_servicio': 'Succión de pozo', 'paleada': '',
             'bascula': '', 'bascula_sitio': '', 'registro_fotografico': '',
-            'responsable_sg': '', 'requiere_disposicion_final': '',
-            'dispositor_final': '', 'destino_sin_disposicion': '',
+            'responsable_sg': '', 'requiere_disposicion_final': 'NO',
+            'dispositor_final': '', 'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk,
             'trasiego_vehiculo': '', 'nombre_contacto_recibe': 'Quien recibe',
             'cuadrilla-conductor': self.conductor.pk,
             'cuadrilla-vehiculo': self.camion.pk,
@@ -2672,8 +2708,8 @@ class EdicionDeOrdenesTests(BaseCRM):
             'sede_cliente': '', 'tercero': '', 'direccion': 'Nueva dirección 45',
             'observaciones_servicio': '', 'paleada': '', 'bascula': 'PESO_CLIENTE',
             'bascula_sitio': '', 'registro_fotografico': 'SI', 'responsable_sg': '',
-            'requiere_disposicion_final': '', 'dispositor_final': '',
-            'destino_sin_disposicion': '', 'trasiego_vehiculo': '',
+            'requiere_disposicion_final': 'NO', 'dispositor_final': '',
+            'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk, 'trasiego_vehiculo': '',
             'nombre_contacto_recibe': '',
             'cuadrilla-conductor': otro_conductor.pk,
             'cuadrilla-vehiculo': otro_camion.pk,
@@ -2996,6 +3032,10 @@ class OrdenHistoricaTests(BaseCRM):
             reverse('gestion:actualizar_orden', args=[orden.pk]), {
                 'fecha': '2024-05-10', 'cliente': self.cli.pk,
                 'direccion': 'Calle 10 # 5-20',
+                # La pregunta es obligatoria también aquí: registra lo que pasó.
+                'requiere_disposicion_final': 'SI',
+                'dispositor_final': Dispositor.objects.create(
+                    nombre='Gestor histórico').pk,
                 'cuadrilla-conductor': retirado.pk,
                 'cuadrilla-vehiculo': self.camion.pk,
                 'cuadrilla-ayudante': ayudante.pk,
@@ -3022,6 +3062,9 @@ class OrdenHistoricaTests(BaseCRM):
         """La segunda edición no crea otra programación: reutiliza la suya."""
         orden = self._historica()
         datos = {'fecha': '2024-05-10', 'cliente': self.cli.pk,
+                 'requiere_disposicion_final': 'NO',
+                 'destino_sin_disposicion': Dispositor.objects.get(
+                     nombre=Dispositor.SIN_DISPOSICION).pk,
                  'cuadrilla-vehiculo': self.camion.pk}
         self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]), datos)
         self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]),
