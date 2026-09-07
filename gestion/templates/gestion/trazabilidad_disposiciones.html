@@ -12,7 +12,9 @@
 .dz-tile.hecho{ border-left-color:var(--brand-600); }
 .dz-camiones{ display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.35rem; }
 .dz-camion{ font-family:var(--mono); font-size:.72rem; padding:.1rem .5rem; border-radius:99px;
-    border:1px solid var(--warn-line); background:var(--warn-tint); color:var(--warn); }
+    border:1px solid var(--warn-line); background:var(--warn-tint); color:var(--warn);
+    text-decoration:none; }
+.dz-camion:hover{ border-color:var(--warn); color:var(--warn); }
 .dz-estado{ font-family:var(--mono); font-size:.7rem; font-weight:600; letter-spacing:.05em;
     padding:.15rem .5rem; border-radius:99px; white-space:nowrap; }
 .dz-estado.pendiente{ background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); }
@@ -35,9 +37,12 @@
     <div class="dz-tile debe">
         <div class="v">{{ n_pendientes }}</div>
         <div class="k">Sin disponer ahora</div>
-        {% if por_camion %}
+        {% if pendientes %}
         <div class="dz-camiones">
-            {% for placa, n in por_camion %}<span class="dz-camion">{{ placa }} · {{ n }}</span>{% endfor %}
+            {% for f in pendientes %}
+            <a class="dz-camion" href="{% url 'gestion:detalle_orden' f.orden.pk %}"
+               title="{{ f.orden.cliente.nombre }} · {{ f.placa }} · {{ f.dias }} día{{ f.dias|pluralize }} esperando">#{{ f.orden.numero_orden }}</a>
+            {% endfor %}
         </div>
         {% endif %}
     </div>

@@ -5739,9 +5739,6 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         filtradas, todas, filtros = _filas_trazabilidad(request)
 
         pendientes = [f for f in todas if f['estado'] == 'PENDIENTE']
-        por_camion = {}
-        for f in pendientes:
-            por_camion[f['placa']] = por_camion.get(f['placa'], 0) + 1
         hace_30 = timezone.localdate() - datetime.timedelta(days=30)
         dispuestas_30 = sum(1 for f in todas if f['dispuesta_el']
                             and f['dispuesta_el'] >= hace_30)
@@ -5754,7 +5751,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'pagina_rango': rango_de_paginas(pagina),
             'filtros': filtros,
             'n_pendientes': len(pendientes),
-            'por_camion': sorted(por_camion.items(), key=lambda x: -x[1]),
+            # En la ficha van las ÓRDENES que se deben (no los camiones):
+            # es la deuda misma, de la más vieja a la más nueva.
+            'pendientes': sorted(pendientes, key=lambda f: -f['dias']),
             'dias_mayor': max((f['dias'] for f in pendientes), default=0),
             'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
             'dispuestas_30': dispuestas_30,

@@ -5908,7 +5908,10 @@ class TrazabilidadDisposicionesTests(BaseCRM):
         self.assertContains(respuesta, f"#{orden.numero_orden}")
         self.assertContains(respuesta, 'Sin disponer · 0 día')
         self.assertEqual(respuesta.context['n_pendientes'], 1)
-        self.assertContains(respuesta, 'TRZ111 · 1')
+        # La ficha lista las órdenes que se deben, no los camiones.
+        self.assertEqual([f['orden'] for f in respuesta.context['pendientes']],
+                         [orden])
+        self.assertContains(respuesta, 'esperando')
 
     def test_una_dispuesta_dice_quien_cuando_y_por_cual_via(self):
         orden = self._orden_no()
