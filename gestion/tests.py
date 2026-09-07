@@ -5849,3 +5849,129 @@ class CargarOrdenesViejasTests(BaseCRM):
         camion = orden.recorridos.first().vehiculo
         camion.refresh_from_db()
         self.assertFalse(camion.cargado)
+
+
+# ============================================================
+#  TRAZABILIDAD DE DISPOSICIONES
+# ============================================================
+class TrazabilidadDisposicionesTests(BaseCRM):
+    """
+    El panel que muestra el estado REAL de las disposiciones, orden por
+    orden: qué sigue sin disponer (y hace cuántos días), qué ya se hizo,
+    quién, cuándo, con cuál gestor y por cuál vía.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.admin = self.persona('jefe', 'Administradores')
+        self.conductor = self.persona('conductor', 'Conductores', 'Willy', 'Gómez')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.camion = self.vehiculo('TRZ111')
+        self.url = reverse('gestion:trazabilidad_disposiciones')
+        self.excel = reverse('gestion:trazabilidad_disposiciones_excel')
+
+    def _orden_no(self, placa=None):
+        """Una orden con NO: con la regla nueva queda sin disponer."""
+        destino = Dispositor.objects.get_or_create(
+            nombre=Dispositor.SIN_DISPOSICION, defaults={'tipo': 'INTERNO'})[0]
+        camion = self.vehiculo(placa) if placa else self.camion
+        return self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=camion,
+            requiere_disposicion_final='NO', dispositor_final=destino,
+        ).convertir_en_orden(self.asesor)
+
+    def _disponer_en_plan(self, orden, quien):
+        """La salda un viaje del plan, como en la vida real."""
+        from planes.models import Asignacion, PlanDia
+        plan = PlanDia.objects.get_or_create(fecha=timezone.localdate())[0]
+        asignacion = Asignacion.objects.create(
+            plan=plan, persona=quien, tipo='DISPOSICION_FINAL')
+        carga = orden.movimientos_carga.get(accion='CARGA')
+        asignacion.aplicar_descarga(
+            carga.vehiculo, [quien.get_full_name()], [carga])
+        return asignacion
+
+    def test_solo_administradores_entran(self):
+        for rol in ('Asesores', 'Talento Humano', 'Conductores'):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'p{rol[:4]}', rol))
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+                self.assertEqual(self.client.get(self.excel).status_code, 403)
+        self.entrar(self.admin)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_una_pendiente_sale_sin_disponer_con_sus_dias(self):
+        orden = self._orden_no()
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, f"#{orden.numero_orden}")
+        self.assertContains(respuesta, 'Sin disponer · 0 día')
+        self.assertEqual(respuesta.context['n_pendientes'], 1)
+        self.assertContains(respuesta, 'TRZ111 · 1')
+
+    def test_una_dispuesta_dice_quien_cuando_y_por_cual_via(self):
+        orden = self._orden_no()
+        self._disponer_en_plan(orden, self.conductor)
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'Dispuesta')
+        self.assertContains(respuesta, 'Willy Gómez')
+        self.assertContains(respuesta, 'Plan del')
+        self.assertEqual(respuesta.context['n_pendientes'], 0)
+        self.assertEqual(respuesta.context['n_dispuestas'], 1)
+
+    def test_la_dispuesta_en_gestor_al_convertir_tambien_aparece(self):
+        gestor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
+        self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
+            requiere_disposicion_final='SI', dispositor_final=gestor,
+        ).convertir_en_orden(self.asesor)
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'Al convertir la orden')
+        self.assertContains(respuesta, 'Gestor Ambiental S.A.')
+        self.assertEqual(respuesta.context['n_dispuestas'], 1)
+
+    def test_los_filtros_recortan_la_lista(self):
+        pendiente = self._orden_no()
+        dispuesta = self._orden_no('TRZ222')
+        self._disponer_en_plan(dispuesta, self.conductor)
+        self.entrar(self.admin)
+        contexto = self.client.get(self.url, {'estado': 'pendientes'}).context
+        self.assertEqual([f['orden'] for f in contexto['filas']], [pendiente])
+        contexto = self.client.get(self.url, {'placa': 'trz222'}).context
+        self.assertEqual([f['orden'] for f in contexto['filas']], [dispuesta])
+        contexto = self.client.get(self.url, {'q': str(pendiente.numero_orden)}).context
+        self.assertEqual([f['orden'] for f in contexto['filas']], [pendiente])
+        # Los contadores no dependen del filtro.
+        self.assertEqual(contexto['n_pendientes'], 1)
+        self.assertEqual(contexto['n_dispuestas'], 1)
+
+    def test_el_filtro_de_mes_usa_la_fecha_que_define_la_fila(self):
+        self._orden_no()
+        self.entrar(self.admin)
+        mes = timezone.localdate().strftime('%Y-%m')
+        self.assertEqual(len(self.client.get(self.url, {'mes': mes}).context['filas']), 1)
+        self.assertEqual(len(self.client.get(self.url, {'mes': '2020-01'}).context['filas']), 0)
+
+    def test_el_excel_baja_lo_mismo_que_muestra_el_filtro(self):
+        from openpyxl import load_workbook
+        pendiente = self._orden_no()
+        dispuesta = self._orden_no('TRZ222')
+        self._disponer_en_plan(dispuesta, self.conductor)
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.excel, {'estado': 'pendientes'})
+        self.assertEqual(respuesta.status_code, 200)
+        libro = load_workbook(io.BytesIO(respuesta.content))
+        hoja = libro['Disposiciones']
+        self.assertEqual(hoja.max_row, 2, "cabecera + solo la pendiente")
+        self.assertEqual(hoja['A2'].value, pendiente.numero_orden)
+        self.assertEqual(hoja['E2'].value, 'Sin disponer')
+
+    def test_el_enlace_del_menu_es_solo_para_administradores(self):
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(self.url), 'Disposiciones')
+        self.entrar(self.asesor)
+        contenido = self.client.get(reverse('gestion:lista_ordenes')).content.decode()
+        self.assertNotIn('/app/disposiciones/', contenido)

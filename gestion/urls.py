@@ -126,6 +126,8 @@ urlpatterns = [
     path('correos/<int:pk>/', views.DetalleEnvioCorreoView.as_view(), name='detalle_envio_correo'),
 
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---
+    path('disposiciones/', views.TrazabilidadDisposicionesView.as_view(), name='trazabilidad_disposiciones'),
+    path('disposiciones/excel/', views.TrazabilidadDisposicionesExcelView.as_view(), name='trazabilidad_disposiciones_excel'),
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),

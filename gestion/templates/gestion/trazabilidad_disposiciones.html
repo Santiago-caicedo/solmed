@@ -1,0 +1,137 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Disposiciones{% endblock %}
+{% block content %}
+{# El estado REAL de las disposiciones, orden por orden: qué se debe y qué ya se hizo. #}
+<style>
+.dz-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
+.dz-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--line);
+    border-radius:var(--r-sm); background:var(--panel); }
+.dz-tile .v{ font-family:var(--mono); font-size:1.5rem; font-weight:600; line-height:1.1; color:var(--ink); }
+.dz-tile .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.dz-tile.debe{ border-left-color:var(--warn); }
+.dz-tile.hecho{ border-left-color:var(--brand-600); }
+.dz-camiones{ display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.35rem; }
+.dz-camion{ font-family:var(--mono); font-size:.72rem; padding:.1rem .5rem; border-radius:99px;
+    border:1px solid var(--warn-line); background:var(--warn-tint); color:var(--warn); }
+.dz-estado{ font-family:var(--mono); font-size:.7rem; font-weight:600; letter-spacing:.05em;
+    padding:.15rem .5rem; border-radius:99px; white-space:nowrap; }
+.dz-estado.pendiente{ background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); }
+.dz-estado.dispuesta{ background:var(--ok-tint); color:var(--ok); border:1px solid var(--ok-line); }
+.dz-nota{ font-size:.74rem; color:var(--ink-3); }
+.dz-via{ font-size:.74rem; color:var(--steel); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Disposiciones</h2>
+        <div class="text-muted">El estado real, orden por orden: qué se debe y qué ya se hizo</div>
+    </div>
+    <a href="{% url 'gestion:trazabilidad_disposiciones_excel' %}{% querystring %}" class="btn btn-success">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+    </a>
+</div>
+
+<div class="dz-tiles mb-4">
+    <div class="dz-tile debe">
+        <div class="v">{{ n_pendientes }}</div>
+        <div class="k">Sin disponer ahora</div>
+        {% if por_camion %}
+        <div class="dz-camiones">
+            {% for placa, n in por_camion %}<span class="dz-camion">{{ placa }} · {{ n }}</span>{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    <div class="dz-tile debe">
+        <div class="v">{{ dias_mayor }}</div>
+        <div class="k">Días de la más vieja</div>
+    </div>
+    <div class="dz-tile hecho">
+        <div class="v">{{ dispuestas_30 }}</div>
+        <div class="k">Dispuestas · últimos 30 días</div>
+    </div>
+    <div class="dz-tile hecho">
+        <div class="v">{{ n_dispuestas }}</div>
+        <div class="k">Dispuestas en total</div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1" for="estado">Estado</label>
+                <select name="estado" id="estado" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Todas</option>
+                    <option value="pendientes" {% if filtros.estado == 'pendientes' %}selected{% endif %}>Sin disponer</option>
+                    <option value="dispuestas" {% if filtros.estado == 'dispuestas' %}selected{% endif %}>Dispuestas</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1" for="mes">Mes</label>
+                <input type="month" name="mes" id="mes" class="form-control form-control-sm"
+                       value="{{ filtros.mes }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1" for="placa">Placa</label>
+                <input type="text" name="placa" id="placa" class="form-control form-control-sm"
+                       value="{{ filtros.placa }}" placeholder="WGY347" size="8">
+            </div>
+            <div class="col-auto flex-grow-1">
+                <label class="form-label mb-1" for="q">Orden o cliente</label>
+                <input type="text" name="q" id="q" class="form-control form-control-sm"
+                       value="{{ filtros.q }}" placeholder="22246 o Crepes">
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+                {% if filtros.estado or filtros.mes or filtros.placa or filtros.q %}
+                <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="btn btn-sm btn-link px-1">Limpiar</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    <div class="card-body">
+        {% if filas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Orden</th><th>Cliente</th><th>Servicio</th><th>Placa</th>
+                        <th>Estado</th><th>Dispuesta</th><th>Quién la hizo</th><th>Gestor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in filas %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
+                            {% if f.duplicada %}<i class="bi bi-exclamation-triangle-fill text-warning" title="Tiene carga saldada y pendiente a la vez: revisar con diagnosticar_cargas"></i>{% endif %}
+                        </td>
+                        <td>{{ f.orden.cliente.nombre|truncatechars:30 }}</td>
+                        <td>{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="font-monospace">{{ f.placa }}</td>
+                        <td>
+                            {% if f.estado == 'PENDIENTE' %}
+                            <span class="dz-estado pendiente">Sin disponer · {{ f.dias }} día{{ f.dias|pluralize }}</span>
+                            {% else %}
+                            <span class="dz-estado dispuesta">Dispuesta{% if f.dias is not None %} · a los {{ f.dias }} día{{ f.dias|pluralize }}{% endif %}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ f.dispuesta_el|date:"d/m/Y"|default:"—" }}</td>
+                        <td>
+                            {% if f.quien %}{{ f.quien }}<br><span class="dz-via">{{ f.via }}</span>
+                            {% elif f.estado == 'DISPUESTA' %}<span class="dz-via">{{ f.via }}</span>
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="dz-nota">{{ f.gestor|default:"—" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes" %}
+        {% else %}
+        <p class="text-muted mb-0">Nada con ese filtro. Las órdenes aparecen aquí cuando dejan rastro de carga o disposición.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

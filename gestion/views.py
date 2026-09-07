@@ -41,7 +41,7 @@ from .renumeracion import reubicar_orden
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -5606,6 +5606,220 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         respuesta['Content-Disposition'] = (
             f'attachment; filename="{_nombre_archivo_centro(persona, inicio, fin, "xlsx")}"')
+        return respuesta
+
+
+def _filas_trazabilidad(request):
+    """
+    Una fila por ORDEN con rastro de carga: su estado real de disposición.
+    Devuelve (filas_filtradas, todas_las_filas, filtros) — las completas
+    alimentan los contadores, que no dependen del filtro puesto.
+    """
+    movimientos = list(
+        MovimientoCargaVehiculo.objects
+        .filter(orden__isnull=False)
+        .select_related('orden__cliente', 'vehiculo', 'dispositor',
+                        'registrado_por', 'descarga__vehiculo',
+                        'descarga__dispositor', 'descarga__registrado_por')
+        .prefetch_related('descarga__asignaciones_plan__persona',
+                          'descarga__asignaciones_plan__plan',
+                          'asignaciones_plan__persona',
+                          'asignaciones_plan__plan')
+        .order_by('fecha'))
+    servicios = dict(
+        Recorrido.objects
+        .filter(orden_id__in={m.orden_id for m in movimientos})
+        .values('orden_id').annotate(f=Min('fecha_recorrido'))
+        .values_list('orden_id', 'f'))
+
+    por_orden = {}
+    for m in movimientos:
+        por_orden.setdefault(m.orden, []).append(m)
+
+    def _quien_y_via(descarga):
+        """De dónde salió la disposición y quiénes respondieron por ella."""
+        asignaciones = list(descarga.asignaciones_plan.all())
+        if asignaciones:
+            nombres = list(dict.fromkeys(a.persona_nombre for a in asignaciones))
+            return ', '.join(nombres), f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}"
+        quien = (descarga.registrado_por.get_full_name()
+                 or descarga.registrado_por.username) if descarga.registrado_por else ''
+        if 'reporte' in descarga.nota.lower():
+            return quien or '—', 'Reporte de la oficina'
+        return quien or '—', 'Al convertir la orden'
+
+    hoy = timezone.localdate()
+    filas = []
+    for orden, movs in por_orden.items():
+        cargas = [m for m in movs if m.accion == 'CARGA']
+        pendiente = next((c for c in cargas if c.descarga_id is None), None)
+        fila = {
+            'orden': orden,
+            'servicio': servicios.get(orden.pk),
+            'duplicada': len(cargas) > 1 and pendiente is not None
+                         and any(c.descarga_id for c in cargas),
+        }
+        if pendiente is not None:
+            cargada = timezone.localdate(pendiente.fecha)
+            fila.update({
+                'estado': 'PENDIENTE', 'placa': pendiente.vehiculo.placa,
+                'cargada_el': cargada, 'dias': (hoy - cargada).days,
+                'dispuesta_el': None, 'quien': '', 'via': '', 'gestor': '',
+                'nota': pendiente.nota,
+            })
+        else:
+            # Saldada por su descarga, o dispuesta directo (SÍ al convertir).
+            saldada = next((c for c in reversed(cargas) if c.descarga_id), None)
+            descarga = (saldada.descarga if saldada
+                        else next((m for m in reversed(movs)
+                                   if m.accion == 'DESCARGA'), None))
+            if descarga is None:
+                continue
+            quien, via = _quien_y_via(descarga)
+            dispuesta = timezone.localdate(descarga.fecha)
+            fila.update({
+                'estado': 'DISPUESTA', 'placa': descarga.vehiculo.placa,
+                'cargada_el': timezone.localdate(saldada.fecha) if saldada else None,
+                'dias': ((dispuesta - timezone.localdate(saldada.fecha)).days
+                         if saldada else None),
+                'dispuesta_el': dispuesta, 'quien': quien, 'via': via,
+                'gestor': descarga.dispositor.nombre if descarga.dispositor_id else '',
+                'nota': descarga.nota,
+            })
+        filas.append(fila)
+
+    # Pendientes primero (la más vieja arriba); luego las dispuestas recientes.
+    filas.sort(key=lambda f: (
+        f['estado'] != 'PENDIENTE',
+        -(f['dias'] or 0) if f['estado'] == 'PENDIENTE' else 0,
+        -(f['dispuesta_el'].toordinal() if f['dispuesta_el'] else 0),
+    ))
+
+    filtros = {
+        'estado': request.GET.get('estado', ''),
+        'placa': (request.GET.get('placa') or '').strip(),
+        'mes': (request.GET.get('mes') or '').strip(),   # AAAA-MM
+        'q': (request.GET.get('q') or '').strip(),
+    }
+    filtradas = filas
+    if filtros['estado'] == 'pendientes':
+        filtradas = [f for f in filtradas if f['estado'] == 'PENDIENTE']
+    elif filtros['estado'] == 'dispuestas':
+        filtradas = [f for f in filtradas if f['estado'] == 'DISPUESTA']
+    if filtros['placa']:
+        buscada = filtros['placa'].upper()
+        filtradas = [f for f in filtradas if buscada in f['placa'].upper()]
+    if filtros['mes']:
+        # El mes se compara contra la fecha que define a cada fila: la de la
+        # disposición si ya se hizo, la de la carga si sigue pendiente.
+        filtradas = [f for f in filtradas
+                     if (f['dispuesta_el'] or f['cargada_el'])
+                     and (f['dispuesta_el'] or f['cargada_el']).strftime('%Y-%m') == filtros['mes']]
+    if filtros['q']:
+        q = filtros['q'].upper()
+        filtradas = [f for f in filtradas
+                     if q in str(f['orden'].numero_orden)
+                     or q in f['orden'].cliente.nombre.upper()]
+    return filtradas, filas, filtros
+
+
+class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
+    """
+    Panel de trazabilidad de las disposiciones: el estado REAL orden por
+    orden — cuáles siguen sin disponer (y hace cuántos días), cuáles ya se
+    dispusieron, quién las hizo, cuándo, con cuál gestor y por cuál vía
+    (viaje del plan, al convertir, reporte de la oficina).
+
+    SOLO administradores (decisión del usuario, sep-2026): el «quién» sale
+    del plan de trabajo, que ya es de acceso restringido.
+    """
+    template_name = 'gestion/trazabilidad_disposiciones.html'
+
+    def get(self, request):
+        filtradas, todas, filtros = _filas_trazabilidad(request)
+
+        pendientes = [f for f in todas if f['estado'] == 'PENDIENTE']
+        por_camion = {}
+        for f in pendientes:
+            por_camion[f['placa']] = por_camion.get(f['placa'], 0) + 1
+        hace_30 = timezone.localdate() - datetime.timedelta(days=30)
+        dispuestas_30 = sum(1 for f in todas if f['dispuesta_el']
+                            and f['dispuesta_el'] >= hace_30)
+
+        paginador = Paginator(filtradas, 30)
+        pagina = paginador.get_page(request.GET.get('page'))
+        return render(request, self.template_name, {
+            'page_obj': pagina,
+            'filas': pagina.object_list,
+            'pagina_rango': rango_de_paginas(pagina),
+            'filtros': filtros,
+            'n_pendientes': len(pendientes),
+            'por_camion': sorted(por_camion.items(), key=lambda x: -x[1]),
+            'dias_mayor': max((f['dias'] for f in pendientes), default=0),
+            'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
+            'dispuestas_30': dispuestas_30,
+        })
+
+
+class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
+    """El panel en Excel, con el filtro puesto, para cruzarlo con la oficina."""
+
+    def get(self, request):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        filtradas, _, filtros = _filas_trazabilidad(request)
+        libro = Workbook()
+        hoja = libro.active
+        hoja.title = 'Disposiciones'
+        hoja.sheet_view.showGridLines = False
+
+        cabeceras = ['Orden', 'Cliente', 'Fecha del servicio', 'Placa',
+                     'Estado', 'Cargada el', 'Dispuesta el', 'Días', 'Quién',
+                     'Gestor', 'Vía', 'Detalle']
+        hoja.append(cabeceras)
+        for celda in hoja[1]:
+            celda.font = Font(bold=True, color='FFFFFF', size=10)
+            celda.fill = PatternFill('solid', fgColor='2C4D9E')
+            celda.alignment = Alignment(horizontal='center', vertical='center',
+                                        wrap_text=True)
+        hoja.row_dimensions[1].height = 26
+        for f in filtradas:
+            hoja.append([
+                f['orden'].numero_orden, f['orden'].cliente.nombre,
+                f['servicio'], f['placa'],
+                'Sin disponer' if f['estado'] == 'PENDIENTE' else 'Dispuesta',
+                f['cargada_el'], f['dispuesta_el'],
+                f['dias'] if f['dias'] is not None else '',
+                f['quien'], f['gestor'], f['via'], f['nota'],
+            ])
+        borde = Side(style='thin', color='D6DDEA')
+        for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
+            for celda in fila:
+                celda.border = Border(bottom=borde, left=borde, right=borde)
+                celda.alignment = Alignment(vertical='center', wrap_text=True)
+                if n % 2 == 0:
+                    celda.fill = PatternFill('solid', fgColor='F5F8FC')
+                if celda.column in (3, 6, 7):
+                    celda.number_format = 'DD/MM/YYYY'
+                    celda.alignment = Alignment(horizontal='center',
+                                                vertical='center')
+        for i, ancho in enumerate([9, 32, 14, 10, 13, 12, 12, 7, 30, 24, 20, 46],
+                                  start=1):
+            hoja.column_dimensions[get_column_letter(i)].width = ancho
+        hoja.freeze_panes = 'A2'
+        if filtradas:
+            hoja.auto_filter.ref = f"A1:L{len(filtradas) + 1}"
+
+        flujo = BytesIO()
+        libro.save(flujo)
+        respuesta = HttpResponse(
+            flujo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        hoy = timezone.localdate()
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="disposiciones-{hoy:%Y-%m-%d}.xlsx"')
         return respuesta
 
 
