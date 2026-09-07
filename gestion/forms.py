@@ -994,7 +994,8 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         model = ProgramacionCuadrilla
         # Las novedades se manejan aparte (CSV); no van en Meta.fields.
         fields = ['conductor', 'vehiculo', 'conductor_solo', 'ayudante', 'ayudante2',
-                  'apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo']
+                  'apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo',
+                  'ayudante_observacion', 'ayudante2_observacion']
         widgets = {
             'conductor': forms.Select(attrs={'class': 'form-select'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
@@ -1004,6 +1005,12 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
             'ayudante2': forms.Select(attrs={'class': 'form-select'}),
             'apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'ayudante2_apoya_disposicion_vehiculo': forms.Select(attrs={'class': 'form-select'}),
+            'ayudante_observacion': forms.Textarea(attrs={
+                'class': 'form-control', 'rows': 2,
+                'placeholder': 'Lo que haya que decirle además (le llega a su correo)'}),
+            'ayudante2_observacion': forms.Textarea(attrs={
+                'class': 'form-control', 'rows': 2,
+                'placeholder': 'Lo que haya que decirle además (le llega a su correo)'}),
         }
 
     def __init__(self, *args, historica=False, **kwargs):

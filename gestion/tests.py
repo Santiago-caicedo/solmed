@@ -5546,3 +5546,147 @@ class CentroControlDescargasTests(BaseCRM):
         libro = load_workbook(io.BytesIO(respuesta.content))
         self.assertEqual(libro['Servicios']['A2'].value,
                          'Sin registros en el periodo.')
+
+
+# ============================================================
+#  OBSERVACIONES PARA EL AYUDANTE
+# ============================================================
+class ObservacionesAyudanteTests(BaseCRM):
+    """
+    El espacio para mandarle observaciones adicionales a UN ayudante (pedido
+    de la clienta, sep-2026): reemplaza la llamada telefónica. Se escribe al
+    programar o desde el expediente de la orden, le llega en su correo y la
+    ve en su enlace personal.
+    """
+
+    def setUp(self):
+        self.datos = self.servicio_completo()
+        self.orden = self.datos['orden']
+        self.cuadrilla = self.datos['programacion'].cuadrillas.first()
+        self.ayudante = self.persona('ayu1', 'Ayudantes', 'Luis', 'Gómez',
+                                     correo='ayu1@solmed.co')
+        self.ayudante2 = self.persona('ayu2', 'Ayudantes', 'Ana', 'Díaz',
+                                      correo='ayu2@solmed.co')
+        self.cuadrilla.ayudante = self.ayudante
+        self.cuadrilla.ayudante2 = self.ayudante2
+        self.cuadrilla.save()
+        recorrido = self.datos['recorrido']
+        recorrido.ayudante = self.ayudante
+        recorrido.ayudante2 = self.ayudante2
+        recorrido.save()
+        self.url = reverse('gestion:detalle_orden', args=[self.orden.pk])
+        self.entrar(self.datos['asesor'])
+
+    def _guardar(self, slot, texto):
+        return self.client.post(self.url, {
+            'submit_observacion_ayudante': '1',
+            'cuadrilla': self.cuadrilla.pk, 'slot': slot,
+            'observacion': texto,
+        }, follow=True)
+
+    # ---------- guardar y avisar ----------
+
+    def test_guardar_desde_el_expediente_avisa_por_correo_con_el_texto(self):
+        respuesta = self._guardar(1, 'Lleva las botas de caña alta.')
+        self.assertEqual(respuesta.status_code, 200)
+        self.cuadrilla.refresh_from_db()
+        self.assertEqual(self.cuadrilla.ayudante_observacion,
+                         'Lleva las botas de caña alta.')
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ['ayu1@solmed.co'])
+        self.assertIn('Lleva las botas de caña alta.', correo.body)
+        self.assertIn('Lleva las botas de caña alta.', correo.alternatives[0][0])
+
+    def test_cada_ayudante_tiene_la_suya(self):
+        self._guardar(1, 'Tú vas en el camión.')
+        self._guardar(2, 'Tú llegas directo al cliente.')
+        self.cuadrilla.refresh_from_db()
+        self.assertEqual(self.cuadrilla.ayudante_observacion, 'Tú vas en el camión.')
+        self.assertEqual(self.cuadrilla.ayudante2_observacion,
+                         'Tú llegas directo al cliente.')
+        # A cada uno le llegó la suya, y solo la suya.
+        por_destino = {m.to[0]: m.body for m in mail.outbox}
+        self.assertIn('Tú vas en el camión.', por_destino['ayu1@solmed.co'])
+        self.assertNotIn('directo al cliente', por_destino['ayu1@solmed.co'])
+        self.assertIn('directo al cliente', por_destino['ayu2@solmed.co'])
+
+    def test_vaciarla_la_quita_y_no_manda_correo(self):
+        self._guardar(1, 'Algo')
+        mail.outbox.clear()
+        self._guardar(1, '   ')
+        self.cuadrilla.refresh_from_db()
+        self.assertEqual(self.cuadrilla.ayudante_observacion, '')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_sin_correo_registrado_se_guarda_igual_y_avisa(self):
+        self.ayudante.email = ''
+        self.ayudante.save()
+        respuesta = self._guardar(1, 'Nos vemos en la bodega.')
+        self.cuadrilla.refresh_from_db()
+        self.assertEqual(self.cuadrilla.ayudante_observacion, 'Nos vemos en la bodega.')
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertContains(respuesta, 'no tiene correo registrado')
+
+    def test_un_fallo_del_correo_no_pierde_la_observacion(self):
+        with patch('django.core.mail.EmailMultiAlternatives.send',
+                   side_effect=OSError('sin red')):
+            respuesta = self._guardar(1, 'Importante: casco nuevo.')
+        self.cuadrilla.refresh_from_db()
+        self.assertEqual(self.cuadrilla.ayudante_observacion, 'Importante: casco nuevo.')
+        self.assertContains(respuesta, 'quedaron guardadas')
+
+    def test_un_ayudante_de_otra_orden_no_se_puede_tocar(self):
+        otros = self.servicio_completo_otro()
+        respuesta = self.client.post(self.url, {
+            'submit_observacion_ayudante': '1',
+            'cuadrilla': otros.pk, 'slot': 1, 'observacion': 'colada',
+        }, follow=True)
+        self.assertContains(respuesta, 'no corresponde a esta orden')
+        otros.refresh_from_db()
+        self.assertEqual(otros.ayudante_observacion, '')
+
+    def servicio_completo_otro(self):
+        """Otra orden con su propia cuadrilla y ayudante."""
+        conductor = self.persona('conductor9', 'Conductores', 'Beto', 'Cruz')
+        self.con_ss(conductor)
+        ayudante = self.persona('ayu9', 'Ayudantes', 'Cris', 'Mora',
+                                correo='ayu9@solmed.co')
+        programacion = self.programacion(
+            cliente=self.cliente(nombre='Otro cliente', identificacion='900999-9'),
+            conductor=conductor, vehiculo=self.vehiculo(placa='ZZZ999'),
+            ayudante=ayudante)
+        programacion.convertir_en_orden(self.datos['asesor'])
+        return programacion.cuadrillas.first()
+
+    # ---------- dónde se ve ----------
+
+    def test_el_cuadro_sale_en_el_expediente_con_lo_ya_escrito(self):
+        self.cuadrilla.poner_observacion(1, 'Ya escrito antes')
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'name="submit_observacion_ayudante"')
+        self.assertContains(respuesta, 'Ya escrito antes')
+        self.assertContains(respuesta, 'Observaciones para Luis')
+
+    def test_el_ayudante_la_ve_en_su_enlace(self):
+        self.cuadrilla.poner_observacion(1, 'Llega 20 minutos antes.')
+        self.client.logout()
+        url = reverse('gestion:acceso_ayudante',
+                      args=[self.cuadrilla.token_de(1)])
+        respuesta = self.client.get(url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Llega 20 minutos antes.')
+        self.assertContains(respuesta, 'Observaciones para ti')
+
+    def test_al_otro_ayudante_no_le_sale_la_ajena(self):
+        self.cuadrilla.poner_observacion(1, 'Secreto del primero')
+        self.client.logout()
+        url = reverse('gestion:acceso_ayudante',
+                      args=[self.cuadrilla.token_de(2)])
+        self.assertNotContains(self.client.get(url), 'Secreto del primero')
+
+    def test_el_formulario_de_programacion_trae_los_dos_campos(self):
+        respuesta = self.client.get(reverse('gestion:crear_programacion'))
+        # El formulario de la cuadrilla va con prefijo en la página.
+        self.assertContains(respuesta, 'name="cuadrilla-ayudante_observacion"')
+        self.assertContains(respuesta, 'name="cuadrilla-ayudante2_observacion"')

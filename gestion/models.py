@@ -1850,6 +1850,19 @@ class ProgramacionCuadrilla(models.Model):
         related_name='cuadrillas_como_ayudante2', null=True, blank=True,
         verbose_name="Segundo ayudante (opcional)"
     )
+
+    # Observaciones adicionales para CADA ayudante (pedido de la clienta,
+    # sep-2026): lo que antes tocaba decirle por teléfono. Le llega en su
+    # correo y la ve en su enlace personal. Es por ayudante, como sus
+    # novedades y sus fotos: a cada uno se le puede decir algo distinto.
+    ayudante_observacion = models.TextField(
+        blank=True, verbose_name="Observaciones para el ayudante",
+        help_text="Se las verá en su correo y en su enlace personal.",
+    )
+    ayudante2_observacion = models.TextField(
+        blank=True, verbose_name="Observaciones para el segundo ayudante",
+        help_text="Se las verá en su correo y en su enlace personal.",
+    )
     # Novedades del turno de cada ayudante. Son de selección MÚLTIPLE: se guardan
     # como códigos separados por coma (ej. "INICIA_CLIENTE,RETORNA_BODEGA").
     ayudante_novedad = models.CharField(
@@ -1886,6 +1899,18 @@ class ProgramacionCuadrilla(models.Model):
     def ayudante_de(self, slot):
         """El ayudante 1 o 2 de la cuadrilla (None si no hay)."""
         return self.ayudante if slot == 1 else self.ayudante2
+
+    def observacion_de(self, slot):
+        """La observación escrita para ese ayudante (cadena vacía si no hay)."""
+        return (self.ayudante_observacion if slot == 1
+                else self.ayudante2_observacion) or ''
+
+    def poner_observacion(self, slot, texto):
+        """Guarda la observación de ese ayudante y dice el campo que tocó."""
+        campo = 'ayudante_observacion' if slot == 1 else 'ayudante2_observacion'
+        setattr(self, campo, (texto or '').strip())
+        self.save(update_fields=[campo])
+        return campo
 
     def novedades_de(self, slot):
         """Códigos de novedad marcados para ese ayudante."""

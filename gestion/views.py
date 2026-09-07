@@ -2459,8 +2459,11 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
                     for slot in (1, 2):
                         persona = cuadrilla.ayudante_de(slot)
                         if persona is not None:
-                            avisos.append({'persona': persona,
-                                           'cuadrilla': cuadrilla, 'slot': slot})
+                            avisos.append({
+                                'persona': persona, 'cuadrilla': cuadrilla,
+                                'slot': slot,
+                                'observacion': cuadrilla.observacion_de(slot),
+                            })
                 # Se cuelga del objeto: la plantilla itera estas mismas
                 # instancias (vienen del prefetch de la orden).
                 recorrido.avisos_ayudantes = avisos
@@ -2543,6 +2546,50 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
                         )
                     if aviso:
                         messages.warning(request, aviso)
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        # Observaciones para UN ayudante: se guardan y se le avisan en el mismo
+        # clic (es lo que reemplaza la llamada telefónica). Sin correo, la
+        # observación queda guardada igual: la verá en su enlace personal.
+        if 'submit_observacion_ayudante' in request.POST:
+            programacion = getattr(orden, 'programacion_origen', None)
+            cuadrilla = (programacion.cuadrillas.filter(
+                pk=request.POST.get('cuadrilla')).first() if programacion else None)
+            slot = request.POST.get('slot')
+            slot = int(slot) if slot in ('1', '2') else None
+            if not cuadrilla or slot is None or cuadrilla.ayudante_de(slot) is None:
+                messages.error(request, "Ese ayudante no corresponde a esta orden.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+
+            ayudante = cuadrilla.ayudante_de(slot)
+            nombre = ayudante.get_full_name() or ayudante.username
+            texto = (request.POST.get('observacion') or '').strip()
+            cuadrilla.poner_observacion(slot, texto)
+            if not texto:
+                messages.success(request, f"Se quitaron las observaciones de {nombre}.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+
+            messages.success(request, f"Observaciones guardadas para {nombre}.")
+            try:
+                enviado, aviso = _correo_ayudante(request, cuadrilla, slot)
+            except Exception as e:
+                messages.warning(
+                    request,
+                    f"No se le pudo avisar por correo ({e}); las observaciones "
+                    f"quedaron guardadas y las verá en su enlace.")
+            else:
+                if enviado:
+                    messages.success(
+                        request,
+                        f"Se le avisó a {nombre} ({ayudante.email}) con las "
+                        f"observaciones incluidas.")
+                    if not cuadrilla.acceso_vigente:
+                        messages.warning(
+                            request,
+                            "Ojo: su enlace ya venció, así que solo podrá leerlas "
+                            "en el correo.")
+                else:
+                    messages.warning(request, aviso)
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
         # Reenviar al ayudante su correo con el enlace (token) para subir fotos.
@@ -4435,6 +4482,8 @@ def _datos_servicio_ayudante(cuadrilla, slot):
             cuadrilla.ayudante_novedad if slot == 1 else cuadrilla.ayudante2_novedad
         ),
         'fotos_pedidas': cuadrilla.fotos_pedidas(slot),
+        # Lo que la oficina le quiere decir además (antes, una llamada).
+        'observacion': cuadrilla.observacion_de(slot),
         'orden': programacion.orden,
         # Lo ÚNICO que se le muestra al ayudante (además de sus fotos): a qué
         # hora y a dónde llega. La hora de ingreso manda sobre la del servicio,
@@ -4468,6 +4517,8 @@ def _lineas_correo_servicio(ctx):
             lineas += ["", "Tu turno:"] + [f"- {n}" for n in ctx['novedades']]
         if p.observaciones_servicio:
             lineas += ["", "Observaciones del servicio:", p.observaciones_servicio]
+    if ctx.get('observacion'):
+        lineas += ["", "OBSERVACIONES PARA TI:", ctx['observacion']]
     if ctx['fotos_pedidas']:
         lineas += ["", "Debes subir una foto de:"]
         lineas += [f"- {f['etiqueta']}" for f in ctx['fotos_pedidas']]
@@ -4519,6 +4570,7 @@ def _correo_ayudante(request, cuadrilla, slot):
         'primer_nombre': (ayudante.first_name or nombre).split(' ')[0],
         'programacion': cuadrilla.programacion,
         'rol': 'ayudante',
+        'observacion': datos['observacion'],
         'detalles': filas,
         'novedades': datos['novedades'],
         'fotos_pedidas': datos['fotos_pedidas'],

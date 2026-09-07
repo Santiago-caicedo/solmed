@@ -228,6 +228,31 @@ en el número pedido y las que estorben se corren un puesto.
                             </a>
                             {% endif %}
                         </div>
+
+                        {% comment %}
+                        Observaciones adicionales para ESE ayudante: se guardan y
+                        se le avisan en el mismo clic. Es lo que antes tocaba
+                        decirle por teléfono.
+                        {% endcomment %}
+                        <form method="post" class="rc-obs">
+                            {% csrf_token %}
+                            <input type="hidden" name="cuadrilla" value="{{ aviso.cuadrilla.pk }}">
+                            <input type="hidden" name="slot" value="{{ aviso.slot }}">
+                            <label class="rc-obs-et" for="obs-{{ aviso.cuadrilla.pk }}-{{ aviso.slot }}">
+                                <i class="bi bi-chat-left-text me-1"></i>Observaciones para {{ aviso.persona.first_name|default:aviso.persona.username }}
+                            </label>
+                            <textarea class="form-control form-control-sm" rows="2"
+                                      id="obs-{{ aviso.cuadrilla.pk }}-{{ aviso.slot }}"
+                                      name="observacion" maxlength="1000"
+                                      placeholder="Lo que haya que decirle además (le llega a su correo y a su enlace)">{{ aviso.observacion }}</textarea>
+                            <button name="submit_observacion_ayudante" value="1"
+                                    class="btn btn-sm btn-primary mt-2">
+                                <i class="bi bi-send me-1"></i>Guardar y avisarle
+                            </button>
+                            {% if aviso.observacion %}
+                            <span class="rc-obs-tip">Ya tiene observaciones. Bórralas y guarda para quitarlas.</span>
+                            {% endif %}
+                        </form>
                         {% endfor %}
 
                         {# --- Documentos del recorrido --- #}
@@ -732,7 +757,13 @@ en el número pedido y las que estorben se corren un puesto.
             font-weight:600; color:var(--ink-2,#5b6470); min-width:160px;
         }
         .ev-pend input[type=file]{ flex:1 1 190px; max-width:260px; }
-    </style>
+    
+/* Observaciones para un ayudante, en su misma fila de avisos. */
+.rc-obs{ margin:.4rem 0 .8rem; padding:.6rem .75rem; border:1px solid var(--line-2);
+    border-left:3px solid var(--steel); border-radius:var(--r-sm); background:var(--panel-2); }
+.rc-obs-et{ display:block; font-size:.75rem; font-weight:600; color:var(--ink-2); margin-bottom:.3rem; }
+.rc-obs-tip{ font-size:.72rem; color:var(--ink-3); margin-left:.5rem; }
+</style>
 
     <div class="col-lg-4">
         <div class="card shadow mb-4">

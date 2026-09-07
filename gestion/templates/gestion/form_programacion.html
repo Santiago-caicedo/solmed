@@ -413,6 +413,14 @@
                                 {{ cuadrilla_form.apoya_disposicion_vehiculo }}
                                 {% for e in cuadrilla_form.apoya_disposicion_vehiculo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
                             </div>
+                            {# Lo que antes tocaba decirle por teléfono: le llega a su correo. #}
+                            <div class="mt-2">
+                                <label for="{{ cuadrilla_form.ayudante_observacion.id_for_label }}" class="form-label small mb-1">
+                                    <i class="bi bi-chat-left-text me-1"></i>Observaciones para el ayudante <span class="text-muted">(opcional)</span>
+                                </label>
+                                {{ cuadrilla_form.ayudante_observacion }}
+                                {% for e in cuadrilla_form.ayudante_observacion.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
                         </div>
                     </div>
 
@@ -431,6 +439,14 @@
                                 <label for="{{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo.id_for_label }}" class="form-label small mb-1">Apoya disposición del vehículo</label>
                                 {{ cuadrilla_form.ayudante2_apoya_disposicion_vehiculo }}
                                 {% for e in cuadrilla_form.ayudante2_apoya_disposicion_vehiculo.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                            </div>
+                            {# Lo que antes tocaba decirle por teléfono: le llega a su correo. #}
+                            <div class="mt-2">
+                                <label for="{{ cuadrilla_form.ayudante2_observacion.id_for_label }}" class="form-label small mb-1">
+                                    <i class="bi bi-chat-left-text me-1"></i>Observaciones para el ayudante <span class="text-muted">(opcional)</span>
+                                </label>
+                                {{ cuadrilla_form.ayudante2_observacion }}
+                                {% for e in cuadrilla_form.ayudante2_observacion.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
                             </div>
                         </div>
                     </div>
