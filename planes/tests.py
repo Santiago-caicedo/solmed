@@ -1467,3 +1467,141 @@ class CorreoDeAsignacionTests(BasePlan):
         respuesta = self.client.get(self.url)
         self.assertContains(respuesta, 'name="notificar"')
         self.assertContains(respuesta, 'Avisar por correo a los asignados')
+
+
+class ReiniciarDisposicionesTests(TestCase):
+    """
+    El comando que borra las disposiciones del plan y deja pendientes las
+    órdenes del reporte: la oficina las va a re-registrar desde el plan.
+    """
+
+    def setUp(self):
+        from gestion.models import Cliente
+        self.persona_juan = BasePlan.persona('juan', 'Conductores', 'Juan', 'Rojas')
+        self.camion = Vehiculo.objects.create(
+            placa='RIN111', marca='K', modelo='2019', capacidad='10')
+        self.otro = Vehiculo.objects.create(
+            placa='RIN222', marca='K', modelo='2019', capacidad='10')
+        self.cliente = Cliente.objects.create(nombre='CREPES', identificacion='900-1')
+        self.asesor = BasePlan.persona('asesora', 'Asesores', 'Ana', 'Ruiz')
+
+    def orden(self, numero):
+        return OrdenServicio.objects.create(
+            numero_orden=numero, cliente=self.cliente, asesor=self.asesor,
+            direccion_servicio='x', descripcion='x')
+
+    def carga(self, numero, camion=None):
+        from gestion.models import MovimientoCargaVehiculo
+        return MovimientoCargaVehiculo.objects.create(
+            vehiculo=camion or self.camion, accion='CARGA',
+            nota=f'orden #{numero}', orden=self.orden(numero))
+
+    def viaje(self, fecha, *cargas):
+        """Un viaje del plan que saldó esas cargas (como los de Nancy)."""
+        plan = PlanDia.objects.get_or_create(fecha=fecha)[0]
+        asignacion = Asignacion.objects.create(
+            plan=plan, persona=self.persona_juan, tipo='DISPOSICION_FINAL')
+        asignacion.aplicar_descarga(
+            cargas[0].vehiculo, ['Juan'], list(cargas))
+        return asignacion
+
+    def correr(self, *argumentos):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('reiniciar_disposiciones', *argumentos, stdout=salida)
+        return salida.getvalue()
+
+    def test_la_vista_previa_lista_y_no_borra(self):
+        carga = self.carga(22204)
+        self.viaje(datetime.date(2026, 8, 3), carga)
+        salida = self.correr()
+        self.assertIn('Juan Rojas', salida)
+        self.assertIn('#22204', salida)
+        self.assertIn('NO tiene reversa', salida)
+        self.assertIn('Vista previa', salida)
+        self.assertEqual(Asignacion.objects.count(), 1)
+        carga.refresh_from_db()
+        self.assertIsNotNone(carga.descarga)
+
+    def test_borra_los_viajes_y_revive_las_cargas(self):
+        carga = self.carga(22204)
+        self.viaje(datetime.date(2026, 8, 3), carga)
+        self.correr('--confirmar')
+        self.assertFalse(Asignacion.objects.exists())
+        self.assertFalse(PlanDia.objects.exists(), "el día quedó vacío y se fue")
+        carga.refresh_from_db()
+        self.assertIsNone(carga.descarga, "la orden volvió a quedar pendiente")
+        self.camion.refresh_from_db()
+        self.assertTrue(self.camion.cargado)
+
+    def test_no_toca_lo_dispuesto_desde_la_programacion_ni_otras_actividades(self):
+        from gestion.models import Dispositor, MovimientoCargaVehiculo
+        # Una orden que dispuso en gestor al convertir (sin carga, con descarga).
+        gestor = Dispositor.objects.create(nombre='Gestor X')
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', dispositor=gestor,
+            nota='Orden #22232: se dispuso con Gestor X', orden=self.orden(22232))
+        # Y una lavada en el plan.
+        plan = PlanDia.objects.create(fecha=datetime.date(2026, 9, 1))
+        lavada = Asignacion.objects.create(
+            plan=plan, persona=self.persona_juan, tipo='LAVADA')
+        self.correr('--confirmar')
+        self.assertEqual(list(Asignacion.objects.all()), [lavada])
+        self.assertTrue(PlanDia.objects.filter(pk=plan.pk).exists())
+        self.assertTrue(MovimientoCargaVehiculo.objects.filter(
+            accion='DESCARGA', orden_id=22232).exists(),
+            "la salida a gestor de la programación se queda")
+
+    def test_borra_la_salida_a_gestor_del_reporte(self):
+        from gestion.models import MovimientoCargaVehiculo
+        from planes.management.commands.registrar_disposiciones import (
+            MARCA as MARCA_REPORTE)
+        carga = self.carga(22206)
+        descarga = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='DESCARGA', orden=carga.orden,
+            nota=f'Se dispuso con ENERGY según el reporte · {MARCA_REPORTE}')
+        carga.descarga = descarga
+        carga.save(update_fields=['descarga'])
+        self.correr('--confirmar')
+        carga.refresh_from_db()
+        self.assertIsNone(carga.descarga, "la 22206 volvió a pendiente")
+
+    def test_recorta_los_dobles_registros_a_una_sola_carga(self):
+        from gestion.models import MovimientoCargaVehiculo
+        primera = self.carga(22243)
+        segunda = MovimientoCargaVehiculo.objects.create(
+            vehiculo=self.camion, accion='CARGA', nota='revivida',
+            orden=primera.orden)
+        self.viaje(datetime.date(2026, 8, 23), primera)
+        self.viaje(datetime.date(2026, 8, 24), segunda)
+        self.correr('--confirmar')
+        pendientes = MovimientoCargaVehiculo.objects.filter(
+            accion='CARGA', descarga__isnull=True, orden_id=22243)
+        self.assertEqual(pendientes.count(), 1, "una orden debe una sola vez")
+        self.assertEqual(pendientes.get().pk, primera.pk, "queda la más vieja")
+
+    def test_crea_la_carga_de_las_que_nunca_la_tuvieron(self):
+        from gestion.models import Programacion
+        # La 22217 está en el objetivo y no tiene carga: se le crea en su camión.
+        orden = self.orden(22217)
+        programacion = Programacion.objects.create(
+            cliente=self.cliente, fecha=datetime.date(2026, 8, 11),
+            estado='CONVERTIDA', orden=orden)
+        Recorrido.objects.create(
+            orden=orden, vehiculo=self.otro,
+            fecha_recorrido=datetime.date(2026, 8, 11))
+        self.correr('--confirmar')
+        carga = orden.movimientos_carga.get(accion='CARGA')
+        self.assertEqual(carga.vehiculo, self.otro)
+        self.assertIsNone(carga.descarga)
+        self.assertIn('reinicio de disposiciones', carga.nota)
+        self.assertEqual(timezone.localtime(carga.fecha).date(),
+                         datetime.date(2026, 8, 11))
+
+    def test_el_contraste_cuenta_el_objetivo(self):
+        carga = self.carga(22204)
+        self.viaje(datetime.date(2026, 8, 3), carga)
+        salida = self.correr('--confirmar')
+        self.assertIn('Contraste contra el objetivo', salida)
+        self.assertIn('1 de 36', salida)
