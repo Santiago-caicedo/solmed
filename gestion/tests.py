@@ -5229,7 +5229,9 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
                         'dashboard'):
             with self.subTest(seccion=seccion):
                 self.assertNotIn(f'href="{reverse("gestion:" + seccion)}"', contenido)
-        self.assertIn(f'href="{reverse("gestion:planificacion")}"', contenido)
+        # El enlace de Planificación está OCULTO del menú por ahora (pedido
+        # del usuario, 08-sep-2026); la pantalla sigue viva para el rol.
+        self.assertNotIn(f'href="{reverse("gestion:planificacion")}"', contenido)
 
 
 # ============================================================

@@ -407,13 +407,12 @@
             </a>
         </li>
         {% endif %}
-        {% if es_planificador %}
-        <li>
-            <a href="{% url 'gestion:planificacion' %}" class="nav-link {% if 'planificacion' in request.path %}active{% endif %}">
-                <i class="bi bi-calendar2-week"></i>Planificación
-            </a>
-        </li>
-        {% endif %}
+        {% comment %}
+        Planificación OCULTA del menú por ahora (pedido del usuario, 08-sep-2026).
+        La pantalla y su acceso siguen vivos (/app/planificacion/); solo se
+        quitó el enlace. Para reponerlo, restaurar este bloque:
+            {% if es_planificador %} <li><a href="{% url 'gestion:planificacion' %}" ...>Planificación</a></li> {% endif %}
+        {% endcomment %}
         {% if es_administrador %}
         {% comment %}
         El plan de trabajo es SOLO de administradores: reparte a todo el
