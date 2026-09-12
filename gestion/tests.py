@@ -5980,3 +5980,227 @@ class TrazabilidadDisposicionesTests(BaseCRM):
         self.entrar(self.asesor)
         contenido = self.client.get(reverse('gestion:lista_ordenes')).content.decode()
         self.assertNotIn('/app/disposiciones/', contenido)
+
+
+# ============================================================
+#  CUADRAR LOS PENDIENTES CON LA FOTO DE LA OFICINA
+# ============================================================
+class CuadrarPendientesTests(BaseCRM):
+    """
+    El comando que deja las cargas pendientes EXACTAMENTE como el listado que
+    pasó la oficina: crea las que faltan, quita las que sobran y no inventa
+    ninguna disposición (quitar una carga no dice que alguien la dispuso).
+
+    La foto va escrita dentro del comando; aquí se reemplaza por una de
+    juguete con las órdenes que crea cada prueba.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.conductor = self.persona('conductor', 'Conductores')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente(nombre='Crepes y Waffles S.A')
+        self.carpeta = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.carpeta, ignore_errors=True)
+
+    # ---------- construcción ----------
+
+    def _orden(self, placa, pendiente=True, fecha=None):
+        """Una orden con (o sin) residuo esperando en su camión."""
+        gestor = Dispositor.objects.get_or_create(
+            nombre='ENERGY ORGANIC SAS', defaults={'tipo': 'PROVEEDOR'})[0]
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.conductor,
+            vehiculo=self.vehiculo(placa),
+            fecha=fecha or timezone.localdate(),
+            requiere_disposicion_final='NO' if pendiente else 'SI',
+            dispositor_final=None if pendiente else gestor)
+        orden = programacion.convertir_en_orden(self.asesor)
+        for recorrido in orden.recorridos.all():
+            recorrido.vehiculo.sincronizar_carga()
+        return orden
+
+    def _fila(self, orden, placa, cliente=None, fecha=None):
+        """La fila que la foto traería para esa orden."""
+        recorrido = orden.recorridos.first()
+        return (cliente or orden.cliente.nombre,
+                (fecha or recorrido.fecha_recorrido).strftime('%d/%m/%Y'),
+                'WILLIAM', 'JULIO', placa)
+
+    def correr(self, *argumentos, foto=None):
+        from io import StringIO
+        from django.core.management import call_command
+        from .management.commands import cuadrar_pendientes
+        # El respaldo va SIEMPRE a una carpeta temporal: ninguna prueba debe
+        # dejar archivos en la carpeta del proyecto.
+        if '--respaldo' not in argumentos:
+            argumentos += ('--respaldo', os.path.join(self.carpeta, 'respaldo.csv'))
+        salida = StringIO()
+        with patch.dict(cuadrar_pendientes.FOTO, foto or {}, clear=True):
+            call_command('cuadrar_pendientes', *argumentos, stdout=salida)
+        return salida.getvalue()
+
+    def pendientes(self):
+        return set(MovimientoCargaVehiculo.objects
+                   .filter(accion='CARGA', descarga__isnull=True,
+                           orden__isnull=False)
+                   .values_list('orden_id', flat=True))
+
+    # ---------- vista previa ----------
+
+    def test_la_vista_previa_dice_que_falta_y_que_sobra_sin_escribir(self):
+        sobra = self._orden('SOB111')                       # pendiente, no en la foto
+        falta = self._orden('FAL222', pendiente=False)      # en la foto, sin carga
+        foto = {falta.numero_orden: self._fila(falta, 'FAL222')}
+
+        salida = self.correr(foto=foto)
+
+        self.assertIn('FALTAN', salida)
+        self.assertIn(f"+ #{falta.numero_orden}", salida)
+        self.assertIn('SOBRAN', salida)
+        self.assertIn(f"− #{sobra.numero_orden}", salida)
+        self.assertIn('Vista previa', salida)
+        self.assertEqual(self.pendientes(), {sobra.numero_orden},
+                         "la vista previa no toca nada")
+
+    def test_dice_cuando_ya_esta_como_la_foto(self):
+        orden = self._orden('IGU111')
+        salida = self.correr(foto={orden.numero_orden: self._fila(orden, 'IGU111')})
+        self.assertIn('ya está como la foto', salida)
+
+    # ---------- escribir ----------
+
+    def test_crea_la_que_falta_fechada_el_dia_del_servicio(self):
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        falta = self._orden('FAL222', pendiente=False, fecha=ayer)
+
+        self.correr('--confirmar',
+                    foto={falta.numero_orden: self._fila(falta, 'FAL222')})
+
+        carga = falta.movimientos_carga.get(accion='CARGA', descarga__isnull=True)
+        self.assertIn('foto de la oficina', carga.nota)
+        self.assertEqual(timezone.localtime(carga.fecha).date(), ayer)
+        camion = falta.recorridos.first().vehiculo
+        camion.refresh_from_db()
+        self.assertTrue(camion.cargado, "el espejo del camión se actualiza")
+
+    def test_quita_la_que_sobra_y_descarga_el_camion(self):
+        sobra = self._orden('SOB111')
+        camion = sobra.recorridos.first().vehiculo
+        self.assertTrue(camion.cargado)
+
+        self.correr('--confirmar', foto={})
+
+        self.assertEqual(self.pendientes(), set())
+        camion.refresh_from_db()
+        self.assertFalse(camion.cargado)
+
+    def test_quitar_una_carga_no_inventa_una_disposicion(self):
+        """Lo importante: no aparece una DESCARGA sin responsable."""
+        sobra = self._orden('SOB111')
+        salida = self.correr('--confirmar', foto={})
+        self.assertFalse(
+            MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').exists(),
+            "quitar el pendiente no equivale a registrar que alguien dispuso")
+        self.assertIn('PLAN DE TRABAJO', salida)
+        self.assertFalse(sobra.movimientos_carga.filter(accion='CARGA').exists())
+
+    def test_recorta_los_dobles_registros_a_la_carga_mas_vieja(self):
+        orden = self._orden('DUP111')
+        vieja = orden.movimientos_carga.get(accion='CARGA')
+        nueva = MovimientoCargaVehiculo.objects.create(
+            vehiculo=vieja.vehiculo, accion='CARGA', orden=orden,
+            nota='doble registro')
+        self.assertEqual(orden.movimientos_carga.filter(accion='CARGA').count(), 2)
+
+        salida = self.correr('--confirmar',
+                             foto={orden.numero_orden: self._fila(orden, 'DUP111')})
+
+        self.assertIn('DUPLICADAS', salida)
+        quedan = list(orden.movimientos_carga.filter(accion='CARGA'))
+        self.assertEqual([m.pk for m in quedan], [vieja.pk])
+        self.assertFalse(
+            MovimientoCargaVehiculo.objects.filter(pk=nueva.pk).exists())
+
+    def test_no_toca_las_cargas_manuales_sin_orden(self):
+        camion = self.vehiculo('MAN111')
+        suelta = MovimientoCargaVehiculo.objects.create(
+            vehiculo=camion, accion='CARGA', nota='marcado a mano')
+
+        salida = self.correr('--confirmar', foto={})
+
+        self.assertIn('SIN ORDEN', salida)
+        self.assertTrue(
+            MovimientoCargaVehiculo.objects.filter(pk=suelta.pk).exists())
+
+    def test_no_revive_una_carga_ya_saldada(self):
+        """Una orden dispuesta que la foto tampoco nombra se queda quieta."""
+        dispuesta = self._orden('DIS111', pendiente=False)
+        self.correr('--confirmar', foto={})
+        self.assertEqual(
+            dispuesta.movimientos_carga.filter(accion='CARGA').count(), 0)
+
+    # ---------- contraste ----------
+
+    def test_avisa_las_diferencias_de_placa_cliente_y_fecha_sin_escribirlas(self):
+        orden = self._orden('REA111')
+        fila = self._fila(orden, 'OTR999', cliente='OTRO CLIENTE S.A',
+                          fecha=timezone.localdate() - datetime.timedelta(days=5))
+
+        salida = self.correr('--confirmar', foto={orden.numero_orden: fila})
+
+        self.assertIn('Diferencias con la foto', salida)
+        self.assertIn('OTR999', salida)
+        self.assertIn('OTRO CLIENTE', salida)
+        carga = orden.movimientos_carga.get(accion='CARGA')
+        self.assertEqual(carga.vehiculo.placa, 'REA111',
+                         "la placa de la foto NO se escribe, solo se avisa")
+
+    def test_avisa_si_una_orden_de_la_foto_no_existe(self):
+        salida = self.correr(foto={99999: ('X', '01/09/2026', 'A', 'B', 'XXX111')})
+        self.assertIn('#99999 no existe', salida)
+
+    # ---------- respaldo, idempotencia y reversa ----------
+
+    def test_deja_respaldo_de_lo_que_quita(self):
+        sobra = self._orden('SOB111')
+        ruta = os.path.join(self.carpeta, 'aparte.csv')
+        self.correr('--confirmar', '--respaldo', ruta, foto={})
+        with io.open(ruta, encoding='utf-8-sig') as fh:
+            contenido = fh.read()
+        self.assertIn(str(sobra.numero_orden), contenido)
+        self.assertIn('SOB111', contenido)
+
+    def test_es_idempotente(self):
+        sobra = self._orden('SOB111')
+        falta = self._orden('FAL222', pendiente=False)
+        foto = {falta.numero_orden: self._fila(falta, 'FAL222')}
+
+        self.correr('--confirmar', foto=foto)
+        self.assertEqual(self.pendientes(), {falta.numero_orden})
+
+        salida = self.correr('--confirmar', foto=foto)
+        self.assertIn('ya está como la foto', salida)
+        self.assertEqual(self.pendientes(), {falta.numero_orden})
+        self.assertEqual(
+            falta.movimientos_carga.filter(accion='CARGA').count(), 1)
+
+    def test_el_contraste_final_confirma_que_quedo_como_la_foto(self):
+        self._orden('SOB111')
+        falta = self._orden('FAL222', pendiente=False)
+        salida = self.correr('--confirmar',
+                             foto={falta.numero_orden: self._fila(falta, 'FAL222')})
+        self.assertIn('y solo esas, quedaron sin disponer', salida)
+
+    def test_deshacer_quita_solo_lo_que_el_comando_creo(self):
+        propia = self._orden('FAL222', pendiente=False)
+        ajena = self._orden('AJE333')
+        foto = {propia.numero_orden: self._fila(propia, 'FAL222'),
+                ajena.numero_orden: self._fila(ajena, 'AJE333')}
+        self.correr('--confirmar', foto=foto)
+
+        salida = self.correr('--deshacer', '--confirmar', foto=foto)
+
+        self.assertIn('NO repone', salida)
+        self.assertEqual(self.pendientes(), {ajena.numero_orden},
+                         "la carga que ya existía se queda")
