@@ -58,6 +58,11 @@ def crear_roles(sender, **kwargs):
             "vehiculo": ["view"],
         },
 
+        # Híbrido (sep-2026): va de conductor o de ayudante según la cuadrilla,
+        # y NO entra a la plataforma (todo le llega al correo), así que no
+        # necesita permisos. Ver gestion/roles.py.
+        "Conductor - Ayudante": {},
+
         "Planificadores": {
             "recorrido": ["view", "change"], # Puede ver y MODIFICAR recorridos
             "vehiculo": ["view"],             # Necesita ver la lista de vehículos

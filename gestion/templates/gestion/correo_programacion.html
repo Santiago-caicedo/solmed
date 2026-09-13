@@ -2,7 +2,7 @@
 Correo de programación de servicio (conductor y ayudantes). Diseño de marca
 SOLMED apto para clientes de correo: TODO con tablas y estilos en línea, sin
 CSS externo ni fuentes web (Gmail/Outlook los ignoran). Contexto: nombre,
-primer_nombre, programacion, rol, detalles [(etiqueta, valor)],
+primer_nombre, programacion, rol, sin_plataforma, detalles [(etiqueta, valor)],
 novedades, fotos_pedidas, url, url_boton, fecha_limite.
 {% endcomment %}<!doctype html>
 <html lang="es">
@@ -150,6 +150,19 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
                     Observaciones del servicio
                 </div>
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#111A24; background-color:#F7F9FB; border:1px solid #E9EDF2; border-radius:8px; padding:12px 14px; line-height:1.55; white-space:pre-line;">{{ programacion.observaciones_servicio }}</div>
+            </td>
+        </tr>
+        {% endif %}
+
+        {# ============ SIN PLATAFORMA (conductor - ayudante): cómo se firma ============ #}
+        {% if sin_plataforma %}
+        <tr>
+            <td style="padding:16px 28px 0;">
+                <div style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#111A24; background-color:#EEF4E6; border:1px solid #CFE0B5; border-radius:8px; padding:12px 14px; line-height:1.55;">
+                    <strong>No necesitas entrar a la plataforma:</strong> el acta la completa la oficina.
+                    Al terminar el servicio abre el enlace de abajo en tu celular y pásaselo al
+                    cliente para que califique y firme.
+                </div>
             </td>
         </tr>
         {% endif %}

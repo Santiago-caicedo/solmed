@@ -1,5 +1,6 @@
 from django import forms
 from django.db.models import Q
+from .roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR
 from .models import Banco, Bascula, ContactoProveedor, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
@@ -502,16 +503,18 @@ def _csv_a_lista(csv):
     return [c for c in (csv or '').split(',') if c]
 
 
-def personal_activo_del_grupo(nombre_grupo):
+def personal_activo_del_grupo(nombres_grupos):
     """
-    Usuarios ACTIVOS (no retirados) de un grupo, para los desplegables de
-    asignación. Los retirados quedan fuera de todas las actividades del core.
+    Usuarios ACTIVOS (no retirados) de uno o varios grupos, para los
+    desplegables de asignación. Los retirados quedan fuera de todas las
+    actividades del core. Acepta un nombre o una tupla de nombres: el puesto de
+    conductor lo cubren los Conductores y el híbrido, el de ayudante los
+    Ayudantes y el híbrido (ver gestion/roles.py).
     """
-    try:
-        grupo = Group.objects.get(name=nombre_grupo)
-    except Group.DoesNotExist:
-        return User.objects.none()
-    return grupo.user_set.exclude(perfil__retirado=True)
+    if isinstance(nombres_grupos, str):
+        nombres_grupos = (nombres_grupos,)
+    return (User.objects.filter(groups__name__in=nombres_grupos)
+            .exclude(perfil__retirado=True).distinct())
 
 
 def generar_username(first_name, last_name, numero_documento=''):
@@ -682,19 +685,19 @@ class RecorridoForm(forms.ModelForm):
         if historica:
             self.fields['vehiculo'].queryset = Vehiculo.objects.order_by('placa')
             self.fields['conductor'].queryset = (
-                User.objects.filter(groups__name='Conductores')
-                .order_by('first_name', 'last_name'))
+                User.objects.filter(groups__name__in=GRUPOS_CONDUCTOR)
+                .distinct().order_by('first_name', 'last_name'))
             for campo in ('ayudante', 'ayudante2'):
                 self.fields[campo].queryset = (
-                    User.objects.filter(groups__name='Ayudantes')
-                    .order_by('first_name', 'last_name'))
+                    User.objects.filter(groups__name__in=GRUPOS_AYUDANTE)
+                    .distinct().order_by('first_name', 'last_name'))
         else:
             # Filtramos para que solo se puedan seleccionar vehículos operativos
             self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
             # Solo conductores/ayudantes ACTIVOS (los retirados no se pueden asignar).
-            self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+            self.fields['conductor'].queryset = personal_activo_del_grupo(GRUPOS_CONDUCTOR)
             for campo in ('ayudante', 'ayudante2'):
-                self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+                self.fields[campo].queryset = personal_activo_del_grupo(GRUPOS_AYUDANTE)
 
         # Mostrar el nombre en los desplegables, no el username (cédula del
         # ayudante); en históricas, señalando a los retirados.
@@ -1030,12 +1033,12 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
             # (se registra lo que el papel traiga).
             self.fields['vehiculo'].queryset = Vehiculo.objects.order_by('placa')
             self.fields['conductor'].queryset = (
-                User.objects.filter(groups__name='Conductores')
-                .order_by('first_name', 'last_name'))
+                User.objects.filter(groups__name__in=GRUPOS_CONDUCTOR)
+                .distinct().order_by('first_name', 'last_name'))
             for campo in ('ayudante', 'ayudante2'):
                 self.fields[campo].queryset = (
-                    User.objects.filter(groups__name='Ayudantes')
-                    .order_by('first_name', 'last_name'))
+                    User.objects.filter(groups__name__in=GRUPOS_AYUDANTE)
+                    .distinct().order_by('first_name', 'last_name'))
             for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
                 self.fields[campo].queryset = Vehiculo.objects.order_by('placa')
                 self.fields[campo].empty_label = '--- Elige la placa ---'
@@ -1052,9 +1055,9 @@ class ProgramacionCuadrillaForm(forms.ModelForm):
         else:
             # Solo vehículos operativos y personal ACTIVO (retirados excluidos).
             self.fields['vehiculo'].queryset = Vehiculo.objects.filter(estado='OPERATIVO')
-            self.fields['conductor'].queryset = personal_activo_del_grupo('Conductores')
+            self.fields['conductor'].queryset = personal_activo_del_grupo(GRUPOS_CONDUCTOR)
             for campo in ('ayudante', 'ayudante2'):
-                self.fields[campo].queryset = personal_activo_del_grupo('Ayudantes')
+                self.fields[campo].queryset = personal_activo_del_grupo(GRUPOS_AYUDANTE)
                 _mostrar_nombres(self.fields[campo])
             # Placa de la que se apoya la disposición (solo vehículos operativos).
             for campo in ('apoya_disposicion_vehiculo', 'ayudante2_apoya_disposicion_vehiculo'):
@@ -1476,22 +1479,22 @@ class OrdenHistoricaForm(forms.Form):
         required=False, label="Conductor",
         # Incluye retirados: la orden es vieja y pudo atenderla alguien que ya
         # no está. Así el plan de trabajo histórico también lo recoge.
-        queryset=User.objects.filter(groups__name='Conductores')
-                             .order_by('first_name', 'last_name'),
+        queryset=User.objects.filter(groups__name__in=GRUPOS_CONDUCTOR)
+                             .distinct().order_by('first_name', 'last_name'),
         widget=forms.Select(attrs={'class': 'form-select'}),
         empty_label='--- Sin conductor registrado ---',
     )
     ayudante = forms.ModelChoiceField(
         required=False, label="Ayudante",
-        queryset=User.objects.filter(groups__name='Ayudantes')
-                             .order_by('first_name', 'last_name'),
+        queryset=User.objects.filter(groups__name__in=GRUPOS_AYUDANTE)
+                             .distinct().order_by('first_name', 'last_name'),
         widget=forms.Select(attrs={'class': 'form-select'}),
         empty_label='--- Sin ayudante ---',
     )
     ayudante2 = forms.ModelChoiceField(
         required=False, label="Segundo ayudante",
-        queryset=User.objects.filter(groups__name='Ayudantes')
-                             .order_by('first_name', 'last_name'),
+        queryset=User.objects.filter(groups__name__in=GRUPOS_AYUDANTE)
+                             .distinct().order_by('first_name', 'last_name'),
         widget=forms.Select(attrs={'class': 'form-select'}),
         empty_label='--- Sin segundo ayudante ---',
     )

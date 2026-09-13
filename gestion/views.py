@@ -33,6 +33,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
+from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
 from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
@@ -301,10 +302,11 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
             'con_requisitos': len(docs_personal),
             'ss_al_dia': personal_ss_ok,
             'ss_pendiente': len(docs_personal) - personal_ss_ok,
-            'conductores': User.objects.filter(groups__name='Conductores')
-                                       .exclude(perfil__retirado=True).count(),
-            'ayudantes': User.objects.filter(groups__name='Ayudantes')
-                                     .exclude(perfil__retirado=True).count(),
+            # El híbrido cuenta en los dos: puede ir en cualquiera de los puestos.
+            'conductores': User.objects.filter(groups__name__in=GRUPOS_CONDUCTOR)
+                                       .exclude(perfil__retirado=True).distinct().count(),
+            'ayudantes': User.objects.filter(groups__name__in=GRUPOS_AYUDANTE)
+                                     .exclude(perfil__retirado=True).distinct().count(),
         }
         personal_con_faltantes = [d for d in docs_personal.values() if d['faltan']]
 
@@ -1962,6 +1964,34 @@ def _acta_lista_para_firmar(manifiesto):
     return any(getattr(manifiesto, campo, None) not in (None, '') for campo in campos)
 
 
+def _acta_para_firmar(recorrido):
+    """
+    El acta del recorrido, creada si aún no existe con lo que definió el asesor
+    en la programación: así el enlace de firma se puede compartir aunque nadie
+    haya llenado todavía la hoja del conductor. Lo que se llene después se
+    actualiza sobre la misma acta. get_or_create en vez de try/create: si el
+    conductor guarda el paso final a la vez que el asesor abre el QR, ambos
+    podrían crear el acta y saltar el IntegrityError del OneToOne.
+    """
+    auxiliar1, auxiliar2 = recorrido.auxiliares
+    manifiesto, _ = Manifiesto.objects.get_or_create(
+        recorrido=recorrido,
+        defaults=dict(
+            **_instrucciones_servicio_de(recorrido),
+            auxiliar1=auxiliar1, auxiliar2=auxiliar2,
+            nombre_responsable_empresa=recorrido.responsable_empresa,
+            estado_firma='PENDIENTE_FIRMA',
+        ),
+    )
+    return manifiesto
+
+
+def _url_firma_cliente(request, manifiesto):
+    """El enlace público con el que el cliente califica y firma el acta."""
+    return request.build_absolute_uri(
+        reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico}))
+
+
 class ManifiestoQRView(LoginRequiredMixin, View):
     """
     QR y enlace público para que el cliente responda la encuesta y firme.
@@ -1981,23 +2011,8 @@ class ManifiestoQRView(LoginRequiredMixin, View):
             messages.error(request, "No tienes permiso para ver esta acta de servicio.")
             return redirect('gestion:dashboard_redirect')
 
-        auxiliar1, auxiliar2 = recorrido.auxiliares
-        # get_or_create en vez de try/create: si el conductor guarda el paso 3
-        # a la vez que el asesor abre el QR, ambos podrían crear el acta y saltar
-        # el IntegrityError del OneToOne. Aquí solo se lee o se crea una vez.
-        manifiesto, _ = Manifiesto.objects.get_or_create(
-            recorrido=recorrido,
-            defaults=dict(
-                **_instrucciones_servicio_de(recorrido),
-                auxiliar1=auxiliar1, auxiliar2=auxiliar2,
-                nombre_responsable_empresa=recorrido.responsable_empresa,
-                estado_firma='PENDIENTE_FIRMA',
-            ),
-        )
-
-        url_publica = request.build_absolute_uri(
-            reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico})
-        )
+        manifiesto = _acta_para_firmar(recorrido)
+        url_publica = _url_firma_cliente(request, manifiesto)
         return render(request, self.template_name, {
             'recorrido': recorrido,
             'manifiesto': manifiesto,
@@ -3144,7 +3159,8 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
         conductores_ocupados_ids = [r.conductor.id for r in recorridos_del_dia if r.conductor]
 
         # 4. Obtener recursos DISPONIBLES (conductores activos, sin retirados)
-        conductores = Group.objects.get(name='Conductores').user_set.exclude(perfil__retirado=True)
+        conductores = (User.objects.filter(groups__name__in=GRUPOS_CONDUCTOR)
+                       .exclude(perfil__retirado=True).distinct())
 
         context['vehiculos_disponibles'] = Vehiculo.objects.filter(estado='OPERATIVO').exclude(id__in=vehiculos_ocupados_ids)
         context['conductores_disponibles'] = conductores.exclude(id__in=conductores_ocupados_ids)
@@ -3257,17 +3273,21 @@ def _documentos_requeridos_por_rol(nombres_grupos):
     if nombres_grupos:
         # Toda persona con un rol debe mantener su seguridad social vigente.
         requeridos.add('SEGURIDAD_SOCIAL')
-    if 'Conductores' in nombres_grupos:
+    # El híbrido «Conductor - Ayudante» lleva lo del conductor: como puede
+    # manejar, la licencia se le exige siempre (decisión del usuario, sep-2026).
+    if es_de(nombres_grupos, GRUPOS_CONDUCTOR):
         requeridos |= {'CEDULA', 'LICENCIA'}
-    if 'Ayudantes' in nombres_grupos:
+    if es_de(nombres_grupos, GRUPOS_AYUDANTE):
         requeridos |= {'CEDULA'}
     return requeridos
 
 
 # Roles cuyas personas NO acceden a la plataforma: se registran solo para su
 # expediente y para poder asignarlas a las cuadrillas. No tienen usuario ni
-# contraseña utilizables (ver PersonaSinAccesoForm).
-GRUPOS_SIN_ACCESO = {'Ayudantes'}
+# contraseña utilizables (ver PersonaSinAccesoForm). El «Conductor - Ayudante»
+# tampoco entra: cuando va de conductor, el servicio y el enlace de firma del
+# cliente le llegan al correo (ver _correo_conductor).
+GRUPOS_SIN_ACCESO = {'Ayudantes', CONDUCTOR_AYUDANTE}
 
 # Documentos que llevan fecha de vigencia (se puede fijar/editar con el botón
 # "Vigencia" del expediente). La seguridad social ahora se controla por vigencia
@@ -3302,7 +3322,7 @@ def _documentos_aplicables_por_rol(nombres_grupos):
     la cédula está siempre disponible aunque no sea obligatoria.
     """
     aplicables = _documentos_requeridos_por_rol(nombres_grupos) | {'CEDULA'}
-    if 'Ayudantes' in nombres_grupos:
+    if es_de(nombres_grupos, GRUPOS_AYUDANTE):
         # Opcionales en el expediente, pero exigibles desde una programación.
         aplicables |= {'CURSO_ALTURAS', 'CURSO_CONFINADOS'}
     return [(tipo, label) for tipo, label in DOCUMENTOS_ESTANDAR if tipo in aplicables]
@@ -3377,7 +3397,7 @@ def _estado_documentos_personal():
             'nombre': u.get_full_name() or u.username,
             'faltan': faltan,
             'cursos': cursos,
-            'es_ayudante': 'Ayudantes' in nombres,
+            'es_ayudante': es_de(nombres, GRUPOS_AYUDANTE),
             'url': reverse('gestion:ficha_persona', args=[u.id]),
             'ss_al_dia': ss_doc is not None,
             'ss_vence': ss_doc.fecha_vencimiento.strftime('%d/%m/%Y') if ss_doc else '',
@@ -4519,6 +4539,10 @@ def _lineas_correo_servicio(ctx):
             lineas += ["", "Observaciones del servicio:", p.observaciones_servicio]
     if ctx.get('observacion'):
         lineas += ["", "OBSERVACIONES PARA TI:", ctx['observacion']]
+    if ctx.get('sin_plataforma'):
+        lineas += ["", "No necesitas entrar a la plataforma: el acta la completa la "
+                       "oficina. Al terminar el servicio abre el enlace de abajo en tu "
+                       "celular y pásaselo al cliente para que califique y firme."]
     if ctx['fotos_pedidas']:
         lineas += ["", "Debes subir una foto de:"]
         lineas += [f"- {f['etiqueta']}" for f in ctx['fotos_pedidas']]
@@ -4605,7 +4629,23 @@ def _correo_conductor(request, cuadrilla, conductor=None):
 
     programacion = cuadrilla.programacion
     datos = _datos_servicio_ayudante(cuadrilla, 1)
-    if programacion.orden_id:
+
+    # Un «Conductor - Ayudante» no entra a la plataforma: en vez del enlace a
+    # su servicio recibe el enlace PÚBLICO con el que el cliente firma el acta
+    # (el mismo del QR), y el acta la completa la oficina desde el expediente.
+    sin_plataforma = _persona_sin_acceso(conductor)
+    if sin_plataforma:
+        recorrido = None
+        if programacion.orden_id:
+            recorrido = (programacion.orden.recorridos
+                         .filter(vehiculo=cuadrilla.vehiculo_id).first()
+                         or programacion.orden.recorridos.first())
+        if recorrido is None:
+            return False, (f"{nombre} no tiene usuario en la plataforma y la "
+                           f"programación aún no tiene orden: no hay enlace de "
+                           f"firma que mandarle")
+        url = _url_firma_cliente(request, _acta_para_firmar(recorrido))
+    elif programacion.orden_id:
         url = request.build_absolute_uri(reverse(
             'gestion:detalle_orden_conductor', kwargs={'pk': programacion.orden_id}))
     else:
@@ -4630,18 +4670,25 @@ def _correo_conductor(request, cuadrilla, conductor=None):
                  for p in (cuadrilla.ayudante, cuadrilla.ayudante2) if p]
     if ayudantes:
         filas.append(('Ayudante(s)', ', '.join(ayudantes)))
+    if sin_plataforma:
+        # Sin plataforma no ve la hoja del conductor: el checklist del asesor
+        # (paleada, báscula, disposición, SISO, fotos, cursos) va en el correo.
+        izquierda, derecha = programacion.resumen_checklist()
+        filas += [(etiqueta.capitalize(), valor) for etiqueta, valor in izquierda + derecha]
 
     _enviar_correo_servicio({
         'nombre': nombre,
         'primer_nombre': (conductor.first_name or nombre).split(' ')[0],
         'programacion': programacion,
         'rol': 'conductor',
+        'sin_plataforma': sin_plataforma,
         'detalles': filas,
         'novedades': [],
         'fotos_pedidas': [],
         'url': url,
-        'url_texto': 'Entra a la plataforma para ver tu servicio',
-        'url_boton': 'Ver mi servicio',
+        'url_texto': ('Enlace para que el cliente califique y firme el acta al terminar'
+                      if sin_plataforma else 'Entra a la plataforma para ver tu servicio'),
+        'url_boton': 'Firma del cliente' if sin_plataforma else 'Ver mi servicio',
         'fecha_limite': None,
     }, correo)
     return True, None

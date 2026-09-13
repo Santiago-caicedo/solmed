@@ -6244,3 +6244,235 @@ class CuadrarPendientesTests(BaseCRM):
         self.assertIn('NO repone', salida)
         self.assertEqual(self.pendientes(), {ajena.numero_orden},
                          "la carga que ya existía se queda")
+
+
+# ============================================================
+#  CONDUCTOR - AYUDANTE (híbrido sin acceso a la plataforma)
+# ============================================================
+class ConductorAyudanteTests(BaseCRM):
+    """
+    El rol híbrido (sep-2026): no tiene usuario ni contraseña —como los
+    ayudantes— y cabe en cualquiera de los dos puestos de la cuadrilla. De
+    ayudante funciona igual que un ayudante (enlace con token). De conductor
+    recibe por correo el servicio completo y el enlace PÚBLICO con el que el
+    cliente firma el acta; el acta la completa el asesor desde el expediente.
+    """
+    ROL = 'Conductor - Ayudante'
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.cli = self.cliente()
+        self.camion = self.vehiculo()
+        self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
+        self.con_ss(self.conductor)
+        self.hibrido = self.persona('hibrido', self.ROL, 'Mario', 'Rueda')
+        self.con_ss(self.hibrido)
+        self.entrar(self.asesor)
+
+    def datos(self, **extra):
+        datos = {
+            'fecha': timezone.localdate().isoformat(), 'cliente': self.cli.pk,
+            'hora_ingreso_bodega': '06:00', 'sitio_inicio': '', 'hora_servicio': '08:00',
+            'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 100 # 20-30',
+            'observaciones_servicio': 'Succión de pozo', 'paleada': '',
+            'bascula': '', 'bascula_sitio': '', 'registro_fotografico': 'SI',
+            'responsable_sg': '', 'requiere_disposicion_final': 'NO',
+            'dispositor_final': '', 'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk,
+            'trasiego_vehiculo': '', 'nombre_contacto_recibe': 'Quien recibe',
+            'cuadrilla-conductor': self.conductor.pk,
+            'cuadrilla-vehiculo': self.camion.pk,
+            'cuadrilla-ayudante': '', 'cuadrilla-ayudante2': '',
+        }
+        datos.update(extra)
+        return datos
+
+    def crear(self, **extra):
+        mail.outbox.clear()
+        respuesta = self.client.post(reverse('gestion:crear_programacion'), self.datos(**extra))
+        self.assertEqual(respuesta.status_code, 302,
+                         getattr(respuesta, 'context', None) and
+                         str(respuesta.context.get('cuadrilla_form') and
+                             respuesta.context['cuadrilla_form'].errors))
+        return OrdenServicio.objects.get()
+
+    @staticmethod
+    def cuerpo(correo):
+        return correo.body + ' '.join(str(a) for a, _ in correo.alternatives)
+
+    def url_firma(self, orden):
+        from .models import Manifiesto
+        manifiesto = Manifiesto.objects.get(recorrido__orden=orden)
+        return reverse('gestion:encuesta_publica', kwargs={'token': manifiesto.token_publico})
+
+    # ---------- el rol ----------
+
+    def test_el_rol_existe_y_se_registra_sin_usuario_ni_contrasena(self):
+        self.assertTrue(Group.objects.filter(name=self.ROL).exists(),
+                        "lo crea la app al migrar, como los demás roles")
+        self.client.post(reverse('gestion:crear_persona'), {
+            'first_name': 'Pedro', 'last_name': 'Mora', 'email': 'pedro@correo.co',
+            'grupo': self.grupo(self.ROL).pk, 'numero_documento': '1010101010',
+        })
+        pedro = User.objects.get(first_name='Pedro', last_name='Mora')
+        self.assertFalse(pedro.is_active)
+        self.assertFalse(pedro.has_usable_password())
+        self.assertTrue(pedro.groups.filter(name=self.ROL).exists())
+
+    def test_la_ficha_lo_muestra_sin_acceso(self):
+        respuesta = self.client.get(reverse('gestion:ficha_persona', args=[self.hibrido.pk]))
+        self.assertContains(respuesta, 'Sin acceso al sistema')
+        self.assertContains(respuesta, 'le llega')
+
+    def test_talento_humano_puede_darle_el_rol(self):
+        talento = self.persona('talento', 'Talento Humano')
+        self.assertIn(self.ROL, set(roles_asignables(talento).values_list('name', flat=True)))
+
+    def test_el_expediente_le_exige_cedula_y_licencia_y_le_ofrece_cursos(self):
+        from .views import _documentos_aplicables_por_rol, _documentos_requeridos_por_rol
+        self.assertEqual(_documentos_requeridos_por_rol([self.ROL]),
+                         {'SEGURIDAD_SOCIAL', 'CEDULA', 'LICENCIA'})
+        aplicables = {tipo for tipo, _ in _documentos_aplicables_por_rol([self.ROL])}
+        self.assertIn('LICENCIA', aplicables)
+        self.assertIn('CURSO_ALTURAS', aplicables)
+        self.assertIn('CURSO_CONFINADOS', aplicables)
+
+    # ---------- la cuadrilla ----------
+
+    def test_cabe_en_los_dos_puestos_de_la_cuadrilla(self):
+        ayudante = self.persona('ayudante', 'Ayudantes', 'Luis', 'Gómez')
+        form = ProgramacionCuadrillaForm()
+        conductores = set(form.fields['conductor'].queryset)
+        ayudantes = set(form.fields['ayudante'].queryset)
+        segundos = set(form.fields['ayudante2'].queryset)
+        self.assertIn(self.hibrido, conductores)
+        self.assertIn(self.hibrido, ayudantes)
+        self.assertIn(self.hibrido, segundos)
+        # Los de siempre siguen en su puesto y solo en su puesto.
+        self.assertIn(self.conductor, conductores)
+        self.assertNotIn(self.conductor, ayudantes)
+        self.assertIn(ayudante, ayudantes)
+        self.assertNotIn(ayudante, conductores)
+
+    def test_la_planificacion_lo_ofrece_como_conductor_disponible(self):
+        planificador = self.persona('plani', 'Planificadores')
+        self.entrar(planificador)
+        respuesta = self.client.get(reverse('gestion:planificacion'))
+        self.assertContains(respuesta, 'Mario')
+
+    def test_retirado_ya_no_se_ofrece_en_ningun_puesto(self):
+        self.hibrido.perfil.retirado = True
+        self.hibrido.perfil.save()
+        form = ProgramacionCuadrillaForm()
+        self.assertNotIn(self.hibrido, set(form.fields['conductor'].queryset))
+        self.assertNotIn(self.hibrido, set(form.fields['ayudante'].queryset))
+
+    # ---------- de conductor: el correo trae el enlace de firma ----------
+
+    def test_como_conductor_recibe_el_enlace_de_firma_y_no_el_de_la_plataforma(self):
+        orden = self.crear(**{'cuadrilla-conductor': self.hibrido.pk})
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, [self.hibrido.email])
+        cuerpo = self.cuerpo(correo)
+
+        self.assertIn(self.url_firma(orden), cuerpo)
+        self.assertNotIn(
+            reverse('gestion:detalle_orden_conductor', kwargs={'pk': orden.pk}), cuerpo,
+            "el enlace a la plataforma no le sirve: no tiene usuario")
+        self.assertIn('No necesitas entrar a la plataforma', cuerpo)
+        self.assertIn('Firma del cliente', cuerpo)
+
+    def test_el_acta_nace_pendiente_de_firma_con_lo_que_definio_el_asesor(self):
+        from .models import Manifiesto
+        orden = self.crear(**{'cuadrilla-conductor': self.hibrido.pk})
+        manifiesto = Manifiesto.objects.get(recorrido__orden=orden)
+        self.assertEqual(manifiesto.estado_firma, 'PENDIENTE_FIRMA')
+        self.assertEqual(manifiesto.nombre_responsable_empresa,
+                         orden.recorridos.get().responsable_empresa)
+
+    def test_el_correo_trae_el_servicio_completo_sin_el_cliente(self):
+        """Sin plataforma no ve la hoja del conductor: el checklist va en el correo."""
+        orden = self.crear(**{'cuadrilla-conductor': self.hibrido.pk})
+        cuerpo = self.cuerpo(mail.outbox[0])
+        self.assertIn('Calle 100 # 20-30', cuerpo)
+        self.assertIn('Succión de pozo', cuerpo)
+        self.assertIn('Registro fotográfico', cuerpo)
+        self.assertIn('SUBIR FOTOS', cuerpo)
+        self.assertIn('Paleada', cuerpo)
+        self.assertNotIn(self.cli.nombre, cuerpo, "decisión de gerencia: sin datos del cliente")
+        self.assertNotIn(self.cli.nombre, mail.outbox[0].subject)
+
+    def test_el_conductor_de_siempre_sigue_recibiendo_el_enlace_a_la_plataforma(self):
+        from .models import Manifiesto
+        orden = self.crear()
+        cuerpo = self.cuerpo(mail.outbox[0])
+        self.assertIn(reverse('gestion:detalle_orden_conductor', kwargs={'pk': orden.pk}), cuerpo)
+        self.assertNotIn('No necesitas entrar a la plataforma', cuerpo)
+        self.assertNotIn('Paleada', cuerpo, "el checklist lo ve en su hoja, no en el correo")
+        self.assertFalse(Manifiesto.objects.exists(),
+                         "al conductor normal el correo no le crea el acta")
+
+    def test_reenviar_desde_el_expediente_manda_el_mismo_enlace_de_firma(self):
+        from .models import Manifiesto
+        orden = self.crear(**{'cuadrilla-conductor': self.hibrido.pk})
+        url_firma = self.url_firma(orden)
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_orden', args=[orden.pk]), {
+            'submit_reenviar_conductor': '1', 'recorrido': orden.recorridos.get().pk})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.hibrido.email])
+        self.assertIn(url_firma, self.cuerpo(mail.outbox[0]))
+        self.assertEqual(Manifiesto.objects.count(), 1, "no se duplica el acta")
+
+    def test_sin_orden_no_hay_enlace_de_firma_y_se_avisa(self):
+        from django.test import RequestFactory
+        from .views import _correo_conductor
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.hibrido, vehiculo=self.camion)
+        mail.outbox.clear()
+        enviado, aviso = _correo_conductor(
+            RequestFactory().get('/'), programacion.cuadrillas.get())
+        self.assertFalse(enviado)
+        self.assertIn('enlace de firma', aviso)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_el_qr_del_expediente_muestra_el_mismo_enlace_que_el_correo(self):
+        from .models import Manifiesto
+        orden = self.crear(**{'cuadrilla-conductor': self.hibrido.pk})
+        respuesta = self.client.get(
+            reverse('gestion:manifiesto_qr', args=[orden.recorridos.get().pk]))
+        self.assertContains(respuesta, self.url_firma(orden))
+        self.assertEqual(Manifiesto.objects.count(), 1,
+                         "el QR reutiliza el acta que creó el correo")
+
+    # ---------- de ayudante: igual que un ayudante ----------
+
+    def test_como_ayudante_funciona_igual_que_un_ayudante(self):
+        self.crear(**{'cuadrilla-ayudante': self.hibrido.pk})
+        self.assertEqual(len(mail.outbox), 2, "conductor y ayudante")
+        correo = next(c for c in mail.outbox if c.to == [self.hibrido.email])
+        cuadrilla = Programacion.objects.get().cuadrillas.get()
+        cuerpo = self.cuerpo(correo)
+        self.assertIn(reverse('gestion:acceso_ayudante', args=[cuadrilla.token_ayudante]), cuerpo)
+        self.assertNotIn('No necesitas entrar a la plataforma', cuerpo)
+        self.assertNotIn(self.cli.nombre, cuerpo)
+        # Su enlace de ayudante abre sin login.
+        self.client.logout()
+        respuesta = self.client.get(
+            reverse('gestion:acceso_ayudante', args=[cuadrilla.token_ayudante]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    # ---------- el plan de trabajo ----------
+
+    def test_el_plan_de_trabajo_lo_lista_con_su_cargo(self):
+        admin = self.persona('admin', superusuario=True)
+        self.entrar(admin)
+        respuesta = self.client.get(reverse('planes:plan_dia'))
+        self.assertContains(respuesta, self.ROL)
+        self.assertContains(respuesta, 'Mario')
+
+    def test_la_ficha_del_plan_le_pide_la_licencia(self):
+        admin = self.persona('admin', superusuario=True)
+        self.entrar(admin)
+        respuesta = self.client.get(reverse('planes:ficha_persona', args=[self.hibrido.pk]))
+        self.assertContains(respuesta, 'Licencia de conducción')

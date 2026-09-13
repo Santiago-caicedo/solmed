@@ -23,6 +23,7 @@ from django.views.generic import ListView
 from weasyprint import HTML
 
 from gestion.models import Dispositor, Manifiesto, Recorrido, Vehiculo
+from gestion.roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin, _reply_to
 
 from .forms import AsignacionForm, NovedadForm
@@ -30,7 +31,7 @@ from .models import Asignacion, Novedad, PlanDia
 
 # El orden del formato físico: primero la operación, luego la oficina.
 ORDEN_CARGOS = [
-    'Conductores', 'Ayudantes', 'Planificadores', 'Asesores',
+    'Conductores', 'Conductor - Ayudante', 'Ayudantes', 'Planificadores', 'Asesores',
     'Talento Humano', 'Director Técnico', 'SISO', 'Soldador - Armador',
     'Auxiliares Administrativas', 'Administrativo', 'Administradores',
 ]
@@ -409,9 +410,9 @@ class FichaPersonaPlanView(AdministradorRequiredMixin, View):
                        else 'Seguridad social o ARL'),
             **estado(cobertura),
         }]
-        if 'Conductores' in roles:
+        if es_de(roles, GRUPOS_CONDUCTOR):
             papeles.append({'nombre': 'Licencia de conducción', **estado(ultimo('LICENCIA'))})
-        if 'Ayudantes' in roles:
+        if es_de(roles, GRUPOS_AYUDANTE):
             for tipo in ('CURSO_ALTURAS', 'CURSO_CONFINADOS'):
                 curso = ultimo(tipo)
                 if curso is not None:      # los cursos son opcionales
