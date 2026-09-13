@@ -6027,7 +6027,7 @@ class CuadrarPendientesTests(BaseCRM):
                 (fecha or recorrido.fecha_recorrido).strftime('%d/%m/%Y'),
                 'WILLIAM', 'JULIO', placa)
 
-    def correr(self, *argumentos, foto=None):
+    def correr(self, *argumentos, foto=None, tope=None):
         from io import StringIO
         from django.core.management import call_command
         from .management.commands import cuadrar_pendientes
@@ -6036,7 +6036,9 @@ class CuadrarPendientesTests(BaseCRM):
         if '--respaldo' not in argumentos:
             argumentos += ('--respaldo', os.path.join(self.carpeta, 'respaldo.csv'))
         salida = StringIO()
-        with patch.dict(cuadrar_pendientes.FOTO, foto or {}, clear=True):
+        tope = tope if tope is not None else cuadrar_pendientes.TOPE
+        with patch.dict(cuadrar_pendientes.FOTO, foto or {}, clear=True), \
+                patch.object(cuadrar_pendientes, 'TOPE', tope):
             call_command('cuadrar_pendientes', *argumentos, stdout=salida)
         return salida.getvalue()
 
@@ -6191,6 +6193,44 @@ class CuadrarPendientesTests(BaseCRM):
         salida = self.correr('--confirmar',
                              foto={falta.numero_orden: self._fila(falta, 'FAL222')})
         self.assertIn('y solo esas, quedaron sin disponer', salida)
+
+    # ---------- hasta dónde alcanza la foto ----------
+
+    def test_no_toca_lo_pendiente_posterior_a_la_foto(self):
+        """
+        Lo que entró DESPUÉS del corte es residuo vivo. La vista previa del
+        servidor (11-sep-2026) se iba a llevar 12 órdenes así.
+        """
+        vieja = self._orden('VIE111')
+        nueva = self._orden('NUE222')      # número mayor: posterior a la foto
+
+        salida = self.correr('--confirmar', foto={}, tope=vieja.numero_orden)
+
+        self.assertIn('POSTERIORES A LA FOTO', salida)
+        self.assertIn(f"· #{nueva.numero_orden}", salida)
+        self.assertEqual(self.pendientes(), {nueva.numero_orden},
+                         "la vieja se quita; la nueva se queda intacta")
+
+    def test_el_contraste_final_cuenta_aparte_las_posteriores(self):
+        vieja = self._orden('VIE111')
+        nueva = self._orden('NUE222')
+        salida = self.correr('--confirmar', foto={}, tope=vieja.numero_orden)
+        self.assertIn('y solo esas, quedaron sin disponer', salida)
+        self.assertIn('posterior(es) a la foto, intactas', salida)
+        self.assertNotIn(f"#{nueva.numero_orden} quedó pendiente", salida)
+
+    def test_un_doble_registro_posterior_a_la_foto_tampoco_se_recorta(self):
+        nueva = self._orden('NUE222')
+        vieja = nueva.movimientos_carga.get(accion='CARGA')
+        MovimientoCargaVehiculo.objects.create(
+            vehiculo=vieja.vehiculo, accion='CARGA', orden=nueva,
+            nota='doble registro')
+
+        salida = self.correr('--confirmar', foto={}, tope=nueva.numero_orden - 1)
+
+        self.assertNotIn('DUPLICADAS', salida)
+        self.assertEqual(
+            nueva.movimientos_carga.filter(accion='CARGA').count(), 2)
 
     def test_deshacer_quita_solo_lo_que_el_comando_creo(self):
         propia = self._orden('FAL222', pendiente=False)

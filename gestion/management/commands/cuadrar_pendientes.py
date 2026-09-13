@@ -15,6 +15,8 @@ Lo que hace, contra lo que el sistema tiene hoy:
     desde el plan de trabajo, con su responsable); dice que esa orden no tiene
     residuo esperando, que es justo lo que afirma la oficina.
   · DUPLICADAS — una orden que debe dos veces se recorta a la carga más vieja.
+  · POSTERIORES — lo pendiente más nuevo que la foto (orden > TOPE) se lista
+    pero NO se toca: es residuo vivo que entró después del corte.
 
 Las columnas Conductor/Acompañante/Vehículo/Cliente/Fecha de la foto NO se
 escriben: el sistema ya las tiene en la propia orden. Solo se CONTRASTAN y las
@@ -40,6 +42,14 @@ from gestion.models import MovimientoCargaVehiculo, OrdenServicio
 
 # Marca de las cargas que ESTE comando crea (así --deshacer las reconoce).
 MARCA = 'foto de la oficina 08-sep'
+
+# Hasta dónde alcanza la foto. Es un RETRATO de un momento: la última orden
+# que retrata es la #22279, y la operación siguió después. Todo lo que venga
+# de ahí para arriba es residuo vivo —órdenes nuevas que la regla de
+# disposición dejó pendientes— y este comando NO lo toca: quitarles la carga
+# borraría la mora real de los últimos días. La vista previa del servidor
+# (11-sep-2026) iba a llevarse 12 órdenes así.
+TOPE = 22279
 
 # La fotografía del 08-sep-2026, tal cual: número → (cliente, fecha, conductor,
 # ayudante, placa). Todo menos el número es para CONTRASTAR, no para escribir.
@@ -115,7 +125,9 @@ class Command(BaseCommand):
         sueltas = [c for c in pendientes if not c.orden_id]
 
         faltan = sorted(set(FOTO) - set(con_orden))
-        sobran = sorted(set(con_orden) - set(FOTO))
+        # Solo se juzga lo que la foto alcanza a retratar.
+        sobran = sorted(n for n in set(con_orden) - set(FOTO) if n <= TOPE)
+        posteriores = sorted(n for n in set(con_orden) - set(FOTO) if n > TOPE)
         cuadran = sorted(set(FOTO) & set(con_orden))
 
         self.stdout.write(self.style.MIGRATE_HEADING(
@@ -125,6 +137,7 @@ class Command(BaseCommand):
 
         creables = self._informar_faltantes(faltan)
         quitables = self._informar_sobrantes(sobran, con_orden)
+        self._informar_posteriores(posteriores, con_orden)
         self._informar_duplicadas(duplicadas)
         self._informar_sueltas(sueltas)
         self._contrastar(cuadran + [n for n, _ in creables])
@@ -155,7 +168,7 @@ class Command(BaseCommand):
         for carga in pendientes:            # vienen ordenadas por fecha
             if not carga.orden_id:
                 continue
-            if carga.orden_id in vistas:
+            if carga.orden_id in vistas and carga.orden_id <= TOPE:
                 sobrantes.append(carga)
             else:
                 vistas.add(carga.orden_id)
@@ -214,6 +227,27 @@ class Command(BaseCommand):
             "    esperando. Quitarla NO registra una disposición — si alguien\n"
             "    las dispuso, eso va en el PLAN DE TRABAJO con su responsable.")
         return quitables
+
+    def _informar_posteriores(self, posteriores, con_orden):
+        """
+        Órdenes pendientes MÁS NUEVAS que la foto: operación viva. Se listan
+        para que se vean, pero no se tocan — la foto no las retrata, así que
+        no dice nada sobre ellas.
+        """
+        if not posteriores:
+            return
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f"\nPOSTERIORES A LA FOTO: {len(posteriores)} órdenes pendientes "
+            f"después de la #{TOPE} — NO se tocan"))
+        for numero in posteriores:
+            carga = con_orden[numero]
+            cliente = carga.orden.cliente.nombre[:28] if carga.orden else '—'
+            self.stdout.write(
+                f"  · #{numero}  {carga.vehiculo.placa:<8}"
+                f"{carga.fecha:%d/%m/%Y}  {cliente}")
+        self.stdout.write(
+            "    Es residuo vivo: entró después del corte de la foto. Se\n"
+            "    dispone desde el plan de trabajo, como cualquier pendiente.")
 
     def _informar_duplicadas(self, duplicadas):
         if not duplicadas:
@@ -330,15 +364,21 @@ class Command(BaseCommand):
                                  orden__isnull=False)
                          .values_list('orden_id', flat=True))
         self.stdout.write(self.style.MIGRATE_HEADING("\nContraste con la foto:"))
-        if pendientes == set(FOTO):
+        hasta_la_foto = {n for n in pendientes if n <= TOPE}
+        if hasta_la_foto == set(FOTO):
             self.stdout.write(self.style.SUCCESS(
-                f"  ✓ Las {len(FOTO)} órdenes de la foto, y solo esas, "
-                f"quedaron sin disponer."))
+                f"  ✓ Hasta la #{TOPE}: las {len(FOTO)} órdenes de la foto, y "
+                f"solo esas, quedaron sin disponer."))
+            posteriores = len(pendientes) - len(hasta_la_foto)
+            if posteriores:
+                self.stdout.write(
+                    f"    (y {posteriores} pendiente(s) posterior(es) a la "
+                    f"foto, intactas)")
             return
         for numero in sorted(set(FOTO) - pendientes):
             self.stdout.write(self.style.WARNING(
                 f"  ⚠ La #{numero} debería quedar pendiente y no lo está."))
-        for numero in sorted(pendientes - set(FOTO)):
+        for numero in sorted(hasta_la_foto - set(FOTO)):
             self.stdout.write(self.style.WARNING(
                 f"  ⚠ La #{numero} quedó pendiente y la foto no la nombra."))
 
