@@ -5640,12 +5640,9 @@ def _filas_trazabilidad(request):
             })
         filas.append(fila)
 
-    # Pendientes primero (la más vieja arriba); luego las dispuestas recientes.
-    filas.sort(key=lambda f: (
-        f['estado'] != 'PENDIENTE',
-        -(f['dias'] or 0) if f['estado'] == 'PENDIENTE' else 0,
-        -(f['dispuesta_el'].toordinal() if f['dispuesta_el'] else 0),
-    ))
+    # Pendientes primero y luego las dispuestas, cada bloque en orden
+    # consecutivo de número de orden (pedido del usuario, sep-2026).
+    filas.sort(key=lambda f: (f['estado'] != 'PENDIENTE', f['orden'].numero_orden))
 
     filtros = {
         'estado': request.GET.get('estado', ''),
@@ -5809,9 +5806,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'pagina_rango': rango_de_paginas(pagina),
             'filtros': filtros,
             'n_pendientes': len(pendientes),
-            # En la ficha van las ÓRDENES que se deben (no los camiones):
-            # es la deuda misma, de la más vieja a la más nueva.
-            'pendientes': sorted(pendientes, key=lambda f: -f['dias']),
+            # En la ficha y en el popup van las ÓRDENES que se deben, en
+            # orden consecutivo.
+            'pendientes': sorted(pendientes, key=lambda f: f['orden'].numero_orden),
             'dias_mayor': max((f['dias'] for f in pendientes), default=0),
             'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
             'dispuestas_30': dispuestas_30,

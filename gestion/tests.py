@@ -5452,6 +5452,16 @@ class TrazabilidadDisposicionesTests(BaseDisposicion):
         self.assertNotIn('submit_deshacer', contenido, "lo dispuesto al convertir no se deshace desde aquí")
         self.assertEqual(contenido.count('<tr>') - 1, 2, "la NO_APLICA no aparece")
 
+    def test_la_tabla_va_consecutiva_primero_sin_disponer_y_luego_dispuestas(self):
+        # Creadas en desorden de estado y con fechas cruzadas a propósito.
+        a = self._orden(pendiente=False)                                        # dispuesta
+        b = self._orden(placa='OBB178', fecha=timezone.localdate() - datetime.timedelta(days=9))
+        c = self._orden(placa='WNO623', pendiente=False, fecha=timezone.localdate() - datetime.timedelta(days=20))
+        d = self._orden(placa='OBC727')
+        filas = self.client.get(self.panel).context['filas']
+        self.assertEqual([f['orden'].pk for f in filas], [b.pk, d.pk, a.pk, c.pk],
+                         "sin disponer en consecutivo, luego dispuestas en consecutivo")
+
     def test_los_filtros(self):
         """Filtran la tabla; los contadores y la ficha de pendientes no dependen del filtro."""
         pendiente = self._orden()
@@ -5518,12 +5528,14 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         self.assertNotIn("closest('li')", contenido)
         self.assertNotIn('bootstrap.Modal', contenido)
 
-    def test_las_pendientes_van_de_la_mas_vieja_a_la_mas_nueva_con_su_placa(self):
-        vieja = self._orden(fecha=timezone.localdate() - datetime.timedelta(days=9))
-        nueva = self._orden(placa='OBB178')
+    def test_las_pendientes_van_en_orden_consecutivo_con_su_placa(self):
+        # La segunda orden tiene el servicio MÁS viejo: aun así va después,
+        # porque el orden es por número (pedido del usuario).
+        primera = self._orden()
+        segunda = self._orden(placa='OBB178', fecha=timezone.localdate() - datetime.timedelta(days=9))
         contenido = self.client.get(self.panel).content.decode()
-        self.assertLess(contenido.index(f'#{vieja.numero_orden}</span>'),
-                        contenido.index(f'#{nueva.numero_orden}</span>'))
+        self.assertLess(contenido.index(f'#{primera.numero_orden}</span>'),
+                        contenido.index(f'#{segunda.numero_orden}</span>'))
         self.assertIn('OBB178', contenido)
         self.assertIn('Marcar las visibles', contenido)
 
