@@ -230,16 +230,6 @@ class Vehiculo(models.Model):
     capacidad = models.CharField(max_length=100, help_text="Ej: '3 toneladas', '20 m³'")
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='OPERATIVO')
 
-    # --- Carga pendiente de disposición ---
-    # True cuando el camión quedó con contenido sin disposición final (se marcó
-    # "dejar carro cargado" o fue destino de un trasiego a placa). Se limpia
-    # cuando participa en una orden con disposición final real (proveedor).
-    cargado = models.BooleanField(default=False, verbose_name="Cargado (pendiente de disposición)")
-    cargado_detalle = models.CharField(
-        max_length=255, blank=True,
-        help_text="De dónde viene la carga pendiente (orden y fecha)."
-    )
-
     # --- Documentos legales ---
     # Tarjeta de propiedad: solo se adjunta el PDF (no tiene vencimiento ni alerta).
     archivo_tarjeta = models.FileField(
@@ -265,59 +255,6 @@ class Vehiculo(models.Model):
 
     def __str__(self):
         return f"{self.marca} {self.modelo} ({self.placa})"
-
-    @property
-    def cargas_pendientes(self):
-        """
-        Las CARGAS sin disposición de este camión, la más vieja primero. Cada
-        una conserva SU orden: un camión acumula varias órdenes sin disponer y
-        sigue prestando servicio; el plan de trabajo las salda una por una.
-        """
-        return (self.movimientos_carga
-                .filter(accion='CARGA', descarga__isnull=True)
-                .select_related('orden').order_by('fecha'))
-
-    @property
-    def ordenes_pendientes(self):
-        """Las órdenes sin disponer que viajan en el camión (para avisos)."""
-        return [m.orden for m in self.cargas_pendientes if m.orden_id]
-
-    def sincronizar_carga(self):
-        """
-        Recalcula el espejo `cargado`/`cargado_detalle` a partir de las cargas
-        pendientes. La verdad vive en los movimientos (una fila por orden); el
-        espejo existe para que listados, dashboard y filtros sigan simples.
-        """
-        pendientes = list(self.cargas_pendientes)
-        self.cargado = bool(pendientes)
-        if not pendientes:
-            self.cargado_detalle = ''
-        elif len(pendientes) == 1:
-            self.cargado_detalle = pendientes[0].nota[:255]
-        else:
-            ordenes = [f"#{m.orden_id}" for m in pendientes if m.orden_id]
-            sin_orden = len(pendientes) - len(ordenes)
-            partes = [f"{len(pendientes)} cargas sin disponer"]
-            if ordenes:
-                partes.append('órdenes ' + ', '.join(ordenes))
-            if sin_orden:
-                partes.append(f"{sin_orden} manual{'es' if sin_orden > 1 else ''}")
-            self.cargado_detalle = (': '.join(partes[:2])
-                                    + (f" y {partes[2]}" if len(partes) > 2 else ''))[:255]
-        self.save(update_fields=['cargado', 'cargado_detalle'])
-
-    @property
-    def carga_actual(self):
-        """La carga pendiente más reciente, o None si el camión está vacío."""
-        if not self.cargado:
-            return None
-        return self.cargas_pendientes.last()
-
-    @property
-    def orden_que_cargo(self):
-        """La orden de la última carga pendiente (None si fue carga manual)."""
-        movimiento = self.carga_actual
-        return movimiento.orden if movimiento is not None else None
 
     def documentos_por_vencer(self, dias=None):
         """
@@ -445,6 +382,17 @@ class OrdenServicio(models.Model):
         ('CONCILIADA', 'Conciliada'),
     ]
 
+    # El residuo pendiente es DE LA ORDEN (decisión del usuario, sep-2026): el
+    # camión no lleva estado. Con SÍ al convertir queda DISPUESTA (con su
+    # gestor); con NO queda PENDIENTE hasta que alguien registre la
+    # disposición desde el plan de trabajo o el panel; NO_APLICA es para las
+    # históricas y las viejas que no respondieron la pregunta.
+    DISPOSICION_CHOICES = [
+        ('NO_APLICA', 'No aplica'),
+        ('PENDIENTE', 'Sin disponer'),
+        ('DISPUESTA', 'Dispuesta'),
+    ]
+
     SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
     BASCULA_CHOICES = [
         ('PESAN', 'Sí'),
@@ -489,6 +437,50 @@ class OrdenServicio(models.Model):
         verbose_name="Conciliación (Transporte - Cantidad)"
     )
     fecha_conciliacion = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de conciliación")
+    estado_disposicion = models.CharField(
+        max_length=12, choices=DISPOSICION_CHOICES, default='NO_APLICA',
+        verbose_name="Disposición del residuo",
+    )
+
+    # ---------- disposición del residuo ----------
+
+    @property
+    def sin_disponer(self):
+        return self.estado_disposicion == 'PENDIENTE'
+
+    @property
+    def disposicion_vigente(self):
+        """El registro de disposición que hoy vale (None si está sin disponer)."""
+        return (self.disposiciones.filter(deshecha=False)
+                .select_related('dispositor', 'registrado_por').order_by('-fecha', '-pk').first())
+
+    def registrar_disposicion(self, via, fecha, usuario=None, dispositor=None, nota=''):
+        """
+        Deja la orden DISPUESTA con su registro: cuándo, dónde, por cuál vía y
+        quién lo registró. Es la única forma de disponer una orden.
+        """
+        registro = self.disposiciones.create(
+            via=via, fecha=fecha, dispositor=dispositor, nota=(nota or '')[:255],
+            registrado_por=usuario,
+        )
+        self.estado_disposicion = 'DISPUESTA'
+        self.save(update_fields=['estado_disposicion'])
+        return registro
+
+    def deshacer_disposicion(self, usuario=None, nota=''):
+        """
+        La orden vuelve a quedar SIN DISPONER. El historial no se borra: los
+        registros vigentes quedan marcados como deshechos, con quién y por qué.
+        """
+        ahora = timezone.now()
+        for registro in self.disposiciones.filter(deshecha=False):
+            registro.deshecha = True
+            registro.deshecha_por = usuario
+            registro.deshecha_en = ahora
+            registro.deshecha_nota = (nota or '')[:255]
+            registro.save(update_fields=['deshecha', 'deshecha_por', 'deshecha_en', 'deshecha_nota'])
+        self.estado_disposicion = 'PENDIENTE'
+        self.save(update_fields=['estado_disposicion'])
 
     def save(self, *args, **kwargs):
         # Numeración explícita: la siguiente orden es max(última + 1,
@@ -1700,77 +1692,34 @@ class Programacion(models.Model):
             self.orden = orden
             self.estado = 'CONVERTIDA'
             self.save()
-            # Actualiza el estado de carga de los camiones según la disposición.
-            self._actualizar_carga_vehiculos(orden, [c.vehiculo for c in cuadrillas], usuario)
+            # Deja el estado de disposición en la orden (dispuesta / sin disponer).
+            self._registrar_disposicion_inicial(orden, usuario)
         return orden
 
-    def _actualizar_carga_vehiculos(self, orden, vehiculos, usuario=None):
+    def _registrar_disposicion_inicial(self, orden, usuario=None):
         """
-        Lleva el rastro de la carga pendiente de disposición. El pendiente es
-        de LA ORDEN (decisión del usuario, sep-2026):
+        El pendiente de disposición es DE LA ORDEN (decisión del usuario,
+        sep-2026; el camión no lleva estado):
 
-          - Disposición SÍ (proveedor): la orden queda dispuesta al convertir,
-            con su gestor.
-          - NO: la orden queda SIN DISPONER **siempre**, sin importar el
-            destino elegido (dejar carro cargado, trasiego, tanques, no hay
-            disposición). El destino queda solo de referencia en la nota;
-            trasegar, pasar a tanques o disponer se registra DESPUÉS desde el
-            plan de trabajo, con su responsable y su fecha. (Antes cada
-            destino hacía efectos al convertir y la realidad iba por otro
-            lado: la conciliación del reporte de sep-2026 lo demostró.)
+          - Disposición SÍ (gestor): la orden queda DISPUESTA al convertir,
+            con su gestor, y así queda registrado.
+          - NO: la orden queda SIN DISPONER, sin importar el destino elegido
+            (dejar carro cargado, trasiego, tanques, no hay disposición): ese
+            destino es solo una nota de referencia. Disponerla se registra
+            DESPUÉS desde el plan de trabajo o el panel, con su responsable.
 
         La pregunta es obligatoria en el formulario; si un dato viejo llega
-        sin respuesta, no se toca nada. Cada cambio deja su registro en el
-        historial (MovimientoCargaVehiculo).
+        sin respuesta, la orden queda en NO_APLICA.
         """
-        detalle = f"Orden #{orden.numero_orden} del {self.fecha.strftime('%d/%m/%Y')}"
-
-        def cargar(v, nota, orden_carga=orden):
-            # Cada carga es UN pendiente con SU orden: se acumulan (el camión
-            # puede venir cargado de antes y seguir prestando servicio).
-            movimiento = MovimientoCargaVehiculo.objects.create(
-                vehiculo=v, accion='CARGA', nota=nota, orden=orden_carga,
-                registrado_por=usuario)
-            v.sincronizar_carga()
-            return movimiento
-
-        def descargar(v, nota, dispositor=None):
-            # El movimiento se registra SIEMPRE, aunque el camión no estuviera
-            # marcado como cargado: la disposición ocurrió y es la trazabilidad
-            # del residuo (antes se perdía justo en el caso más común).
-            #
-            # Salda SOLO la carga de ESTA orden: un servicio dispone su propio
-            # residuo, no la mora acumulada del camión. Las órdenes que el
-            # camión debe de antes siguen debiéndose y se saldan una por una
-            # desde el plan de trabajo, con su responsable (ago-2026: la regla
-            # anterior saldaba todo el camión y borró 13 pendientes reales).
-            movimiento = MovimientoCargaVehiculo.objects.create(
-                vehiculo=v, accion='DESCARGA', nota=nota, orden=orden,
-                dispositor=dispositor, registrado_por=usuario)
-            v.cargas_pendientes.filter(orden=orden).update(descarga=movimiento)
-            v.sincronizar_carga()
-            return movimiento
-
         if self.requiere_disposicion_final == 'SI':
-            for v in vehiculos:
-                descargar(v, f"{detalle}: se dispuso con {self.dispositor_final.nombre}"
-                          if self.dispositor_final_id else f"{detalle}: disposición final",
-                          self.dispositor_final if self.dispositor_final_id else None)
-            return
-        if self.requiere_disposicion_final != 'NO':
-            return
-
-        # Con NO la orden queda SIN DISPONER siempre; el destino elegido va de
-        # referencia en la nota. Nada más se mueve aquí: el trasiego o el paso
-        # a tanques reales se registran desde el plan de trabajo.
-        destino = self.dispositor_final.nombre if self.dispositor_final_id else ''
-        if (destino == Dispositor.TRASIEGO_PLACA and self.trasiego_vehiculo_id):
-            destino = destino.replace('------', self.trasiego_vehiculo.placa)
-        nota = f"{detalle}: quedó sin disponer"
-        if destino:
-            nota += f" · destino previsto: {destino}"
-        for v in vehiculos:
-            cargar(v, nota[:255])
+            gestor = self.dispositor_final if self.dispositor_final_id else None
+            orden.registrar_disposicion(
+                via='CONVERTIR', fecha=self.fecha, usuario=usuario, dispositor=gestor,
+                nota=(f"Se dispuso con {gestor.nombre}" if gestor else "Disposición final"),
+            )
+        elif self.requiere_disposicion_final == 'NO':
+            orden.estado_disposicion = 'PENDIENTE'
+            orden.save(update_fields=['estado_disposicion'])
 
 
 class ProgramacionCuadrilla(models.Model):
@@ -2163,62 +2112,56 @@ class EnvioCorreo(models.Model):
         return [d.strip() for d in self.destinatarios.split(',') if d.strip()]
 
 
-class MovimientoCargaVehiculo(models.Model):
+class DisposicionOrden(models.Model):
     """
-    Historial de cargas y descargas de residuo de un camión. Cada cambio del
-    estado `Vehiculo.cargado` deja un registro: los automáticos (al generar la
-    orden, según la disposición final) y los manuales (botón en el expediente
-    del vehículo, con nota obligatoria de a dónde se dispuso o por qué).
+    Una disposición del residuo de una orden: cuándo salió, a cuál gestor, por
+    cuál vía y quién lo registró. La orden queda DISPUESTA mientras tenga un
+    registro vigente; deshacerlo (quitar la actividad del plan, corregir a
+    mano) no lo borra, lo marca como deshecho con su razón.
     """
-    ACCION_CHOICES = [
-        ('CARGA', 'Carga'),
-        ('DESCARGA', 'Descarga'),
+    VIA_CHOICES = [
+        ('PLAN', 'Plan de trabajo'),
+        ('CONVERTIR', 'Al convertir la orden'),
+        ('REPORTE', 'Reporte de la oficina'),
+        ('MANUAL', 'Corregida a mano'),
     ]
 
-    vehiculo = models.ForeignKey(
-        'Vehiculo', on_delete=models.CASCADE, related_name='movimientos_carga',
-    )
-    accion = models.CharField(max_length=10, choices=ACCION_CHOICES)
-    nota = models.CharField(
-        max_length=255,
-        help_text="De dónde viene la carga o a dónde se dispuso.",
-    )
-    # La orden que cargó el camión (o la que lo descargó). Es la trazabilidad
-    # que el plan de trabajo muestra al asignar la disposición: "XYZ456,
-    # cargado por la orden #22207". SET_NULL para no bloquear el borrado de
-    # una orden desde el admin: el movimiento sobrevive como histórico.
     orden = models.ForeignKey(
-        'OrdenServicio', on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='movimientos_carga', verbose_name="Orden relacionada",
+        'OrdenServicio', on_delete=models.CASCADE, related_name='disposiciones',
     )
-    # Proveedor donde se dispuso el contenido (cuando aplica).
+    fecha = models.DateField(verbose_name="Día de la disposición")
     dispositor = models.ForeignKey(
         'Dispositor', on_delete=models.PROTECT, null=True, blank=True,
-        related_name='descargas_registradas', verbose_name="Proveedor de disposición",
+        related_name='disposiciones', verbose_name="Gestor de disposición",
     )
+    via = models.CharField(max_length=10, choices=VIA_CHOICES)
+    nota = models.CharField(max_length=255, blank=True)
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
-        related_name='movimientos_carga_registrados',
+        related_name='disposiciones_registradas',
     )
-    # En una fila CARGA: la DESCARGA que dispuso ese residuo. Mientras sea NULL,
-    # esa carga (su orden) sigue PENDIENTE de disposición — un camión acumula
-    # varias y sigue prestando servicio; cada una se salda por separado desde el
-    # plan de trabajo. SET_NULL: si el histórico borra la descarga, sus cargas
-    # vuelven a quedar pendientes solas (nada queda saldado por un fantasma).
-    descarga = models.ForeignKey(
-        'self', on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='cargas_saldadas', verbose_name="Descarga que la saldó",
-        limit_choices_to={'accion': 'DESCARGA'},
+    registrado_en = models.DateTimeField(auto_now_add=True)
+    # Si se deshizo: quién, cuándo y por qué (la orden volvió a sin disponer).
+    deshecha = models.BooleanField(default=False)
+    deshecha_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='disposiciones_deshechas',
     )
-    fecha = models.DateTimeField(auto_now_add=True)
+    deshecha_en = models.DateTimeField(null=True, blank=True)
+    deshecha_nota = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        ordering = ['-fecha']
-        verbose_name = "Movimiento de carga del vehículo"
-        verbose_name_plural = "Movimientos de carga de los vehículos"
+        ordering = ['-fecha', '-pk']
+        verbose_name = "Disposición de la orden"
+        verbose_name_plural = "Disposiciones de las órdenes"
 
     def __str__(self):
-        return f"{self.get_accion_display()} {self.vehiculo.placa}: {self.nota}"
+        return f"Orden #{self.orden_id} dispuesta el {self.fecha:%d/%m/%Y} ({self.get_via_display()})"
+
+    @property
+    def personas(self):
+        """Quiénes respondieron por ella, si vino del plan de trabajo."""
+        return list(dict.fromkeys(a.persona_nombre for a in self.asignaciones_plan.all()))
 
 
 class NovedadOperacional(models.Model):

@@ -2,8 +2,7 @@
 from django import forms
 from django.contrib.auth.models import User
 
-from gestion.models import (Dispositor, MovimientoCargaVehiculo, OrdenServicio,
-                            Proveedor, Vehiculo)
+from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 
 from .models import Asignacion, Novedad
 
@@ -30,14 +29,14 @@ class AsignacionForm(forms.Form):
     notificar = forms.BooleanField(required=False)
 
     def __init__(self, data=None, personas_ids=None, vehiculos_ids=None,
-                 cargas_ids=None, **kwargs):
+                 ordenes_ids=None, **kwargs):
         super().__init__(data, **kwargs)
         self.personas_ids = [p for p in (personas_ids or []) if str(p).isdigit()]
         self.vehiculos_ids = [v for v in (vehiculos_ids or []) if str(v).isdigit()]
-        self.cargas_ids = [c for c in (cargas_ids or []) if str(c).isdigit()]
+        self.ordenes_ids = [o for o in (ordenes_ids or []) if str(o).isdigit()]
         self.personas = []
         self.vehiculos = []
-        self.cargas = []
+        self.ordenes = []
 
     def clean(self):
         cleaned = super().clean()
@@ -57,30 +56,26 @@ class AsignacionForm(forms.Form):
 
         # ¿Con cuál placa? — solo si la actividad la pide.
         cleaned['orden'] = None
-        if campos.get('vehiculos') == 'cargados':
-            # Disponer se hace por CARGA: cada una es una orden sin disponer
-            # que el camión acumula, y aquí se eligen cuáles salen (la orden
-            # no se digita: viaja con su carga). Solo cargas aún pendientes.
-            self.cargas = list(
-                MovimientoCargaVehiculo.objects
-                .filter(pk__in=self.cargas_ids, accion='CARGA',
-                        descarga__isnull=True)
-                .select_related('vehiculo', 'orden'))
-            if not self.cargas:
+        if campos.get('ordenes') == 'pendientes':
+            # Disponer se hace POR ORDEN: se marcan las que salieron en el
+            # viaje (la orden no se digita). Solo las que siguen sin disponer.
+            self.ordenes = list(
+                OrdenServicio.objects
+                .filter(pk__in=self.ordenes_ids, estado_disposicion='PENDIENTE')
+                .prefetch_related('recorridos__vehiculo').order_by('numero_orden'))
+            if not self.ordenes:
                 self.add_error(None, "Marca cuál orden se va a disponer. Solo "
                                      "aparecen las que siguen sin disponer.")
             else:
-                # Un viaje puede saldar órdenes de placas distintas (así son
-                # los viajes reales); cada descarga queda en SU camión y la
-                # asignación lista todas las placas involucradas.
-                self.vehiculos = sorted({c.vehiculo for c in self.cargas},
-                                        key=lambda v: v.placa)
-                # Una sola orden entre las cargas → queda en la asignación;
-                # varias → la traza por orden vive en las descargas enlazadas.
-                ordenes = [c.orden for c in self.cargas if c.orden_id]
-                cleaned['orden'] = (ordenes[0]
-                                    if len({o.pk for o in ordenes}) == 1
-                                    else None)
+                # Las placas van solo de referencia (el camión de cada orden):
+                # un viaje puede llevar órdenes de placas distintas.
+                self.vehiculos = sorted(
+                    {r.vehiculo for o in self.ordenes for r in o.recorridos.all()
+                     if r.vehiculo_id},
+                    key=lambda v: v.placa)
+                # Una sola orden → queda en la asignación; varias → la traza
+                # por orden vive en las disposiciones enlazadas.
+                cleaned['orden'] = self.ordenes[0] if len(self.ordenes) == 1 else None
         elif campos.get('vehiculos'):
             self.vehiculos = list(Vehiculo.objects.filter(pk__in=self.vehiculos_ids))
             if not self.vehiculos:
@@ -114,8 +109,8 @@ class AsignacionForm(forms.Form):
     def crear(self, plan, usuario):
         """
         Crea una asignación por persona (el mismo trabajo suele ir en pareja).
-        Si la actividad dispone el residuo, el camión se descarga UNA vez —no
-        una por persona— y queda el movimiento con su orden y su responsable.
+        Si la actividad dispone el residuo, cada orden queda dispuesta UNA vez
+        —no una por persona— con su registro y su responsable.
         """
         creadas = []
         for persona in self.personas:
@@ -131,18 +126,13 @@ class AsignacionForm(forms.Form):
             asignacion.vehiculos.set(self.vehiculos)
             creadas.append(asignacion)
 
-        if creadas and creadas[0].descarga_vehiculos and self.cargas:
+        if creadas and creadas[0].dispone_ordenes and self.ordenes:
             nombres = [a.persona_nombre for a in creadas]
-            # Cada carga se salda EN SU camión: el viaje puede mezclar placas.
-            por_camion = {}
-            for carga in self.cargas:
-                por_camion.setdefault(carga.vehiculo, []).append(carga)
-            for camion, cargas in por_camion.items():
-                creadas[0].aplicar_descarga(camion, nombres, cargas)
-            # La pareja comparte la misma disposición: todos enlazan las mismas
-            # descargas, y quitar a uno no la deshace mientras quede el otro.
+            creadas[0].aplicar_disposicion(nombres, self.ordenes)
+            # La pareja comparte la misma disposición: todos enlazan los mismos
+            # registros, y quitar a uno no la deshace mientras quede el otro.
             for a in creadas[1:]:
-                a.descargas.set(creadas[0].descargas.all())
+                a.disposiciones.set(creadas[0].disposiciones.all())
         return creadas
 
 

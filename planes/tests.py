@@ -11,7 +11,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from gestion.models import (
-    Cliente, OrdenServicio, PerfilPersona, Proveedor, Recorrido, Vehiculo,
+    Cliente, DisposicionOrden, OrdenServicio, PerfilPersona, Proveedor, Recorrido,
+    Vehiculo,
 )
 
 from .forms import AsignacionForm, NovedadForm
@@ -57,21 +58,16 @@ class BasePlan(TestCase):
         self.assertTrue(self.client.login(username=usuario.username, password=CLAVE))
         return usuario
 
-    def asignar(self, personas, tipo, vehiculos=None, cargas=None, **extra):
+    def asignar(self, personas, tipo, vehiculos=None, ordenes=None, **extra):
         """
         POST de una asignación desde el panel, como lo manda el navegador.
-        Para DISPOSICION_FINAL las casillas son CARGAS pendientes (una por
-        orden sin disponer); `cargas` acepta los movimientos o el camión, en
-        cuyo caso van todas sus pendientes (lo que la pantalla marca al tacto).
+        Para DISPOSICION_FINAL las casillas son ÓRDENES sin disponer.
         """
-        ids = []
-        for c in (cargas or []):
-            ids.extend([m.pk for m in c.cargas_pendientes]
-                       if hasattr(c, 'cargas_pendientes') else [c.pk])
         datos = {'submit_asignacion': '1', 'fecha': self.hoy.isoformat(),
                  'tipo': tipo, 'personas': [p.pk for p in personas],
                  'vehiculos': [v.pk for v in (vehiculos or [])],
-                 'cargas': ids, 'orden_numero': '', 'detalle': '', 'hora': ''}
+                 'ordenes': [o.pk for o in (ordenes or [])],
+                 'orden_numero': '', 'detalle': '', 'hora': ''}
         datos.update(extra)
         return self.client.post(self.url, datos)
 
@@ -229,11 +225,10 @@ class AsignacionesTests(BasePlan):
                 self.asignar([self.conductor], tipo)
                 self.assertFalse(Asignacion.objects.filter(tipo=tipo).exists())
 
-    def test_la_disposicion_solo_admite_camiones_cargados(self):
-        self.assertFalse(self.camion.cargado)
+    def test_la_disposicion_exige_marcar_ordenes_sin_disponer(self):
         self.asignar([self.conductor], 'DISPOSICION_FINAL', [self.camion])
         self.assertFalse(Asignacion.objects.exists(),
-                         "un camión vacío no tiene nada que disponer")
+                         "sin órdenes marcadas no hay nada que disponer")
 
     def test_el_acompanamiento_y_otra_actividad_exigen_el_detalle(self):
         for tipo in ('ACOMPANAMIENTO', 'OTRA'):
@@ -278,19 +273,20 @@ class AsignacionesTests(BasePlan):
 
 class DisposicionDesdeElPlanTests(BasePlan):
     """
-    La descarga de un camión solo ocurre aquí: asignándole a alguien la
-    disposición (decisión del usuario, ago-2026). El picker ofrece únicamente
-    camiones cargados y la orden no se digita: la hereda de la carga.
+    La disposición se registra asignándole a alguien la actividad: el
+    pendiente es DE LA ORDEN (sep-2026), así que el picker ofrece órdenes sin
+    disponer, cada una queda con su registro y quitar la actividad la deja
+    otra vez sin disponer.
     """
 
     def setUp(self):
         super().setUp()
         self.entrar(self.admin)
         self.cliente = Cliente.objects.create(nombre='Cliente X', identificacion='900')
-        self.orden = self._orden_que_carga(self.camion)
+        self.orden = self._orden_pendiente(self.camion)
 
-    def _orden_que_carga(self, vehiculo):
-        """Un servicio que deja el camión cargado (sin disposición)."""
+    def _orden_pendiente(self, vehiculo):
+        """Un servicio sin disposición final: la orden queda sin disponer."""
         from gestion.models import Dispositor, Programacion, ProgramacionCuadrilla
         destino, _ = Dispositor.objects.get_or_create(
             nombre=Dispositor.DEJAR_CARRO_CARGADO, defaults={'tipo': 'INTERNO'})
@@ -300,165 +296,114 @@ class DisposicionDesdeElPlanTests(BasePlan):
         ProgramacionCuadrilla.objects.create(
             programacion=programacion, conductor=self.conductor, vehiculo=vehiculo)
         orden = programacion.convertir_en_orden(self.admin)
-        vehiculo.refresh_from_db()
-        assert vehiculo.cargado
+        assert orden.estado_disposicion == 'PENDIENTE'
         return orden
 
-    def test_asignar_la_disposicion_descarga_el_camion(self):
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        self.assertEqual(self.camion.cargado_detalle, '')
+    def refrescar(self):
+        self.orden.refresh_from_db()
+        return self.orden
 
-    def test_la_orden_no_se_digita_la_hereda_de_la_carga(self):
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])
-        self.assertEqual(Asignacion.objects.get().orden, self.orden)
+    def test_asignar_la_disposicion_deja_la_orden_dispuesta(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden])
+        self.assertEqual(self.refrescar().estado_disposicion, 'DISPUESTA')
+        registro = self.orden.disposicion_vigente
+        self.assertEqual(registro.via, 'PLAN')
+        self.assertEqual(registro.fecha, self.hoy)
+        self.assertEqual(registro.registrado_por, self.admin)
+        self.assertIn('Carlos Pérez', registro.nota)
+        asignacion = Asignacion.objects.get()
+        self.assertEqual(asignacion.orden, self.orden, "una sola orden: queda en la asignación")
+        self.assertEqual(list(asignacion.disposiciones.all()), [registro])
+        self.assertEqual([v.placa for v in asignacion.vehiculos.all()], ['WHB123'],
+                         "la placa de la orden queda solo de referencia")
 
-    def test_el_movimiento_registra_responsable_orden_y_gestor(self):
-        from gestion.models import Dispositor, MovimientoCargaVehiculo
+    def test_el_registro_guarda_el_gestor(self):
+        from gestion.models import Dispositor
         gestor = Dispositor.objects.create(nombre='Relleno Doña Juana')
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion],
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden],
                      dispositor=gestor.pk)
-        movimiento = MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').get()
-        self.assertEqual(movimiento.orden, self.orden)
-        self.assertEqual(movimiento.dispositor, gestor)
-        self.assertEqual(movimiento.registrado_por, self.admin)
-        self.assertIn('Carlos Pérez', movimiento.nota)
-        self.assertIn(f"{self.hoy:%d/%m/%Y}", movimiento.nota)
+        self.assertEqual(self.refrescar().disposicion_vigente.dispositor, gestor)
 
-    def test_asignarla_a_dos_personas_descarga_el_camion_una_sola_vez(self):
-        from gestion.models import MovimientoCargaVehiculo
+    def test_asignarla_a_dos_personas_dispone_la_orden_una_sola_vez(self):
         self.asignar([self.conductor, self.ayudante], 'DISPOSICION_FINAL',
-                     cargas=[self.camion])
+                     ordenes=[self.orden])
         self.assertEqual(Asignacion.objects.count(), 2, "cada uno tiene su fila")
-        self.assertEqual(
-            MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').count(), 1)
+        self.assertEqual(DisposicionOrden.objects.count(), 1)
+        primera, segunda = Asignacion.objects.order_by('pk')
+        self.assertEqual(set(primera.disposiciones.all()), set(segunda.disposiciones.all()))
 
-    def test_no_se_puede_disponer_un_camion_vacio(self):
-        vacio = Vehiculo.objects.create(placa='VAC000', marca='m', modelo='2020',
-                                        capacidad='1')
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[vacio])
-        self.assertFalse(Asignacion.objects.filter(vehiculos=vacio).exists())
+    def test_una_orden_ya_dispuesta_no_se_ofrece_ni_se_acepta(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden])
+        self.asignar([self.ayudante], 'DISPOSICION_FINAL', ordenes=[self.orden])
+        self.assertEqual(Asignacion.objects.count(), 1, "la segunda no pasó")
+        contenido = self.client.get(self.url).content.decode()
+        self.assertNotIn(f'name="ordenes" value="{self.orden.pk}"', contenido)
 
-    def test_un_viaje_puede_saldar_ordenes_de_placas_distintas(self):
-        """
-        Regla nueva (sep-2026): se marcan las ÓRDENES del viaje sin importar
-        el camión (así son los viajes reales). Cada descarga queda registrada
-        en el camión que llevaba esa carga, y la asignación lista todas las
-        placas involucradas.
-        """
+    def test_un_viaje_puede_disponer_ordenes_de_placas_distintas(self):
         otro = Vehiculo.objects.create(placa='OTR222', marca='m', modelo='2020',
                                        capacidad='1')
-        ajena = self._orden_que_carga(otro)
-        self.asignar([self.conductor], 'DISPOSICION_FINAL',
-                     cargas=[self.camion, otro])
+        ajena = self._orden_pendiente(otro)
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden, ajena])
         asignacion = Asignacion.objects.get()
-        self.assertEqual({v.placa for v in asignacion.vehiculos.all()},
-                         {self.camion.placa, 'OTR222'})
-        self.assertEqual(asignacion.descargas.count(), 2)
-        for descarga in asignacion.descargas.all():
-            esperado = otro if descarga.orden == ajena else self.camion
-            self.assertEqual(descarga.vehiculo, esperado,
-                             "la descarga vive en el camión de SU carga")
-        for camion in (self.camion, otro):
-            camion.refresh_from_db()
-            self.assertFalse(camion.cargado)
+        self.assertEqual({v.placa for v in asignacion.vehiculos.all()}, {'WHB123', 'OTR222'})
+        self.assertEqual(asignacion.disposiciones.count(), 2, "un registro por orden")
+        self.assertIsNone(asignacion.orden, "varias órdenes: la traza vive en los registros")
+        self.assertEqual(asignacion.ordenes_dispuestas,
+                         sorted([self.orden.numero_orden, ajena.numero_orden]))
+        for orden in (self.orden, ajena):
+            orden.refresh_from_db()
+            self.assertEqual(orden.estado_disposicion, 'DISPUESTA')
 
-    def test_quitar_un_viaje_mixto_revive_cada_carga_en_su_camion(self):
-        otro = Vehiculo.objects.create(placa='OTR222', marca='m', modelo='2020',
-                                       capacidad='1')
-        self._orden_que_carga(otro)
-        self.asignar([self.conductor], 'DISPOSICION_FINAL',
-                     cargas=[self.camion, otro])
+    def test_quitar_la_asignacion_deja_la_orden_otra_vez_sin_disponer(self):
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden])
+        registro = self.refrescar().disposicion_vigente
         asignacion = Asignacion.objects.get()
         self.client.post(reverse('planes:eliminar_asignacion', args=[asignacion.pk]),
                          {'fecha': self.hoy.isoformat()})
-        for camion in (self.camion, otro):
-            camion.refresh_from_db()
-            self.assertTrue(camion.cargado,
-                            "cada residuo volvió al camión que lo llevaba")
+        self.assertEqual(self.refrescar().estado_disposicion, 'PENDIENTE',
+                         "si la disposición no se hizo, el residuo sigue pendiente")
+        registro.refresh_from_db()
+        self.assertTrue(registro.deshecha, "el historial no se borra, se marca")
+        self.assertIn('Se quitó del plan', registro.deshecha_nota)
+        self.assertIsNone(self.orden.disposicion_vigente)
 
-    def test_quitar_la_asignacion_devuelve_el_camion_a_cargado(self):
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])
-        asignacion = Asignacion.objects.get()
-        self.client.post(reverse('planes:eliminar_asignacion', args=[asignacion.pk]),
-                         {'fecha': self.hoy.isoformat()})
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado,
-                        "si la disposición no se hizo, el residuo sigue ahí")
-        self.assertIn(str(self.orden.numero_orden), self.camion.cargado_detalle)
-
-    def test_quitar_a_uno_de_dos_encargados_no_recarga_el_camion(self):
+    def test_quitar_a_uno_de_dos_encargados_no_deshace_la_disposicion(self):
         self.asignar([self.conductor, self.ayudante], 'DISPOSICION_FINAL',
-                     cargas=[self.camion])
+                     ordenes=[self.orden])
         una = Asignacion.objects.first()
         self.client.post(reverse('planes:eliminar_asignacion', args=[una.pk]),
                          {'fecha': self.hoy.isoformat()})
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado, "el otro sigue encargado de disponerlo")
+        self.assertEqual(self.refrescar().estado_disposicion, 'DISPUESTA',
+                         "el otro sigue encargado de disponerla")
 
-    def test_el_tablero_ofrece_la_placa_con_sus_cargas_pendientes(self):
-        contexto = self.client.get(self.url).context
-        placa = [v for v in contexto['vehiculos'] if v.pk == self.camion.pk][0]
-        self.assertTrue(placa.cargado)
-        self.assertEqual([c.orden_id for c in placa.pendientes],
-                         [self.orden.numero_orden])
-
-    def test_la_pantalla_ofrece_cada_carga_como_casilla(self):
-        contenido = self.client.get(self.url).content.decode()
-        self.assertIn('name="cargas"', contenido)
-        self.assertIn(f'#{self.orden.numero_orden}', contenido)
-        self.assertIn('sin disponer', contenido)
-
-    def test_disponer_una_de_dos_cargas_deja_la_otra_pendiente(self):
-        """El corazón del cambio (ago-2026): se salda POR ORDEN, no por camión."""
-        segunda = self._orden_que_carga(self.camion)
-        carga_primera = self.camion.cargas_pendientes.first()
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[carga_primera])
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "la otra orden sigue sin disponer")
-        self.assertEqual([c.orden_id for c in self.camion.cargas_pendientes],
-                         [segunda.numero_orden])
-        self.assertEqual(Asignacion.objects.get().orden, self.orden,
-                         "la asignación quedó con la orden que saldó")
-
-    def test_disponer_varias_cargas_junta_sus_ordenes_en_la_asignacion(self):
-        segunda = self._orden_que_carga(self.camion)
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        asignacion = Asignacion.objects.get()
-        self.assertEqual(asignacion.ordenes_dispuestas,
-                         sorted([self.orden.numero_orden, segunda.numero_orden]))
-        self.assertEqual(asignacion.descargas.count(), 2,
-                         "cada orden salió con SU descarga: trazabilidad por orden")
-
-    def test_quitar_la_asignacion_revive_solo_sus_ordenes(self):
-        """Dos disposiciones distintas: deshacer una no toca la otra."""
-        segunda = self._orden_que_carga(self.camion)
-        primera_carga = self.camion.cargas_pendientes.first()
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[primera_carga])
-        self.asignar([self.ayudante], 'DISPOSICION_FINAL', cargas=[self.camion])
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado, "las dos quedaron dispuestas")
-
+    def test_quitar_una_asignacion_revive_solo_sus_ordenes(self):
+        segunda = self._orden_pendiente(self.camion)
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden])
+        self.asignar([self.ayudante], 'DISPOSICION_FINAL', ordenes=[segunda])
         de_la_primera = Asignacion.objects.get(persona=self.conductor)
-        self.client.post(reverse('planes:eliminar_asignacion',
-                                 args=[de_la_primera.pk]),
+        self.client.post(reverse('planes:eliminar_asignacion', args=[de_la_primera.pk]),
                          {'fecha': self.hoy.isoformat()})
-        self.camion.refresh_from_db()
-        self.assertEqual([c.orden_id for c in self.camion.cargas_pendientes],
-                         [self.orden.numero_orden],
-                         "revive la orden de ESA asignación; la otra sigue saldada")
-        self.assertNotIn(str(segunda.numero_orden),
-                         str([c.orden_id for c in self.camion.cargas_pendientes]))
+        self.assertEqual(self.refrescar().estado_disposicion, 'PENDIENTE')
+        segunda.refresh_from_db()
+        self.assertEqual(segunda.estado_disposicion, 'DISPUESTA', "la otra sigue dispuesta")
+
+    def test_el_tablero_ofrece_cada_orden_sin_disponer_como_casilla(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual([o.pk for o in respuesta.context['ordenes_pendientes']],
+                         [self.orden.pk])
+        contenido = respuesta.content.decode()
+        self.assertIn(f'name="ordenes" value="{self.orden.pk}"', contenido)
+        self.assertIn(f'#{self.orden.numero_orden}', contenido)
+        self.assertIn('Cliente X', contenido)
+        self.assertNotIn('name="cargas"', contenido)
 
     def test_la_disposicion_sale_en_el_plan_y_en_su_pdf(self):
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[self.camion])
+        self.asignar([self.conductor], 'DISPOSICION_FINAL', ordenes=[self.orden])
         contexto = self.client.get(self.url).context
         fila = [f for g in contexto['grupos'] for f in g['filas']
                 if f['persona'] == self.conductor][0]
         self.assertEqual(fila['asignaciones'][0].tipo, 'DISPOSICION_FINAL')
+        self.assertContains(self.client.get(self.url), f'#{self.orden.numero_orden}')
         respuesta = self.client.get(
             reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))
         self.assertTrue(respuesta.content.startswith(b'%PDF'))
@@ -803,273 +748,6 @@ class PdfYRegistroTests(BasePlan):
         self.assertEqual(respuesta.context['fecha'], self.hoy)
 
 
-class ImportarDisposicionesTests(BasePlan):
-    """
-    El comando que carga en el plan las disposiciones que ya se hicieron pero
-    nunca se registraron (venían en un Excel). Resuelve datos abreviados
-    —placa de 3 letras, nombre de pila, «SOLO» sin ayudante— contra la base.
-    """
-
-    def setUp(self):
-        super().setUp()
-        import tempfile
-        self.carpeta = tempfile.mkdtemp()
-        self.cli = Cliente.objects.create(nombre='CREPES & WAFFLES', identificacion='900')
-        self.orden = OrdenServicio.objects.create(
-            cliente=self.cli, asesor=self.admin, direccion_servicio='x', descripcion='y')
-        # El conductor y el ayudante de BasePlan se llaman Carlos Pérez y Luis Gómez.
-
-    def csv(self, *filas, cabecera='FECHA,CLIENTE,VEHÍCULO,ORDEN,CONDUCTOR,AYUDANTE'):
-        import os
-        ruta = os.path.join(self.carpeta, 'disposiciones.csv')
-        with open(ruta, 'w', encoding='utf-8-sig') as f:
-            f.write(cabecera + '\n')
-            for fila in filas:
-                f.write(fila + '\n')
-        return ruta
-
-    def correr(self, ruta, **opciones):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('importar_disposiciones', ruta, stdout=salida, stderr=salida, **opciones)
-        return salida.getvalue()
-
-    def fila(self, **cambios):
-        datos = {'fecha': '02/08/2026', 'cliente': 'CREPES', 'vehiculo': 'WHB',
-                 'orden': f'#{self.orden.pk}', 'conductor': 'CARLOS', 'ayudante': 'LUIS'}
-        datos.update(cambios)
-        return ','.join([datos['fecha'], datos['cliente'], datos['vehiculo'],
-                         datos['orden'], datos['conductor'], datos['ayudante']])
-
-    # ---------- vista previa ----------
-
-    def test_por_defecto_no_escribe_nada(self):
-        salida = self.correr(self.csv(self.fila()))
-        self.assertIn('Vista previa', salida)
-        self.assertFalse(Asignacion.objects.exists())
-        self.assertFalse(PlanDia.objects.exists())
-
-    # ---------- lo que deja ----------
-
-    def test_registra_la_disposicion_para_el_conductor_y_su_ayudante(self):
-        self.correr(self.csv(self.fila()), confirmar=True)
-        plan = PlanDia.objects.get()
-        self.assertEqual(plan.fecha, datetime.date(2026, 8, 2))
-        asignaciones = Asignacion.objects.all()
-        self.assertEqual(asignaciones.count(), 2)
-        for a in asignaciones:
-            self.assertEqual(a.tipo, 'DISPOSICION_FINAL')
-            self.assertEqual(a.orden, self.orden)
-            self.assertEqual(a.placas, 'WHB123')
-        self.assertCountEqual([a.persona for a in asignaciones],
-                              [self.conductor, self.ayudante])
-
-    def test_solo_significa_sin_ayudante(self):
-        self.correr(self.csv(self.fila(ayudante='SOLO')), confirmar=True)
-        self.assertEqual(Asignacion.objects.count(), 1)
-        self.assertEqual(Asignacion.objects.get().persona, self.conductor)
-
-    def test_el_movimiento_queda_fechado_el_dia_real_no_el_de_la_importacion(self):
-        from django.utils import timezone as tz
-        from gestion.models import MovimientoCargaVehiculo
-        self.correr(self.csv(self.fila()), confirmar=True)
-        movimiento = MovimientoCargaVehiculo.objects.get()
-        self.assertEqual(movimiento.accion, 'DESCARGA')
-        self.assertEqual(movimiento.orden, self.orden)
-        self.assertEqual(tz.localtime(movimiento.fecha).date(), datetime.date(2026, 8, 2))
-        self.assertIn('histórico', movimiento.nota)
-
-    def test_un_solo_movimiento_por_disposicion_aunque_vayan_dos_personas(self):
-        from gestion.models import MovimientoCargaVehiculo
-        self.correr(self.csv(self.fila()), confirmar=True)
-        self.assertEqual(Asignacion.objects.count(), 2)
-        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
-
-    def test_no_toca_el_estado_de_carga_de_hoy(self):
-        """El histórico no decide la foto de hoy; el comando lo advierte."""
-        self.camion.cargado = True
-        self.camion.cargado_detalle = 'Orden #22999'
-        self.camion.save()
-        salida = self.correr(self.csv(self.fila()), confirmar=True)
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        self.assertIn('no se tocó', salida)
-        self.assertIn(self.camion.placa, salida)
-
-    def test_correrlo_dos_veces_no_duplica(self):
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-        salida = self.correr(ruta, confirmar=True)
-        self.assertEqual(Asignacion.objects.count(), 2)
-        self.assertEqual(PlanDia.objects.count(), 1)
-        self.assertIn('ya estaban', salida)
-
-    def test_varias_disposiciones_del_mismo_dia_comparten_el_plan(self):
-        otra = OrdenServicio.objects.create(
-            cliente=self.cli, asesor=self.admin, direccion_servicio='x', descripcion='y')
-        self.correr(self.csv(self.fila(),
-                             self.fila(orden=f'#{otra.pk}', ayudante='SOLO')),
-                    confirmar=True)
-        self.assertEqual(PlanDia.objects.count(), 1)
-        self.assertEqual(Asignacion.objects.count(), 3)
-
-    # ---------- deshacer ----------
-
-    def test_deshacer_quita_lo_que_la_importacion_creo(self):
-        from gestion.models import MovimientoCargaVehiculo
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-        self.assertEqual(Asignacion.objects.count(), 2)
-
-        self.correr(ruta, deshacer=True, confirmar=True)
-        self.assertFalse(Asignacion.objects.exists())
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-        self.assertFalse(PlanDia.objects.exists(),
-                         "el plan del día que quedó vacío se va con ella")
-
-    def test_deshacer_por_defecto_no_borra_nada(self):
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-        salida = self.correr(ruta, deshacer=True)
-        self.assertIn('Vista previa', salida)
-        self.assertEqual(Asignacion.objects.count(), 2)
-
-    def test_deshacer_respeta_lo_que_se_puso_a_mano(self):
-        """La reversa es de ESTA importación, no del plan de esos días."""
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-        plan = PlanDia.objects.get()
-        plan.notas = 'Reunión a las 7'
-        plan.save()
-        a_mano = Asignacion.objects.create(
-            plan=plan, persona=self.conductor, tipo='LAVADA',
-            registrado_por=self.admin, detalle='puesto a mano')
-        a_mano.vehiculos.set([self.camion])
-
-        self.correr(ruta, deshacer=True, confirmar=True)
-
-        self.assertEqual(list(Asignacion.objects.all()), [a_mano])
-        plan.refresh_from_db()
-        self.assertEqual(plan.notas, 'Reunión a las 7')
-
-    def test_deshacer_dos_veces_no_se_queja(self):
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-        self.correr(ruta, deshacer=True, confirmar=True)
-        salida = self.correr(ruta, deshacer=True, confirmar=True)
-        self.assertIn('No hay nada de esta importación', salida)
-
-    def test_deshacer_no_toca_disposiciones_registradas_desde_el_plan(self):
-        """
-        Una disposición asignada de verdad desde el tablero no lleva la marca
-        del importador, así que la reversa la deja en paz.
-        """
-        from gestion.models import Dispositor, Programacion, ProgramacionCuadrilla
-        ruta = self.csv(self.fila())
-        self.correr(ruta, confirmar=True)
-
-        # Una disposición hecha por la vía normal, sobre un camión cargado.
-        destino, _ = Dispositor.objects.get_or_create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, defaults={'tipo': 'INTERNO'})
-        otro = Vehiculo.objects.create(placa='OTR999', marca='m', modelo='2020',
-                                       capacidad='1')
-        programacion = Programacion.objects.create(
-            cliente=self.cli, fecha=self.hoy, requiere_disposicion_final='NO',
-            dispositor_final=destino)
-        ProgramacionCuadrilla.objects.create(
-            programacion=programacion, conductor=self.conductor, vehiculo=otro)
-        programacion.convertir_en_orden(self.admin)
-        self.entrar(self.admin)      # el tablero exige sesión
-        self.asignar([self.conductor], 'DISPOSICION_FINAL', cargas=[otro])
-        de_verdad = Asignacion.objects.exclude(detalle='Registro histórico').get()
-
-        self.correr(ruta, deshacer=True, confirmar=True)
-        self.assertIn(de_verdad, Asignacion.objects.all())
-
-    # ---------- lo que no deja pasar ----------
-
-    def test_una_orden_que_no_existe_frena_la_importacion(self):
-        from django.core.management.base import CommandError
-        with self.assertRaises(CommandError):
-            self.correr(self.csv(self.fila(orden='#99999')), confirmar=True)
-        self.assertFalse(Asignacion.objects.exists())
-
-    def test_una_placa_ambigua_frena_la_importacion(self):
-        from django.core.management.base import CommandError
-        Vehiculo.objects.create(placa='WHB999', marca='m', modelo='2020', capacidad='1')
-        with self.assertRaises(CommandError) as caso:
-            self.correr(self.csv(self.fila(vehiculo='WHB')), confirmar=True)
-        self.assertFalse(Asignacion.objects.exists())
-
-    def test_un_nombre_que_no_esta_frena_la_importacion(self):
-        from django.core.management.base import CommandError
-        with self.assertRaises(CommandError):
-            self.correr(self.csv(self.fila(conductor='FULANO')), confirmar=True)
-        self.assertFalse(Asignacion.objects.exists())
-
-    def test_quien_esta_con_otro_rol_se_acepta_pero_se_avisa(self):
-        """
-        Pasó de verdad al importar: OSCAR venía como conductor en el Excel y
-        en el sistema está registrado como ayudante. Ese día llevó el camión,
-        así que la fila entra —el histórico manda— pero avisando.
-        """
-        oscar = self.persona('oscar', 'Ayudantes', 'OSCAR DARIO', 'BALDOVINO')
-        salida = self.correr(self.csv(self.fila(conductor='OSCAR', ayudante='SOLO')),
-                             confirmar=True)
-        self.assertIn('OJO', salida)
-        self.assertIn('está registrado como Ayudantes', salida)
-        self.assertEqual(Asignacion.objects.get().persona, oscar)
-
-    def test_quien_ya_se_retiro_tambien_entra_avisando(self):
-        """En agosto trabajaba; que hoy esté retirado no borra lo que hizo."""
-        retirado = self.persona('jeferson', 'Ayudantes', 'JEFERSON', 'MURILLO')
-        PerfilPersona.objects.filter(usuario=retirado).update(retirado=True)
-        salida = self.correr(self.csv(self.fila(ayudante='JEFERSON')), confirmar=True)
-        self.assertIn('retirado', salida)
-        self.assertIn(retirado, [a.persona for a in Asignacion.objects.all()])
-
-    def test_un_nombre_ambiguo_fuera_del_rol_sigue_frenando(self):
-        from django.core.management.base import CommandError
-        self.persona('juan1', 'Ayudantes', 'JUAN', 'PEREZ')
-        self.persona('juan2', 'Ayudantes', 'JUAN', 'GOMEZ')
-        with self.assertRaises(CommandError):
-            self.correr(self.csv(self.fila(conductor='JUAN')), confirmar=True)
-        self.assertFalse(Asignacion.objects.exists())
-
-    def test_si_no_existe_el_error_lista_los_que_si_hay(self):
-        salida = self.correr(self.csv(self.fila(conductor='PEDRO')),
-                             omitir_errores=True)
-        self.assertIn('no está registrado como conductor', salida)
-        self.assertIn('Carlos', salida, "debe listar los conductores que sí hay")
-
-    def test_con_omitir_errores_entra_lo_que_si_resolvio(self):
-        self.correr(self.csv(self.fila(), self.fila(conductor='FULANO')),
-                    confirmar=True, omitir_errores=True)
-        self.assertEqual(Asignacion.objects.count(), 2)
-
-    def test_el_nombre_se_busca_dentro_de_su_rol(self):
-        """OSCAR puede ser un conductor y otro OSCAR un ayudante."""
-        conductor = self.persona('oscarc', 'Conductores', 'OSCAR', 'PEÑA')
-        ayudante = self.persona('oscara', 'Ayudantes', 'OSCAR', 'TAMAYO')
-        self.correr(self.csv(self.fila(conductor='OSCAR', ayudante='OSCAR')),
-                    confirmar=True)
-        personas = {a.persona for a in Asignacion.objects.all()}
-        self.assertEqual(personas, {conductor, ayudante})
-
-    def test_avisa_si_el_cliente_del_csv_no_es_el_de_la_orden(self):
-        salida = self.correr(self.csv(self.fila(cliente='OTRO CLIENTE')))
-        self.assertIn('OJO', salida)
-        self.assertIn('CREPES & WAFFLES', salida)
-
-    def test_un_csv_sin_las_columnas_necesarias_no_corre(self):
-        from django.core.management.base import CommandError
-        ruta = self.csv('02/08/2026,CREPES', cabecera='FECHA,CLIENTE')
-        with self.assertRaises(CommandError) as caso:
-            self.correr(ruta)
-        self.assertIn('faltan columnas', str(caso.exception))
-
-
 class FichaDelDiaTests(BasePlan):
     """
     El popup del tablero: al pinchar a alguien con plan, su hoja del día —
@@ -1217,191 +895,6 @@ class FichaDelDiaTests(BasePlan):
         return reverse('planes:plan_dia')
 
 
-class RegistrarDisposicionesTests(TestCase):
-    """
-    El comando `registrar_disposiciones`: deja cada orden del reporte en el
-    estado que el reporte dice, sin tocar ni duplicar lo que la empresa ya
-    registró a mano en el plan.
-    """
-
-    PERSONAS = [('william', 'Conductores', 'William', 'Gómez'),
-                ('javier', 'Conductores', 'Javier', 'Rincón'),
-                ('alonso', 'Conductores', 'Alonso', 'Mora'),
-                ('oscar', 'Conductores', 'Oscar', 'Duarte'),
-                # En el sistema real es JEFERSON (una F); el reporte trae doble F.
-                ('jefferson', 'Ayudantes', 'Jeferson', 'Villegas'),
-                ('julio', 'Ayudantes', 'Julio', 'Castro'),
-                ('david', 'Ayudantes', 'David', 'Lara')]
-    PLACAS = ['OBC727', 'WGY347', 'WNO623', 'OBB178']
-
-    def setUp(self):
-        self.gente = {u: BasePlan.persona(u, rol, nombre, apellido)
-                      for u, rol, nombre, apellido in self.PERSONAS}
-        self.camiones = {p: Vehiculo.objects.create(
-            placa=p, marca='Kenworth', modelo='2019', capacidad='10 m³')
-            for p in self.PLACAS}
-        self.cliente = Cliente.objects.create(
-            nombre='CREPES Y WAFFLES S.A', identificacion='900111222-1')
-        self.asesor = BasePlan.persona('asesora', 'Asesores', 'Ana', 'Ruiz')
-
-    def orden_cargada(self, numero, placa):
-        """Una orden con su carga PENDIENTE viva en ese camión."""
-        from gestion.models import MovimientoCargaVehiculo
-        orden = OrdenServicio.objects.create(
-            numero_orden=numero, cliente=self.cliente, asesor=self.asesor,
-            direccion_servicio='Cra 1', descripcion='Succión')
-        carga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camiones[placa], accion='CARGA',
-            nota=f'orden #{numero}', orden=orden)
-        self.camiones[placa].sincronizar_carga()
-        return carga
-
-    def viaje_de_nancy(self, fecha, *usuarios):
-        """Un viaje ya registrado a mano en el plan (sin la marca del comando)."""
-        plan = PlanDia.objects.get_or_create(fecha=fecha)[0]
-        return [Asignacion.objects.create(
-            plan=plan, persona=self.gente[u], tipo='DISPOSICION_FINAL')
-            for u in usuarios]
-
-    def correr(self, *argumentos):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('registrar_disposiciones', *argumentos, stdout=salida)
-        return salida.getvalue()
-
-    def test_la_vista_previa_no_escribe_nada(self):
-        carga = self.orden_cargada(22204, 'OBC727')
-        salida = self.correr()
-        self.assertIn('Vista previa', salida)
-        self.assertEqual(Asignacion.objects.count(), 0)
-        carga.refresh_from_db()
-        self.assertIsNone(carga.descarga)
-
-    def test_sin_viaje_ese_dia_lo_crea_una_sola_vez_y_salda(self):
-        # Las dos órdenes del 01/09 comparten el mismo viaje.
-        una = self.orden_cargada(22260, 'WGY347')
-        otra = self.orden_cargada(22246, 'WGY347')
-        self.correr('--confirmar')
-        plan = PlanDia.objects.get(fecha=datetime.date(2026, 9, 1))
-        asignaciones = list(plan.asignaciones.all())
-        self.assertEqual(len(asignaciones), 2, "un solo viaje para las dos órdenes")
-        self.assertEqual({a.persona.first_name for a in asignaciones},
-                         {'William', 'Julio'})
-        una.refresh_from_db(); otra.refresh_from_db()
-        self.assertIsNotNone(una.descarga)
-        self.assertEqual(
-            timezone.localtime(una.descarga.fecha).date(), datetime.date(2026, 9, 1))
-        # Ambas personas enlazan ambas descargas.
-        for a in asignaciones:
-            self.assertEqual(a.descargas.count(), 2)
-        self.camiones['WGY347'].refresh_from_db()
-        self.assertFalse(self.camiones['WGY347'].cargado)
-
-    def test_con_viaje_ya_registrado_le_anade_la_descarga_sin_duplicarlo(self):
-        # Nancy registró el viaje del 08/08 con su gente; falta saldar la #22214.
-        de_nancy = self.viaje_de_nancy(datetime.date(2026, 8, 8),
-                                       'william', 'jefferson')
-        carga = self.orden_cargada(22214, 'OBB178')
-        salida = self.correr('--confirmar')
-        self.assertIn('se AÑADE al viaje ya registrado', salida)
-        carga.refresh_from_db()
-        # La descarga vive en el camión de la carga y cuelga del viaje de Nancy.
-        self.assertEqual(carga.descarga.vehiculo.placa, 'OBB178')
-        for a in de_nancy:
-            self.assertIn(carga.descarga, a.descargas.all())
-        self.assertEqual(Asignacion.objects.count(), 2, "no se creó otro viaje")
-
-    def test_una_orden_ya_saldada_cuenta_como_al_dia(self):
-        from gestion.models import MovimientoCargaVehiculo
-        carga = self.orden_cargada(22204, 'OBC727')
-        vieja = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camiones['OBC727'], accion='DESCARGA', nota='ya salió',
-            orden=carga.orden)
-        carga.descarga = vieja
-        carga.save(update_fields=['descarga'])
-        salida = self.correr('--confirmar')
-        carga.refresh_from_db()
-        self.assertEqual(carga.descarga, vieja)
-        self.assertNotIn('#22204', salida.split('Contraste')[0])
-
-    def test_una_orden_duplicada_se_avisa_y_no_se_toca(self):
-        from gestion.models import MovimientoCargaVehiculo
-        carga = self.orden_cargada(22204, 'OBC727')
-        vieja = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camiones['OBC727'], accion='DESCARGA', nota='ya salió',
-            orden=carga.orden)
-        carga.descarga = vieja
-        carga.save(update_fields=['descarga'])
-        # La revivió un deshacer: segunda carga pendiente de la misma orden.
-        pendiente = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camiones['OBC727'], accion='CARGA',
-            nota='revivida', orden=carga.orden)
-        salida = self.correr('--confirmar')
-        self.assertIn('reparar_cargas_pendientes', salida)
-        pendiente.refresh_from_db()
-        self.assertIsNone(pendiente.descarga)
-
-    def test_sin_carga_no_hay_nada_que_saldar(self):
-        OrdenServicio.objects.create(
-            numero_orden=22258, cliente=self.cliente, asesor=self.asesor,
-            direccion_servicio='Cra 1', descripcion='Succión')
-        salida = self.correr('--confirmar')
-        self.assertIn('ya salió por otra vía', salida)
-        self.assertEqual(Asignacion.objects.count(), 0)
-
-    def test_la_dispuesta_en_gestor_se_salda_sin_viaje(self):
-        from gestion.models import Dispositor
-        # Las migraciones ya siembran a ENERGY ORGANIC SAS: se usa ese.
-        gestor = Dispositor.objects.get(nombre__icontains='ENERGY')
-        carga = self.orden_cargada(22206, 'OBC727')
-        self.correr('--confirmar')
-        carga.refresh_from_db()
-        self.assertEqual(carga.descarga.dispositor, gestor)
-        self.assertEqual(timezone.localtime(carga.descarga.fecha).date(),
-                         datetime.date(2026, 8, 4))
-        self.assertEqual(Asignacion.objects.count(), 0, "al gestor no hay viaje")
-
-    def test_si_una_persona_no_resuelve_no_se_escribe_nada(self):
-        from django.core.management.base import CommandError
-        self.gente['julio'].delete()
-        self.orden_cargada(22246, 'WGY347')
-        with self.assertRaises(CommandError):
-            self.correr('--confirmar')
-        self.assertEqual(Asignacion.objects.count(), 0)
-
-    def test_correrlo_dos_veces_no_repite(self):
-        self.orden_cargada(22260, 'WGY347')
-        self.correr('--confirmar')
-        salida = self.correr('--confirmar')
-        self.assertIn('Nada por hacer', salida)
-        self.assertEqual(Asignacion.objects.count(), 2)
-
-    def test_deshacer_revierte_lo_suyo_y_conserva_lo_de_nancy(self):
-        de_nancy = self.viaje_de_nancy(datetime.date(2026, 8, 8),
-                                       'william', 'jefferson')
-        ajena = self.orden_cargada(22214, 'OBB178')
-        mia = self.orden_cargada(22260, 'WGY347')
-        self.correr('--confirmar')
-        self.correr('--deshacer', '--confirmar')
-        ajena.refresh_from_db(); mia.refresh_from_db()
-        self.assertIsNone(ajena.descarga)
-        self.assertIsNone(mia.descarga)
-        # El viaje de Nancy sigue; el creado por el comando (01/09) se fue.
-        self.assertEqual(set(Asignacion.objects.all()), set(de_nancy))
-        self.assertFalse(PlanDia.objects.filter(
-            fecha=datetime.date(2026, 9, 1)).exists())
-        self.camiones['OBB178'].refresh_from_db()
-        self.assertTrue(self.camiones['OBB178'].cargado)
-
-    def test_el_contraste_reclama_las_pendientes_que_faltan(self):
-        salida = self.correr()
-        self.assertIn('#22240', salida)
-        self.assertIn('registrar_cargas_pendientes', salida)
-        self.orden_cargada(22240, 'WNO623')
-        self.assertIn('✓ Sin disponer, como se espera: #22240', self.correr())
-
-
 class CorreoDeAsignacionTests(BasePlan):
     """
     La casilla «Avisar por correo a los asignados» del panel: marcada, cada
@@ -1469,139 +962,3 @@ class CorreoDeAsignacionTests(BasePlan):
         self.assertContains(respuesta, 'Avisar por correo a los asignados')
 
 
-class ReiniciarDisposicionesTests(TestCase):
-    """
-    El comando que borra las disposiciones del plan y deja pendientes las
-    órdenes del reporte: la oficina las va a re-registrar desde el plan.
-    """
-
-    def setUp(self):
-        from gestion.models import Cliente
-        self.persona_juan = BasePlan.persona('juan', 'Conductores', 'Juan', 'Rojas')
-        self.camion = Vehiculo.objects.create(
-            placa='RIN111', marca='K', modelo='2019', capacidad='10')
-        self.otro = Vehiculo.objects.create(
-            placa='RIN222', marca='K', modelo='2019', capacidad='10')
-        self.cliente = Cliente.objects.create(nombre='CREPES', identificacion='900-1')
-        self.asesor = BasePlan.persona('asesora', 'Asesores', 'Ana', 'Ruiz')
-
-    def orden(self, numero):
-        return OrdenServicio.objects.create(
-            numero_orden=numero, cliente=self.cliente, asesor=self.asesor,
-            direccion_servicio='x', descripcion='x')
-
-    def carga(self, numero, camion=None):
-        from gestion.models import MovimientoCargaVehiculo
-        return MovimientoCargaVehiculo.objects.create(
-            vehiculo=camion or self.camion, accion='CARGA',
-            nota=f'orden #{numero}', orden=self.orden(numero))
-
-    def viaje(self, fecha, *cargas):
-        """Un viaje del plan que saldó esas cargas (como los de Nancy)."""
-        plan = PlanDia.objects.get_or_create(fecha=fecha)[0]
-        asignacion = Asignacion.objects.create(
-            plan=plan, persona=self.persona_juan, tipo='DISPOSICION_FINAL')
-        asignacion.aplicar_descarga(
-            cargas[0].vehiculo, ['Juan'], list(cargas))
-        return asignacion
-
-    def correr(self, *argumentos):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('reiniciar_disposiciones', *argumentos, stdout=salida)
-        return salida.getvalue()
-
-    def test_la_vista_previa_lista_y_no_borra(self):
-        carga = self.carga(22204)
-        self.viaje(datetime.date(2026, 8, 3), carga)
-        salida = self.correr()
-        self.assertIn('Juan Rojas', salida)
-        self.assertIn('#22204', salida)
-        self.assertIn('NO tiene reversa', salida)
-        self.assertIn('Vista previa', salida)
-        self.assertEqual(Asignacion.objects.count(), 1)
-        carga.refresh_from_db()
-        self.assertIsNotNone(carga.descarga)
-
-    def test_borra_los_viajes_y_revive_las_cargas(self):
-        carga = self.carga(22204)
-        self.viaje(datetime.date(2026, 8, 3), carga)
-        self.correr('--confirmar')
-        self.assertFalse(Asignacion.objects.exists())
-        self.assertFalse(PlanDia.objects.exists(), "el día quedó vacío y se fue")
-        carga.refresh_from_db()
-        self.assertIsNone(carga.descarga, "la orden volvió a quedar pendiente")
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-
-    def test_no_toca_lo_dispuesto_desde_la_programacion_ni_otras_actividades(self):
-        from gestion.models import Dispositor, MovimientoCargaVehiculo
-        # Una orden que dispuso en gestor al convertir (sin carga, con descarga).
-        gestor = Dispositor.objects.create(nombre='Gestor X')
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', dispositor=gestor,
-            nota='Orden #22232: se dispuso con Gestor X', orden=self.orden(22232))
-        # Y una lavada en el plan.
-        plan = PlanDia.objects.create(fecha=datetime.date(2026, 9, 1))
-        lavada = Asignacion.objects.create(
-            plan=plan, persona=self.persona_juan, tipo='LAVADA')
-        self.correr('--confirmar')
-        self.assertEqual(list(Asignacion.objects.all()), [lavada])
-        self.assertTrue(PlanDia.objects.filter(pk=plan.pk).exists())
-        self.assertTrue(MovimientoCargaVehiculo.objects.filter(
-            accion='DESCARGA', orden_id=22232).exists(),
-            "la salida a gestor de la programación se queda")
-
-    def test_borra_la_salida_a_gestor_del_reporte(self):
-        from gestion.models import MovimientoCargaVehiculo
-        from planes.management.commands.registrar_disposiciones import (
-            MARCA as MARCA_REPORTE)
-        carga = self.carga(22206)
-        descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', orden=carga.orden,
-            nota=f'Se dispuso con ENERGY según el reporte · {MARCA_REPORTE}')
-        carga.descarga = descarga
-        carga.save(update_fields=['descarga'])
-        self.correr('--confirmar')
-        carga.refresh_from_db()
-        self.assertIsNone(carga.descarga, "la 22206 volvió a pendiente")
-
-    def test_recorta_los_dobles_registros_a_una_sola_carga(self):
-        from gestion.models import MovimientoCargaVehiculo
-        primera = self.carga(22243)
-        segunda = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', nota='revivida',
-            orden=primera.orden)
-        self.viaje(datetime.date(2026, 8, 23), primera)
-        self.viaje(datetime.date(2026, 8, 24), segunda)
-        self.correr('--confirmar')
-        pendientes = MovimientoCargaVehiculo.objects.filter(
-            accion='CARGA', descarga__isnull=True, orden_id=22243)
-        self.assertEqual(pendientes.count(), 1, "una orden debe una sola vez")
-        self.assertEqual(pendientes.get().pk, primera.pk, "queda la más vieja")
-
-    def test_crea_la_carga_de_las_que_nunca_la_tuvieron(self):
-        from gestion.models import Programacion
-        # La 22217 está en el objetivo y no tiene carga: se le crea en su camión.
-        orden = self.orden(22217)
-        programacion = Programacion.objects.create(
-            cliente=self.cliente, fecha=datetime.date(2026, 8, 11),
-            estado='CONVERTIDA', orden=orden)
-        Recorrido.objects.create(
-            orden=orden, vehiculo=self.otro,
-            fecha_recorrido=datetime.date(2026, 8, 11))
-        self.correr('--confirmar')
-        carga = orden.movimientos_carga.get(accion='CARGA')
-        self.assertEqual(carga.vehiculo, self.otro)
-        self.assertIsNone(carga.descarga)
-        self.assertIn('reinicio de disposiciones', carga.nota)
-        self.assertEqual(timezone.localtime(carga.fecha).date(),
-                         datetime.date(2026, 8, 11))
-
-    def test_el_contraste_cuenta_el_objetivo(self):
-        carga = self.carga(22204)
-        self.viaje(datetime.date(2026, 8, 3), carga)
-        salida = self.correr('--confirmar')
-        self.assertIn('Contraste contra el objetivo', salida)
-        self.assertIn('1 de 36', salida)

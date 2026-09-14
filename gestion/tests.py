@@ -31,7 +31,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth.models import Group, User
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -44,7 +44,7 @@ from .models import (
     Bascula, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
     DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal,
     EncuestaConductor, EnvioCorreo, FotoAyudante, Manifiesto, MedidaACPM,
-    MovimientoCargaVehiculo, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
+    DisposicionOrden, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
     Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio,
     Tercero, TipoResiduo, Vehiculo, cursos_faltantes_ayudante,
 )
@@ -458,798 +458,6 @@ class ConversionProgramacionTests(BaseCRM):
         # Y son campos que el Manifiesto sabe recibir tal cual.
         campos_acta = {f.name for f in Manifiesto._meta.get_fields()}
         self.assertTrue(set(instrucciones).issubset(campos_acta))
-
-
-# ============================================================
-#  RASTRO DE LA CARGA DE LOS CAMIONES
-# ============================================================
-class CargaDeVehiculosTests(BaseCRM):
-    """
-    A dónde fue el residuo: la disposición de la programación mueve el estado
-    `cargado` del camión y deja historial (MovimientoCargaVehiculo).
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo()
-
-    def _convertir(self, **extra):
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion, **extra)
-        return programacion.convertir_en_orden(self.asesor)
-
-    def test_la_disposicion_deja_constancia_aunque_el_camion_no_estuviera_cargado(self):
-        """
-        Antes no se registraba nada si el camión no venía marcado: la
-        trazabilidad del residuo se perdía justo en el caso más común.
-        """
-        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        self.assertFalse(self.camion.cargado)
-        orden = self._convertir(requiere_disposicion_final='SI',
-                                dispositor_final=proveedor)
-        movimiento = self.camion.movimientos_carga.get()
-        self.assertEqual(movimiento.accion, 'DESCARGA')
-        self.assertEqual(movimiento.dispositor, proveedor)
-        self.assertEqual(movimiento.orden, orden, "el movimiento sabe de qué orden viene")
-
-    def test_el_movimiento_de_carga_recuerda_la_orden_que_lo_cargo(self):
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
-        orden = self._convertir(requiere_disposicion_final='NO',
-                                dispositor_final=destino)
-        self.camion.refresh_from_db()
-        self.assertEqual(self.camion.carga_actual.orden, orden)
-        self.assertEqual(self.camion.orden_que_cargo, orden)
-
-    def test_un_camion_vacio_no_tiene_orden_que_lo_cargo(self):
-        self.assertIsNone(self.camion.carga_actual)
-        self.assertIsNone(self.camion.orden_que_cargo)
-
-    def test_la_disposicion_con_proveedor_descarga_el_camion(self):
-        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        self.camion.cargado = True
-        self.camion.cargado_detalle = 'De un servicio anterior'
-        self.camion.save()
-
-        self._convertir(requiere_disposicion_final='SI', dispositor_final=proveedor)
-
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        self.assertEqual(self.camion.cargado_detalle, '')
-        movimiento = self.camion.movimientos_carga.first()
-        self.assertEqual(movimiento.accion, 'DESCARGA')
-        self.assertEqual(movimiento.dispositor, proveedor)
-        self.assertEqual(movimiento.registrado_por, self.asesor)
-
-    def test_dejar_carro_cargado_deja_el_camion_pendiente(self):
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
-        orden = self._convertir(requiere_disposicion_final='NO',
-                                dispositor_final=destino)
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        self.assertIn(str(orden.numero_orden), self.camion.cargado_detalle)
-        self.assertEqual(self.camion.movimientos_carga.first().accion, 'CARGA')
-
-    def test_el_trasiego_ya_no_mueve_nada_y_la_orden_queda_sin_disponer(self):
-        """
-        Regla nueva (sep-2026): con NO la orden queda pendiente SIEMPRE y el
-        destino elegido es solo referencia. El trasiego real se registra
-        después desde el plan de trabajo, no al convertir.
-        """
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.TRASIEGO_PLACA, tipo='INTERNO')
-        receptor = self.vehiculo('ABC987')
-
-        orden = self._convertir(requiere_disposicion_final='NO',
-                                dispositor_final=destino,
-                                trasiego_vehiculo=receptor)
-
-        self.camion.refresh_from_db()
-        receptor.refresh_from_db()
-        self.assertFalse(receptor.cargado, "el destino no recibe nada al convertir")
-        self.assertEqual(receptor.movimientos_carga.count(), 0)
-        self.assertTrue(self.camion.cargado, "la orden queda sin disponer")
-        movimiento = self.camion.movimientos_carga.get()
-        self.assertEqual(movimiento.accion, 'CARGA')
-        self.assertEqual(movimiento.orden, orden)
-        # La placa prevista queda de referencia en la nota.
-        self.assertIn(receptor.placa, movimiento.nota)
-        self.assertIn('destino previsto', movimiento.nota)
-
-    def test_con_destino_a_tanques_la_orden_tambien_queda_sin_disponer(self):
-        """Regla nueva (sep-2026): pasar a tanques se registra desde el plan."""
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.TANQUES[0], tipo='INTERNO')
-        orden = self._convertir(requiere_disposicion_final='NO',
-                                dispositor_final=destino)
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        movimiento = self.camion.movimientos_carga.get()
-        self.assertEqual((movimiento.accion, movimiento.orden), ('CARGA', orden))
-
-    def test_con_no_la_orden_queda_sin_disponer_sea_cual_sea_el_destino(self):
-        """
-        Regla nueva (sep-2026): con NO la orden queda pendiente SIEMPRE,
-        incluso con «NO HAY DISPOSICIÓN» — el pendiente es de la orden, y
-        solo lo salda la actividad de disposición del plan de trabajo.
-        """
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.SIN_DISPOSICION, tipo='INTERNO')
-
-        orden = self._convertir(requiere_disposicion_final='NO',
-                                dispositor_final=destino)
-
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        self.assertEqual(self.camion.carga_actual.orden, orden)
-        self.assertIn('quedó sin disponer', self.camion.movimientos_carga.get().nota)
-
-    def test_las_cargas_viejas_del_camion_no_se_tocan_al_convertir(self):
-        destino = Dispositor.objects.create(
-            nombre=Dispositor.SIN_DISPOSICION, tipo='INTERNO')
-        vieja = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', nota='Pendiente viejo')
-        self._convertir(requiere_disposicion_final='NO', dispositor_final=destino)
-        vieja.refresh_from_db()
-        self.assertIsNone(vieja.descarga, "lo que el camión debía sigue pendiente")
-        self.assertEqual(self.camion.cargas_pendientes.count(), 2)
-
-    def test_si_la_pregunta_quedo_sin_responder_no_se_toca_nada(self):
-        self._convertir()
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_el_expediente_del_vehiculo_ya_no_descarga(self):
-        """
-        La disposición es trabajo de alguien: se asigna en el plan de trabajo
-        (decisión del usuario, ago-2026). El botón del expediente se retiró.
-        """
-        self.camion.cargado = True
-        self.camion.cargado_detalle = 'Orden #22207'
-        self.camion.save()
-        self.entrar(self.asesor)
-        self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'DESCARGA', 'nota': 'Se dispuso en planta'})
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "solo el plan de trabajo descarga")
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_marcar_carga_a_mano_exige_la_nota_de_trazabilidad(self):
-        self.entrar(self.asesor)
-        self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'CARGA', 'nota': '   '})
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado, "sin nota no se registra la carga")
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_marcar_carga_a_mano_deja_el_camion_pendiente(self):
-        self.entrar(self.asesor)
-        self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'CARGA', 'nota': 'Recogida sin disposición'})
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        self.assertIn('Recogida sin disposición', self.camion.cargado_detalle)
-
-    def test_una_accion_desconocida_no_cambia_nada(self):
-        self.entrar(self.asesor)
-        self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'BORRAR', 'nota': 'x'})
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_el_conductor_no_marca_la_carga(self):
-        self.entrar(self.conductor)
-        respuesta = self.client.post(
-            reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-            {'accion': 'CARGA', 'nota': 'x'})
-        self.assertEqual(respuesta.status_code, 403)
-        self.camion.refresh_from_db()
-        self.assertFalse(self.camion.cargado)
-
-
-class CargasAcumuladasTests(BaseCRM):
-    """
-    El pendiente de disposición vive POR ORDEN (decisión del usuario,
-    ago-2026): un camión acumula órdenes sin disponer, sigue prestando
-    servicio, y cada una se salda por separado. Cada CARGA queda pendiente
-    hasta que su campo `descarga` apunte a la DESCARGA que la dispuso.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo()
-        self.dejar_cargado = Dispositor.objects.create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
-
-    def _cargar(self, vehiculo=None):
-        """Un servicio que deja el camión cargado; devuelve su orden."""
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor,
-            vehiculo=vehiculo or self.camion,
-            requiere_disposicion_final='NO', dispositor_final=self.dejar_cargado)
-        return programacion.convertir_en_orden(self.asesor)
-
-    def test_un_camion_cargado_puede_cargar_otra_orden(self):
-        primera = self._cargar()
-        segunda = self._cargar()
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        self.assertEqual([m.orden for m in self.camion.cargas_pendientes],
-                         [primera, segunda], "las dos siguen pendientes, en orden")
-
-    def test_el_espejo_del_camion_nombra_las_ordenes_acumuladas(self):
-        primera, segunda = self._cargar(), self._cargar()
-        self.camion.refresh_from_db()
-        self.assertIn('2 cargas sin disponer', self.camion.cargado_detalle)
-        self.assertIn(f"#{primera.numero_orden}", self.camion.cargado_detalle)
-        self.assertIn(f"#{segunda.numero_orden}", self.camion.cargado_detalle)
-
-    def test_la_disposicion_de_un_servicio_no_salda_la_mora_del_camion(self):
-        """
-        Un servicio dispone SU residuo, no lo que el camión debía de antes.
-        Corregido en ago-2026: la regla anterior daba por dispuestas todas las
-        órdenes acumuladas y borró 13 pendientes reales de un golpe. Lo viejo
-        se salda una por una desde el plan de trabajo, con su responsable.
-        """
-        vieja = self._cargar()
-        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='SI', dispositor_final=proveedor)
-        nueva = programacion.convertir_en_orden(self.asesor)
-
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "la orden vieja sigue debiéndose")
-        carga_vieja = MovimientoCargaVehiculo.objects.get(accion='CARGA',
-                                                          orden=vieja)
-        self.assertIsNone(carga_vieja.descarga)
-        # La descarga sí queda registrada, como trazabilidad del servicio nuevo.
-        descarga = MovimientoCargaVehiculo.objects.get(accion='DESCARGA',
-                                                       orden=nueva)
-        self.assertEqual(descarga.dispositor, proveedor)
-        self.assertEqual(descarga.cargas_saldadas.count(), 0)
-
-    def test_el_trasiego_al_convertir_ya_no_arrastra_los_pendientes(self):
-        """
-        Regla nueva (sep-2026): al convertir nada se mueve entre placas. La
-        orden nueva queda sin disponer en el camión del servicio y lo que el
-        camión debía sigue igual; el trasiego real se registra desde el plan.
-        """
-        vieja = self._cargar()
-        destino = self.vehiculo(placa='DST111')
-        trasiego, _ = Dispositor.objects.get_or_create(
-            nombre=Dispositor.TRASIEGO_PLACA, defaults={'tipo': 'INTERNO'})
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='NO', dispositor_final=trasiego,
-            trasiego_vehiculo=destino)
-        nueva = programacion.convertir_en_orden(self.asesor)
-        self.camion.refresh_from_db(); destino.refresh_from_db()
-        self.assertFalse(destino.cargado, "el destino no recibe nada al convertir")
-        self.assertEqual([m.orden for m in self.camion.cargas_pendientes],
-                         [vieja, nueva],
-                         "el camión del servicio debe la vieja Y la nueva")
-
-    def test_el_tablero_cuenta_las_ordenes_sin_disponer(self):
-        primera, segunda = self._cargar(), self._cargar()
-        admin = self.persona('admin_t', 'Administradores')
-        self.entrar(admin)
-        contexto = self.client.get(reverse('gestion:dashboard')).context
-        self.assertEqual(contexto['ordenes_sin_disponer'], 2)
-        # Se salda una → la cifra baja: cuenta pendientes, no historia.
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=primera)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
-        carga.save(update_fields=['descarga'])
-        contexto = self.client.get(reverse('gestion:dashboard')).context
-        self.assertEqual(contexto['ordenes_sin_disponer'], 1)
-
-    def test_la_lista_de_ordenes_filtra_las_sin_disponer(self):
-        pendiente = self._cargar()
-        dispuesta = self._cargar()
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=dispuesta)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
-        carga.save(update_fields=['descarga'])
-
-        self.entrar(self.asesor)
-        respuesta = self.client.get(reverse('gestion:lista_ordenes'),
-                                    {'disposicion': 'SIN_DISPONER'})
-        ordenes = list(respuesta.context['ordenes'])
-        self.assertEqual([o.pk for o in ordenes], [pendiente.pk],
-                         "solo la que tiene el residuo aún en el camión")
-        # Sin el filtro salen las dos.
-        respuesta = self.client.get(reverse('gestion:lista_ordenes'))
-        self.assertEqual(len(respuesta.context['ordenes']), 2)
-
-    def test_una_orden_con_dos_cargas_pendientes_sale_una_sola_vez(self):
-        """El distinct(): sin él, la orden se repetiría por cada carga."""
-        orden = self._cargar()
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=orden,
-            nota='segunda carga de la misma orden')
-        self.entrar(self.asesor)
-        respuesta = self.client.get(reverse('gestion:lista_ordenes'),
-                                    {'disposicion': 'SIN_DISPONER'})
-        self.assertEqual([o.pk for o in respuesta.context['ordenes']],
-                         [orden.pk])
-
-    def test_la_carga_manual_se_acumula_sobre_un_camion_cargado(self):
-        self._cargar()
-        self.entrar(self.asesor)
-        self.client.post(reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk]),
-                         {'accion': 'CARGA', 'nota': 'Recogida extra'})
-        self.camion.refresh_from_db()
-        self.assertEqual(self.camion.cargas_pendientes.count(), 2,
-                         "antes se rechazaba; ahora se suma como otro pendiente")
-
-
-class DiagnosticoDeCargasTests(BaseCRM):
-    """
-    La radiografía de las cargas pendientes. Nació de un desajuste real
-    (ago-2026): el listado de la empresa y el sistema no coincidían, y había
-    cargas sin orden —las creadas antes de que el movimiento guardara la
-    orden— que se habían duplicado al registrarlas de nuevo.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo()
-        self.dejar_cargado = Dispositor.objects.create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
-
-    def correr(self, *args):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('diagnosticar_cargas', *args, stdout=salida, stderr=salida)
-        return salida.getvalue()
-
-    def _cargar(self, vehiculo=None):
-        return self.programacion(
-            cliente=self.cli, conductor=self.conductor,
-            vehiculo=vehiculo or self.camion,
-            requiere_disposicion_final='NO', dispositor_final=self.dejar_cargado
-        ).convertir_en_orden(self.asesor)
-
-    def test_dice_cuantas_debe_cada_camion(self):
-        orden = self._cargar()
-        salida = self.correr()
-        self.assertIn(self.camion.placa, salida)
-        self.assertIn('1 sin disponer', salida)
-        self.assertIn(f"#{orden.pk}", salida)
-
-    def test_una_carga_sin_orden_cuya_nota_repite_una_pendiente_es_duplicado(self):
-        """El caso real: la carga vieja perdió el enlace y se registró otra."""
-        orden = self._cargar()
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=None,
-            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado (sin disposición)")
-        salida = self.correr()
-        self.assertIn('DUPLICADO', salida)
-        self.assertIn(f"#{orden.pk}", salida)
-
-    def test_una_carga_sin_orden_que_no_se_repite_solo_perdio_el_enlace(self):
-        orden = self._cargar()
-        # Se salda la que tiene enlace: queda solo la huérfana.
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta')
-        carga.save(update_fields=['descarga'])
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=None,
-            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado")
-        salida = self.correr()
-        self.assertIn('perdió el enlace', salida)
-        self.assertNotIn('DUPLICADO', salida)
-
-    def test_una_carga_marcada_a_mano_se_reconoce_como_tal(self):
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=None,
-            nota='Carga manual: recogida sin orden')
-        salida = self.correr()
-        self.assertIn('se marcó a mano', salida)
-
-    def test_dos_cargas_pendientes_de_la_misma_orden_se_señalan(self):
-        orden = self._cargar()
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=orden, nota='otra vez')
-        salida = self.correr()
-        self.assertIn('más de una carga pendiente', salida)
-        self.assertIn(f"#{orden.pk}: 2 cargas", salida)
-
-    def test_avisa_cuando_una_descarga_saldo_varias_ordenes_de_golpe(self):
-        """
-        Una descarga que salda varias cargas es histórico o anomalía (desde
-        sep-2026 el trasiego ya no vacía camiones al convertir): el
-        diagnóstico la muestra con su conteo para poder revisarla.
-        """
-        una = self._cargar()
-        otra = self._cargar()
-        descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA',
-            nota='trasiego histórico a otra placa')
-        self.camion.cargas_pendientes.filter(
-            pk__in=[m.pk for m in self.camion.cargas_pendientes
-                    if m.orden in (una, otra)]).update(descarga=descarga)
-        self.camion.sincronizar_carga()
-
-        salida = self.correr()
-        self.assertIn('saldó 2 carga(s)', salida)
-
-    def test_una_disposicion_normal_no_salda_la_mora_del_camion(self):
-        """El bug de ago-2026: un servicio daba por dispuesto todo el camión."""
-        vieja = self._cargar()
-        proveedor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='SI', dispositor_final=proveedor
-        ).convertir_en_orden(self.asesor)
-
-        salida = self.correr()
-        self.assertIn('saldó 0 carga(s)', salida)
-        self.assertIn(f"#{vieja.pk}", salida, "la vieja sigue pendiente")
-
-    def test_se_puede_mirar_un_solo_camion(self):
-        otro = self.vehiculo(placa='OTR222')
-        self._cargar()
-        self._cargar(vehiculo=otro)
-        salida = self.correr('--placa', otro.placa)
-        self.assertIn(otro.placa, salida)
-        self.assertNotIn(self.camion.placa, salida)
-
-    def test_una_placa_inventada_se_avisa(self):
-        self.assertIn('No existe el vehículo', self.correr('--placa', 'XXX000'))
-
-    def test_no_escribe_nada(self):
-        orden = self._cargar()
-        antes = list(MovimientoCargaVehiculo.objects.values_list('pk', 'descarga_id'))
-        self.correr()
-        self.assertEqual(
-            list(MovimientoCargaVehiculo.objects.values_list('pk', 'descarga_id')),
-            antes)
-
-
-class RepararCargasPendientesTests(BaseCRM):
-    """
-    El comando que arregla el desajuste encontrado en producción (ago-2026):
-    disposiciones ajenas que saldaron la mora del camión, cargas viejas sin
-    su orden (anteriores a la migración 0062) y los duplicados que salieron
-    de registrarlas otra vez. Vista previa por defecto.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo()
-        self.dejar_cargado = Dispositor.objects.create(
-            nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
-
-    def correr(self, *args):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('reparar_cargas_pendientes', *args,
-                     stdout=salida, stderr=salida)
-        return salida.getvalue()
-
-    def _cargar(self):
-        return self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='NO', dispositor_final=self.dejar_cargado
-        ).convertir_en_orden(self.asesor)
-
-    def _saldada_por_ajena(self):
-        """Recrea el bug: una carga saldada por la descarga de OTRA orden."""
-        vieja = self._cargar()
-        otra = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
-        ).convertir_en_orden(self.asesor)
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=vieja)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', orden=otra,
-            nota=f"Orden #{otra.pk}: se dispuso con Gestor")
-        carga.save(update_fields=['descarga'])
-        self.camion.sincronizar_carga()
-        return vieja, carga
-
-    def test_revive_lo_que_saldo_una_disposicion_ajena(self):
-        vieja, carga = self._saldada_por_ajena()
-        salida = self.correr('--confirmar')
-        self.assertIn('revivida(s)', salida)
-        carga.refresh_from_db()
-        self.assertIsNone(carga.descarga, "vuelve a estar pendiente")
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-        # La DESCARGA no se borra: es la trazabilidad del servicio nuevo.
-        self.assertTrue(MovimientoCargaVehiculo.objects.filter(
-            accion='DESCARGA').exists())
-
-    def test_no_revive_lo_saldado_por_su_propia_orden(self):
-        """Una disposición que saldó SU carga está bien saldada."""
-        orden = self._cargar()
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', orden=orden,
-            nota=f"Plan del 20/08/2026: orden #{orden.pk} dispuesto por Luis")
-        carga.save(update_fields=['descarga'])
-        salida = self.correr('--confirmar')
-        carga.refresh_from_db()
-        self.assertIsNotNone(carga.descarga, "sigue saldada")
-
-    def test_no_revive_lo_que_saldo_un_trasiego(self):
-        """El trasiego sí vacía el camión entero: su saldo es legítimo."""
-        vieja = self._cargar()
-        carga = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=vieja)
-        otra = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
-        ).convertir_en_orden(self.asesor)
-        carga.descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', orden=otra,
-            nota=f"Orden #{otra.pk}: trasegó su contenido a DST111")
-        carga.save(update_fields=['descarga'])
-        self.correr('--confirmar')
-        carga.refresh_from_db()
-        self.assertIsNotNone(carga.descarga)
-
-    def test_relaciona_la_carga_huerfana_con_la_orden_de_su_nota(self):
-        orden = self._cargar()
-        # La original "vieja": sin enlace, como antes de la migración 0062.
-        original = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
-        original.orden = None
-        original.save(update_fields=['orden'])
-
-        salida = self.correr('--confirmar')
-        original.refresh_from_db()
-        self.assertEqual(original.orden_id, orden.pk)
-        self.assertIn(f"#{orden.pk}", salida)
-
-    def test_quita_el_duplicado_que_creo_el_registro_y_conserva_la_original(self):
-        """El caso completo del servidor: huérfana + duplicado del registro."""
-        orden = self._cargar()
-        original = MovimientoCargaVehiculo.objects.get(accion='CARGA', orden=orden)
-        original.orden = None
-        original.save(update_fields=['orden'])
-        # Lo que hizo registrar_cargas_pendientes al no ver la original.
-        duplicada = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=orden,
-            nota=f"Orden #{orden.pk} del 05/08/2026: quedó cargado "
-                 f"(sin disposición) · reporte solmed")
-
-        salida = self.correr('--confirmar')
-        self.assertIn('1 duplicado(s) quitado(s)', salida)
-        self.assertFalse(MovimientoCargaVehiculo.objects.filter(
-            pk=duplicada.pk).exists(), "se borró la del registro")
-        original.refresh_from_db()
-        self.assertEqual(original.orden_id, orden.pk, "la original quedó enlazada")
-        self.assertIsNone(original.descarga, "y sigue pendiente")
-        self.assertEqual(
-            MovimientoCargaVehiculo.objects.filter(
-                accion='CARGA', descarga__isnull=True, orden=orden).count(), 1)
-
-    def test_un_duplicado_sin_la_marca_no_se_borra(self):
-        """Solo se borra lo que este flujo creó; lo demás se señala."""
-        orden = self._cargar()
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', orden=orden,
-            nota='Carga registrada a mano por alguien')
-        salida = self.correr('--confirmar')
-        self.assertIn('sin la marca del registro, no se toca', salida)
-        self.assertEqual(MovimientoCargaVehiculo.objects.filter(
-            accion='CARGA', orden=orden).count(), 2)
-
-    def test_la_vista_previa_no_escribe(self):
-        vieja, carga = self._saldada_por_ajena()
-        salida = self.correr()
-        self.assertIn('VISTA PREVIA', salida)
-        carga.refresh_from_db()
-        self.assertIsNotNone(carga.descarga, "sin --confirmar no toca nada")
-
-    def test_sin_nada_que_reparar_lo_dice(self):
-        self._cargar()
-        self.assertIn('Nada por reparar', self.correr('--confirmar'))
-
-
-class RegistrarCargasPendientesTests(BaseCRM):
-    """
-    El comando que registra el reporte de la empresa: órdenes cuyo residuo
-    quedó en el camión sin disponer. El camión y la fecha salen de la orden;
-    la vista previa no escribe nada, y la reversa solo quita lo suyo.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo()
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion)
-        self.orden = programacion.convertir_en_orden(self.asesor)
-
-    def correr(self, *args):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('registrar_cargas_pendientes', *args,
-                     stdout=salida, stderr=salida)
-        return salida.getvalue()
-
-    def test_la_vista_previa_no_escribe_nada(self):
-        salida = self.correr(str(self.orden.pk))
-        self.assertIn('VISTA PREVIA', salida)
-        self.assertIn(self.camion.placa, salida, "muestra el camión de la orden")
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_registra_la_carga_con_su_orden_su_camion_y_su_fecha(self):
-        self.correr(str(self.orden.pk), '--confirmar')
-        carga = MovimientoCargaVehiculo.objects.get()
-        self.assertEqual(carga.accion, 'CARGA')
-        self.assertEqual(carga.orden, self.orden)
-        self.assertEqual(carga.vehiculo, self.camion)
-        self.assertIsNone(carga.descarga, "queda PENDIENTE de disponer")
-        recorrido = self.orden.recorridos.first()
-        self.assertEqual(carga.fecha.date() if hasattr(carga.fecha, 'date')
-                         else carga.fecha, recorrido.fecha_recorrido,
-                         "la fecha es la del recorrido, no la de hoy")
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado)
-
-    def test_una_orden_ya_pendiente_no_se_duplica(self):
-        self.correr(str(self.orden.pk), '--confirmar')
-        salida = self.correr(str(self.orden.pk), '--confirmar')
-        self.assertIn('Ya estaban pendientes', salida)
-        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
-
-    def test_avisa_si_el_sistema_la_tenia_como_dispuesta(self):
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', orden=self.orden,
-            nota='se dispuso')
-        salida = self.correr(str(self.orden.pk))
-        self.assertIn('la tenía como dispuesta', salida)
-
-    def test_una_orden_inexistente_se_reporta_sin_frenar_las_demas(self):
-        salida = self.correr(str(self.orden.pk), '99999', '--confirmar')
-        self.assertIn('#99999: no existe', salida)
-        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
-
-    def csv(self, filas, cabecera=None):
-        """Escribe un listado como el que manda la empresa (separado por «;»)."""
-        import tempfile
-        cabecera = cabecera or ('Código;Cliente;Fecha;Descripción;'
-                                'Conductor;Acompañante;Vehículo')
-        ruta = tempfile.NamedTemporaryFile(
-            'w', suffix='.csv', delete=False, encoding='utf-8-sig')
-        ruta.write(cabecera + '\n' + '\n'.join(filas) + '\n')
-        ruta.close()
-        return ruta.name
-
-    def fila(self, orden=None, cliente=None, fecha=None, placa=None,
-             conductor='WILLIAM', acompanante='JULIO'):
-        orden = orden if orden is not None else self.orden
-        recorrido = orden.recorridos.first() if hasattr(orden, 'recorridos') else None
-        numero = getattr(orden, 'pk', orden)
-        return ';'.join([
-            f"#{numero}",
-            cliente if cliente is not None else self.cli.nombre,
-            fecha if fecha is not None else f"{recorrido.fecha_recorrido:%d/%m/%Y}",
-            'SIN DISPOSICIÓN DE:',
-            conductor, acompanante,
-            placa if placa is not None else self.camion.placa,
-        ])
-
-    def test_el_csv_registra_las_ordenes_de_la_columna_codigo(self):
-        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
-        self.assertIn(f"#{self.orden.pk}", salida)
-        carga = MovimientoCargaVehiculo.objects.get()
-        self.assertEqual(carga.orden, self.orden)
-        self.assertIsNone(carga.descarga)
-
-    def test_el_csv_avisa_cuando_el_listado_no_cuadra_con_el_sistema(self):
-        salida = self.correr('--csv', self.csv([self.fila(
-            cliente='OTRA EMPRESA SAS', placa='XXX999', fecha='01/01/2020')]))
-        self.assertIn('OTRA EMPRESA SAS', salida)
-        self.assertIn('XXX999', salida)
-        self.assertIn('manda el sistema', salida)
-        self.assertIn('01/01/2020', salida)
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists(),
-                         "la vista previa no escribe")
-
-    def test_las_tildes_y_los_puntos_no_cuentan_como_diferencia(self):
-        self.cli.nombre = 'INMEL INGENIERIA S.A.S'
-        self.cli.save(update_fields=['nombre'])
-        salida = self.correr('--csv', self.csv([
-            self.fila(cliente='Inmel Ingeniería S A S')]))
-        self.assertNotIn('el listado dice cliente', salida)
-
-    def test_lo_que_ya_estaba_pendiente_se_lista_aparte_y_no_se_duplica(self):
-        self.correr('--csv', self.csv([self.fila()]), '--confirmar')
-        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
-        self.assertIn('Ya estaban pendientes', salida)
-        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
-
-    def test_señala_lo_pendiente_que_no_viene_en_la_lista_sin_tocarlo(self):
-        """Darlo por dispuesto exige un responsable: eso va por el plan."""
-        otra = BaseCRM.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
-        ).convertir_en_orden(self.asesor)
-        self.correr(str(otra.pk), '--confirmar')          # queda pendiente
-        manual = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', nota='Carga manual: extra')
-
-        salida = self.correr('--csv', self.csv([self.fila()]), '--confirmar')
-        self.assertIn('NO vienen en la lista', salida)
-        self.assertIn(f"#{otra.pk}", salida)
-        self.assertIn('sin orden (carga manual)', salida)
-        self.assertIn('PLAN DE TRABAJO', salida)
-        # Y siguen ahí: el comando no descarga nada.
-        for pendiente in (otra.pk, manual.pk):
-            with self.subTest(pendiente=pendiente):
-                self.assertTrue(MovimientoCargaVehiculo.objects.filter(
-                    accion='CARGA', descarga__isnull=True).exists())
-
-    def test_un_codigo_que_no_es_numero_se_omite_y_no_frena_el_resto(self):
-        salida = self.correr(
-            '--csv', self.csv(['#SIN-NUMERO;X;01/01/2026;;;;', self.fila()]),
-            '--confirmar')
-        self.assertIn('SIN-NUMERO', salida)
-        self.assertEqual(MovimientoCargaVehiculo.objects.count(), 1)
-
-    def test_un_archivo_sin_la_columna_codigo_se_rechaza(self):
-        salida = self.correr('--csv', self.csv(['1;2'], cabecera='A;B'))
-        self.assertIn('Código', salida)
-        self.assertFalse(MovimientoCargaVehiculo.objects.exists())
-
-    def test_deshacer_con_numeros_quita_solo_esas_ordenes(self):
-        """El caso #22227: el reporte viejo la traía, el nuevo ya no."""
-        otra = BaseCRM.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion
-        ).convertir_en_orden(self.asesor)
-        self.correr(str(self.orden.pk), str(otra.pk), '--confirmar')
-
-        salida = self.correr('--deshacer', str(otra.pk), '--confirmar')
-        self.assertIn('1 quitada(s)', salida)
-        pendientes = MovimientoCargaVehiculo.objects.filter(
-            accion='CARGA', descarga__isnull=True)
-        self.assertEqual([c.orden_id for c in pendientes], [self.orden.pk],
-                         "la otra sigue pendiente: solo se quitó la pedida")
-
-    def test_deshacer_quita_lo_suyo_y_respeta_lo_saldado(self):
-        self.correr(str(self.orden.pk), '--confirmar')
-        # Otra carga ajena al comando: la reversa no debe tocarla.
-        ajena = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='CARGA', nota='Carga manual: extra')
-        self.correr('--deshacer', '--confirmar')
-        vivas = MovimientoCargaVehiculo.objects.filter(accion='CARGA')
-        self.assertEqual(list(vivas), [ajena])
-        self.camion.refresh_from_db()
-        self.assertTrue(self.camion.cargado, "la ajena sigue pendiente")
-
-    def test_deshacer_no_toca_una_carga_ya_saldada_por_disposicion_real(self):
-        self.correr(str(self.orden.pk), '--confirmar')
-        carga = MovimientoCargaVehiculo.objects.get()
-        descarga = MovimientoCargaVehiculo.objects.create(
-            vehiculo=self.camion, accion='DESCARGA', nota='dispuesta de verdad')
-        carga.descarga = descarga
-        carga.save(update_fields=['descarga'])
-        salida = self.correr('--deshacer', '--confirmar')
-        self.assertIn('no se tocan', salida)
-        self.assertTrue(MovimientoCargaVehiculo.objects.filter(pk=carga.pk).exists(),
-                        "el rastro de una disposición hecha no se borra")
 
 
 # ============================================================
@@ -3814,13 +3022,20 @@ class VehiculosTests(BaseCRM):
         otro = self.vehiculo('TAL999', estado='MANTENIMIENTO')
         self.assertEqual(_puede_programarse(otro)['nivel'], 'alto')
 
-    def test_el_veredicto_solo_advierte_por_carga_pendiente_o_vencimiento_cercano(self):
-        self.camion.cargado = True
-        self.camion.cargado_detalle = 'Orden #22207'
+    def test_el_veredicto_solo_advierte_por_vencimiento_cercano(self):
+        self.camion.fecha_vencimiento_soat = (
+            timezone.localdate() + datetime.timedelta(days=5))
         self.camion.save()
         veredicto = _puede_programarse(self.camion)
         self.assertEqual(veredicto['nivel'], 'aviso')
-        self.assertIn('residuo pendiente', ' '.join(veredicto['motivos']))
+        self.assertIn('vence en', ' '.join(veredicto['motivos']))
+
+    def test_el_camion_ya_no_lleva_estado_de_carga(self):
+        """El pendiente de disposición es de la orden (sep-2026), no del camión."""
+        self.assertFalse(hasattr(Vehiculo, 'cargado'))
+        self.assertFalse(hasattr(Vehiculo, 'cargas_pendientes'))
+        with self.assertRaises(Exception):
+            reverse('gestion:marcar_carga_vehiculo', args=[self.camion.pk])
 
     def test_un_camion_al_dia_esta_listo_para_programar(self):
         hoy = timezone.localdate()
@@ -5740,512 +4955,9 @@ class ObservacionesAyudanteTests(BaseCRM):
 # ============================================================
 #  CARGAR LAS ÓRDENES VIEJAS (regla nueva de disposición)
 # ============================================================
-class CargarOrdenesViejasTests(BaseCRM):
-    """
-    El comando que recorre las órdenes anteriores a la regla nueva: marcadas
-    NO pero sin carga (la regla vieja no les dejó pendiente), para que
-    aparezcan en el plan de trabajo como las nuevas.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-
-    def _orden_vieja(self, placa, destino_nombre, con_descarga_vieja=False,
-                     respuesta='NO'):
-        """
-        Una orden como las dejaba la REGLA VIEJA: marcada NO con su destino,
-        pero sin carga (se borra la que la regla nueva crea al convertir).
-        """
-        destino = None
-        if destino_nombre:
-            destino = Dispositor.objects.get_or_create(
-                nombre=destino_nombre, defaults={'tipo': 'INTERNO'})[0]
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor,
-            vehiculo=self.vehiculo(placa),
-            requiere_disposicion_final=respuesta, dispositor_final=destino)
-        orden = programacion.convertir_en_orden(self.asesor)
-        orden.movimientos_carga.filter(accion='CARGA').delete()
-        if con_descarga_vieja:
-            MovimientoCargaVehiculo.objects.create(
-                vehiculo=orden.recorridos.first().vehiculo, accion='DESCARGA',
-                nota='contenido a Tanque Subterráneo (tanques SOLMED)', orden=orden)
-        for r in orden.recorridos.all():
-            r.vehiculo.sincronizar_carga()
-        return orden
-
-    def correr(self, *argumentos):
-        from io import StringIO
-        from django.core.management import call_command
-        salida = StringIO()
-        call_command('cargar_ordenes_viejas', *argumentos, stdout=salida)
-        return salida.getvalue()
-
-    def test_encuentra_las_no_sin_carga_y_la_vista_previa_no_escribe(self):
-        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
-        salida = self.correr()
-        self.assertIn(f"#{orden.numero_orden}", salida)
-        self.assertIn('Vista previa', salida)
-        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
-
-    def test_confirmar_crea_la_carga_fechada_el_dia_del_servicio(self):
-        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
-        self.correr('--confirmar')
-        carga = orden.movimientos_carga.get(accion='CARGA')
-        self.assertIsNone(carga.descarga)
-        self.assertIn('regla nueva de disposición', carga.nota)
-        self.assertEqual(timezone.localtime(carga.fecha).date(),
-                         orden.programacion_origen.fecha)
-        camion = orden.recorridos.first().vehiculo
-        camion.refresh_from_db()
-        self.assertTrue(camion.cargado, "ya aparece para el plan de trabajo")
-
-    def test_avisa_si_al_convertir_se_registro_una_salida(self):
-        self._orden_vieja('VIE222', Dispositor.TANQUES[0], con_descarga_vieja=True)
-        salida = self.correr()
-        self.assertIn('al convertir se registró', salida)
-        self.assertIn('tanques SOLMED', salida)
-
-    def test_no_toca_lo_que_no_es_suyo(self):
-        # Con carga (pendiente o saldada), con SÍ, cancelada o histórica: fuera.
-        con_carga = self.programacion(
-            cliente=self.cli, conductor=self.conductor,
-            vehiculo=self.vehiculo('OK1234'), requiere_disposicion_final='NO',
-            dispositor_final=Dispositor.objects.get_or_create(
-                nombre=Dispositor.SIN_DISPOSICION, defaults={'tipo': 'INTERNO'})[0],
-        ).convertir_en_orden(self.asesor)          # la regla nueva ya la cargó
-        con_si = self._orden_vieja('OK5678', None, respuesta='SI')
-        cancelada = self._orden_vieja('OK9012', Dispositor.SIN_DISPOSICION)
-        cancelada.estado_orden = 'CANCELADA'
-        cancelada.save()
-        salida = self.correr()
-        for orden in (con_carga, con_si, cancelada):
-            self.assertNotIn(f"#{orden.numero_orden}  ", salida)
-
-    def test_la_pregunta_en_blanco_solo_se_avisa(self):
-        orden = self._orden_vieja('VIE333', None, respuesta='')
-        salida = self.correr('--confirmar')
-        self.assertIn('SIN responder', salida)
-        self.assertIn(f"#{orden.numero_orden}", salida)
-        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
-
-    def test_con_numeros_solo_carga_esas(self):
-        una = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
-        otra = self._orden_vieja('VIE222', Dispositor.SIN_DISPOSICION)
-        self.correr(str(una.numero_orden), '--confirmar')
-        self.assertTrue(una.movimientos_carga.filter(accion='CARGA').exists())
-        self.assertFalse(otra.movimientos_carga.filter(accion='CARGA').exists())
-
-    def test_es_idempotente_y_deshacer_las_quita(self):
-        orden = self._orden_vieja('VIE111', Dispositor.SIN_DISPOSICION)
-        self.correr('--confirmar')
-        salida = self.correr('--confirmar')
-        self.assertIn('Ninguna', salida)
-        self.assertEqual(orden.movimientos_carga.filter(accion='CARGA').count(), 1)
-
-        self.correr('--deshacer', '--confirmar')
-        self.assertFalse(orden.movimientos_carga.filter(accion='CARGA').exists())
-        camion = orden.recorridos.first().vehiculo
-        camion.refresh_from_db()
-        self.assertFalse(camion.cargado)
-
-
-# ============================================================
 #  TRAZABILIDAD DE DISPOSICIONES
 # ============================================================
-class TrazabilidadDisposicionesTests(BaseCRM):
-    """
-    El panel que muestra el estado REAL de las disposiciones, orden por
-    orden: qué sigue sin disponer (y hace cuántos días), qué ya se hizo,
-    quién, cuándo, con cuál gestor y por cuál vía.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.admin = self.persona('jefe', 'Administradores')
-        self.conductor = self.persona('conductor', 'Conductores', 'Willy', 'Gómez')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente()
-        self.camion = self.vehiculo('TRZ111')
-        self.url = reverse('gestion:trazabilidad_disposiciones')
-        self.excel = reverse('gestion:trazabilidad_disposiciones_excel')
-
-    def _orden_no(self, placa=None):
-        """Una orden con NO: con la regla nueva queda sin disponer."""
-        destino = Dispositor.objects.get_or_create(
-            nombre=Dispositor.SIN_DISPOSICION, defaults={'tipo': 'INTERNO'})[0]
-        camion = self.vehiculo(placa) if placa else self.camion
-        return self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=camion,
-            requiere_disposicion_final='NO', dispositor_final=destino,
-        ).convertir_en_orden(self.asesor)
-
-    def _disponer_en_plan(self, orden, quien):
-        """La salda un viaje del plan, como en la vida real."""
-        from planes.models import Asignacion, PlanDia
-        plan = PlanDia.objects.get_or_create(fecha=timezone.localdate())[0]
-        asignacion = Asignacion.objects.create(
-            plan=plan, persona=quien, tipo='DISPOSICION_FINAL')
-        carga = orden.movimientos_carga.get(accion='CARGA')
-        asignacion.aplicar_descarga(
-            carga.vehiculo, [quien.get_full_name()], [carga])
-        return asignacion
-
-    def test_solo_administradores_entran(self):
-        for rol in ('Asesores', 'Talento Humano', 'Conductores'):
-            with self.subTest(rol=rol):
-                self.entrar(self.persona(f'p{rol[:4]}', rol))
-                self.assertEqual(self.client.get(self.url).status_code, 403)
-                self.assertEqual(self.client.get(self.excel).status_code, 403)
-        self.entrar(self.admin)
-        self.assertEqual(self.client.get(self.url).status_code, 200)
-
-    def test_una_pendiente_sale_sin_disponer_con_sus_dias(self):
-        orden = self._orden_no()
-        self.entrar(self.admin)
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, f"#{orden.numero_orden}")
-        self.assertContains(respuesta, 'Sin disponer · 0 día')
-        self.assertEqual(respuesta.context['n_pendientes'], 1)
-        # La ficha lista las órdenes que se deben, no los camiones.
-        self.assertEqual([f['orden'] for f in respuesta.context['pendientes']],
-                         [orden])
-        self.assertContains(respuesta, 'esperando')
-
-    def test_una_dispuesta_dice_quien_cuando_y_por_cual_via(self):
-        orden = self._orden_no()
-        self._disponer_en_plan(orden, self.conductor)
-        self.entrar(self.admin)
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, 'Dispuesta')
-        self.assertContains(respuesta, 'Willy Gómez')
-        self.assertContains(respuesta, 'Plan del')
-        self.assertEqual(respuesta.context['n_pendientes'], 0)
-        self.assertEqual(respuesta.context['n_dispuestas'], 1)
-
-    def test_la_dispuesta_en_gestor_al_convertir_tambien_aparece(self):
-        gestor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
-        self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.camion,
-            requiere_disposicion_final='SI', dispositor_final=gestor,
-        ).convertir_en_orden(self.asesor)
-        self.entrar(self.admin)
-        respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, 'Al convertir la orden')
-        self.assertContains(respuesta, 'Gestor Ambiental S.A.')
-        self.assertEqual(respuesta.context['n_dispuestas'], 1)
-
-    def test_los_filtros_recortan_la_lista(self):
-        pendiente = self._orden_no()
-        dispuesta = self._orden_no('TRZ222')
-        self._disponer_en_plan(dispuesta, self.conductor)
-        self.entrar(self.admin)
-        contexto = self.client.get(self.url, {'estado': 'pendientes'}).context
-        self.assertEqual([f['orden'] for f in contexto['filas']], [pendiente])
-        contexto = self.client.get(self.url, {'placa': 'trz222'}).context
-        self.assertEqual([f['orden'] for f in contexto['filas']], [dispuesta])
-        contexto = self.client.get(self.url, {'q': str(pendiente.numero_orden)}).context
-        self.assertEqual([f['orden'] for f in contexto['filas']], [pendiente])
-        # Los contadores no dependen del filtro.
-        self.assertEqual(contexto['n_pendientes'], 1)
-        self.assertEqual(contexto['n_dispuestas'], 1)
-
-    def test_el_filtro_de_mes_usa_la_fecha_que_define_la_fila(self):
-        self._orden_no()
-        self.entrar(self.admin)
-        mes = timezone.localdate().strftime('%Y-%m')
-        self.assertEqual(len(self.client.get(self.url, {'mes': mes}).context['filas']), 1)
-        self.assertEqual(len(self.client.get(self.url, {'mes': '2020-01'}).context['filas']), 0)
-
-    def test_el_excel_baja_lo_mismo_que_muestra_el_filtro(self):
-        from openpyxl import load_workbook
-        pendiente = self._orden_no()
-        dispuesta = self._orden_no('TRZ222')
-        self._disponer_en_plan(dispuesta, self.conductor)
-        self.entrar(self.admin)
-        respuesta = self.client.get(self.excel, {'estado': 'pendientes'})
-        self.assertEqual(respuesta.status_code, 200)
-        libro = load_workbook(io.BytesIO(respuesta.content))
-        hoja = libro['Disposiciones']
-        self.assertEqual(hoja.max_row, 2, "cabecera + solo la pendiente")
-        self.assertEqual(hoja['A2'].value, pendiente.numero_orden)
-        self.assertEqual(hoja['E2'].value, 'Sin disponer')
-
-    def test_el_enlace_del_menu_es_solo_para_administradores(self):
-        self.entrar(self.admin)
-        self.assertContains(self.client.get(self.url), 'Disposiciones')
-        self.entrar(self.asesor)
-        contenido = self.client.get(reverse('gestion:lista_ordenes')).content.decode()
-        self.assertNotIn('/app/disposiciones/', contenido)
-
-
-# ============================================================
 #  CUADRAR LOS PENDIENTES CON LA FOTO DE LA OFICINA
-# ============================================================
-class CuadrarPendientesTests(BaseCRM):
-    """
-    El comando que deja las cargas pendientes EXACTAMENTE como el listado que
-    pasó la oficina: crea las que faltan, quita las que sobran y no inventa
-    ninguna disposición (quitar una carga no dice que alguien la dispuso).
-
-    La foto va escrita dentro del comando; aquí se reemplaza por una de
-    juguete con las órdenes que crea cada prueba.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesor', 'Asesores')
-        self.conductor = self.persona('conductor', 'Conductores')
-        self.con_ss(self.conductor)
-        self.cli = self.cliente(nombre='Crepes y Waffles S.A')
-        self.carpeta = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.carpeta, ignore_errors=True)
-
-    # ---------- construcción ----------
-
-    def _orden(self, placa, pendiente=True, fecha=None):
-        """Una orden con (o sin) residuo esperando en su camión."""
-        gestor = Dispositor.objects.get_or_create(
-            nombre='ENERGY ORGANIC SAS', defaults={'tipo': 'PROVEEDOR'})[0]
-        programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor,
-            vehiculo=self.vehiculo(placa),
-            fecha=fecha or timezone.localdate(),
-            requiere_disposicion_final='NO' if pendiente else 'SI',
-            dispositor_final=None if pendiente else gestor)
-        orden = programacion.convertir_en_orden(self.asesor)
-        for recorrido in orden.recorridos.all():
-            recorrido.vehiculo.sincronizar_carga()
-        return orden
-
-    def _fila(self, orden, placa, cliente=None, fecha=None):
-        """La fila que la foto traería para esa orden."""
-        recorrido = orden.recorridos.first()
-        return (cliente or orden.cliente.nombre,
-                (fecha or recorrido.fecha_recorrido).strftime('%d/%m/%Y'),
-                'WILLIAM', 'JULIO', placa)
-
-    def correr(self, *argumentos, foto=None, tope=None):
-        from io import StringIO
-        from django.core.management import call_command
-        from .management.commands import cuadrar_pendientes
-        # El respaldo va SIEMPRE a una carpeta temporal: ninguna prueba debe
-        # dejar archivos en la carpeta del proyecto.
-        if '--respaldo' not in argumentos:
-            argumentos += ('--respaldo', os.path.join(self.carpeta, 'respaldo.csv'))
-        salida = StringIO()
-        tope = tope if tope is not None else cuadrar_pendientes.TOPE
-        with patch.dict(cuadrar_pendientes.FOTO, foto or {}, clear=True), \
-                patch.object(cuadrar_pendientes, 'TOPE', tope):
-            call_command('cuadrar_pendientes', *argumentos, stdout=salida)
-        return salida.getvalue()
-
-    def pendientes(self):
-        return set(MovimientoCargaVehiculo.objects
-                   .filter(accion='CARGA', descarga__isnull=True,
-                           orden__isnull=False)
-                   .values_list('orden_id', flat=True))
-
-    # ---------- vista previa ----------
-
-    def test_la_vista_previa_dice_que_falta_y_que_sobra_sin_escribir(self):
-        sobra = self._orden('SOB111')                       # pendiente, no en la foto
-        falta = self._orden('FAL222', pendiente=False)      # en la foto, sin carga
-        foto = {falta.numero_orden: self._fila(falta, 'FAL222')}
-
-        salida = self.correr(foto=foto)
-
-        self.assertIn('FALTAN', salida)
-        self.assertIn(f"+ #{falta.numero_orden}", salida)
-        self.assertIn('SOBRAN', salida)
-        self.assertIn(f"− #{sobra.numero_orden}", salida)
-        self.assertIn('Vista previa', salida)
-        self.assertEqual(self.pendientes(), {sobra.numero_orden},
-                         "la vista previa no toca nada")
-
-    def test_dice_cuando_ya_esta_como_la_foto(self):
-        orden = self._orden('IGU111')
-        salida = self.correr(foto={orden.numero_orden: self._fila(orden, 'IGU111')})
-        self.assertIn('ya está como la foto', salida)
-
-    # ---------- escribir ----------
-
-    def test_crea_la_que_falta_fechada_el_dia_del_servicio(self):
-        ayer = timezone.localdate() - datetime.timedelta(days=1)
-        falta = self._orden('FAL222', pendiente=False, fecha=ayer)
-
-        self.correr('--confirmar',
-                    foto={falta.numero_orden: self._fila(falta, 'FAL222')})
-
-        carga = falta.movimientos_carga.get(accion='CARGA', descarga__isnull=True)
-        self.assertIn('foto de la oficina', carga.nota)
-        self.assertEqual(timezone.localtime(carga.fecha).date(), ayer)
-        camion = falta.recorridos.first().vehiculo
-        camion.refresh_from_db()
-        self.assertTrue(camion.cargado, "el espejo del camión se actualiza")
-
-    def test_quita_la_que_sobra_y_descarga_el_camion(self):
-        sobra = self._orden('SOB111')
-        camion = sobra.recorridos.first().vehiculo
-        self.assertTrue(camion.cargado)
-
-        self.correr('--confirmar', foto={})
-
-        self.assertEqual(self.pendientes(), set())
-        camion.refresh_from_db()
-        self.assertFalse(camion.cargado)
-
-    def test_quitar_una_carga_no_inventa_una_disposicion(self):
-        """Lo importante: no aparece una DESCARGA sin responsable."""
-        sobra = self._orden('SOB111')
-        salida = self.correr('--confirmar', foto={})
-        self.assertFalse(
-            MovimientoCargaVehiculo.objects.filter(accion='DESCARGA').exists(),
-            "quitar el pendiente no equivale a registrar que alguien dispuso")
-        self.assertIn('PLAN DE TRABAJO', salida)
-        self.assertFalse(sobra.movimientos_carga.filter(accion='CARGA').exists())
-
-    def test_recorta_los_dobles_registros_a_la_carga_mas_vieja(self):
-        orden = self._orden('DUP111')
-        vieja = orden.movimientos_carga.get(accion='CARGA')
-        nueva = MovimientoCargaVehiculo.objects.create(
-            vehiculo=vieja.vehiculo, accion='CARGA', orden=orden,
-            nota='doble registro')
-        self.assertEqual(orden.movimientos_carga.filter(accion='CARGA').count(), 2)
-
-        salida = self.correr('--confirmar',
-                             foto={orden.numero_orden: self._fila(orden, 'DUP111')})
-
-        self.assertIn('DUPLICADAS', salida)
-        quedan = list(orden.movimientos_carga.filter(accion='CARGA'))
-        self.assertEqual([m.pk for m in quedan], [vieja.pk])
-        self.assertFalse(
-            MovimientoCargaVehiculo.objects.filter(pk=nueva.pk).exists())
-
-    def test_no_toca_las_cargas_manuales_sin_orden(self):
-        camion = self.vehiculo('MAN111')
-        suelta = MovimientoCargaVehiculo.objects.create(
-            vehiculo=camion, accion='CARGA', nota='marcado a mano')
-
-        salida = self.correr('--confirmar', foto={})
-
-        self.assertIn('SIN ORDEN', salida)
-        self.assertTrue(
-            MovimientoCargaVehiculo.objects.filter(pk=suelta.pk).exists())
-
-    def test_no_revive_una_carga_ya_saldada(self):
-        """Una orden dispuesta que la foto tampoco nombra se queda quieta."""
-        dispuesta = self._orden('DIS111', pendiente=False)
-        self.correr('--confirmar', foto={})
-        self.assertEqual(
-            dispuesta.movimientos_carga.filter(accion='CARGA').count(), 0)
-
-    # ---------- contraste ----------
-
-    def test_avisa_las_diferencias_de_placa_cliente_y_fecha_sin_escribirlas(self):
-        orden = self._orden('REA111')
-        fila = self._fila(orden, 'OTR999', cliente='OTRO CLIENTE S.A',
-                          fecha=timezone.localdate() - datetime.timedelta(days=5))
-
-        salida = self.correr('--confirmar', foto={orden.numero_orden: fila})
-
-        self.assertIn('Diferencias con la foto', salida)
-        self.assertIn('OTR999', salida)
-        self.assertIn('OTRO CLIENTE', salida)
-        carga = orden.movimientos_carga.get(accion='CARGA')
-        self.assertEqual(carga.vehiculo.placa, 'REA111',
-                         "la placa de la foto NO se escribe, solo se avisa")
-
-    def test_avisa_si_una_orden_de_la_foto_no_existe(self):
-        salida = self.correr(foto={99999: ('X', '01/09/2026', 'A', 'B', 'XXX111')})
-        self.assertIn('#99999 no existe', salida)
-
-    # ---------- respaldo, idempotencia y reversa ----------
-
-    def test_deja_respaldo_de_lo_que_quita(self):
-        sobra = self._orden('SOB111')
-        ruta = os.path.join(self.carpeta, 'aparte.csv')
-        self.correr('--confirmar', '--respaldo', ruta, foto={})
-        with io.open(ruta, encoding='utf-8-sig') as fh:
-            contenido = fh.read()
-        self.assertIn(str(sobra.numero_orden), contenido)
-        self.assertIn('SOB111', contenido)
-
-    def test_es_idempotente(self):
-        sobra = self._orden('SOB111')
-        falta = self._orden('FAL222', pendiente=False)
-        foto = {falta.numero_orden: self._fila(falta, 'FAL222')}
-
-        self.correr('--confirmar', foto=foto)
-        self.assertEqual(self.pendientes(), {falta.numero_orden})
-
-        salida = self.correr('--confirmar', foto=foto)
-        self.assertIn('ya está como la foto', salida)
-        self.assertEqual(self.pendientes(), {falta.numero_orden})
-        self.assertEqual(
-            falta.movimientos_carga.filter(accion='CARGA').count(), 1)
-
-    def test_el_contraste_final_confirma_que_quedo_como_la_foto(self):
-        self._orden('SOB111')
-        falta = self._orden('FAL222', pendiente=False)
-        salida = self.correr('--confirmar',
-                             foto={falta.numero_orden: self._fila(falta, 'FAL222')})
-        self.assertIn('y solo esas, quedaron sin disponer', salida)
-
-    # ---------- hasta dónde alcanza la foto ----------
-
-    def test_no_toca_lo_pendiente_posterior_a_la_foto(self):
-        """
-        Lo que entró DESPUÉS del corte es residuo vivo. La vista previa del
-        servidor (11-sep-2026) se iba a llevar 12 órdenes así.
-        """
-        vieja = self._orden('VIE111')
-        nueva = self._orden('NUE222')      # número mayor: posterior a la foto
-
-        salida = self.correr('--confirmar', foto={}, tope=vieja.numero_orden)
-
-        self.assertIn('POSTERIORES A LA FOTO', salida)
-        self.assertIn(f"· #{nueva.numero_orden}", salida)
-        self.assertEqual(self.pendientes(), {nueva.numero_orden},
-                         "la vieja se quita; la nueva se queda intacta")
-
-    def test_el_contraste_final_cuenta_aparte_las_posteriores(self):
-        vieja = self._orden('VIE111')
-        nueva = self._orden('NUE222')
-        salida = self.correr('--confirmar', foto={}, tope=vieja.numero_orden)
-        self.assertIn('y solo esas, quedaron sin disponer', salida)
-        self.assertIn('posterior(es) a la foto, intactas', salida)
-        self.assertNotIn(f"#{nueva.numero_orden} quedó pendiente", salida)
-
-    def test_un_doble_registro_posterior_a_la_foto_tampoco_se_recorta(self):
-        nueva = self._orden('NUE222')
-        vieja = nueva.movimientos_carga.get(accion='CARGA')
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=vieja.vehiculo, accion='CARGA', orden=nueva,
-            nota='doble registro')
-
-        salida = self.correr('--confirmar', foto={}, tope=nueva.numero_orden - 1)
-
-        self.assertNotIn('DUPLICADAS', salida)
-        self.assertEqual(
-            nueva.movimientos_carga.filter(accion='CARGA').count(), 2)
-
-    def test_deshacer_quita_solo_lo_que_el_comando_creo(self):
-        propia = self._orden('FAL222', pendiente=False)
-        ajena = self._orden('AJE333')
-        foto = {propia.numero_orden: self._fila(propia, 'FAL222'),
-                ajena.numero_orden: self._fila(ajena, 'AJE333')}
-        self.correr('--confirmar', foto=foto)
-
-        salida = self.correr('--deshacer', '--confirmar', foto=foto)
-
-        self.assertIn('NO repone', salida)
-        self.assertEqual(self.pendientes(), {ajena.numero_orden},
-                         "la carga que ya existía se queda")
-
-
 # ============================================================
 #  CONDUCTOR - AYUDANTE (híbrido sin acceso a la plataforma)
 # ============================================================
@@ -6480,15 +5192,13 @@ class ConductorAyudanteTests(BaseCRM):
 
 # ============================================================
 #  REGISTRAR LA DISPOSICIÓN DESDE EL PANEL
+
+
 # ============================================================
-class RegistrarDisposicionDesdePanelTests(BaseCRM):
-    """
-    El panel de disposiciones también REGISTRA (sep-2026): se marcan las
-    órdenes sin disponer y se dice quién hizo el viaje, qué día y a cuál
-    gestor. Es la misma actividad «Disposición final» del plan de trabajo, así
-    que lo registrado aquí aparece allá y viceversa; deshacer desde el panel
-    quita del plan el viaje entero.
-    """
+#  DISPOSICIÓN DEL RESIDUO: EL ESTADO VIVE EN LA ORDEN
+# ============================================================
+class BaseDisposicion(BaseCRM):
+    """Escenario común: gestión, un conductor con SS, un cliente y un gestor."""
 
     def setUp(self):
         self.admin = self.persona('admin', superusuario=True)
@@ -6499,219 +5209,625 @@ class RegistrarDisposicionDesdePanelTests(BaseCRM):
         self.cli = self.cliente()
         self.gestor = Dispositor.objects.get_or_create(
             nombre='ENERGY ORGANIC SAS', defaults={'tipo': 'PROVEEDOR'})[0]
-        self.url = reverse('gestion:trazabilidad_disposiciones')
-        self.entrar(self.admin)
+        self.panel = reverse('gestion:trazabilidad_disposiciones')
 
-    def _orden(self, placa, pendiente=True, fecha=None):
+    def _orden(self, placa='WGY347', pendiente=True, fecha=None, respuesta=None):
+        """Una orden convertida: NO → sin disponer; SÍ → dispuesta con el gestor."""
         camion = Vehiculo.objects.filter(placa=placa).first() or self.vehiculo(placa)
+        if respuesta is None:
+            respuesta = 'NO' if pendiente else 'SI'
         programacion = self.programacion(
             cliente=self.cli, conductor=self.conductor, vehiculo=camion,
             fecha=fecha or timezone.localdate(),
-            requiere_disposicion_final='NO' if pendiente else 'SI',
-            dispositor_final=None if pendiente else self.gestor)
-        orden = programacion.convertir_en_orden(self.asesor)
-        for recorrido in orden.recorridos.all():
-            recorrido.vehiculo.sincronizar_carga()
-        return orden
+            requiere_disposicion_final=respuesta,
+            dispositor_final=self.gestor if respuesta == 'SI' else None)
+        return programacion.convertir_en_orden(self.asesor)
 
-    @staticmethod
-    def carga(orden):
-        return orden.movimientos_carga.get(accion='CARGA', descarga__isnull=True)
-
-    def registrar(self, cargas, personas=None, **extra):
+    def registrar_desde_panel(self, ordenes, personas=None, **extra):
         datos = {
             'submit_disposicion': '1', 'fecha': timezone.localdate().isoformat(),
-            'cargas': [c.pk for c in cargas],
+            'ordenes': [o.pk for o in ordenes],
             'personas': [p.pk for p in (personas if personas is not None
                                         else [self.conductor, self.ayudante])],
             'dispositor': self.gestor.pk, 'detalle': 'Viaje de la mañana',
         }
         datos.update(extra)
-        return self.client.post(self.url, datos, follow=True)
+        return self.client.post(self.panel, datos, follow=True)
 
-    def asignaciones(self):
+    @staticmethod
+    def estado(orden):
+        orden.refresh_from_db()
+        return orden.estado_disposicion
+
+    @staticmethod
+    def asignaciones():
         from planes.models import Asignacion
         return list(Asignacion.objects.filter(tipo='DISPOSICION_FINAL').order_by('pk'))
 
-    # ---------- lo que se ve ----------
 
-    def test_el_panel_ofrece_casillas_solo_en_las_pendientes_y_el_formulario(self):
-        pendiente = self._orden('PEN111')
-        dispuesta = self._orden('DIS222', pendiente=False)
-        respuesta = self.client.get(self.url)
+class DisposicionDeLaOrdenTests(BaseDisposicion):
+    """El corazón del cambio (sep-2026): el camión no lleva estado; la orden sí."""
+
+    def test_con_si_la_orden_queda_dispuesta_al_convertir(self):
+        orden = self._orden(pendiente=False)
+        self.assertEqual(orden.estado_disposicion, 'DISPUESTA')
+        registro = orden.disposicion_vigente
+        self.assertEqual(registro.via, 'CONVERTIR')
+        self.assertEqual(registro.dispositor, self.gestor)
+        self.assertEqual(registro.fecha, orden.programacion_origen.fecha)
+        self.assertEqual(registro.registrado_por, self.asesor)
+        self.assertIn(self.gestor.nombre, registro.nota)
+
+    def test_con_no_queda_sin_disponer_y_el_destino_es_solo_una_nota(self):
+        destino = Dispositor.objects.get_or_create(
+            nombre=Dispositor.DEJAR_CARRO_CARGADO, defaults={'tipo': 'INTERNO'})[0]
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.vehiculo('WGY347'),
+            requiere_disposicion_final='NO', dispositor_final=destino)
+        orden = programacion.convertir_en_orden(self.asesor)
+        self.assertEqual(orden.estado_disposicion, 'PENDIENTE')
+        self.assertTrue(orden.sin_disponer)
+        self.assertFalse(orden.disposiciones.exists(), "sin registro hasta que alguien disponga")
+        self.assertFalse(hasattr(Vehiculo, 'cargado'), "el camión no lleva estado")
+
+    def test_sin_respuesta_no_aplica(self):
+        orden = self._orden(respuesta='')
+        self.assertEqual(orden.estado_disposicion, 'NO_APLICA')
+        self.entrar(self.admin)
+        self.assertNotContains(self.client.get(self.panel), f'#{orden.numero_orden}')
+
+    def test_registrar_y_deshacer_conservan_el_historial(self):
+        orden = self._orden()
+        hoy = timezone.localdate()
+        registro = orden.registrar_disposicion(
+            via='PLAN', fecha=hoy, usuario=self.admin, dispositor=self.gestor, nota='viaje')
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
+        self.assertEqual(orden.disposicion_vigente, registro)
+
+        orden.deshacer_disposicion(usuario=self.admin, nota='no se hizo')
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+        registro.refresh_from_db()
+        self.assertTrue(registro.deshecha)
+        self.assertEqual(registro.deshecha_por, self.admin)
+        self.assertEqual(registro.deshecha_nota, 'no se hizo')
+        self.assertIsNotNone(registro.deshecha_en)
+        self.assertIsNone(orden.disposicion_vigente)
+
+        orden.registrar_disposicion(via='MANUAL', fecha=hoy, usuario=self.admin, nota='ahora sí')
+        self.assertEqual(orden.disposiciones.count(), 2, "el historial no se borra")
+        self.assertEqual(orden.disposiciones.filter(deshecha=False).count(), 1)
+
+    def test_la_lista_de_ordenes_filtra_las_sin_disponer(self):
+        pendiente = self._orden()
+        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        self.entrar(self.asesor)
+        respuesta = self.client.get(reverse('gestion:lista_ordenes') + '?disposicion=SIN_DISPONER')
+        self.assertContains(respuesta, f'#{pendiente.numero_orden}')
+        self.assertNotContains(respuesta, f'#{dispuesta.numero_orden}')
+
+    def test_el_tablero_cuenta_las_sin_disponer_y_alerta(self):
+        self._orden()
+        self._orden(placa='OBB178', pendiente=False)
+        self.entrar(self.admin)
+        respuesta = self.client.get(reverse('gestion:dashboard'))
+        self.assertEqual(respuesta.context['ordenes_sin_disponer'], 1)
+        self.assertContains(respuesta, '1 orden sin disponer')
+        self.assertNotContains(respuesta, 'Cargados sin disposición')
+
+    def test_el_expediente_muestra_el_estado(self):
+        pendiente = self._orden()
+        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        self.entrar(self.asesor)
+        respuesta = self.client.get(reverse('gestion:detalle_orden', args=[pendiente.pk]))
+        self.assertContains(respuesta, 'Sin disponer')
+        respuesta = self.client.get(reverse('gestion:detalle_orden', args=[dispuesta.pk]))
+        self.assertContains(respuesta, 'Dispuesta')
+        self.assertContains(respuesta, self.gestor.nombre)
+        self.assertContains(respuesta, 'Al convertir la orden')
+
+    def test_el_camion_no_muestra_carga_en_su_lista_ni_en_su_expediente(self):
+        orden = self._orden()
+        camion = orden.recorridos.get().vehiculo
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_vehiculos')), 'CARGADO')
+        respuesta = self.client.get(reverse('gestion:detalle_vehiculo', args=[camion.pk]))
+        self.assertNotContains(respuesta, 'Carga de residuo')
+        self.assertNotContains(respuesta, 'Marcar como cargado')
+
+    def test_al_programar_con_no_se_avisa_que_la_orden_queda_sin_disponer(self):
+        self.entrar(self.asesor)
+        respuesta = self.client.post(reverse('gestion:crear_programacion'), {
+            'fecha': timezone.localdate().isoformat(), 'cliente': self.cli.pk,
+            'hora_ingreso_bodega': '06:00', 'sitio_inicio': '', 'hora_servicio': '08:00',
+            'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 100 # 20-30',
+            'observaciones_servicio': 'Succión', 'paleada': '', 'bascula': '',
+            'bascula_sitio': '', 'registro_fotografico': '', 'responsable_sg': '',
+            'requiere_disposicion_final': 'NO', 'dispositor_final': '',
+            'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk,
+            'trasiego_vehiculo': '', 'nombre_contacto_recibe': 'Quien recibe',
+            'cuadrilla-conductor': self.conductor.pk,
+            'cuadrilla-vehiculo': self.vehiculo('WGY347').pk,
+            'cuadrilla-ayudante': '', 'cuadrilla-ayudante2': '',
+        }, follow=True)
+        self.assertContains(respuesta, 'queda SIN DISPONER')
+        self.assertEqual(OrdenServicio.objects.get().estado_disposicion, 'PENDIENTE')
+
+
+class CorreccionManualDisposicionTests(BaseDisposicion):
+    """Los administradores corrigen el estado desde el expediente, con nota."""
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def url(self, orden):
+        return reverse('gestion:detalle_orden', args=[orden.pk])
+
+    def test_marcar_dispuesta_a_mano_deja_registro_manual(self):
+        orden = self._orden()
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        respuesta = self.client.post(self.url(orden), {
+            'submit_marcar_dispuesta': '1', 'fecha': ayer.isoformat(),
+            'dispositor': self.gestor.pk, 'nota': 'se dispuso y no quedó registrado'},
+            follow=True)
+        self.assertContains(respuesta, 'queda DISPUESTA')
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
+        registro = orden.disposicion_vigente
+        self.assertEqual(registro.via, 'MANUAL')
+        self.assertEqual(registro.fecha, ayer)
+        self.assertEqual(registro.dispositor, self.gestor)
+        self.assertEqual(registro.registrado_por, self.admin)
+        self.assertIn('se dispuso y no quedó registrado', registro.nota)
+
+    def test_sin_nota_no_se_corrige_nada(self):
+        orden = self._orden()
+        respuesta = self.client.post(self.url(orden), {
+            'submit_marcar_dispuesta': '1', 'fecha': timezone.localdate().isoformat(),
+            'nota': '  '}, follow=True)
+        self.assertContains(respuesta, 'Escribe por qué')
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+
+    def test_la_fecha_futura_se_rechaza(self):
+        orden = self._orden()
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        respuesta = self.client.post(self.url(orden), {
+            'submit_marcar_dispuesta': '1', 'fecha': manana.isoformat(), 'nota': 'x'},
+            follow=True)
+        self.assertContains(respuesta, 'no puede ser futuro')
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+
+    def test_marcar_sin_disponer_deshace_el_registro_con_la_razon(self):
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        respuesta = self.client.post(self.url(orden), {
+            'submit_marcar_sin_disponer': '1', 'nota': 'el viaje no se hizo'}, follow=True)
+        self.assertContains(respuesta, 'queda SIN DISPONER')
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+        registro.refresh_from_db()
+        self.assertTrue(registro.deshecha)
+        self.assertEqual(registro.deshecha_por, self.admin)
+        self.assertIn('el viaje no se hizo', registro.deshecha_nota)
+        # El historial queda a la vista en el expediente.
+        self.assertContains(self.client.get(self.url(orden)), 'deshecha')
+
+    def test_solo_los_administradores_ven_y_usan_la_correccion(self):
+        orden = self._orden()
+        self.assertContains(self.client.get(self.url(orden)), 'Corregir a mano')
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(self.url(orden)), 'Corregir a mano')
+        respuesta = self.client.post(self.url(orden), {
+            'submit_marcar_dispuesta': '1', 'fecha': timezone.localdate().isoformat(),
+            'nota': 'intento'})
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+
+
+class TrazabilidadDisposicionesTests(BaseDisposicion):
+    """El panel: una fila por orden con su estado real, solo administradores."""
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def test_solo_administradores(self):
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(self.panel).status_code, 403)
+        self.assertEqual(self.client.get(reverse('gestion:trazabilidad_disposiciones_excel')).status_code, 403)
+
+    def test_una_fila_por_orden_con_su_estado(self):
+        hace_9 = timezone.localdate() - datetime.timedelta(days=9)
+        pendiente = self._orden(fecha=hace_9)
+        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        self._orden(placa='OBC727', respuesta='')          # NO_APLICA: no sale
+        respuesta = self.client.get(self.panel)
         contenido = respuesta.content.decode()
-        self.assertRegex(contenido, rf'name="cargas"\s+value="{self.carga(pendiente).pk}"')
-        self.assertEqual(contenido.count('name="cargas" value='), 1, "la dispuesta no lleva casilla")
+        self.assertEqual(respuesta.context['n_pendientes'], 1)
+        self.assertEqual(respuesta.context['n_dispuestas'], 1)
+        self.assertIn(f'#{pendiente.numero_orden}', contenido)
+        self.assertIn('Sin disponer · 9 días', contenido)
+        self.assertIn('WGY347', contenido)
+        self.assertIn(f'#{dispuesta.numero_orden}', contenido)
+        self.assertIn('Al convertir la orden', contenido)
+        self.assertIn(self.gestor.nombre, contenido)
+        self.assertNotIn('submit_deshacer', contenido, "lo dispuesto al convertir no se deshace desde aquí")
+        self.assertEqual(contenido.count('<tr>') - 1, 2, "la NO_APLICA no aparece")
+
+    def test_los_filtros(self):
+        """Filtran la tabla; los contadores y la ficha de pendientes no dependen del filtro."""
+        pendiente = self._orden()
+        dispuesta = self._orden(placa='OBB178', pendiente=False)
+
+        def filas(consulta):
+            respuesta = self.client.get(self.panel + consulta)
+            self.assertEqual(respuesta.context['n_pendientes'], 1)
+            return [f['orden'].pk for f in respuesta.context['filas']]
+
+        self.assertEqual(filas('?estado=pendientes'), [pendiente.pk])
+        self.assertEqual(filas('?estado=dispuestas'), [dispuesta.pk])
+        self.assertEqual(filas('?placa=OBB'), [dispuesta.pk])
+        self.assertEqual(filas(f'?q={pendiente.numero_orden}'), [pendiente.pk])
+        self.assertEqual(filas('?q=Transportes'), [pendiente.pk, dispuesta.pk])
+        mes = timezone.localdate().strftime('%Y-%m')
+        self.assertEqual(sorted(filas(f'?mes={mes}')), sorted([pendiente.pk, dispuesta.pk]))
+        self.assertEqual(filas('?mes=2000-01'), [])
+
+    def test_lo_dispuesto_desde_el_plan_dice_quien_y_se_puede_deshacer(self):
+        orden = self._orden()
+        self.registrar_desde_panel([orden])
+        contenido = self.client.get(self.panel).content.decode()
+        self.assertIn('Carlos Pérez, Luis Gómez', contenido)
+        self.assertIn(f'Plan del {timezone.localdate():%d/%m/%Y}', contenido)
+        self.assertIn('submit_deshacer', contenido)
+
+    def test_el_excel_sale_con_el_filtro(self):
+        self._orden()
+        respuesta = self.client.get(reverse('gestion:trazabilidad_disposiciones_excel') + '?estado=pendientes')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn('spreadsheet', respuesta['Content-Type'])
+
+
+class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
+    """
+    El panel registra la disposición con un popup por pasos: se marcan las
+    ÓRDENES sin disponer y se dice quién hizo el viaje, qué día y a cuál
+    gestor. Es la misma actividad del plan de trabajo, así que lo registrado
+    aquí aparece allá y viceversa; deshacer quita el viaje entero.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def test_el_popup_ofrece_solo_las_pendientes_y_los_datos_del_viaje(self):
+        pendiente = self._orden()
+        self._orden(placa='OBB178', pendiente=False)
+        respuesta = self.client.get(self.panel)
+        contenido = respuesta.content.decode()
+        self.assertEqual(contenido.count('name="ordenes" value='), 1, "la dispuesta no lleva casilla")
+        self.assertIn(f'name="ordenes" value="{pendiente.pk}"', contenido)
         self.assertContains(respuesta, 'Registrar disposición')
         self.assertContains(respuesta, 'Carlos Pérez')
         self.assertContains(respuesta, 'Luis Gómez')
         self.assertContains(respuesta, self.gestor.nombre)
         self.assertContains(respuesta, f'value="{timezone.localdate():%Y-%m-%d}"')
-        self.assertNotContains(respuesta, 'submit_deshacer',
-                               msg_prefix="lo dispuesto al convertir no tiene actividad que deshacer")
-
-    def test_el_popup_agrupa_las_pendientes_por_camion_y_va_por_pasos(self):
-        vieja = self._orden('WGY347', fecha=timezone.localdate() - datetime.timedelta(days=9))
-        nueva = self._orden('WGY347')
-        otra = self._orden('OBB178')
-        contenido = self.client.get(self.url).content.decode()
-
-        # Un grupo por camión, con «marcar todo el camión».
-        self.assertEqual(set(re.findall(r'class="dz-grupo" data-placa="(\w+)"', contenido)),
-                         {'WGY347', 'OBB178'})
-        self.assertEqual(contenido.count('>Marcar todo el camión</button>'), 2)
-        # Dentro del camión, la más vieja primero.
-        self.assertLess(contenido.index(f'#{vieja.numero_orden}</span>'),
-                        contenido.index(f'#{nueva.numero_orden}</span>'))
-        self.assertIn(f'#{otra.numero_orden}</span>', contenido)
-        # Los tres pasos, con el primero en curso.
+        # Los tres pasos y la estructura que el CSS/JS esperan (label>input).
         self.assertEqual(contenido.count('class="dz-paso-tab"'), 3)
         self.assertIn('aria-current="step"', contenido)
-        for titulo in ('¿Qué salió del camión?', '¿Quién hizo el viaje', 'Revisa y registra'):
-            self.assertIn(titulo, contenido)
-
-    def test_la_estructura_del_dom_es_la_que_el_css_y_el_js_esperan(self):
-        """
-        Las filas y los chips son label>input (no ul/li): el resaltado usa
-        label:has(input:checked) y el JS lee los data-* del input.
-        """
-        self._orden('WGY347')
-        contenido = self.client.get(self.url).content.decode()
-        self.assertRegex(contenido, r'<label class="dz-orden"[^>]*>\s*<input type="checkbox"[^>]*name="cargas"')
+        self.assertRegex(contenido, r'<label class="dz-orden"[^>]*>\s*<input type="checkbox"[^>]*name="ordenes"')
         self.assertRegex(contenido, r'<label><input type="checkbox" name="personas" value="\d+" data-nombre="Carlos Pérez">')
         self.assertNotIn("closest('li')", contenido)
-        self.assertNotIn('bootstrap.Modal', contenido, "el bundle carga después del bloque de contenido")
+        self.assertNotIn('bootstrap.Modal', contenido)
 
-    def test_sin_pendientes_no_hay_formulario(self):
-        self._orden('DIS222', pendiente=False)
-        respuesta = self.client.get(self.url)
-        self.assertNotContains(respuesta, 'Registrar disposición')
+    def test_las_pendientes_van_de_la_mas_vieja_a_la_mas_nueva_con_su_placa(self):
+        vieja = self._orden(fecha=timezone.localdate() - datetime.timedelta(days=9))
+        nueva = self._orden(placa='OBB178')
+        contenido = self.client.get(self.panel).content.decode()
+        self.assertLess(contenido.index(f'#{vieja.numero_orden}</span>'),
+                        contenido.index(f'#{nueva.numero_orden}</span>'))
+        self.assertIn('OBB178', contenido)
+        self.assertIn('Marcar las visibles', contenido)
 
-    # ---------- registrar ----------
+    def test_sin_pendientes_no_hay_popup(self):
+        self._orden(pendiente=False)
+        self.assertNotContains(self.client.get(self.panel), 'Registrar disposición')
 
-    def test_registrar_crea_la_actividad_en_el_plan_de_ese_dia_y_descarga(self):
+    def test_registrar_crea_la_actividad_en_el_plan_de_ese_dia_y_dispone_las_ordenes(self):
         from planes.models import PlanDia
-        una = self._orden('UNO111')
-        otra = self._orden('DOS222')          # otra placa: el viaje mezcla camiones
+        una = self._orden()
+        otra = self._orden(placa='OBB178')
         ayer = timezone.localdate() - datetime.timedelta(days=1)
-        carga_una, carga_otra = self.carga(una), self.carga(otra)
 
-        respuesta = self.registrar([carga_una, carga_otra], fecha=ayer.isoformat())
+        respuesta = self.registrar_desde_panel([una, otra], fecha=ayer.isoformat())
 
         self.assertContains(respuesta, f'plan del {ayer:%d/%m/%Y}')
         creadas = self.asignaciones()
         self.assertEqual([a.persona for a in creadas], [self.conductor, self.ayudante])
         self.assertTrue(all(a.plan.fecha == ayer for a in creadas))
-        self.assertTrue(all(a.dispositor == self.gestor for a in creadas))
         self.assertEqual(PlanDia.objects.get().fecha, ayer)
-        # Cada carga saldada con SU descarga, en SU camión; la pareja comparte.
-        for carga in (carga_una, carga_otra):
-            carga.refresh_from_db()
-            self.assertIsNotNone(carga.descarga)
-            self.assertEqual(carga.descarga.vehiculo, carga.vehiculo)
-            self.assertEqual(carga.descarga.dispositor, self.gestor)
-        self.assertEqual(set(creadas[0].descargas.all()), set(creadas[1].descargas.all()))
+        self.assertEqual({v.placa for v in creadas[0].vehiculos.all()}, {'WGY347', 'OBB178'})
         for orden in (una, otra):
-            camion = orden.recorridos.get().vehiculo
-            camion.refresh_from_db()
-            self.assertFalse(camion.cargado)
+            self.assertEqual(self.estado(orden), 'DISPUESTA')
+            registro = orden.disposicion_vigente
+            self.assertEqual(registro.via, 'PLAN')
+            self.assertEqual(registro.fecha, ayer)
+            self.assertEqual(registro.dispositor, self.gestor)
+            self.assertEqual(registro.personas, ['Carlos Pérez', 'Luis Gómez'])
+        self.assertEqual(set(creadas[0].disposiciones.all()), set(creadas[1].disposiciones.all()))
 
-    def test_lo_registrado_aqui_se_ve_en_el_panel_y_en_el_plan(self):
-        orden = self._orden('UNO111')
+    def test_lo_registrado_aqui_se_ve_en_el_plan(self):
+        orden = self._orden()
         ayer = timezone.localdate() - datetime.timedelta(days=1)
-        self.registrar([self.carga(orden)], fecha=ayer.isoformat())
-
-        panel = self.client.get(self.url).content.decode()
-        self.assertIn('Dispuesta', panel)
-        self.assertIn('Carlos Pérez, Luis Gómez', panel)
-        self.assertIn(f'Plan del {ayer:%d/%m/%Y}', panel)
-        self.assertIn('submit_deshacer', panel)
-
+        self.registrar_desde_panel([orden], fecha=ayer.isoformat())
         plan = self.client.get(f"{reverse('planes:plan_dia')}?fecha={ayer.isoformat()}")
         self.assertContains(plan, 'Disposición final')
-        self.assertContains(plan, 'UNO111')
+        self.assertContains(plan, f'#{orden.numero_orden}')
 
     def test_sin_personas_no_escribe_y_avisa(self):
-        orden = self._orden('UNO111')
-        respuesta = self.registrar([self.carga(orden)], personas=[])
+        orden = self._orden()
+        respuesta = self.registrar_desde_panel([orden], personas=[])
         self.assertContains(respuesta, 'Marca al menos una persona')
         self.assertEqual(self.asignaciones(), [])
-        self.assertIsNone(self.carga(orden).descarga)
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
 
     def test_una_orden_ya_dispuesta_no_se_dispone_dos_veces(self):
-        orden = self._orden('UNO111')
-        carga = self.carga(orden)
-        self.registrar([carga])
-        respuesta = self.registrar([carga])
+        orden = self._orden()
+        self.registrar_desde_panel([orden])
+        respuesta = self.registrar_desde_panel([orden])
         self.assertContains(respuesta, 'Marca cuál orden')
         self.assertEqual(len(self.asignaciones()), 2, "solo el primer viaje")
+        self.assertEqual(orden.disposiciones.count(), 1)
 
     def test_el_dia_del_viaje_no_puede_ser_futuro(self):
-        orden = self._orden('UNO111')
+        orden = self._orden()
         manana = timezone.localdate() + datetime.timedelta(days=1)
-        respuesta = self.registrar([self.carga(orden)], fecha=manana.isoformat())
+        respuesta = self.registrar_desde_panel([orden], fecha=manana.isoformat())
         self.assertContains(respuesta, 'no puede ser futuro')
-        self.assertEqual(self.asignaciones(), [])
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
 
     def test_avisa_por_correo_solo_si_se_marca(self):
-        una = self._orden('UNO111')
-        otra = self._orden('DOS222')
+        una = self._orden()
+        otra = self._orden(placa='OBB178')
         mail.outbox.clear()
-        self.registrar([self.carga(una)])
+        self.registrar_desde_panel([una])
         self.assertEqual(len(mail.outbox), 0)
-        self.registrar([self.carga(otra)], notificar='1')
+        self.registrar_desde_panel([otra], notificar='1')
         self.assertEqual(sorted(c.to[0] for c in mail.outbox),
                          sorted([self.conductor.email, self.ayudante.email]))
 
-    # ---------- deshacer ----------
-
-    def test_deshacer_quita_el_viaje_entero_y_revive_las_ordenes(self):
-        una = self._orden('UNO111')
-        otra = self._orden('DOS222')
-        self.registrar([self.carga(una), self.carga(otra)])
+    def test_deshacer_quita_el_viaje_entero_y_las_ordenes_vuelven_a_sin_disponer(self):
+        una = self._orden()
+        otra = self._orden(placa='OBB178')
+        self.registrar_desde_panel([una, otra])
         primera = self.asignaciones()[0]
 
-        respuesta = self.client.post(self.url, {
+        respuesta = self.client.post(self.panel, {
             'submit_deshacer': '1', 'asignacion': primera.pk}, follow=True)
 
         self.assertContains(respuesta, 'vuelven a quedar sin disponer')
         self.assertEqual(self.asignaciones(), [], "se van las DOS asignaciones del viaje")
         for orden in (una, otra):
-            self.assertIsNotNone(self.carga(orden), "vuelve a tener carga pendiente")
-            camion = orden.recorridos.get().vehiculo
-            camion.refresh_from_db()
-            self.assertTrue(camion.cargado)
-        panel = self.client.get(self.url).content.decode()
-        self.assertEqual(panel.count('Sin disponer ·'), 2)
+            self.assertEqual(self.estado(orden), 'PENDIENTE')
+            self.assertTrue(orden.disposiciones.get().deshecha, "el historial queda")
+        contenido = self.client.get(self.panel).content.decode()
+        self.assertEqual(contenido.count('Sin disponer ·'), 2)
 
     def test_lo_registrado_desde_el_plan_se_deshace_desde_el_panel(self):
-        orden = self._orden('UNO111')
+        orden = self._orden()
         hoy = timezone.localdate()
         self.client.post(f"{reverse('planes:plan_dia')}?fecha={hoy.isoformat()}", {
             'submit_asignacion': '1', 'fecha': hoy.isoformat(),
             'tipo': 'DISPOSICION_FINAL', 'personas': [self.conductor.pk],
-            'cargas': [self.carga(orden).pk], 'dispositor': self.gestor.pk})
+            'ordenes': [orden.pk], 'dispositor': self.gestor.pk})
         asignacion = self.asignaciones()[0]
-
-        panel = self.client.get(self.url).content.decode()
-        self.assertIn(f'name="asignacion" value="{asignacion.pk}"', panel)
-
-        self.client.post(self.url, {'submit_deshacer': '1', 'asignacion': asignacion.pk})
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
+        contenido = self.client.get(self.panel).content.decode()
+        self.assertIn(f'name="asignacion" value="{asignacion.pk}"', contenido)
+        self.client.post(self.panel, {'submit_deshacer': '1', 'asignacion': asignacion.pk})
         self.assertEqual(self.asignaciones(), [])
-        self.assertIsNotNone(self.carga(orden))
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
 
     def test_deshacer_algo_que_ya_no_esta_solo_avisa(self):
-        respuesta = self.client.post(self.url, {'submit_deshacer': '1', 'asignacion': 999}, follow=True)
+        respuesta = self.client.post(self.panel, {'submit_deshacer': '1', 'asignacion': 999}, follow=True)
         self.assertContains(respuesta, 'ya no está en el plan')
 
-    # ---------- acceso ----------
-
     def test_solo_administradores_registran_o_deshacen(self):
-        orden = self._orden('UNO111')
+        orden = self._orden()
         self.entrar(self.asesor)
-        respuesta = self.client.post(self.url, {
+        respuesta = self.client.post(self.panel, {
             'submit_disposicion': '1', 'fecha': timezone.localdate().isoformat(),
-            'cargas': [self.carga(orden).pk], 'personas': [self.conductor.pk]})
+            'ordenes': [orden.pk], 'personas': [self.conductor.pk]})
         self.assertEqual(respuesta.status_code, 403)
         self.assertEqual(self.asignaciones(), [])
-        self.assertIsNone(self.carga(orden).descarga)
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+
+
+class CuadrarPendientesTests(BaseDisposicion):
+    """
+    El comando que deja las órdenes sin disponer EXACTAMENTE como la foto de
+    la oficina (hasta la #22279): las que faltan vuelven a pendientes, las que
+    sobran quedan dispuestas por «reporte», lo posterior no se toca.
+    """
+
+    def correr(self, *argumentos, foto=None, tope=None):
+        from io import StringIO
+        from django.core.management import call_command
+        from .management.commands import cuadrar_pendientes
+        salida = StringIO()
+        tope = tope if tope is not None else cuadrar_pendientes.TOPE
+        with patch.dict(cuadrar_pendientes.FOTO, foto or {}, clear=True), \
+                patch.object(cuadrar_pendientes, 'TOPE', tope):
+            call_command('cuadrar_pendientes', *argumentos, stdout=salida)
+        return salida.getvalue()
+
+    @staticmethod
+    def fila(orden, placa='WGY347', cliente=None):
+        recorrido = orden.recorridos.first()
+        return (cliente or orden.cliente.nombre,
+                recorrido.fecha_recorrido.strftime('%d/%m/%Y'), 'WILLIAM', 'JULIO', placa)
+
+    def test_la_vista_previa_dice_que_falta_y_que_sobra_sin_escribir(self):
+        sobra = self._orden()                                       # pendiente, no en la foto
+        falta = self._orden(placa='OBB178', pendiente=False)         # en la foto, dispuesta
+        salida = self.correr(foto={falta.numero_orden: self.fila(falta, 'OBB178')})
+        self.assertIn('FALTAN', salida)
+        self.assertIn(f"+ #{falta.numero_orden}", salida)
+        self.assertIn('SOBRAN', salida)
+        self.assertIn(f"− #{sobra.numero_orden}", salida)
+        self.assertIn('Vista previa', salida)
+        self.assertEqual(self.estado(sobra), 'PENDIENTE')
+        self.assertEqual(self.estado(falta), 'DISPUESTA')
+
+    def test_confirmar_cuadra_y_deja_el_historial(self):
+        sobra = self._orden()
+        falta = self._orden(placa='OBB178', pendiente=False)
+        registro = falta.disposicion_vigente
+        salida = self.correr('--confirmar', foto={falta.numero_orden: self.fila(falta, 'OBB178')})
+        self.assertIn('y solo esas, quedaron sin disponer', salida)
+        self.assertEqual(self.estado(falta), 'PENDIENTE')
+        registro.refresh_from_db()
+        self.assertTrue(registro.deshecha)
+        self.assertIn('foto de la oficina', registro.deshecha_nota)
+        self.assertEqual(self.estado(sobra), 'DISPUESTA')
+        self.assertEqual(sobra.disposicion_vigente.via, 'REPORTE')
+        self.assertEqual(sobra.disposicion_vigente.fecha, datetime.date(2026, 9, 8))
+
+    def test_no_toca_lo_pendiente_posterior_a_la_foto(self):
+        vieja = self._orden()
+        nueva = self._orden(placa='OBB178')
+        salida = self.correr('--confirmar', foto={}, tope=vieja.numero_orden)
+        self.assertIn('POSTERIORES A LA FOTO', salida)
+        self.assertEqual(self.estado(vieja), 'DISPUESTA')
+        self.assertEqual(self.estado(nueva), 'PENDIENTE', "residuo vivo: intacto")
+        self.assertIn('posterior(es) a la foto, intactas', salida)
+
+    def test_es_idempotente(self):
+        orden = self._orden()
+        foto = {orden.numero_orden: self.fila(orden)}
+        self.assertIn('ya está como la foto', self.correr('--confirmar', foto=foto))
+
+    def test_avisa_las_diferencias_sin_escribirlas(self):
+        orden = self._orden()
+        salida = self.correr(foto={orden.numero_orden: self.fila(orden, 'OTR999', 'OTRO CLIENTE')})
+        self.assertIn('Diferencias con la foto', salida)
+        self.assertIn('OTR999', salida)
+        self.assertIn('OTRO CLIENTE', salida)
+        self.assertEqual(orden.recorridos.get().vehiculo.placa, 'WGY347')
+
+    def test_avisa_si_una_orden_de_la_foto_no_existe(self):
+        salida = self.correr(foto={99999: ('X', '01/09/2026', 'A', 'B', 'XXX111')})
+        self.assertIn('#99999 no existe', salida)
+
+
+class DiagnosticarDisposicionesTests(BaseDisposicion):
+    """El comando que solo lee: qué se debe, qué se hizo y qué no cuadra."""
+
+    def correr(self, *argumentos):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('diagnosticar_disposiciones', *argumentos, stdout=salida)
+        return salida.getvalue()
+
+    def test_lista_pendientes_y_dispuestas(self):
+        pendiente = self._orden(fecha=timezone.localdate() - datetime.timedelta(days=3))
+        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        salida = self.correr()
+        self.assertIn('SIN DISPONER: 1', salida)
+        self.assertIn(f"#{pendiente.numero_orden}", salida)
+        self.assertIn('3 días', salida)
+        self.assertIn('DISPUESTAS: 1', salida)
+        self.assertIn(f"#{dispuesta.numero_orden}", salida)
+        self.assertIn('Al convertir la orden', salida)
+        self.assertIn('Todo cuadra', salida)
+
+    def test_senala_lo_que_no_cuadra(self):
+        rara = self._orden(pendiente=False)
+        rara.disposiciones.update(deshecha=True)      # dispuesta sin registro vigente
+        salida = self.correr()
+        self.assertIn(f"#{rara.numero_orden} está DISPUESTA pero no tiene registro vigente", salida)
+
+
+# ============================================================
+#  LA MIGRACIÓN QUE TRASLADA EL HISTORIAL DEL CAMIÓN A LA ORDEN
+# ============================================================
+class MigracionDisposicionesTests(TransactionTestCase):
+    """
+    Ensaya gestion/0069 con historial viejo de verdad: cargas pendientes,
+    descargas del plan, disposiciones al convertir y dobles registros. Es lo
+    que va a correr en producción, así que se prueba con datos.
+    """
+    antes = [('gestion', '0067_programacioncuadrilla_ayudante2_observacion_and_more'),
+             ('planes', '0004_enlazar_descargas_previas')]
+    despues = [('gestion', '0070_retirar_la_carga_del_camion'),
+               ('planes', '0006_retirar_descargas_del_camion')]
+
+    def test_el_historial_del_camion_pasa_a_la_orden(self):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(self.antes)
+        viejo = ejecutor.loader.project_state(self.antes).apps
+
+        User = viejo.get_model('auth', 'User')
+        Cliente = viejo.get_model('gestion', 'Cliente')
+        Vehiculo = viejo.get_model('gestion', 'Vehiculo')
+        Orden = viejo.get_model('gestion', 'OrdenServicio')
+        Dispositor = viejo.get_model('gestion', 'Dispositor')
+        Movimiento = viejo.get_model('gestion', 'MovimientoCargaVehiculo')
+        PlanDia = viejo.get_model('planes', 'PlanDia')
+        Asignacion = viejo.get_model('planes', 'Asignacion')
+
+        asesor = User.objects.create(username='asesor')
+        carlos = User.objects.create(username='carlos', first_name='Carlos', last_name='Pérez')
+        cliente = Cliente.objects.create(nombre='Crepes', identificacion='900')
+        camion = Vehiculo.objects.create(placa='WGY347', marca='K', modelo='2019', capacidad='10')
+        gestor = Dispositor.objects.create(nombre='ENERGY', tipo='PROVEEDOR')
+        def orden(n):
+            return Orden.objects.create(numero_orden=n, cliente=cliente, asesor=asesor)
+        pendiente, del_plan, al_convertir, compensada = orden(22204), orden(22214), orden(22206), orden(22239)
+
+        # 22204: carga sin saldar → sigue pendiente.
+        Movimiento.objects.create(vehiculo=camion, accion='CARGA', nota='quedó cargado', orden=pendiente)
+        # 22214: carga saldada por una descarga del plan (dos personas).
+        carga = Movimiento.objects.create(vehiculo=camion, accion='CARGA', nota='quedó cargado', orden=del_plan)
+        descarga = Movimiento.objects.create(vehiculo=camion, accion='DESCARGA', orden=del_plan,
+                                             dispositor=gestor, nota='Plan del 27/08/2026: dispuesto por Carlos')
+        carga.descarga = descarga; carga.save()
+        plan = PlanDia.objects.create(fecha=datetime.date(2026, 8, 27))
+        for persona in (carlos, asesor):
+            a = Asignacion.objects.create(plan=plan, persona=persona, tipo='DISPOSICION_FINAL')
+            a.descargas.add(descarga)
+        # 22206: dispuesta al convertir (solo descarga).
+        Movimiento.objects.create(vehiculo=camion, accion='DESCARGA', orden=al_convertir,
+                                  dispositor=gestor, nota='se dispuso con ENERGY')
+        # 22239: saldada y luego revivida (doble registro) → pendiente, con historial.
+        c1 = Movimiento.objects.create(vehiculo=camion, accion='CARGA', nota='c1', orden=compensada)
+        d1 = Movimiento.objects.create(vehiculo=camion, accion='DESCARGA', orden=compensada, nota='reporte solmed')
+        c1.descarga = d1; c1.save()
+        Movimiento.objects.create(vehiculo=camion, accion='CARGA', nota='revivida', orden=compensada)
+        # Carga manual sin orden: no tiene a dónde ir.
+        Movimiento.objects.create(vehiculo=camion, accion='CARGA', nota='Carga manual: x')
+
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(self.despues)
+        nuevo = ejecutor.loader.project_state(self.despues).apps
+        Orden = nuevo.get_model('gestion', 'OrdenServicio')
+        Disposicion = nuevo.get_model('gestion', 'DisposicionOrden')
+        Asignacion = nuevo.get_model('planes', 'Asignacion')
+
+        estados = dict(Orden.objects.values_list('numero_orden', 'estado_disposicion'))
+        self.assertEqual(estados, {22204: 'PENDIENTE', 22214: 'DISPUESTA',
+                                   22206: 'DISPUESTA', 22239: 'PENDIENTE'})
+        self.assertFalse(Disposicion.objects.filter(orden_id=22204).exists())
+
+        r = Disposicion.objects.get(orden_id=22214)
+        self.assertEqual((r.via, r.deshecha, r.dispositor_id), ('PLAN', False, gestor.pk))
+        self.assertEqual(r.fecha, timezone.localtime(descarga.fecha).date())
+        self.assertEqual(Asignacion.objects.filter(disposiciones=r).count(), 2)
+
+        r = Disposicion.objects.get(orden_id=22206)
+        self.assertEqual((r.via, r.deshecha), ('CONVERTIR', False))
+
+        r = Disposicion.objects.get(orden_id=22239)
+        self.assertEqual((r.via, r.deshecha), ('REPORTE', True), "el registro queda, marcado como deshecho")
+        self.assertIn('Migración', r.deshecha_nota)

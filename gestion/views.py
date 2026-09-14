@@ -6,7 +6,7 @@ import os
 import unicodedata
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseForbidden, HttpResponseRedirect
 from django.contrib.messages.views import SuccessMessageMixin
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -42,7 +42,7 @@ from .renumeracion import reubicar_orden
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import Bascula, DisposicionOrden, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -280,20 +280,13 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
             'disponibles': max(len(operativos) - vehiculos_en_ruta_hoy, 0),
             'mantenimiento': sum(1 for v in vehiculos if v.estado == 'MANTENIMIENTO'),
             'stand_by': sum(1 for v in vehiculos if v.estado == 'STAND_BY'),
-            'cargados': sum(1 for v in vehiculos if v.cargado),
         }
         context['flota'] = flota
-        # Órdenes cuyo residuo sigue en un camión (carga sin saldar): la
-        # tarjeta lleva a la lista filtrada y se descargan desde el plan.
-        context['ordenes_sin_disponer'] = (
-            OrdenServicio.objects.filter(
-                movimientos_carga__accion='CARGA',
-                movimientos_carga__descarga__isnull=True)
-            .distinct().count())
+        # Órdenes cuyo residuo sigue sin disponer: la tarjeta lleva a la lista
+        # filtrada; se disponen desde el plan de trabajo o el panel.
+        context['ordenes_sin_disponer'] = OrdenServicio.objects.filter(
+            estado_disposicion='PENDIENTE').count()
         context['vehiculos_con_alerta'] = [v for v in vehiculos if v.tiene_alerta_documentos]
-        context['vehiculos_cargados'] = sorted(
-            (v for v in vehiculos if v.cargado), key=lambda v: v.placa
-        )
 
         # ================= PERSONAL =================
         docs_personal = _estado_documentos_personal()
@@ -343,12 +336,13 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         # ================= CENTRO DE ALERTAS (cola accionable) =================
         # nivel 'err' = requiere acción ya; 'warn' = atender pronto.
         alertas = []
-        for v in context['vehiculos_cargados']:
+        if context['ordenes_sin_disponer']:
+            n = context['ordenes_sin_disponer']
             alertas.append({
-                'nivel': 'err', 'icono': 'bi-truck',
-                'texto': f"{v.placa} está CARGADO, pendiente de disposición final",
-                'detalle': v.cargado_detalle or '',
-                'url': reverse('gestion:detalle_vehiculo', args=[v.pk]),
+                'nivel': 'err', 'icono': 'bi-recycle',
+                'texto': f"{n} orden{'es' if n != 1 else ''} sin disponer",
+                'detalle': 'El residuo sigue pendiente; se registra desde el plan o el panel de disposiciones.',
+                'url': reverse('gestion:trazabilidad_disposiciones'),
             })
         for v in context['vehiculos_con_alerta']:
             for d in v.documentos_por_vencer():
@@ -510,13 +504,10 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         if conciliacion_filtro:
             queryset = queryset.filter(estado_conciliacion=conciliacion_filtro)
 
-        # Órdenes SIN DISPONER: su residuo sigue en un camión (tienen una
-        # CARGA sin saldar en el historial). Es a donde navega la tarjeta
-        # del tablero; se saldan desde el plan de trabajo.
+        # Órdenes SIN DISPONER: su residuo sigue pendiente. Es a donde navega
+        # la tarjeta del tablero; se disponen desde el plan o el panel.
         if disposicion_filtro == 'SIN_DISPONER':
-            queryset = queryset.filter(
-                movimientos_carga__accion='CARGA',
-                movimientos_carga__descarga__isnull=True).distinct()
+            queryset = queryset.filter(estado_disposicion='PENDIENTE')
 
         return queryset
 
@@ -1204,62 +1195,6 @@ class ActualizarClienteView(ClienteFormMixin, AsesorRequiredMixin, UpdateView):
     success_url = reverse_lazy('gestion:lista_clientes')
 
 
-
-
-
-class MarcarCargaVehiculoView(AsesorRequiredMixin, View):
-    """
-    Marca a mano que un camión quedó CARGADO, desde su expediente: sirve
-    cuando el residuo entró por fuera de una orden. La nota es obligatoria y
-    queda en el historial (MovimientoCargaVehiculo).
-
-    DESCARGAR ya NO se hace aquí (decisión del usuario, ago-2026): la
-    disposición es trabajo de alguien, así que se registra asignándola en el
-    PLAN DE TRABAJO. Así el residuo nunca sale del sistema sin responsable.
-    """
-    def post(self, request, pk):
-        from .models import Dispositor, MovimientoCargaVehiculo
-        vehiculo = get_object_or_404(Vehiculo, pk=pk)
-        accion = request.POST.get('accion', '')
-        nota = request.POST.get('nota', '').strip()
-        destino = redirect('gestion:detalle_vehiculo', pk=pk)
-
-        if accion == 'DESCARGA':
-            messages.error(
-                request,
-                "La descarga se registra en el plan de trabajo: asígnale a "
-                "alguien la disposición de este camión y ahí queda con su "
-                "responsable y su fecha."
-            )
-            return destino
-        if accion != 'CARGA':
-            messages.error(request, "Acción no válida.")
-            return destino
-        if not nota:
-            messages.error(
-                request,
-                "Escribe la nota: a dónde se dispuso el contenido (o de dónde "
-                "viene la carga). Es la trazabilidad del residuo."
-            )
-            return destino
-        # Las cargas se ACUMULAN (cada una es un pendiente aparte), así que
-        # un camión ya cargado puede recibir otra: no se rechaza, se suma.
-        MovimientoCargaVehiculo.objects.create(
-            vehiculo=vehiculo, accion='CARGA', nota=f"Carga manual: {nota}",
-            registrado_por=request.user,
-        )
-        vehiculo.sincronizar_carga()
-        pendientes = vehiculo.cargas_pendientes.count()
-        messages.success(
-            request,
-            f"Camión {vehiculo.placa} marcado como CARGADO, pendiente de "
-            f"disposición"
-            + (f" (acumula {pendientes} cargas sin disponer)" if pendientes > 1 else "")
-            + ". Asígnale la disposición en el plan de trabajo."
-        )
-        return destino
-
-
 def _placa_partes(placa):
     """
     La placa como va impresa: las letras y los números separados. En la placa
@@ -1333,10 +1268,6 @@ def _puede_programarse(vehiculo):
             avisos.append(
                 f"El {alerta['documento']} vence en {dias} día{plural} "
                 f"({alerta['fecha']:%d/%m/%Y}).")
-    if vehiculo.cargado:
-        avisos.append(f"Lleva residuo pendiente de disposición: "
-                      f"{vehiculo.cargado_detalle or 'sin detalle registrado'}.")
-
     if frenos:
         return {'nivel': 'alto', 'titulo': 'No debería salir',
                 'motivos': frenos + avisos}
@@ -1345,8 +1276,7 @@ def _puede_programarse(vehiculo):
                 'motivos': avisos}
     # En verde el motivo no repite el título: dice QUÉ se revisó.
     return {'nivel': 'ok', 'titulo': 'Listo para programar',
-            'motivos': ['SOAT y tecnomecánica vigentes, sin carga pendiente '
-                        'de disposición.']}
+            'motivos': ['SOAT y tecnomecánica vigentes.']}
 
 
 class VehiculoDetailView(AsesorRequiredMixin, DetailView):
@@ -1370,14 +1300,6 @@ class VehiculoDetailView(AsesorRequiredMixin, DetailView):
             vehiculo=vehiculo,
             fecha_recorrido=fecha_seleccionada
         ).order_by('orden__fecha_creacion')
-
-        # --- Carga de residuo: historial y proveedores para la descarga manual ---
-        from .models import Dispositor
-        context['movimientos_carga'] = (
-            vehiculo.movimientos_carga.select_related('dispositor', 'registrado_por')[:12]
-        )
-        context['proveedores_disposicion'] = Dispositor.objects.filter(
-            tipo='PROVEEDOR', activo=True).order_by('nombre')
 
         # --- LÓGICA CORREGIDA PARA HISTORIAL Y MÉTRICAS ---
         # Ahora el historial se basa en los recorridos completados, no en las órdenes.
@@ -2389,6 +2311,13 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         # Formulario para subir documentos (los recorridos vienen de la
         # programación: aquí no se añaden).
         context['form_documento'] = DocumentoOrdenForm()
+        # Disposición del residuo: el estado vive en la orden. Los
+        # administradores pueden corregirlo a mano desde aquí.
+        context['disposicion'] = self.object.disposicion_vigente
+        context['historial_disposicion'] = list(
+            self.object.disposiciones.select_related('dispositor', 'registrado_por', 'deshecha_por')[:8])
+        context['gestores'] = Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre')
+        context['hoy'] = timezone.localdate()
         # Vehículos operativos con documentos vencidos/por vencer (aviso al asignar).
         context['vehiculos_con_alerta'] = [
             v for v in Vehiculo.objects.filter(estado='OPERATIVO') if v.tiene_alerta_documentos
@@ -2497,6 +2426,35 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         # Soportes pendientes (báscula / fotos): el asesor puede completarlos
         # si el conductor no lo ha hecho.
         if _cargar_soporte_orden(request, orden):
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        # Corrección a mano del estado de disposición (SOLO administradores,
+        # decisión del usuario, sep-2026): para lo que no pasó por el plan.
+        if 'submit_marcar_sin_disponer' in request.POST or 'submit_marcar_dispuesta' in request.POST:
+            es_admin = (request.user.is_superuser
+                        or request.user.groups.filter(name='Administradores').exists())
+            if not es_admin:
+                return HttpResponseForbidden("Solo los administradores corrigen la disposición.")
+            nota = (request.POST.get('nota') or '').strip()
+            if not nota:
+                messages.error(request, "Escribe por qué se corrige: es la trazabilidad del residuo.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+            if 'submit_marcar_sin_disponer' in request.POST:
+                orden.deshacer_disposicion(usuario=request.user, nota=f"Corregida a mano: {nota}")
+                messages.warning(request, f"La orden #{orden.numero_orden} queda SIN DISPONER.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+            from django.utils.dateparse import parse_date
+            fecha = parse_date((request.POST.get('fecha') or '').strip()) or timezone.localdate()
+            if fecha > timezone.localdate():
+                messages.error(request, "El día de la disposición no puede ser futuro.")
+                return redirect('gestion:detalle_orden', pk=orden.pk)
+            gestor = Dispositor.objects.filter(pk=request.POST.get('dispositor') or None,
+                                               tipo='PROVEEDOR').first()
+            orden.registrar_disposicion(
+                via='MANUAL', fecha=fecha, usuario=request.user, dispositor=gestor,
+                nota=f"Corregida a mano: {nota}")
+            messages.success(request, f"La orden #{orden.numero_orden} queda DISPUESTA "
+                                      f"({fecha:%d/%m/%Y}).")
             return redirect('gestion:detalle_orden', pk=orden.pk)
 
         # Fotos de los AYUDANTES: si alguno no subió las suyas por su enlace,
@@ -3658,18 +3616,6 @@ def _terceros_por_cliente():
     return data
 
 
-def _vehiculos_cargados():
-    """
-    Mapa {id_vehiculo: detalle} de los camiones con carga PENDIENTE de
-    disposición, para alertar en vivo al asignarlos en la programación.
-    """
-    return {
-        str(pk): detalle or 'carga pendiente de disposición'
-        for pk, detalle in Vehiculo.objects.filter(cargado=True)
-                                            .values_list('pk', 'cargado_detalle')
-    }
-
-
 def _catalogo_docs_solmed():
     """[{token, label}] de la documentación interna de SOLMED."""
     from .models import DocumentoInterno
@@ -4235,34 +4181,18 @@ def _disposicion_meta():
 def _avisar_carga_pendiente(request, programacion, orden):
     """
     Tras generar la orden: si el servicio quedó SIN disposición final, avisa
-    qué quedó cargado (camiones o tanques) para que el personal lo tenga en cuenta.
+    que la orden queda sin disponer hasta que alguien registre el viaje.
     """
-    from .models import Dispositor
-    if programacion.requiere_disposicion_final != 'NO' or not programacion.dispositor_final_id:
+    if programacion.requiere_disposicion_final != 'NO':
         return
-    destino = programacion.dispositor_final.nombre
-    if destino == Dispositor.DEJAR_CARRO_CARGADO:
-        placas = ", ".join(sorted({
-            r.vehiculo.placa for r in orden.recorridos.all() if r.vehiculo_id
-        }))
-        messages.warning(
-            request,
-            f"OJO: sin disposición final — el/los camión(es) {placas} quedaron CARGADOS, "
-            f"pendientes de disposición."
-        )
-    elif destino == Dispositor.TRASIEGO_PLACA and programacion.trasiego_vehiculo_id:
-        messages.warning(
-            request,
-            f"OJO: el contenido se trasegó al camión {programacion.trasiego_vehiculo.placa}, "
-            f"que quedó CARGADO pendiente de disposición."
-        )
-    elif destino in Dispositor.TANQUES:
-        messages.warning(
-            request,
-            f"OJO: el contenido quedó en {destino.title()} (tanques SOLMED), "
-            f"pendiente de disposición final."
-        )
-    # Dispositor.SIN_DISPOSICION no deja nada pendiente: no hay nada que avisar.
+    destino = programacion.dispositor_final.nombre if programacion.dispositor_final_id else ''
+    messages.warning(
+        request,
+        f"La orden #{orden.numero_orden} queda SIN DISPONER"
+        + (f" (destino previsto: {destino.title()})" if destino else "")
+        + ". Cuando se haga la disposición, regístrala desde el plan de trabajo "
+        "o el panel de disposiciones."
+    )
 
 
 class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
@@ -4294,7 +4224,6 @@ def _contexto_programacion(context):
     context['direcciones_clientes'] = _direcciones_clientes()
     context['sedes_por_cliente'] = _sedes_por_cliente()
     context['terceros_por_cliente'] = _terceros_por_cliente()
-    context['vehiculos_cargados'] = _vehiculos_cargados()
     context['disposicion_meta'] = _disposicion_meta()
     # Catálogos que se administran desde un popup del propio formulario
     # (agregar/eliminar sin salir de la programación). Solo los activos.
@@ -5658,89 +5587,56 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
 
 def _filas_trazabilidad(request):
     """
-    Una fila por ORDEN con rastro de carga: su estado real de disposición.
+    Una fila por ORDEN con estado de disposición (las NO_APLICA no cuentan).
     Devuelve (filas_filtradas, todas_las_filas, filtros) — las completas
     alimentan los contadores, que no dependen del filtro puesto.
     """
-    movimientos = list(
-        MovimientoCargaVehiculo.objects
-        .filter(orden__isnull=False)
-        .select_related('orden__cliente', 'vehiculo', 'dispositor',
-                        'registrado_por', 'descarga__vehiculo',
-                        'descarga__dispositor', 'descarga__registrado_por')
-        .prefetch_related('descarga__asignaciones_plan__persona',
-                          'descarga__asignaciones_plan__plan',
-                          'asignaciones_plan__persona',
-                          'asignaciones_plan__plan')
-        .order_by('fecha'))
-    servicios = dict(
-        Recorrido.objects
-        .filter(orden_id__in={m.orden_id for m in movimientos})
-        .values('orden_id').annotate(f=Min('fecha_recorrido'))
-        .values_list('orden_id', 'f'))
-
-    por_orden = {}
-    for m in movimientos:
-        por_orden.setdefault(m.orden, []).append(m)
-
-    def _quien_y_via(descarga):
-        """
-        De dónde salió la disposición, quiénes respondieron por ella y —si
-        vino del plan— la actividad que la registró (es la que el panel
-        puede deshacer; las hechas al convertir la orden no tienen una).
-        """
-        asignaciones = list(descarga.asignaciones_plan.all())
-        if asignaciones:
-            nombres = list(dict.fromkeys(a.persona_nombre for a in asignaciones))
-            return (', '.join(nombres),
-                    f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}",
-                    asignaciones[0].pk)
-        quien = (descarga.registrado_por.get_full_name()
-                 or descarga.registrado_por.username) if descarga.registrado_por else ''
-        if 'reporte' in descarga.nota.lower():
-            return quien or '—', 'Reporte de la oficina', None
-        return quien or '—', 'Al convertir la orden', None
+    from django.db.models import Prefetch
+    vigentes = (DisposicionOrden.objects.filter(deshecha=False)
+                .select_related('dispositor', 'registrado_por')
+                .prefetch_related('asignaciones_plan__persona', 'asignaciones_plan__plan'))
+    ordenes = (OrdenServicio.objects.exclude(estado_disposicion='NO_APLICA')
+               .select_related('cliente')
+               .prefetch_related('recorridos__vehiculo',
+                                 Prefetch('disposiciones', queryset=vigentes, to_attr='vigentes'))
+               .order_by('numero_orden'))
 
     hoy = timezone.localdate()
     filas = []
-    for orden, movs in por_orden.items():
-        cargas = [m for m in movs if m.accion == 'CARGA']
-        pendiente = next((c for c in cargas if c.descarga_id is None), None)
-        fila = {
-            'orden': orden,
-            'servicio': servicios.get(orden.pk),
-            'duplicada': len(cargas) > 1 and pendiente is not None
-                         and any(c.descarga_id for c in cargas),
-        }
-        if pendiente is not None:
-            cargada = timezone.localdate(pendiente.fecha)
+    for orden in ordenes:
+        recorridos = list(orden.recorridos.all())
+        placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
+        servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+        # Desde cuándo se debe: el día del servicio (o el de creación).
+        desde = servicio or timezone.localdate(orden.fecha_creacion)
+        fila = {'orden': orden, 'servicio': servicio, 'placa': placa,
+                'cargada_el': desde, 'duplicada': False}
+        if orden.estado_disposicion == 'PENDIENTE':
             fila.update({
-                'estado': 'PENDIENTE', 'placa': pendiente.vehiculo.placa,
-                'cargada_el': cargada, 'dias': (hoy - cargada).days,
+                'estado': 'PENDIENTE', 'dias': (hoy - desde).days,
                 'dispuesta_el': None, 'quien': '', 'via': '', 'gestor': '',
-                'nota': pendiente.nota,
-                # La casilla del panel marca ESTA carga para disponerla.
-                'carga_id': pendiente.pk, 'asignacion_id': None,
+                'nota': '', 'asignacion_id': None,
             })
         else:
-            # Saldada por su descarga, o dispuesta directo (SÍ al convertir).
-            saldada = next((c for c in reversed(cargas) if c.descarga_id), None)
-            descarga = (saldada.descarga if saldada
-                        else next((m for m in reversed(movs)
-                                   if m.accion == 'DESCARGA'), None))
-            if descarga is None:
+            registro = orden.vigentes[0] if orden.vigentes else None
+            if registro is None:
                 continue
-            quien, via, asignacion_id = _quien_y_via(descarga)
-            dispuesta = timezone.localdate(descarga.fecha)
+            asignaciones = list(registro.asignaciones_plan.all())
+            if asignaciones:
+                quien = ', '.join(dict.fromkeys(a.persona_nombre for a in asignaciones))
+                via = f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}"
+            else:
+                quien = ((registro.registrado_por.get_full_name()
+                          or registro.registrado_por.username)
+                         if registro.registrado_por_id else '—')
+                via = registro.get_via_display()
             fila.update({
-                'estado': 'DISPUESTA', 'placa': descarga.vehiculo.placa,
-                'cargada_el': timezone.localdate(saldada.fecha) if saldada else None,
-                'dias': ((dispuesta - timezone.localdate(saldada.fecha)).days
-                         if saldada else None),
-                'dispuesta_el': dispuesta, 'quien': quien, 'via': via,
-                'gestor': descarga.dispositor.nombre if descarga.dispositor_id else '',
-                'nota': descarga.nota,
-                'carga_id': None, 'asignacion_id': asignacion_id,
+                'estado': 'DISPUESTA', 'dias': (registro.fecha - desde).days,
+                'dispuesta_el': registro.fecha, 'quien': quien, 'via': via,
+                'gestor': registro.dispositor.nombre if registro.dispositor_id else '',
+                'nota': registro.nota,
+                # Solo lo que vino del plan se puede deshacer desde el panel.
+                'asignacion_id': asignaciones[0].pk if asignaciones else None,
             })
         filas.append(fila)
 
@@ -5767,10 +5663,9 @@ def _filas_trazabilidad(request):
         filtradas = [f for f in filtradas if buscada in f['placa'].upper()]
     if filtros['mes']:
         # El mes se compara contra la fecha que define a cada fila: la de la
-        # disposición si ya se hizo, la de la carga si sigue pendiente.
+        # disposición si ya se hizo, la del servicio si sigue pendiente.
         filtradas = [f for f in filtradas
-                     if (f['dispuesta_el'] or f['cargada_el'])
-                     and (f['dispuesta_el'] or f['cargada_el']).strftime('%Y-%m') == filtros['mes']]
+                     if (f['dispuesta_el'] or f['cargada_el']).strftime('%Y-%m') == filtros['mes']]
     if filtros['q']:
         q = filtros['q'].upper()
         filtradas = [f for f in filtradas
@@ -5798,15 +5693,6 @@ def _personal_por_cargo():
         for cargo, personas in sorted(por_cargo.items(),
                                       key=lambda kv: posicion.get(kv[0], 99))
     ]
-
-
-def _pendientes_por_camion(pendientes):
-    """[{placa, filas}] con las filas pendientes de cada camión, por antigüedad."""
-    por_placa = {}
-    for fila in sorted(pendientes, key=lambda f: -f['dias']):
-        por_placa.setdefault(fila['placa'], []).append(fila)
-    return [{'placa': placa, 'filas': filas}
-            for placa, filas in sorted(por_placa.items())]
 
 
 class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
@@ -5859,7 +5745,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             form = AsignacionForm(
                 datos,
                 personas_ids=request.POST.getlist('personas'),
-                cargas_ids=request.POST.getlist('cargas'),
+                ordenes_ids=request.POST.getlist('ordenes'),
             )
             if not form.is_valid():
                 for lista in form.errors.values():
@@ -5869,7 +5755,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             plan, _ = PlanDia.objects.get_or_create(
                 fecha=fecha, defaults={'creado_por': request.user})
             creadas = form.crear(plan, request.user)
-            ordenes = sorted({c.orden_id for c in form.cargas if c.orden_id})
+            ordenes = [o.numero_orden for o in form.ordenes]
             messages.success(
                 request,
                 f"Disposición registrada en el plan del {fecha:%d/%m/%Y}: "
@@ -5886,15 +5772,15 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             if asignacion is None:
                 messages.error(request, "Esa disposición ya no está en el plan de trabajo.")
                 return redirect(volver)
-            # El viaje entero: la pareja comparte las mismas descargas. Se
-            # revive cada orden en su camión UNA vez y se quitan todas las
-            # asignaciones del viaje (en el plan se quitan de a una; aquí se
-            # deshace la disposición completa, que es lo que se ve en la fila).
+            # El viaje entero: la pareja comparte los mismos registros. Se
+            # deshace la disposición UNA vez y se quitan todas las asignaciones
+            # del viaje (en el plan se quitan de a una; aquí se deshace la
+            # disposición completa, que es lo que se ve en la fila).
             viaje = list(Asignacion.objects
-                         .filter(descargas__in=asignacion.descargas.all()).distinct()) or [asignacion]
-            ordenes = sorted({d.orden_id for d in asignacion.descargas.all() if d.orden_id})
+                         .filter(disposiciones__in=asignacion.disposiciones.all()).distinct()) or [asignacion]
+            ordenes = asignacion.ordenes_dispuestas
             fecha = asignacion.plan.fecha
-            asignacion.deshacer_descarga()
+            asignacion.deshacer_disposicion()
             for a in viaje:
                 a.delete()
             messages.warning(
@@ -5933,7 +5819,6 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             # gestores que ofrece el plan de trabajo. Las pendientes van
             # agrupadas por camión, que es como la oficina las piensa
             # («lo del WGY347»), cada grupo de la más vieja a la más nueva.
-            'pendientes_por_camion': _pendientes_por_camion(pendientes),
             'personas_por_cargo': _personal_por_cargo() if pendientes else [],
             'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre'),
             'hoy': timezone.localdate(),

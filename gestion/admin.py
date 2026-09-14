@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Banco, Bascula, Cliente, ContactoProveedor, EnvioCorreo, MedidaACPM, MovimientoCargaVehiculo, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Banco, Bascula, Cliente, ContactoProveedor, DisposicionOrden, EnvioCorreo, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -38,8 +38,8 @@ class FiltroAceiteInline(admin.TabularInline):
 
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
-    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado', 'cargado')
-    list_filter = ('estado', 'marca', 'cargado')
+    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado')
+    list_filter = ('estado', 'marca')
     search_fields = ('placa', 'marca', 'modelo')
     inlines = [FiltroAceiteInline]
 
@@ -229,10 +229,11 @@ class EnvioCorreoAdmin(admin.ModelAdmin):
     date_hierarchy = 'fecha'
 
 
-@admin.register(MovimientoCargaVehiculo)
-class MovimientoCargaVehiculoAdmin(admin.ModelAdmin):
-    list_display = ('fecha', 'vehiculo', 'accion', 'nota', 'dispositor', 'registrado_por')
-    list_filter = ('accion',)
-    search_fields = ('vehiculo__placa', 'nota')
+@admin.register(DisposicionOrden)
+class DisposicionOrdenAdmin(admin.ModelAdmin):
+    list_display = ('fecha', 'orden', 'via', 'dispositor', 'registrado_por', 'deshecha')
+    list_filter = ('via', 'deshecha')
+    search_fields = ('orden__numero_orden', 'nota')
     date_hierarchy = 'fecha'
+    raw_id_fields = ('orden',)
 

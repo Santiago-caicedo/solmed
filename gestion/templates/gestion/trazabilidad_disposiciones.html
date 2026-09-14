@@ -59,9 +59,10 @@
     background:var(--panel-2); border-bottom:1px solid var(--line-2); }
 .dz-placa{ display:inline-block; font-family:var(--mono); font-weight:600; font-size:.8rem; letter-spacing:.08em;
     padding:.12rem .55rem; border-radius:var(--r-xs); background:var(--g-800); color:#fff; }
+.dz-placa.mini{ font-size:.68rem; padding:.08rem .45rem; font-weight:500; }
 .dz-grupo-cab .cuantas{ font-size:.76rem; color:var(--ink-3); }
 .dz-grupo-cab .btn-link{ font-size:.76rem; padding:0; text-decoration:none; }
-.dz-orden{ display:grid; grid-template-columns:1.6rem 5.4rem 1fr auto auto; align-items:center; gap:.75rem;
+.dz-orden{ display:grid; grid-template-columns:1.6rem 5.4rem 1fr auto auto auto; align-items:center; gap:.75rem;
     min-height:44px; padding:.45rem .75rem; border-top:1px solid var(--line-2); cursor:pointer; margin:0; }
 .dz-orden:first-of-type{ border-top:0; }
 .dz-orden:hover{ background:var(--panel-2); }
@@ -194,7 +195,6 @@
                     <tr>
                         <td>
                             <a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
-                            {% if f.duplicada %}<i class="bi bi-exclamation-triangle-fill text-warning" title="Tiene carga saldada y pendiente a la vez: revisar con diagnosticar_cargas"></i>{% endif %}
                         </td>
                         <td>{{ f.orden.cliente.nombre|truncatechars:30 }}</td>
                         <td>{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
@@ -259,28 +259,27 @@
                 {# ---------- paso 1 ---------- #}
                 <section class="dz-paso" data-paso="1">
                     <h6 tabindex="-1">¿Qué salió del camión?</h6>
-                    <div class="ayuda">Marca las órdenes que se dispusieron en el viaje. Pueden ser de camiones distintos; cada una se descarga del suyo.</div>
+                    <div class="ayuda">Marca las órdenes que se dispusieron en el viaje. La placa es solo referencia: pueden ser de camiones distintos.</div>
                     <input type="search" class="form-control form-control-sm dz-buscar" id="dz-buscar"
                            placeholder="Buscar por orden, cliente o placa" aria-label="Buscar orden, cliente o placa" autocomplete="off">
-                    {% for g in pendientes_por_camion %}
-                    <div class="dz-grupo" data-placa="{{ g.placa }}">
+                    <div class="dz-grupo">
                         <div class="dz-grupo-cab">
-                            <div><span class="dz-placa">{{ g.placa }}</span> <span class="cuantas ms-1">{{ g.filas|length }} sin disponer</span></div>
-                            <button type="button" class="btn btn-link dz-todo-camion">Marcar todo el camión</button>
+                            <div><span class="cuantas">{{ n_pendientes }} sin disponer · de la más vieja a la más nueva</span></div>
+                            <button type="button" class="btn btn-link dz-todo-camion">Marcar las visibles</button>
                         </div>
-                        {% for f in g.filas %}
-                        <label class="dz-orden" data-buscar="{{ f.orden.numero_orden }} {{ f.orden.cliente.nombre|lower }} {{ g.placa|lower }}">
-                            <input type="checkbox" class="form-check-input" name="cargas" value="{{ f.carga_id }}"
-                                   data-orden="{{ f.orden.numero_orden }}" data-placa="{{ g.placa }}"
+                        {% for f in pendientes %}
+                        <label class="dz-orden" data-buscar="{{ f.orden.numero_orden }} {{ f.orden.cliente.nombre|lower }} {{ f.placa|lower }}">
+                            <input type="checkbox" class="form-check-input" name="ordenes" value="{{ f.orden.pk }}"
+                                   data-orden="{{ f.orden.numero_orden }}" data-placa="{{ f.placa|default:'—' }}"
                                    data-cliente="{{ f.orden.cliente.nombre|truncatechars:28 }}">
                             <span class="num">#{{ f.orden.numero_orden }}</span>
                             <span class="cli" title="{{ f.orden.cliente.nombre }}">{{ f.orden.cliente.nombre }}</span>
+                            <span class="dz-placa mini">{{ f.placa|default:"—" }}</span>
                             <span class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</span>
                             <span class="dias">{{ f.dias }} día{{ f.dias|pluralize }}</span>
                         </label>
                         {% endfor %}
                     </div>
-                    {% endfor %}
                     <div class="dz-nada" id="dz-nada" hidden>Ninguna orden coincide con esa búsqueda.</div>
                 </section>
 
@@ -372,7 +371,7 @@
     var buscar = document.getElementById('dz-buscar');
     var nada = document.getElementById('dz-nada');
 
-    function marcadas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="cargas"]:checked')); }
+    function marcadas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="ordenes"]:checked')); }
     function personas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="personas"]:checked')); }
     function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
 
@@ -454,7 +453,7 @@
     });
 
     form.addEventListener('change', function (e) {
-        if (e.target.name === 'cargas') pintarResumen();
+        if (e.target.name === 'ordenes') pintarResumen();
         btnSiguiente.disabled = !listo();
     });
 
@@ -475,7 +474,7 @@
         nada.hidden = visibles > 0;
     });
 
-    // «Marcar todo el camión»: marca lo visible del grupo (o lo desmarca si ya estaba todo).
+    // «Marcar las visibles»: marca lo que muestra el buscador (o lo desmarca si ya estaba todo).
     modal.querySelectorAll('.dz-todo-camion').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var casillas = Array.prototype.slice.call(btn.closest('.dz-grupo').querySelectorAll('.dz-orden:not(.oculta) input'));

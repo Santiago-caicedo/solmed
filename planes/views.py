@@ -22,7 +22,7 @@ from django.views import View
 from django.views.generic import ListView
 from weasyprint import HTML
 
-from gestion.models import Dispositor, Manifiesto, Recorrido, Vehiculo
+from gestion.models import Dispositor, Manifiesto, OrdenServicio, Recorrido, Vehiculo
 from gestion.roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin, _reply_to
 
@@ -53,6 +53,23 @@ def _personal_activo():
         .exclude(perfil__retirado=True)
         .prefetch_related('groups').distinct()
     )
+
+
+def ordenes_sin_disponer():
+    """
+    Las órdenes cuyo residuo sigue sin disponer, de la más vieja a la más
+    nueva, con su placa y su fecha de servicio de referencia. Las ofrecen el
+    plan y el panel de disposiciones para registrar el viaje.
+    """
+    ordenes = list(
+        OrdenServicio.objects.filter(estado_disposicion='PENDIENTE')
+        .select_related('cliente').prefetch_related('recorridos__vehiculo')
+        .order_by('numero_orden'))
+    for o in ordenes:
+        recorridos = list(o.recorridos.all())
+        o.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
+        o.fecha_servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+    return ordenes
 
 
 def _cargo_de(persona):
@@ -264,22 +281,13 @@ class PlanDiaView(AdministradorRequiredMixin, View):
             'campos_tipo': campos_tipo,
             'tipos_actividad': Asignacion.TIPO_CHOICES,
             # TODAS las placas (también las que están en taller: la
-            # tecnomecánica o el mantenimiento son justo para esas). Cada una
-            # sabe si lleva residuo y qué orden la cargó: la actividad de
-            # disposición solo ofrece esas, y es la única vía para descargar.
-            'vehiculos': self._placas(),
+            # tecnomecánica o el mantenimiento son justo para esas).
+            'vehiculos': Vehiculo.objects.order_by('placa'),
+            # Las órdenes SIN DISPONER: la actividad de disposición las ofrece
+            # como casillas (el pendiente es de la orden, no del camión).
+            'ordenes_pendientes': ordenes_sin_disponer(),
             'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR'),
         })
-
-    @staticmethod
-    def _placas():
-        # Cada camión trae SUS cargas pendientes (una por orden sin disponer):
-        # la actividad de disposición las ofrece como casillas y se saldan por
-        # separado — un camión acumula varias y sigue prestando servicio.
-        vehiculos = list(Vehiculo.objects.order_by('placa'))
-        for v in vehiculos:
-            v.pendientes = list(v.cargas_pendientes)
-        return vehiculos
 
     def post(self, request):
         fecha = _fecha_de(request)
@@ -290,7 +298,7 @@ class PlanDiaView(AdministradorRequiredMixin, View):
                 request.POST,
                 personas_ids=request.POST.getlist('personas'),
                 vehiculos_ids=request.POST.getlist('vehiculos'),
-                cargas_ids=request.POST.getlist('cargas'),
+                ordenes_ids=request.POST.getlist('ordenes'),
             )
             if form.is_valid():
                 plan, _ = PlanDia.objects.get_or_create(
@@ -423,30 +431,28 @@ class FichaPersonaPlanView(AdministradorRequiredMixin, View):
 
 class EliminarAsignacionView(AdministradorRequiredMixin, View):
     """
-    Quita una fila del plan (se asignó mal). Si era la disposición de un
-    camión y no queda nadie más encargado de ella, el camión vuelve a estar
-    CARGADO: si la disposición no se hizo, el residuo sigue ahí.
+    Quita una fila del plan (se asignó mal). Si era una disposición y no
+    queda nadie más encargado de ella, sus órdenes vuelven a quedar SIN
+    DISPONER: si la disposición no se hizo, el residuo sigue pendiente.
     """
     def post(self, request, pk):
         asignacion = get_object_or_404(Asignacion, pk=pk)
         fecha = asignacion.plan.fecha
-        vehiculo = asignacion.vehiculos.first()
-        descargaba = asignacion.descarga_vehiculos and vehiculo is not None
+        disponia = asignacion.dispone_ordenes and asignacion.disposiciones.exists()
         # ¿Queda alguien más encargado de ESTA misma disposición? Compañero es
-        # quien comparte las mismas descargas (la pareja del trabajo), no
-        # cualquier otra disposición del mismo camión: ahora un camión puede
-        # tener varias, cada una saldando sus propias órdenes.
+        # quien comparte los mismos registros (la pareja del trabajo).
         acompanantes = (
-            Asignacion.objects.filter(descargas__in=asignacion.descargas.all())
+            Asignacion.objects.filter(disposiciones__in=asignacion.disposiciones.all())
             .exclude(pk=asignacion.pk).exists()
-            if descargaba else False
+            if disponia else False
         )
-        if descargaba and not acompanantes:
-            asignacion.deshacer_descarga()
+        if disponia and not acompanantes:
+            ordenes = asignacion.ordenes_texto
+            asignacion.deshacer_disposicion()
             messages.warning(
                 request,
-                f"El camión {vehiculo.placa} vuelve a quedar CARGADO: se quitó "
-                f"del plan la disposición que tenía asignada."
+                f"{ordenes} vuelve(n) a quedar SIN DISPONER: se quitó del plan "
+                f"la disposición que tenía asignada."
             )
         asignacion.delete()
         messages.success(request, "Asignación quitada del plan.")

@@ -689,7 +689,6 @@ el bloque de scripts). Las clases catalogo-* son las que busca ese JS.
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
 {{ terceros_por_cliente|json_script:"terceros-cliente-data" }}
-{{ vehiculos_cargados|json_script:"vehiculos-cargados-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ basculas|json_script:"basculas-data" }}
 {{ sitios_inicio|json_script:"sitios-inicio-data" }}
@@ -991,11 +990,9 @@ function catalogoAdministrable(cfg) {
 })();
 </script>
 <script>
-// --- Disposición final: SÍ -> proveedor externo; NO -> destino interno
-//     (trasiego / dejar carro cargado) + alertas de carga pendiente. ---
-// vehiculosCargados: { "<id_vehiculo>": "detalle de la carga pendiente" }
+// --- Disposición final: SÍ -> gestor; NO -> la orden queda SIN DISPONER
+//     (el destino interno es solo una nota de referencia). ---
 // dispMeta: { dejar_cargado: id, trasiego_placa: id } (ids de esos destinos)
-var vehiculosCargados = JSON.parse(document.getElementById('vehiculos-cargados-data').textContent);
 var dispMeta = JSON.parse(document.getElementById('disposicion-meta-data').textContent);
 (function () {
     var selReq = document.getElementById('id_requiere_disposicion_final');
@@ -1020,46 +1017,19 @@ var dispMeta = JSON.parse(document.getElementById('disposicion-meta-data').textC
         var no = selReq.value === 'NO';
         var destino = no && selDest ? selDest.value : '';
 
-        // 1) El servicio dejará carga pendiente (dejar cargado / trasiego a placa).
-        if (no && destino === String(dispMeta.dejar_cargado)) {
+        // Con NO la orden queda sin disponer: la disposición se registra después
+        // (plan de trabajo o panel). El destino solo queda de referencia.
+        if (no) {
+            var destinoTexto = selDest && selDest.selectedOptions[0] && selDest.value
+                ? selDest.selectedOptions[0].text : '';
             html += '<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i>'
-                + '<strong>Sin disposición final:</strong> los camiones de este servicio quedarán '
-                + '<strong>CARGADOS</strong>, pendientes de disposición. Recuerda programarla.</div>';
+                + '<strong>Sin disposición final:</strong> la orden quedará <strong>SIN DISPONER</strong>'
+                + (destinoTexto ? ' (destino previsto: ' + destinoTexto + ')' : '')
+                + '. Cuando se haga el viaje, regístralo desde el plan de trabajo o el panel de disposiciones.</div>';
         }
-        if (no && destino === String(dispMeta.trasiego_placa) && selTras && selTras.value) {
-            html += '<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i>'
-                + 'El contenido se trasegará al camión <strong>' + placaDe(selTras) + '</strong>, que quedará '
-                + '<strong>CARGADO</strong> pendiente de disposición.</div>';
-        }
-        // "No hay disposición": el servicio pasa sin dejar nada pendiente.
-        if (no && destino === String(dispMeta.sin_disposicion)) {
+        if (si) {
             html += '<div class="alert alert-success mb-2"><i class="bi bi-check2-circle me-1"></i>'
-                + '<strong>Sin disposición:</strong> el servicio pasa así, sin dejar el camión '
-                + 'cargado ni contenido pendiente.</div>';
-        }
-
-        // 2) Vehículos seleccionados que YA están cargados de antes.
-        var vistos = {};
-        var selects = document.querySelectorAll('#cuadrillas-tbody select[name$="-vehiculo"]');
-        selects.forEach(function (sel) {
-            var fila = sel.closest('.cuadrilla-row');
-            if (fila && fila.style.display === 'none') return;
-            var id = sel.value;
-            if (!id || vistos[id]) return;
-            vistos[id] = true;
-            if (vehiculosCargados[id]) {
-                var extra = si
-                    ? 'Este servicio hará disposición: aprovecha para disponer esa carga.'
-                    : 'Tenlo en cuenta antes de cargarlo de nuevo.';
-                html += '<div class="alert alert-danger mb-2"><i class="bi bi-truck me-1"></i>'
-                    + 'El camión <strong>' + placaDe(sel) + '</strong> está <strong>CARGADO</strong> '
-                    + '(' + vehiculosCargados[id] + '). ' + extra + '</div>';
-            }
-        });
-        if (selTras && !selTras.disabled && selTras.value && vehiculosCargados[selTras.value] && !vistos[selTras.value]) {
-            html += '<div class="alert alert-danger mb-2"><i class="bi bi-truck me-1"></i>'
-                + 'OJO: el camión destino <strong>' + placaDe(selTras) + '</strong> YA está cargado ('
-                + vehiculosCargados[selTras.value] + ').</div>';
+                + 'La orden quedará <strong>dispuesta</strong> con el gestor elegido.</div>';
         }
         alertas.innerHTML = html;
     }
@@ -1080,10 +1050,6 @@ var dispMeta = JSON.parse(document.getElementById('disposicion-meta-data').textC
     selReq.addEventListener('change', aplicar);
     if (selDest) selDest.addEventListener('change', aplicar);
     if (selTras) selTras.addEventListener('change', avisosCarga);
-    // También al cambiar los vehículos de las cuadrillas (alertas de cargados).
-    document.addEventListener('change', function (e) {
-        if (e.target.matches('#cuadrillas-tbody select[name$="-vehiculo"]')) avisosCarga();
-    });
     aplicar();
 })();
 </script>

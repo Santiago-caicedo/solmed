@@ -212,39 +212,29 @@
                                 {% for v in vehiculos %}
                                 <label data-normal="1">
                                     <input type="checkbox" name="vehiculos" value="{{ v.pk }}">
-                                    <span class="mono">{{ v.placa }}</span>{% if v.cargado %} · <span class="pt-carga">{{ v.pendientes|length }} sin disponer</span>{% elif v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}
+                                    <span class="mono">{{ v.placa }}</span>{% if v.estado != 'OPERATIVO' %} · {{ v.get_estado_display|lower }}{% endif %}
                                 </label>
                                 {% endfor %}
                             </div>
-                            {# En modo disposición se elige POR CARGA: cada una se salda por separado. #}
-                            <div id="sel-cargas" style="display:none">
-                                {% for v in vehiculos %}{% if v.pendientes %}
-                                <div class="pt-camion-cargas">
-                                    <div class="pt-etq" style="margin:.35rem 0 .2rem">
-                                        <span class="mono">{{ v.placa }}</span> ·
-                                        {{ v.pendientes|length }} carga{{ v.pendientes|length|pluralize }} sin disponer
-                                    </div>
-                                    <div class="pt-sel">
-                                        {% for c in v.pendientes %}
-                                        <label>
-                                            <input type="checkbox" name="cargas" value="{{ c.pk }}"
-                                                   data-camion="{{ v.pk }}">
-                                            {% if c.orden_id %}<span class="mono">#{{ c.orden_id }}</span>
-                                            {% if c.orden %} · {{ c.orden.cliente.nombre|truncatechars:22 }}{% endif %}
-                                            {% else %}carga manual{% endif %}
-                                            · {{ c.fecha|date:"d/m" }}
-                                        </label>
-                                        {% endfor %}
-                                    </div>
+                            {# En modo disposición se eligen ÓRDENES sin disponer: el pendiente es de la orden. #}
+                            <div id="sel-ordenes" style="display:none">
+                                <div class="pt-sel">
+                                    {% for o in ordenes_pendientes %}
+                                    <label>
+                                        <input type="checkbox" name="ordenes" value="{{ o.pk }}">
+                                        <span class="mono">#{{ o.numero_orden }}</span>
+                                        · {{ o.cliente.nombre|truncatechars:22 }}
+                                        {% if o.placa %}· <span class="mono">{{ o.placa }}</span>{% endif %}
+                                        {% if o.fecha_servicio %}· {{ o.fecha_servicio|date:"d/m" }}{% endif %}
+                                    </label>
+                                    {% endfor %}
                                 </div>
-                                {% endif %}{% endfor %}
                             </div>
-                            <div class="form-text pt-aviso-carga" id="aviso-cargados" style="font-size:.72rem">
+                            <div class="form-text pt-aviso-carga" id="aviso-ordenes" style="font-size:.72rem">
                                 Marca las órdenes que salieron en el viaje, sin importar el
-                                camión. Cada una queda saldada con su propia descarga; las
-                                que no marques siguen sin disponer.
+                                camión. Las que no marques siguen sin disponer.
                             </div>
-                            <div class="form-text pt-aviso-carga" id="aviso-sin-cargados"
+                            <div class="form-text pt-aviso-carga" id="aviso-sin-ordenes"
                                  style="font-size:.72rem; display:none">
                                 Ahora mismo no hay órdenes sin disponer.
                             </div>
@@ -393,37 +383,36 @@ dejar veinte fichas ocultas en la página.
     // --- Campos según la actividad elegida ---
     var CAMPOS = JSON.parse(document.getElementById('campos-tipo').textContent);
     var selTipo = document.getElementById('sel-tipo');
-    var ETIQUETA_PLACA = { varios: 'Placas', cargados: 'Órdenes sin disponer' };
     function pinta() {
         var spec = CAMPOS[selTipo.value] || {};
-        var soloCargados = spec.vehiculos === 'cargados';
-        document.getElementById('campo-vehiculos').classList.toggle('visible', !!spec.vehiculos);
+        var porOrdenes = spec.ordenes === 'pendientes';
+        document.getElementById('campo-vehiculos').classList.toggle('visible', !!spec.vehiculos || porOrdenes);
         document.getElementById('etq-placas').textContent =
-            ETIQUETA_PLACA[spec.vehiculos] || 'Placa';
+            porOrdenes ? 'Órdenes sin disponer' : (spec.vehiculos === 'varios' ? 'Placas' : 'Placa');
         document.getElementById('campo-orden').classList.toggle('visible', !!spec.orden);
         document.getElementById('campo-proveedor').classList.toggle('visible', !!spec.proveedor);
         document.getElementById('campo-dispositor').classList.toggle('visible', !!spec.dispositor);
         document.getElementById('campo-hora').classList.toggle('visible', !!spec.hora);
         document.getElementById('detalle-opcional').classList.toggle('d-none', !!spec.detalle);
 
-        // Disponer se elige POR CARGA (cada orden sin disponer del camión es
-        // una casilla): se cambia el selector de placas por el de cargas, y se
-        // desmarca lo que ya no aplica (el servidor lo valida igual).
+        // Disponer se elige POR ORDEN (cada orden sin disponer es una casilla):
+        // se cambia el selector de placas por el de órdenes, y se desmarca lo
+        // que ya no aplica (el servidor lo valida igual).
         var selPlacas = document.getElementById('sel-placas');
-        var selCargas = document.getElementById('sel-cargas');
-        var hayCargas = !!selCargas.querySelector('input');
-        selPlacas.style.display = soloCargados ? 'none' : '';
-        selCargas.style.display = soloCargados && hayCargas ? '' : 'none';
-        selCargas.querySelectorAll('input').forEach(function (c) {
-            if (!soloCargados) { c.checked = false; }
+        var selOrdenes = document.getElementById('sel-ordenes');
+        var hayOrdenes = !!selOrdenes.querySelector('input');
+        selPlacas.style.display = porOrdenes ? 'none' : '';
+        selOrdenes.style.display = porOrdenes && hayOrdenes ? '' : 'none';
+        selOrdenes.querySelectorAll('input').forEach(function (c) {
+            if (!porOrdenes) { c.checked = false; }
         });
-        if (soloCargados) {
+        if (porOrdenes) {
             selPlacas.querySelectorAll('input').forEach(function (c) { c.checked = false; });
         }
-        document.getElementById('aviso-cargados').style.display =
-            soloCargados && hayCargas ? 'block' : 'none';
-        document.getElementById('aviso-sin-cargados').style.display =
-            soloCargados && !hayCargas ? 'block' : 'none';
+        document.getElementById('aviso-ordenes').style.display =
+            porOrdenes && hayOrdenes ? 'block' : 'none';
+        document.getElementById('aviso-sin-ordenes').style.display =
+            porOrdenes && !hayOrdenes ? 'block' : 'none';
     }
     selTipo.addEventListener('change', pinta);
     pinta();

@@ -89,7 +89,7 @@ class Asignacion(models.Model):
         'COMPRA_REPUESTOS':    {'vehiculos': 'varios'},
         'MONTALLANTAS':        {'vehiculos': 'varios'},
         'TRASTEO':             {},
-        'DISPOSICION_FINAL':   {'vehiculos': 'cargados', 'dispositor': True},
+        'DISPOSICION_FINAL':   {'ordenes': 'pendientes', 'dispositor': True},
         'DISPOSICION_SOLMED':  {},
         'ACOMPANAMIENTO':      {'detalle': True},
         'RECOGER_VEHICULO':    {'vehiculos': 'uno'},
@@ -132,12 +132,12 @@ class Asignacion(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
         related_name='asignaciones_registradas',
     )
-    # Las DESCARGAS que esta asignación registró (una por orden dispuesta).
-    # Con ellas se sabe QUÉ órdenes saldó esta disposición y se puede deshacer
-    # si la asignación se quita del plan.
-    descargas = models.ManyToManyField(
-        'gestion.MovimientoCargaVehiculo', blank=True,
-        related_name='asignaciones_plan', verbose_name="Descargas registradas",
+    # Las DISPOSICIONES de orden que esta actividad registró (una por orden).
+    # Con ellas se sabe qué órdenes dispuso este viaje y se puede deshacer si
+    # la actividad se quita del plan.
+    disposiciones = models.ManyToManyField(
+        'gestion.DisposicionOrden', blank=True,
+        related_name='asignaciones_plan', verbose_name="Disposiciones registradas",
     )
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
@@ -165,11 +165,11 @@ class Asignacion(models.Model):
     @property
     def ordenes_dispuestas(self):
         """
-        Los números de orden que esta disposición saldó, para mostrarlos
-        ("#22207, #22211"). Si no hay descargas enlazadas, cae a la orden
-        suelta de la asignación (las demás actividades y el histórico viejo).
+        Los números de orden que esta disposición dejó dispuestas, para
+        mostrarlos ("#22207, #22211"). Si no hay disposiciones enlazadas, cae
+        a la orden suelta de la asignación (las demás actividades).
         """
-        numeros = sorted({d.orden_id for d in self.descargas.all() if d.orden_id})
+        numeros = sorted({d.orden_id for d in self.disposiciones.all()})
         if numeros:
             return numeros
         return [self.orden_id] if self.orden_id else []
@@ -179,58 +179,38 @@ class Asignacion(models.Model):
         return ', '.join(f"#{n}" for n in self.ordenes_dispuestas)
 
     @property
-    def descarga_vehiculos(self):
-        """¿Esta actividad es la que dispone el residuo (y descarga el camión)?"""
-        return self.campos.get('vehiculos') == 'cargados'
+    def dispone_ordenes(self):
+        """¿Esta actividad es la que dispone el residuo de unas órdenes?"""
+        return self.campos.get('ordenes') == 'pendientes'
 
-    def aplicar_descarga(self, vehiculo, personas, cargas):
+    def aplicar_disposicion(self, personas, ordenes):
         """
-        Salda las cargas elegidas del camión porque el plan asignó su
-        disposición. Es la ÚNICA vía para descargar a mano (el botón del
-        expediente se retiró): así el residuo siempre sale del sistema con un
-        responsable y una fecha. Cada carga se salda con SU DESCARGA — una por
-        orden — y el camión conserva las que no se eligieron: un camión
-        acumula órdenes sin disponer y se van saldando por separado.
+        Deja DISPUESTAS las órdenes elegidas porque el plan asignó su
+        disposición: es la vía normal para disponer (el residuo siempre sale
+        del sistema con un responsable y una fecha). Cada orden recibe SU
+        registro, enlazado a esta actividad para poder deshacerlo.
         """
-        from gestion.models import MovimientoCargaVehiculo
         quien = f"dispuesto por {', '.join(personas)}"
-        for carga in cargas:
-            nota = (f"Plan del {self.plan.fecha:%d/%m/%Y}: "
-                    + (f"orden #{carga.orden_id} " if carga.orden_id else "carga manual ")
-                    + quien)
+        for orden in ordenes:
+            nota = f"Plan del {self.plan.fecha:%d/%m/%Y}: {quien}"
             if self.detalle:
                 nota += f" · {self.detalle}"
-            movimiento = MovimientoCargaVehiculo.objects.create(
-                vehiculo=vehiculo, accion='DESCARGA', nota=nota[:255],
-                orden=carga.orden, dispositor=self.dispositor,
-                registrado_por=self.registrado_por,
-            )
-            carga.descarga = movimiento
-            carga.save(update_fields=['descarga'])
-            self.descargas.add(movimiento)
-        vehiculo.sincronizar_carga()
+            registro = orden.registrar_disposicion(
+                via='PLAN', fecha=self.plan.fecha, usuario=self.registrado_por,
+                dispositor=self.dispositor, nota=nota)
+            self.disposiciones.add(registro)
 
-    def deshacer_descarga(self):
+    def deshacer_disposicion(self):
         """
-        Quitar la asignación revive SUS pendientes: si la disposición no se
-        hizo, ese residuo sigue en el camión. Cada orden vuelve como una CARGA
-        nueva — el historial no se borra, se compensa — y las cargas de otras
-        asignaciones no se tocan.
+        Quitar la actividad deja SUS órdenes otra vez sin disponer: si la
+        disposición no se hizo, el residuo sigue pendiente. El historial no se
+        borra: cada registro queda marcado como deshecho con la razón.
         """
-        from gestion.models import MovimientoCargaVehiculo
-        camiones = set()
-        for descarga in self.descargas.select_related('vehiculo'):
-            nota = ((f"Orden #{descarga.orden_id}: " if descarga.orden_id else "")
-                    + f"se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
-                    f"disposición asignada a {self.persona_nombre}")
-            # En el camión de SU descarga: un viaje puede mezclar placas.
-            MovimientoCargaVehiculo.objects.create(
-                vehiculo=descarga.vehiculo, accion='CARGA', nota=nota[:255],
-                orden=descarga.orden, registrado_por=self.registrado_por,
-            )
-            camiones.add(descarga.vehiculo)
-        for camion in camiones:
-            camion.sincronizar_carga()
+        nota = (f"Se quitó del plan del {self.plan.fecha:%d/%m/%Y} la "
+                f"disposición asignada a {self.persona_nombre}")
+        for registro in self.disposiciones.select_related('orden'):
+            if not registro.deshecha:
+                registro.orden.deshacer_disposicion(usuario=self.registrado_por, nota=nota)
 
 
 class Novedad(models.Model):
