@@ -6503,8 +6503,9 @@ class RegistrarDisposicionDesdePanelTests(BaseCRM):
         self.entrar(self.admin)
 
     def _orden(self, placa, pendiente=True, fecha=None):
+        camion = Vehiculo.objects.filter(placa=placa).first() or self.vehiculo(placa)
         programacion = self.programacion(
-            cliente=self.cli, conductor=self.conductor, vehiculo=self.vehiculo(placa),
+            cliente=self.cli, conductor=self.conductor, vehiculo=camion,
             fecha=fecha or timezone.localdate(),
             requiere_disposicion_final='NO' if pendiente else 'SI',
             dispositor_final=None if pendiente else self.gestor)
@@ -6540,7 +6541,7 @@ class RegistrarDisposicionDesdePanelTests(BaseCRM):
         respuesta = self.client.get(self.url)
         contenido = respuesta.content.decode()
         self.assertRegex(contenido, rf'name="cargas"\s+value="{self.carga(pendiente).pk}"')
-        self.assertEqual(contenido.count('name="cargas"'), 1, "la dispuesta no lleva casilla")
+        self.assertEqual(contenido.count('name="cargas" value='), 1, "la dispuesta no lleva casilla")
         self.assertContains(respuesta, 'Registrar disposición')
         self.assertContains(respuesta, 'Carlos Pérez')
         self.assertContains(respuesta, 'Luis Gómez')
@@ -6548,6 +6549,38 @@ class RegistrarDisposicionDesdePanelTests(BaseCRM):
         self.assertContains(respuesta, f'value="{timezone.localdate():%Y-%m-%d}"')
         self.assertNotContains(respuesta, 'submit_deshacer',
                                msg_prefix="lo dispuesto al convertir no tiene actividad que deshacer")
+
+    def test_el_popup_agrupa_las_pendientes_por_camion_y_va_por_pasos(self):
+        vieja = self._orden('WGY347', fecha=timezone.localdate() - datetime.timedelta(days=9))
+        nueva = self._orden('WGY347')
+        otra = self._orden('OBB178')
+        contenido = self.client.get(self.url).content.decode()
+
+        # Un grupo por camión, con «marcar todo el camión».
+        self.assertEqual(set(re.findall(r'class="dz-grupo" data-placa="(\w+)"', contenido)),
+                         {'WGY347', 'OBB178'})
+        self.assertEqual(contenido.count('>Marcar todo el camión</button>'), 2)
+        # Dentro del camión, la más vieja primero.
+        self.assertLess(contenido.index(f'#{vieja.numero_orden}</span>'),
+                        contenido.index(f'#{nueva.numero_orden}</span>'))
+        self.assertIn(f'#{otra.numero_orden}</span>', contenido)
+        # Los tres pasos, con el primero en curso.
+        self.assertEqual(contenido.count('class="dz-paso-tab"'), 3)
+        self.assertIn('aria-current="step"', contenido)
+        for titulo in ('¿Qué salió del camión?', '¿Quién hizo el viaje', 'Revisa y registra'):
+            self.assertIn(titulo, contenido)
+
+    def test_la_estructura_del_dom_es_la_que_el_css_y_el_js_esperan(self):
+        """
+        Las filas y los chips son label>input (no ul/li): el resaltado usa
+        label:has(input:checked) y el JS lee los data-* del input.
+        """
+        self._orden('WGY347')
+        contenido = self.client.get(self.url).content.decode()
+        self.assertRegex(contenido, r'<label class="dz-orden"[^>]*>\s*<input type="checkbox"[^>]*name="cargas"')
+        self.assertRegex(contenido, r'<label><input type="checkbox" name="personas" value="\d+" data-nombre="Carlos Pérez">')
+        self.assertNotIn("closest('li')", contenido)
+        self.assertNotIn('bootstrap.Modal', contenido, "el bundle carga después del bloque de contenido")
 
     def test_sin_pendientes_no_hay_formulario(self):
         self._orden('DIS222', pendiente=False)

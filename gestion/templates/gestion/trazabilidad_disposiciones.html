@@ -2,7 +2,8 @@
 {% block title %}Disposiciones{% endblock %}
 {% block content %}
 {# El estado REAL de las disposiciones, orden por orden: qué se debe y qué ya se hizo. #}
-{# Desde aquí también se REGISTRA la disposición: es la misma actividad del plan de trabajo. #}
+{# Registrar una disposición abre un popup por pasos (1 órdenes → 2 viaje → 3 confirmar): #}
+{# es la misma actividad «Disposición final» del plan de trabajo, así que aparece allá también. #}
 <style>
 .dz-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
 .dz-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--line);
@@ -24,22 +25,80 @@
 .dz-via{ font-size:.74rem; color:var(--steel); }
 .dz-deshacer{ border:0; background:none; padding:0; font-size:.74rem; color:var(--ink-3); text-decoration:underline dotted; }
 .dz-deshacer:hover{ color:var(--warn); }
+.dz-lista-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:.75rem; flex-wrap:wrap; }
 
-/* --- registrar la disposición: mismo lenguaje del panel del plan (chips label>input, nunca ul/li) --- */
-.dz-reg{ border-left:3px solid var(--brand-600); }
-.dz-reg .card-header{ display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; }
-.dz-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.6rem 0 .25rem; }
-.dz-sel{ display:flex; flex-wrap:wrap; gap:.3rem; }
-.dz-sel label{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; padding:.18rem .55rem;
-    border:1px solid var(--line); border-radius:99px; background:var(--panel); cursor:pointer; user-select:none; }
+/* ===== El popup por pasos ===== */
+.dz-modal .modal-content{ border:0; border-radius:var(--r-lg); overflow:hidden; }
+.dz-modal .modal-header{ background:var(--g-900); color:#fff; border:0; padding:.9rem 1.25rem; align-items:center; }
+.dz-modal .modal-header .btn-close{ filter:invert(1) grayscale(1); opacity:.7; }
+.dz-modal .modal-header .btn-close:hover{ opacity:1; }
+.dz-modal .modal-title{ font-family:var(--sans); font-size:1.05rem; font-weight:600; letter-spacing:0; text-transform:none; color:#fff; }
+.dz-modal .modal-title small{ display:block; font-family:var(--sans); font-size:.78rem; font-weight:400; letter-spacing:0; text-transform:none; color:rgba(255,255,255,.7); margin-top:.15rem; }
+.dz-modal .modal-body{ padding:0; }
+.dz-modal .modal-footer{ border-top:1px solid var(--line-2); padding:.75rem 1.25rem; justify-content:space-between; gap:.5rem; }
+
+/* pasos: es una secuencia real, por eso van numerados */
+.dz-pasos{ display:grid; grid-template-columns:repeat(3,1fr); background:var(--panel-2); border-bottom:1px solid var(--line-2); }
+.dz-paso-tab{ display:flex; align-items:center; gap:.55rem; padding:.7rem 1.25rem; font-size:.8rem; color:var(--ink-3);
+    border-bottom:2px solid transparent; }
+.dz-paso-tab .n{ display:inline-flex; align-items:center; justify-content:center; width:1.45rem; height:1.45rem; border-radius:99px;
+    font-family:var(--mono); font-size:.72rem; font-weight:600; border:1px solid var(--line); background:var(--panel); color:var(--ink-3); }
+.dz-paso-tab[aria-current="step"]{ color:var(--ink); border-bottom-color:var(--brand-600); font-weight:600; }
+.dz-paso-tab[aria-current="step"] .n{ background:var(--brand-600); border-color:var(--brand-600); color:#fff; }
+.dz-paso-tab.hecho{ color:var(--ink-2); }
+.dz-paso-tab.hecho .n{ background:var(--ok-tint); border-color:var(--ok-line); color:var(--ok); }
+
+.dz-paso{ padding:1rem 1.25rem 1.25rem; }
+.dz-paso h6{ font-size:.95rem; font-weight:600; margin:0 0 .15rem; outline:none; }
+.dz-paso .ayuda{ font-size:.8rem; color:var(--ink-2); margin-bottom:.9rem; }
+
+/* paso 1: las órdenes por camión, filas grandes de un solo clic */
+.dz-buscar{ margin-bottom:.75rem; }
+.dz-grupo{ border:1px solid var(--line); border-radius:var(--r-md); margin-bottom:.65rem; overflow:hidden; }
+.dz-grupo-cab{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.45rem .75rem;
+    background:var(--panel-2); border-bottom:1px solid var(--line-2); }
+.dz-placa{ display:inline-block; font-family:var(--mono); font-weight:600; font-size:.8rem; letter-spacing:.08em;
+    padding:.12rem .55rem; border-radius:var(--r-xs); background:var(--g-800); color:#fff; }
+.dz-grupo-cab .cuantas{ font-size:.76rem; color:var(--ink-3); }
+.dz-grupo-cab .btn-link{ font-size:.76rem; padding:0; text-decoration:none; }
+.dz-orden{ display:grid; grid-template-columns:1.6rem 5.4rem 1fr auto auto; align-items:center; gap:.75rem;
+    min-height:44px; padding:.45rem .75rem; border-top:1px solid var(--line-2); cursor:pointer; margin:0; }
+.dz-orden:first-of-type{ border-top:0; }
+.dz-orden:hover{ background:var(--panel-2); }
+.dz-orden:has(input:checked){ background:var(--brand-tint); }
+.dz-orden:has(input:focus-visible){ outline:2px solid var(--steel); outline-offset:-2px; }
+.dz-orden .form-check-input{ margin:0; width:1.05rem; height:1.05rem; }
+.dz-orden .num{ font-family:var(--mono); font-weight:600; color:var(--ink); }
+.dz-orden .cli{ font-size:.85rem; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dz-orden .fec{ font-family:var(--mono); font-size:.74rem; color:var(--ink-3); }
+.dz-orden .dias{ font-family:var(--mono); font-size:.7rem; font-weight:600; padding:.12rem .45rem; border-radius:99px;
+    background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
+.dz-orden.oculta, .dz-grupo.oculto{ display:none; }
+.dz-nada{ font-size:.82rem; color:var(--ink-3); padding:.5rem 0; }
+
+/* paso 2: quién, cuándo, dónde (chips label>input, nunca ul/li) */
+.dz-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
+.dz-etq:first-child{ margin-top:0; }
+.dz-sel{ display:flex; flex-wrap:wrap; gap:.35rem; }
+.dz-sel label{ display:inline-flex; align-items:center; min-height:34px; font-size:.82rem; padding:.25rem .7rem;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel); cursor:pointer; user-select:none; margin:0; }
 .dz-sel label input{ position:absolute; opacity:0; width:0; height:0; }
 .dz-sel label:has(input:checked){ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); font-weight:600; }
-.dz-sel .cargo-mini{ width:100%; font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.3rem; }
-.dz-elegidas{ display:flex; flex-wrap:wrap; gap:.3rem; min-height:1.6rem; }
-.dz-elegida{ font-family:var(--mono); font-size:.74rem; padding:.12rem .5rem; border-radius:99px;
-    border:1px solid var(--brand-600); background:var(--brand-tint); color:var(--brand-700); }
-.dz-vacio{ font-size:.78rem; color:var(--ink-3); }
-tr.dz-marcada td{ background:var(--brand-tint); }
+.dz-sel label:has(input:focus-visible){ outline:2px solid var(--steel); outline-offset:1px; }
+.dz-sel .cargo-mini{ width:100%; font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.35rem; }
+
+/* paso 3: el renglón del plan, tal como va a quedar escrito */
+.dz-recibo{ border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-md); background:var(--panel-2); padding:.9rem 1rem; }
+.dz-recibo .cab{ font-family:var(--mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--brand-700); font-weight:600; margin-bottom:.5rem; }
+.dz-recibo dl{ display:grid; grid-template-columns:8.5rem 1fr; gap:.35rem .75rem; margin:0; font-size:.86rem; }
+.dz-recibo dt{ font-weight:500; color:var(--ink-3); }
+.dz-recibo dd{ margin:0; color:var(--ink); }
+.dz-recibo .ordenes{ display:flex; flex-wrap:wrap; gap:.3rem; }
+.dz-recibo .ordenes span{ font-family:var(--mono); font-size:.78rem; padding:.1rem .5rem; border-radius:99px; background:#fff; border:1px solid var(--line); }
+.dz-recibo .ordenes .placa{ background:var(--g-800); color:#fff; border-color:var(--g-800); letter-spacing:.06em; }
+.dz-resumen{ font-size:.8rem; color:var(--ink-2); }
+.dz-resumen strong{ font-family:var(--mono); color:var(--ink); }
+@media (prefers-reduced-motion: reduce){ .dz-modal.fade, .dz-modal .modal-dialog{ transition:none; } }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -79,102 +138,46 @@ tr.dz-marcada td{ background:var(--brand-tint); }
     </div>
 </div>
 
-{% if n_pendientes %}
-{# ===== REGISTRAR UNA DISPOSICIÓN: la misma actividad «Disposición final» del plan de trabajo ===== #}
-<div class="card shadow dz-reg mb-4" id="registrar">
-    <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-truck-flatbed me-1"></i>Registrar disposición</h5>
-        <span class="text-muted small">Marca las órdenes abajo en la tabla; queda en el plan de trabajo del día que elijas.</span>
-    </div>
-    <div class="card-body pt-2">
-        <form method="post" id="form-disposicion">
-            {% csrf_token %}
-            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
-            <div class="row g-3">
-                <div class="col-lg-7">
-                    <div class="dz-etq">Órdenes marcadas</div>
-                    <div class="dz-elegidas" id="dz-elegidas">
-                        <span class="dz-vacio">Ninguna todavía: marca las casillas de las órdenes sin disponer.</span>
-                    </div>
-
-                    <div class="dz-etq">¿Quiénes hicieron el viaje?</div>
-                    <div class="dz-sel" id="dz-personas">
-                        {% for grupo in personas_por_cargo %}
-                        <span class="cargo-mini">{{ grupo.cargo }}</span>
-                        {% for p in grupo.personas %}
-                        <label><input type="checkbox" name="personas" value="{{ p.pk }}">{{ p.nombre }}</label>
-                        {% endfor %}
-                        {% endfor %}
-                    </div>
-                </div>
-                <div class="col-lg-5">
-                    <div class="dz-etq">Día del viaje</div>
-                    <input type="date" name="fecha" class="form-control form-control-sm" value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" required>
-                    <div class="form-text" style="font-size:.72rem">Cae en el plan de trabajo de ese día.</div>
-
-                    <div class="dz-etq">Gestor de disposición <span class="text-muted">(opcional)</span></div>
-                    <select name="dispositor" class="form-select form-select-sm">
-                        <option value="">--- Dónde se dispuso ---</option>
-                        {% for g in gestores %}
-                        <option value="{{ g.pk }}">{{ g.nombre }}</option>
-                        {% endfor %}
-                    </select>
-
-                    <div class="dz-etq">Hora <span class="text-muted">(opcional)</span></div>
-                    <input type="time" name="hora" class="form-control form-control-sm">
-
-                    <div class="dz-etq">Descripción <span class="text-muted">(opcional)</span></div>
-                    <input type="text" name="detalle" class="form-control form-control-sm" maxlength="255" placeholder="Detalle para el plan impreso">
-
-                    <div class="form-check mt-3">
-                        <input class="form-check-input" type="checkbox" name="notificar" value="1" id="dz-notificar">
-                        <label class="form-check-label" for="dz-notificar">Avisar por correo a los asignados</label>
-                    </div>
-
-                    <button name="submit_disposicion" value="1" class="btn btn-primary btn-sm w-100 mt-3" id="dz-enviar" disabled>
-                        <i class="bi bi-check2-circle me-1"></i>Registrar disposición
-                    </button>
-                    <div class="form-text" style="font-size:.72rem">Cada orden se descarga del camión que la traía; un viaje puede mezclar placas.</div>
-                </div>
-            </div>
-        </form>
-    </div>
-</div>
-{% endif %}
-
 <div class="card shadow">
     <div class="card-header">
-        <form method="get" class="row g-2 align-items-end">
-            <div class="col-auto">
-                <label class="form-label mb-1" for="estado">Estado</label>
-                <select name="estado" id="estado" class="form-select form-select-sm" onchange="this.form.submit()">
-                    <option value="">Todas</option>
-                    <option value="pendientes" {% if filtros.estado == 'pendientes' %}selected{% endif %}>Sin disponer</option>
-                    <option value="dispuestas" {% if filtros.estado == 'dispuestas' %}selected{% endif %}>Dispuestas</option>
-                </select>
-            </div>
-            <div class="col-auto">
-                <label class="form-label mb-1" for="mes">Mes</label>
-                <input type="month" name="mes" id="mes" class="form-control form-control-sm"
-                       value="{{ filtros.mes }}">
-            </div>
-            <div class="col-auto">
-                <label class="form-label mb-1" for="placa">Placa</label>
-                <input type="text" name="placa" id="placa" class="form-control form-control-sm"
-                       value="{{ filtros.placa }}" placeholder="WGY347" size="8">
-            </div>
-            <div class="col-auto flex-grow-1">
-                <label class="form-label mb-1" for="q">Orden o cliente</label>
-                <input type="text" name="q" id="q" class="form-control form-control-sm"
-                       value="{{ filtros.q }}" placeholder="22246 o Crepes">
-            </div>
-            <div class="col-auto">
-                <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
-                {% if filtros.estado or filtros.mes or filtros.placa or filtros.q %}
-                <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="btn btn-sm btn-link px-1">Limpiar</a>
-                {% endif %}
-            </div>
-        </form>
+        <div class="dz-lista-cab">
+            <form method="get" class="row g-2 align-items-end flex-grow-1">
+                <div class="col-auto">
+                    <label class="form-label mb-1" for="estado">Estado</label>
+                    <select name="estado" id="estado" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">Todas</option>
+                        <option value="pendientes" {% if filtros.estado == 'pendientes' %}selected{% endif %}>Sin disponer</option>
+                        <option value="dispuestas" {% if filtros.estado == 'dispuestas' %}selected{% endif %}>Dispuestas</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-1" for="mes">Mes</label>
+                    <input type="month" name="mes" id="mes" class="form-control form-control-sm"
+                           value="{{ filtros.mes }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-1" for="placa">Placa</label>
+                    <input type="text" name="placa" id="placa" class="form-control form-control-sm"
+                           value="{{ filtros.placa }}" placeholder="WGY347" size="8">
+                </div>
+                <div class="col-auto flex-grow-1">
+                    <label class="form-label mb-1" for="q">Orden o cliente</label>
+                    <input type="text" name="q" id="q" class="form-control form-control-sm"
+                           value="{{ filtros.q }}" placeholder="22246 o Crepes">
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+                    {% if filtros.estado or filtros.mes or filtros.placa or filtros.q %}
+                    <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="btn btn-sm btn-link px-1">Limpiar</a>
+                    {% endif %}
+                </div>
+            </form>
+            {% if n_pendientes %}
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#dz-modal">
+                <i class="bi bi-truck-flatbed me-1"></i>Registrar disposición
+            </button>
+            {% endif %}
+        </div>
     </div>
     <div class="card-body">
         {% if filas %}
@@ -182,9 +185,6 @@ tr.dz-marcada td{ background:var(--brand-tint); }
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        {% if n_pendientes %}
-                        <th style="width:2rem"><input type="checkbox" class="form-check-input" id="dz-todas" title="Marcar todas las de esta página sin disponer"></th>
-                        {% endif %}
                         <th>Orden</th><th>Cliente</th><th>Servicio</th><th>Placa</th>
                         <th>Estado</th><th>Dispuesta</th><th>Quién la hizo</th><th>Gestor</th>
                     </tr>
@@ -192,16 +192,6 @@ tr.dz-marcada td{ background:var(--brand-tint); }
                 <tbody>
                 {% for f in filas %}
                     <tr>
-                        {% if n_pendientes %}
-                        <td>
-                            {% if f.estado == 'PENDIENTE' %}
-                            {# La casilla vive fuera del <form> de arriba: se le cuelga con form="" #}
-                            <input type="checkbox" class="form-check-input dz-casilla" name="cargas"
-                                   value="{{ f.carga_id }}" form="form-disposicion"
-                                   data-orden="{{ f.orden.numero_orden }}" data-placa="{{ f.placa }}">
-                            {% endif %}
-                        </td>
-                        {% endif %}
                         <td>
                             <a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
                             {% if f.duplicada %}<i class="bi bi-exclamation-triangle-fill text-warning" title="Tiene carga saldada y pendiente a la vez: revisar con diagnosticar_cargas"></i>{% endif %}
@@ -245,42 +235,265 @@ tr.dz-marcada td{ background:var(--brand-tint); }
     </div>
 </div>
 
+{% if n_pendientes %}
+{# ===== El popup: 1 órdenes → 2 viaje → 3 confirmar. Un solo <form>; se envía solo desde el paso 3. ===== #}
+<div class="modal fade dz-modal" id="dz-modal" tabindex="-1" aria-labelledby="dz-titulo" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form method="post" class="modal-content" id="form-disposicion" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dz-titulo">Registrar disposición
+                    <small>Queda en el plan de trabajo del día del viaje</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+
+            <div class="modal-body">
+                <ol class="dz-pasos list-unstyled mb-0" aria-label="Pasos">
+                    <li class="dz-paso-tab" data-tab="1" aria-current="step"><span class="n">1</span>Órdenes</li>
+                    <li class="dz-paso-tab" data-tab="2"><span class="n">2</span>Viaje</li>
+                    <li class="dz-paso-tab" data-tab="3"><span class="n">3</span>Confirmar</li>
+                </ol>
+
+                {# ---------- paso 1 ---------- #}
+                <section class="dz-paso" data-paso="1">
+                    <h6 tabindex="-1">¿Qué salió del camión?</h6>
+                    <div class="ayuda">Marca las órdenes que se dispusieron en el viaje. Pueden ser de camiones distintos; cada una se descarga del suyo.</div>
+                    <input type="search" class="form-control form-control-sm dz-buscar" id="dz-buscar"
+                           placeholder="Buscar por orden, cliente o placa" aria-label="Buscar orden, cliente o placa" autocomplete="off">
+                    {% for g in pendientes_por_camion %}
+                    <div class="dz-grupo" data-placa="{{ g.placa }}">
+                        <div class="dz-grupo-cab">
+                            <div><span class="dz-placa">{{ g.placa }}</span> <span class="cuantas ms-1">{{ g.filas|length }} sin disponer</span></div>
+                            <button type="button" class="btn btn-link dz-todo-camion">Marcar todo el camión</button>
+                        </div>
+                        {% for f in g.filas %}
+                        <label class="dz-orden" data-buscar="{{ f.orden.numero_orden }} {{ f.orden.cliente.nombre|lower }} {{ g.placa|lower }}">
+                            <input type="checkbox" class="form-check-input" name="cargas" value="{{ f.carga_id }}"
+                                   data-orden="{{ f.orden.numero_orden }}" data-placa="{{ g.placa }}"
+                                   data-cliente="{{ f.orden.cliente.nombre|truncatechars:28 }}">
+                            <span class="num">#{{ f.orden.numero_orden }}</span>
+                            <span class="cli" title="{{ f.orden.cliente.nombre }}">{{ f.orden.cliente.nombre }}</span>
+                            <span class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</span>
+                            <span class="dias">{{ f.dias }} día{{ f.dias|pluralize }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                    <div class="dz-nada" id="dz-nada" hidden>Ninguna orden coincide con esa búsqueda.</div>
+                </section>
+
+                {# ---------- paso 2 ---------- #}
+                <section class="dz-paso" data-paso="2" hidden>
+                    <h6 tabindex="-1">¿Quién hizo el viaje, cuándo y a dónde?</h6>
+                    <div class="ayuda">Los mismos datos que pide el plan de trabajo.</div>
+                    <div class="row g-3">
+                        <div class="col-md-7">
+                            <div class="dz-etq">Quiénes</div>
+                            <div class="dz-sel" id="dz-personas">
+                                {% for grupo in personas_por_cargo %}
+                                <span class="cargo-mini">{{ grupo.cargo }}</span>
+                                {% for p in grupo.personas %}
+                                <label><input type="checkbox" name="personas" value="{{ p.pk }}" data-nombre="{{ p.nombre }}">{{ p.nombre }}</label>
+                                {% endfor %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="dz-etq" for="dz-fecha">Día del viaje</label>
+                            <input type="date" name="fecha" id="dz-fecha" class="form-control form-control-sm"
+                                   value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" required>
+                            <label class="dz-etq" for="dz-gestor">Gestor de disposición <span class="text-muted text-lowercase">(opcional)</span></label>
+                            <select name="dispositor" id="dz-gestor" class="form-select form-select-sm">
+                                <option value="">Sin gestor</option>
+                                {% for g in gestores %}
+                                <option value="{{ g.pk }}">{{ g.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                            <label class="dz-etq" for="dz-hora">Hora <span class="text-muted text-lowercase">(opcional)</span></label>
+                            <input type="time" name="hora" id="dz-hora" class="form-control form-control-sm">
+                            <label class="dz-etq" for="dz-detalle">Nota para el plan <span class="text-muted text-lowercase">(opcional)</span></label>
+                            <input type="text" name="detalle" id="dz-detalle" class="form-control form-control-sm" maxlength="255" placeholder="Sale en el plan impreso">
+                            <div class="form-check mt-3">
+                                <input class="form-check-input" type="checkbox" name="notificar" value="1" id="dz-notificar">
+                                <label class="form-check-label" for="dz-notificar">Avisar por correo a los asignados</label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {# ---------- paso 3 ---------- #}
+                <section class="dz-paso" data-paso="3" hidden>
+                    <h6 tabindex="-1">Revisa y registra</h6>
+                    <div class="ayuda">Así va a quedar escrito en el plan de trabajo.</div>
+                    <div class="dz-recibo">
+                        <div class="cab" id="dz-recibo-cab">Plan del —</div>
+                        <dl>
+                            <dt>Actividad</dt><dd>Disposición final</dd>
+                            <dt>Quiénes</dt><dd id="dz-r-personas">—</dd>
+                            <dt>Órdenes</dt><dd class="ordenes" id="dz-r-ordenes"></dd>
+                            <dt>Gestor</dt><dd id="dz-r-gestor">—</dd>
+                            <dt>Hora</dt><dd id="dz-r-hora">—</dd>
+                            <dt>Nota</dt><dd id="dz-r-nota">—</dd>
+                            <dt>Correo</dt><dd id="dz-r-correo">—</dd>
+                        </dl>
+                    </div>
+                </section>
+            </div>
+
+            <div class="modal-footer">
+                <div class="dz-resumen" id="dz-resumen">Ninguna orden marcada</div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" id="dz-atras" hidden><i class="bi bi-arrow-left me-1"></i>Atrás</button>
+                    <button type="button" class="btn btn-primary" id="dz-siguiente" disabled>Siguiente<i class="bi bi-arrow-right ms-1"></i></button>
+                    <button type="button" class="btn btn-success" id="dz-registrar" name="submit_disposicion" value="1" hidden><i class="bi bi-check2-circle me-1"></i>Registrar disposición</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 (function () {
-    // Las casillas de la tabla alimentan el formulario de arriba (atributo form=""):
-    // aquí solo se refleja qué quedó marcado y se habilita el botón cuando hay
-    // órdenes y personas. Nada de esto necesita el objeto bootstrap.
-    var formulario = document.getElementById('form-disposicion');
-    if (!formulario) return;
-    var elegidas = document.getElementById('dz-elegidas');
-    var enviar = document.getElementById('dz-enviar');
-    var todas = document.getElementById('dz-todas');
-    var casillas = function () { return Array.prototype.slice.call(document.querySelectorAll('.dz-casilla')); };
+    // Popup por pasos. Todo con addEventListener: no necesita el objeto bootstrap
+    // (el bundle carga después de este bloque). Abre con data-bs-toggle.
+    var modal = document.getElementById('dz-modal');
+    var form = document.getElementById('form-disposicion');
+    if (!modal || !form) return;
 
-    function pintar() {
-        var marcadas = casillas().filter(function (c) { return c.checked; });
-        casillas().forEach(function (c) { c.closest('tr').classList.toggle('dz-marcada', c.checked); });
-        if (marcadas.length) {
-            elegidas.innerHTML = marcadas.map(function (c) {
-                return '<span class="dz-elegida">#' + c.dataset.orden + ' · ' + c.dataset.placa + '</span>';
-            }).join('');
-        } else {
-            elegidas.innerHTML = '<span class="dz-vacio">Ninguna todavía: marca las casillas de las órdenes sin disponer.</span>';
-        }
-        var personas = formulario.querySelectorAll('input[name="personas"]:checked').length;
-        enviar.disabled = !(marcadas.length && personas);
-        if (todas) { todas.checked = marcadas.length > 0 && marcadas.length === casillas().length; }
+    var paso = 1;
+    var tabs = modal.querySelectorAll('.dz-paso-tab');
+    var secciones = modal.querySelectorAll('.dz-paso');
+    var btnAtras = document.getElementById('dz-atras');
+    var btnSiguiente = document.getElementById('dz-siguiente');
+    var btnRegistrar = document.getElementById('dz-registrar');
+    var resumen = document.getElementById('dz-resumen');
+    var buscar = document.getElementById('dz-buscar');
+    var nada = document.getElementById('dz-nada');
+
+    function marcadas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="cargas"]:checked')); }
+    function personas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="personas"]:checked')); }
+    function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
+
+    function pintarResumen() {
+        var m = marcadas();
+        if (!m.length) { resumen.textContent = 'Ninguna orden marcada'; return; }
+        var placas = {};
+        m.forEach(function (c) { placas[c.dataset.placa] = 1; });
+        var nPlacas = Object.keys(placas).length;
+        resumen.innerHTML = '<strong>' + plural(m.length, 'orden', 'órdenes') + '</strong> · ' + plural(nPlacas, 'camión', 'camiones');
     }
-    document.addEventListener('change', function (e) {
-        if (e.target.classList.contains('dz-casilla') || e.target.name === 'personas') pintar();
-    });
-    if (todas) {
-        todas.addEventListener('change', function () {
-            casillas().forEach(function (c) { c.checked = todas.checked; });
-            pintar();
+
+    function pintarRecibo() {
+        var fecha = document.getElementById('dz-fecha').value;
+        var partes = fecha ? fecha.split('-') : null;
+        document.getElementById('dz-recibo-cab').textContent =
+            'Plan del ' + (partes ? partes[2] + '/' + partes[1] + '/' + partes[0] : '—');
+        var nombres = personas().map(function (p) { return p.dataset.nombre; });
+        document.getElementById('dz-r-personas').textContent = nombres.join(', ') || '—';
+        var porPlaca = {};
+        marcadas().forEach(function (c) { (porPlaca[c.dataset.placa] = porPlaca[c.dataset.placa] || []).push('#' + c.dataset.orden); });
+        var cont = document.getElementById('dz-r-ordenes');
+        cont.innerHTML = '';
+        Object.keys(porPlaca).sort().forEach(function (placa) {
+            var chip = document.createElement('span'); chip.className = 'placa'; chip.textContent = placa; cont.appendChild(chip);
+            porPlaca[placa].forEach(function (o) { var s = document.createElement('span'); s.textContent = o; cont.appendChild(s); });
         });
+        var gestor = document.getElementById('dz-gestor');
+        document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
+        document.getElementById('dz-r-hora').textContent = document.getElementById('dz-hora').value || '—';
+        document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
+        document.getElementById('dz-r-correo').textContent =
+            document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo';
     }
-    pintar();
+
+    function listo() {
+        // Lo que hace falta para poder avanzar desde cada paso.
+        if (paso === 1) return marcadas().length > 0;
+        if (paso === 2) return personas().length > 0 && !!document.getElementById('dz-fecha').value;
+        return true;
+    }
+
+    function irA(n) {
+        paso = n;
+        secciones.forEach(function (s) { s.hidden = Number(s.dataset.paso) !== n; });
+        tabs.forEach(function (t) {
+            var k = Number(t.dataset.tab);
+            if (k === n) t.setAttribute('aria-current', 'step'); else t.removeAttribute('aria-current');
+            t.classList.toggle('hecho', k < n);
+        });
+        btnAtras.hidden = n === 1;
+        btnSiguiente.hidden = n === 3;
+        btnRegistrar.hidden = n !== 3;
+        btnSiguiente.disabled = !listo();
+        if (n === 3) pintarRecibo();
+        var titulo = modal.querySelector('.dz-paso[data-paso="' + n + '"] h6');
+        if (titulo) titulo.focus();
+        modal.querySelector('.modal-body').scrollTop = 0;
+    }
+
+    btnSiguiente.addEventListener('click', function () { if (listo()) irA(paso + 1); });
+    btnAtras.addEventListener('click', function () { irA(paso - 1); });
+    // El registro sale solo desde el botón del paso 3: Enter en los pasos 1–2 no envía.
+    btnRegistrar.addEventListener('click', function () {
+        btnRegistrar.disabled = true;
+        var oculto = document.createElement('input');
+        oculto.type = 'hidden'; oculto.name = 'submit_disposicion'; oculto.value = '1';
+        form.appendChild(oculto);
+        form.submit();
+    });
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    form.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || e.target.type === 'checkbox') return;
+        e.preventDefault();
+        // En el buscador, Enter solo busca (ya filtra al escribir); en los
+        // demás campos avanza si el paso está completo.
+        if (e.target === buscar) return;
+        if (paso < 3 && listo()) irA(paso + 1);
+    });
+
+    form.addEventListener('change', function (e) {
+        if (e.target.name === 'cargas') pintarResumen();
+        btnSiguiente.disabled = !listo();
+    });
+
+    // Buscar: filtra filas y esconde los camiones que quedan vacíos.
+    buscar.addEventListener('input', function () {
+        var q = buscar.value.trim().toLowerCase();
+        var visibles = 0;
+        modal.querySelectorAll('.dz-grupo').forEach(function (g) {
+            var enGrupo = 0;
+            g.querySelectorAll('.dz-orden').forEach(function (fila) {
+                var ok = !q || fila.dataset.buscar.indexOf(q) !== -1;
+                fila.classList.toggle('oculta', !ok);
+                if (ok) enGrupo++;
+            });
+            g.classList.toggle('oculto', enGrupo === 0);
+            visibles += enGrupo;
+        });
+        nada.hidden = visibles > 0;
+    });
+
+    // «Marcar todo el camión»: marca lo visible del grupo (o lo desmarca si ya estaba todo).
+    modal.querySelectorAll('.dz-todo-camion').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var casillas = Array.prototype.slice.call(btn.closest('.dz-grupo').querySelectorAll('.dz-orden:not(.oculta) input'));
+            var todas = casillas.every(function (c) { return c.checked; });
+            casillas.forEach(function (c) { c.checked = !todas; });
+            pintarResumen();
+            btnSiguiente.disabled = !listo();
+        });
+    });
+
+    // Cerrar con trabajo a medias pide confirmación (y al abrir se arranca del paso 1).
+    modal.addEventListener('hide.bs.modal', function (e) {
+        if (marcadas().length && !confirm('¿Cerrar sin registrar? Se pierde lo que marcaste.')) e.preventDefault();
+    });
+    modal.addEventListener('shown.bs.modal', function () { irA(1); buscar.focus(); });
+
+    pintarResumen();
 })();
 </script>
+{% endif %}
 {% endblock %}

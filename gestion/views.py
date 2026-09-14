@@ -5800,6 +5800,15 @@ def _personal_por_cargo():
     ]
 
 
+def _pendientes_por_camion(pendientes):
+    """[{placa, filas}] con las filas pendientes de cada camión, por antigüedad."""
+    por_placa = {}
+    for fila in sorted(pendientes, key=lambda f: -f['dias']):
+        por_placa.setdefault(fila['placa'], []).append(fila)
+    return [{'placa': placa, 'filas': filas}
+            for placa, filas in sorted(por_placa.items())]
+
+
 class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     """
     Panel de trazabilidad de las disposiciones: el estado REAL orden por
@@ -5921,7 +5930,10 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
             'dispuestas_30': dispuestas_30,
             # Para registrar desde aquí: el mismo personal y los mismos
-            # gestores que ofrece el plan de trabajo.
+            # gestores que ofrece el plan de trabajo. Las pendientes van
+            # agrupadas por camión, que es como la oficina las piensa
+            # («lo del WGY347»), cada grupo de la más vieja a la más nueva.
+            'pendientes_por_camion': _pendientes_por_camion(pendientes),
             'personas_por_cargo': _personal_por_cargo() if pendientes else [],
             'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre'),
             'hoy': timezone.localdate(),
