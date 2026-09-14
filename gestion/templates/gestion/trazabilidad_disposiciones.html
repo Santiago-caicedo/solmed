@@ -2,6 +2,7 @@
 {% block title %}Disposiciones{% endblock %}
 {% block content %}
 {# El estado REAL de las disposiciones, orden por orden: qué se debe y qué ya se hizo. #}
+{# Desde aquí también se REGISTRA la disposición: es la misma actividad del plan de trabajo. #}
 <style>
 .dz-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
 .dz-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--line);
@@ -21,6 +22,24 @@
 .dz-estado.dispuesta{ background:var(--ok-tint); color:var(--ok); border:1px solid var(--ok-line); }
 .dz-nota{ font-size:.74rem; color:var(--ink-3); }
 .dz-via{ font-size:.74rem; color:var(--steel); }
+.dz-deshacer{ border:0; background:none; padding:0; font-size:.74rem; color:var(--ink-3); text-decoration:underline dotted; }
+.dz-deshacer:hover{ color:var(--warn); }
+
+/* --- registrar la disposición: mismo lenguaje del panel del plan (chips label>input, nunca ul/li) --- */
+.dz-reg{ border-left:3px solid var(--brand-600); }
+.dz-reg .card-header{ display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; }
+.dz-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.6rem 0 .25rem; }
+.dz-sel{ display:flex; flex-wrap:wrap; gap:.3rem; }
+.dz-sel label{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; padding:.18rem .55rem;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel); cursor:pointer; user-select:none; }
+.dz-sel label input{ position:absolute; opacity:0; width:0; height:0; }
+.dz-sel label:has(input:checked){ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); font-weight:600; }
+.dz-sel .cargo-mini{ width:100%; font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.3rem; }
+.dz-elegidas{ display:flex; flex-wrap:wrap; gap:.3rem; min-height:1.6rem; }
+.dz-elegida{ font-family:var(--mono); font-size:.74rem; padding:.12rem .5rem; border-radius:99px;
+    border:1px solid var(--brand-600); background:var(--brand-tint); color:var(--brand-700); }
+.dz-vacio{ font-size:.78rem; color:var(--ink-3); }
+tr.dz-marcada td{ background:var(--brand-tint); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -59,6 +78,69 @@
         <div class="k">Dispuestas en total</div>
     </div>
 </div>
+
+{% if n_pendientes %}
+{# ===== REGISTRAR UNA DISPOSICIÓN: la misma actividad «Disposición final» del plan de trabajo ===== #}
+<div class="card shadow dz-reg mb-4" id="registrar">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-truck-flatbed me-1"></i>Registrar disposición</h5>
+        <span class="text-muted small">Marca las órdenes abajo en la tabla; queda en el plan de trabajo del día que elijas.</span>
+    </div>
+    <div class="card-body pt-2">
+        <form method="post" id="form-disposicion">
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+            <div class="row g-3">
+                <div class="col-lg-7">
+                    <div class="dz-etq">Órdenes marcadas</div>
+                    <div class="dz-elegidas" id="dz-elegidas">
+                        <span class="dz-vacio">Ninguna todavía: marca las casillas de las órdenes sin disponer.</span>
+                    </div>
+
+                    <div class="dz-etq">¿Quiénes hicieron el viaje?</div>
+                    <div class="dz-sel" id="dz-personas">
+                        {% for grupo in personas_por_cargo %}
+                        <span class="cargo-mini">{{ grupo.cargo }}</span>
+                        {% for p in grupo.personas %}
+                        <label><input type="checkbox" name="personas" value="{{ p.pk }}">{{ p.nombre }}</label>
+                        {% endfor %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="dz-etq">Día del viaje</div>
+                    <input type="date" name="fecha" class="form-control form-control-sm" value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" required>
+                    <div class="form-text" style="font-size:.72rem">Cae en el plan de trabajo de ese día.</div>
+
+                    <div class="dz-etq">Gestor de disposición <span class="text-muted">(opcional)</span></div>
+                    <select name="dispositor" class="form-select form-select-sm">
+                        <option value="">--- Dónde se dispuso ---</option>
+                        {% for g in gestores %}
+                        <option value="{{ g.pk }}">{{ g.nombre }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <div class="dz-etq">Hora <span class="text-muted">(opcional)</span></div>
+                    <input type="time" name="hora" class="form-control form-control-sm">
+
+                    <div class="dz-etq">Descripción <span class="text-muted">(opcional)</span></div>
+                    <input type="text" name="detalle" class="form-control form-control-sm" maxlength="255" placeholder="Detalle para el plan impreso">
+
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" name="notificar" value="1" id="dz-notificar">
+                        <label class="form-check-label" for="dz-notificar">Avisar por correo a los asignados</label>
+                    </div>
+
+                    <button name="submit_disposicion" value="1" class="btn btn-primary btn-sm w-100 mt-3" id="dz-enviar" disabled>
+                        <i class="bi bi-check2-circle me-1"></i>Registrar disposición
+                    </button>
+                    <div class="form-text" style="font-size:.72rem">Cada orden se descarga del camión que la traía; un viaje puede mezclar placas.</div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <div class="card shadow">
     <div class="card-header">
@@ -100,6 +182,9 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
+                        {% if n_pendientes %}
+                        <th style="width:2rem"><input type="checkbox" class="form-check-input" id="dz-todas" title="Marcar todas las de esta página sin disponer"></th>
+                        {% endif %}
                         <th>Orden</th><th>Cliente</th><th>Servicio</th><th>Placa</th>
                         <th>Estado</th><th>Dispuesta</th><th>Quién la hizo</th><th>Gestor</th>
                     </tr>
@@ -107,6 +192,16 @@
                 <tbody>
                 {% for f in filas %}
                     <tr>
+                        {% if n_pendientes %}
+                        <td>
+                            {% if f.estado == 'PENDIENTE' %}
+                            {# La casilla vive fuera del <form> de arriba: se le cuelga con form="" #}
+                            <input type="checkbox" class="form-check-input dz-casilla" name="cargas"
+                                   value="{{ f.carga_id }}" form="form-disposicion"
+                                   data-orden="{{ f.orden.numero_orden }}" data-placa="{{ f.placa }}">
+                            {% endif %}
+                        </td>
+                        {% endif %}
                         <td>
                             <a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
                             {% if f.duplicada %}<i class="bi bi-exclamation-triangle-fill text-warning" title="Tiene carga saldada y pendiente a la vez: revisar con diagnosticar_cargas"></i>{% endif %}
@@ -126,6 +221,16 @@
                             {% if f.quien %}{{ f.quien }}<br><span class="dz-via">{{ f.via }}</span>
                             {% elif f.estado == 'DISPUESTA' %}<span class="dz-via">{{ f.via }}</span>
                             {% else %}—{% endif %}
+                            {% if f.asignacion_id %}
+                            {# Deshacer = quitar del plan la actividad de ese viaje: sus órdenes vuelven a pendientes #}
+                            <form method="post" class="d-inline ms-1"
+                                  onsubmit="return confirm('¿Deshacer esta disposición? La actividad se quita del plan de trabajo y sus órdenes vuelven a quedar sin disponer.');">
+                                {% csrf_token %}
+                                <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+                                <input type="hidden" name="asignacion" value="{{ f.asignacion_id }}">
+                                <button name="submit_deshacer" value="1" class="dz-deshacer" title="Quitar del plan de trabajo">deshacer</button>
+                            </form>
+                            {% endif %}
                         </td>
                         <td class="dz-nota">{{ f.gestor|default:"—" }}</td>
                     </tr>
@@ -139,4 +244,43 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+(function () {
+    // Las casillas de la tabla alimentan el formulario de arriba (atributo form=""):
+    // aquí solo se refleja qué quedó marcado y se habilita el botón cuando hay
+    // órdenes y personas. Nada de esto necesita el objeto bootstrap.
+    var formulario = document.getElementById('form-disposicion');
+    if (!formulario) return;
+    var elegidas = document.getElementById('dz-elegidas');
+    var enviar = document.getElementById('dz-enviar');
+    var todas = document.getElementById('dz-todas');
+    var casillas = function () { return Array.prototype.slice.call(document.querySelectorAll('.dz-casilla')); };
+
+    function pintar() {
+        var marcadas = casillas().filter(function (c) { return c.checked; });
+        casillas().forEach(function (c) { c.closest('tr').classList.toggle('dz-marcada', c.checked); });
+        if (marcadas.length) {
+            elegidas.innerHTML = marcadas.map(function (c) {
+                return '<span class="dz-elegida">#' + c.dataset.orden + ' · ' + c.dataset.placa + '</span>';
+            }).join('');
+        } else {
+            elegidas.innerHTML = '<span class="dz-vacio">Ninguna todavía: marca las casillas de las órdenes sin disponer.</span>';
+        }
+        var personas = formulario.querySelectorAll('input[name="personas"]:checked').length;
+        enviar.disabled = !(marcadas.length && personas);
+        if (todas) { todas.checked = marcadas.length > 0 && marcadas.length === casillas().length; }
+    }
+    document.addEventListener('change', function (e) {
+        if (e.target.classList.contains('dz-casilla') || e.target.name === 'personas') pintar();
+    });
+    if (todas) {
+        todas.addEventListener('change', function () {
+            casillas().forEach(function (c) { c.checked = todas.checked; });
+            pintar();
+        });
+    }
+    pintar();
+})();
+</script>
 {% endblock %}

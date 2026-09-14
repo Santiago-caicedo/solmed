@@ -6476,3 +6476,209 @@ class ConductorAyudanteTests(BaseCRM):
         self.entrar(admin)
         respuesta = self.client.get(reverse('planes:ficha_persona', args=[self.hibrido.pk]))
         self.assertContains(respuesta, 'Licencia de conducción')
+
+
+# ============================================================
+#  REGISTRAR LA DISPOSICIÓN DESDE EL PANEL
+# ============================================================
+class RegistrarDisposicionDesdePanelTests(BaseCRM):
+    """
+    El panel de disposiciones también REGISTRA (sep-2026): se marcan las
+    órdenes sin disponer y se dice quién hizo el viaje, qué día y a cuál
+    gestor. Es la misma actividad «Disposición final» del plan de trabajo, así
+    que lo registrado aquí aparece allá y viceversa; deshacer desde el panel
+    quita del plan el viaje entero.
+    """
+
+    def setUp(self):
+        self.admin = self.persona('admin', superusuario=True)
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
+        self.ayudante = self.persona('ayudante', 'Ayudantes', 'Luis', 'Gómez')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.gestor = Dispositor.objects.get_or_create(
+            nombre='ENERGY ORGANIC SAS', defaults={'tipo': 'PROVEEDOR'})[0]
+        self.url = reverse('gestion:trazabilidad_disposiciones')
+        self.entrar(self.admin)
+
+    def _orden(self, placa, pendiente=True, fecha=None):
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.vehiculo(placa),
+            fecha=fecha or timezone.localdate(),
+            requiere_disposicion_final='NO' if pendiente else 'SI',
+            dispositor_final=None if pendiente else self.gestor)
+        orden = programacion.convertir_en_orden(self.asesor)
+        for recorrido in orden.recorridos.all():
+            recorrido.vehiculo.sincronizar_carga()
+        return orden
+
+    @staticmethod
+    def carga(orden):
+        return orden.movimientos_carga.get(accion='CARGA', descarga__isnull=True)
+
+    def registrar(self, cargas, personas=None, **extra):
+        datos = {
+            'submit_disposicion': '1', 'fecha': timezone.localdate().isoformat(),
+            'cargas': [c.pk for c in cargas],
+            'personas': [p.pk for p in (personas if personas is not None
+                                        else [self.conductor, self.ayudante])],
+            'dispositor': self.gestor.pk, 'detalle': 'Viaje de la mañana',
+        }
+        datos.update(extra)
+        return self.client.post(self.url, datos, follow=True)
+
+    def asignaciones(self):
+        from planes.models import Asignacion
+        return list(Asignacion.objects.filter(tipo='DISPOSICION_FINAL').order_by('pk'))
+
+    # ---------- lo que se ve ----------
+
+    def test_el_panel_ofrece_casillas_solo_en_las_pendientes_y_el_formulario(self):
+        pendiente = self._orden('PEN111')
+        dispuesta = self._orden('DIS222', pendiente=False)
+        respuesta = self.client.get(self.url)
+        contenido = respuesta.content.decode()
+        self.assertRegex(contenido, rf'name="cargas"\s+value="{self.carga(pendiente).pk}"')
+        self.assertEqual(contenido.count('name="cargas"'), 1, "la dispuesta no lleva casilla")
+        self.assertContains(respuesta, 'Registrar disposición')
+        self.assertContains(respuesta, 'Carlos Pérez')
+        self.assertContains(respuesta, 'Luis Gómez')
+        self.assertContains(respuesta, self.gestor.nombre)
+        self.assertContains(respuesta, f'value="{timezone.localdate():%Y-%m-%d}"')
+        self.assertNotContains(respuesta, 'submit_deshacer',
+                               msg_prefix="lo dispuesto al convertir no tiene actividad que deshacer")
+
+    def test_sin_pendientes_no_hay_formulario(self):
+        self._orden('DIS222', pendiente=False)
+        respuesta = self.client.get(self.url)
+        self.assertNotContains(respuesta, 'Registrar disposición')
+
+    # ---------- registrar ----------
+
+    def test_registrar_crea_la_actividad_en_el_plan_de_ese_dia_y_descarga(self):
+        from planes.models import PlanDia
+        una = self._orden('UNO111')
+        otra = self._orden('DOS222')          # otra placa: el viaje mezcla camiones
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        carga_una, carga_otra = self.carga(una), self.carga(otra)
+
+        respuesta = self.registrar([carga_una, carga_otra], fecha=ayer.isoformat())
+
+        self.assertContains(respuesta, f'plan del {ayer:%d/%m/%Y}')
+        creadas = self.asignaciones()
+        self.assertEqual([a.persona for a in creadas], [self.conductor, self.ayudante])
+        self.assertTrue(all(a.plan.fecha == ayer for a in creadas))
+        self.assertTrue(all(a.dispositor == self.gestor for a in creadas))
+        self.assertEqual(PlanDia.objects.get().fecha, ayer)
+        # Cada carga saldada con SU descarga, en SU camión; la pareja comparte.
+        for carga in (carga_una, carga_otra):
+            carga.refresh_from_db()
+            self.assertIsNotNone(carga.descarga)
+            self.assertEqual(carga.descarga.vehiculo, carga.vehiculo)
+            self.assertEqual(carga.descarga.dispositor, self.gestor)
+        self.assertEqual(set(creadas[0].descargas.all()), set(creadas[1].descargas.all()))
+        for orden in (una, otra):
+            camion = orden.recorridos.get().vehiculo
+            camion.refresh_from_db()
+            self.assertFalse(camion.cargado)
+
+    def test_lo_registrado_aqui_se_ve_en_el_panel_y_en_el_plan(self):
+        orden = self._orden('UNO111')
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        self.registrar([self.carga(orden)], fecha=ayer.isoformat())
+
+        panel = self.client.get(self.url).content.decode()
+        self.assertIn('Dispuesta', panel)
+        self.assertIn('Carlos Pérez, Luis Gómez', panel)
+        self.assertIn(f'Plan del {ayer:%d/%m/%Y}', panel)
+        self.assertIn('submit_deshacer', panel)
+
+        plan = self.client.get(f"{reverse('planes:plan_dia')}?fecha={ayer.isoformat()}")
+        self.assertContains(plan, 'Disposición final')
+        self.assertContains(plan, 'UNO111')
+
+    def test_sin_personas_no_escribe_y_avisa(self):
+        orden = self._orden('UNO111')
+        respuesta = self.registrar([self.carga(orden)], personas=[])
+        self.assertContains(respuesta, 'Marca al menos una persona')
+        self.assertEqual(self.asignaciones(), [])
+        self.assertIsNone(self.carga(orden).descarga)
+
+    def test_una_orden_ya_dispuesta_no_se_dispone_dos_veces(self):
+        orden = self._orden('UNO111')
+        carga = self.carga(orden)
+        self.registrar([carga])
+        respuesta = self.registrar([carga])
+        self.assertContains(respuesta, 'Marca cuál orden')
+        self.assertEqual(len(self.asignaciones()), 2, "solo el primer viaje")
+
+    def test_el_dia_del_viaje_no_puede_ser_futuro(self):
+        orden = self._orden('UNO111')
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        respuesta = self.registrar([self.carga(orden)], fecha=manana.isoformat())
+        self.assertContains(respuesta, 'no puede ser futuro')
+        self.assertEqual(self.asignaciones(), [])
+
+    def test_avisa_por_correo_solo_si_se_marca(self):
+        una = self._orden('UNO111')
+        otra = self._orden('DOS222')
+        mail.outbox.clear()
+        self.registrar([self.carga(una)])
+        self.assertEqual(len(mail.outbox), 0)
+        self.registrar([self.carga(otra)], notificar='1')
+        self.assertEqual(sorted(c.to[0] for c in mail.outbox),
+                         sorted([self.conductor.email, self.ayudante.email]))
+
+    # ---------- deshacer ----------
+
+    def test_deshacer_quita_el_viaje_entero_y_revive_las_ordenes(self):
+        una = self._orden('UNO111')
+        otra = self._orden('DOS222')
+        self.registrar([self.carga(una), self.carga(otra)])
+        primera = self.asignaciones()[0]
+
+        respuesta = self.client.post(self.url, {
+            'submit_deshacer': '1', 'asignacion': primera.pk}, follow=True)
+
+        self.assertContains(respuesta, 'vuelven a quedar sin disponer')
+        self.assertEqual(self.asignaciones(), [], "se van las DOS asignaciones del viaje")
+        for orden in (una, otra):
+            self.assertIsNotNone(self.carga(orden), "vuelve a tener carga pendiente")
+            camion = orden.recorridos.get().vehiculo
+            camion.refresh_from_db()
+            self.assertTrue(camion.cargado)
+        panel = self.client.get(self.url).content.decode()
+        self.assertEqual(panel.count('Sin disponer ·'), 2)
+
+    def test_lo_registrado_desde_el_plan_se_deshace_desde_el_panel(self):
+        orden = self._orden('UNO111')
+        hoy = timezone.localdate()
+        self.client.post(f"{reverse('planes:plan_dia')}?fecha={hoy.isoformat()}", {
+            'submit_asignacion': '1', 'fecha': hoy.isoformat(),
+            'tipo': 'DISPOSICION_FINAL', 'personas': [self.conductor.pk],
+            'cargas': [self.carga(orden).pk], 'dispositor': self.gestor.pk})
+        asignacion = self.asignaciones()[0]
+
+        panel = self.client.get(self.url).content.decode()
+        self.assertIn(f'name="asignacion" value="{asignacion.pk}"', panel)
+
+        self.client.post(self.url, {'submit_deshacer': '1', 'asignacion': asignacion.pk})
+        self.assertEqual(self.asignaciones(), [])
+        self.assertIsNotNone(self.carga(orden))
+
+    def test_deshacer_algo_que_ya_no_esta_solo_avisa(self):
+        respuesta = self.client.post(self.url, {'submit_deshacer': '1', 'asignacion': 999}, follow=True)
+        self.assertContains(respuesta, 'ya no está en el plan')
+
+    # ---------- acceso ----------
+
+    def test_solo_administradores_registran_o_deshacen(self):
+        orden = self._orden('UNO111')
+        self.entrar(self.asesor)
+        respuesta = self.client.post(self.url, {
+            'submit_disposicion': '1', 'fecha': timezone.localdate().isoformat(),
+            'cargas': [self.carga(orden).pk], 'personas': [self.conductor.pk]})
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertEqual(self.asignaciones(), [])
+        self.assertIsNone(self.carga(orden).descarga)

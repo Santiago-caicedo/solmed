@@ -5684,16 +5684,22 @@ def _filas_trazabilidad(request):
         por_orden.setdefault(m.orden, []).append(m)
 
     def _quien_y_via(descarga):
-        """De dónde salió la disposición y quiénes respondieron por ella."""
+        """
+        De dónde salió la disposición, quiénes respondieron por ella y —si
+        vino del plan— la actividad que la registró (es la que el panel
+        puede deshacer; las hechas al convertir la orden no tienen una).
+        """
         asignaciones = list(descarga.asignaciones_plan.all())
         if asignaciones:
             nombres = list(dict.fromkeys(a.persona_nombre for a in asignaciones))
-            return ', '.join(nombres), f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}"
+            return (', '.join(nombres),
+                    f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}",
+                    asignaciones[0].pk)
         quien = (descarga.registrado_por.get_full_name()
                  or descarga.registrado_por.username) if descarga.registrado_por else ''
         if 'reporte' in descarga.nota.lower():
-            return quien or '—', 'Reporte de la oficina'
-        return quien or '—', 'Al convertir la orden'
+            return quien or '—', 'Reporte de la oficina', None
+        return quien or '—', 'Al convertir la orden', None
 
     hoy = timezone.localdate()
     filas = []
@@ -5713,6 +5719,8 @@ def _filas_trazabilidad(request):
                 'cargada_el': cargada, 'dias': (hoy - cargada).days,
                 'dispuesta_el': None, 'quien': '', 'via': '', 'gestor': '',
                 'nota': pendiente.nota,
+                # La casilla del panel marca ESTA carga para disponerla.
+                'carga_id': pendiente.pk, 'asignacion_id': None,
             })
         else:
             # Saldada por su descarga, o dispuesta directo (SÍ al convertir).
@@ -5722,7 +5730,7 @@ def _filas_trazabilidad(request):
                                    if m.accion == 'DESCARGA'), None))
             if descarga is None:
                 continue
-            quien, via = _quien_y_via(descarga)
+            quien, via, asignacion_id = _quien_y_via(descarga)
             dispuesta = timezone.localdate(descarga.fecha)
             fila.update({
                 'estado': 'DISPUESTA', 'placa': descarga.vehiculo.placa,
@@ -5732,6 +5740,7 @@ def _filas_trazabilidad(request):
                 'dispuesta_el': dispuesta, 'quien': quien, 'via': via,
                 'gestor': descarga.dispositor.nombre if descarga.dispositor_id else '',
                 'nota': descarga.nota,
+                'carga_id': None, 'asignacion_id': asignacion_id,
             })
         filas.append(fila)
 
@@ -5770,6 +5779,27 @@ def _filas_trazabilidad(request):
     return filtradas, filas, filtros
 
 
+def _personal_por_cargo():
+    """
+    El personal activo agrupado por cargo, en el orden del formato del plan:
+    los chips de «¿quiénes hicieron el viaje?» del panel de disposiciones
+    (mismo personal que ofrece el plan de trabajo).
+    """
+    from planes.views import ORDEN_CARGOS, _cargo_de, _personal_activo
+    por_cargo = {}
+    for persona in _personal_activo():
+        por_cargo.setdefault(_cargo_de(persona), []).append({
+            'pk': persona.pk,
+            'nombre': persona.get_full_name() or persona.username,
+        })
+    posicion = {cargo: i for i, cargo in enumerate(ORDEN_CARGOS)}
+    return [
+        {'cargo': cargo, 'personas': sorted(personas, key=lambda p: p['nombre'])}
+        for cargo, personas in sorted(por_cargo.items(),
+                                      key=lambda kv: posicion.get(kv[0], 99))
+    ]
+
+
 class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     """
     Panel de trazabilidad de las disposiciones: el estado REAL orden por
@@ -5777,10 +5807,96 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     dispusieron, quién las hizo, cuándo, con cuál gestor y por cuál vía
     (viaje del plan, al convertir, reporte de la oficina).
 
+    Desde aquí también se REGISTRA la disposición (sep-2026, pedido del
+    usuario): se marcan las órdenes sin disponer y se dice quién hizo el
+    viaje, qué día, a cuál gestor. Es LA MISMA actividad «Disposición final»
+    del plan de trabajo —mismo formulario, mismo registro— así que lo que se
+    registra aquí aparece en el plan de ese día, y lo del plan aparece aquí.
+    Deshacer desde el panel quita del plan la actividad de ese viaje.
+
     SOLO administradores (decisión del usuario, sep-2026): el «quién» sale
     del plan de trabajo, que ya es de acceso restringido.
     """
     template_name = 'gestion/trazabilidad_disposiciones.html'
+
+    def _volver(self, request):
+        """A dónde regresar tras escribir: la misma página con sus filtros."""
+        from django.utils.http import url_has_allowed_host_and_scheme
+        volver = request.POST.get('volver') or ''
+        if volver and url_has_allowed_host_and_scheme(volver, allowed_hosts={request.get_host()}):
+            return volver
+        return reverse('gestion:trazabilidad_disposiciones')
+
+    def post(self, request):
+        from django.utils.dateparse import parse_date
+        from planes.forms import AsignacionForm
+        from planes.models import Asignacion, PlanDia
+        from planes.views import _avisar_asignaciones
+        volver = self._volver(request)
+
+        if 'submit_disposicion' in request.POST:
+            # La disposición es un hecho: se registra el día real del viaje
+            # (hoy o antes), y cae en el plan de trabajo de ese día.
+            fecha = parse_date((request.POST.get('fecha') or '').strip())
+            if fecha is None:
+                messages.error(request, "Elige el día del viaje de disposición.")
+                return redirect(volver)
+            if fecha > timezone.localdate():
+                messages.error(request, "El día del viaje no puede ser futuro: aquí se "
+                                        "registra una disposición ya hecha.")
+                return redirect(volver)
+            datos = request.POST.copy()
+            datos['tipo'] = 'DISPOSICION_FINAL'
+            form = AsignacionForm(
+                datos,
+                personas_ids=request.POST.getlist('personas'),
+                cargas_ids=request.POST.getlist('cargas'),
+            )
+            if not form.is_valid():
+                for lista in form.errors.values():
+                    for error in lista:
+                        messages.error(request, error)
+                return redirect(volver)
+            plan, _ = PlanDia.objects.get_or_create(
+                fecha=fecha, defaults={'creado_por': request.user})
+            creadas = form.crear(plan, request.user)
+            ordenes = sorted({c.orden_id for c in form.cargas if c.orden_id})
+            messages.success(
+                request,
+                f"Disposición registrada en el plan del {fecha:%d/%m/%Y}: "
+                + ', '.join(f'#{n}' for n in ordenes)
+                + f" a nombre de {', '.join(a.persona_nombre for a in creadas)}.")
+            if form.cleaned_data.get('notificar'):
+                _avisar_asignaciones(request, creadas)
+            return redirect(volver)
+
+        if 'submit_deshacer' in request.POST:
+            asignacion = (Asignacion.objects
+                          .filter(pk=request.POST.get('asignacion'), tipo='DISPOSICION_FINAL')
+                          .select_related('plan').first())
+            if asignacion is None:
+                messages.error(request, "Esa disposición ya no está en el plan de trabajo.")
+                return redirect(volver)
+            # El viaje entero: la pareja comparte las mismas descargas. Se
+            # revive cada orden en su camión UNA vez y se quitan todas las
+            # asignaciones del viaje (en el plan se quitan de a una; aquí se
+            # deshace la disposición completa, que es lo que se ve en la fila).
+            viaje = list(Asignacion.objects
+                         .filter(descargas__in=asignacion.descargas.all()).distinct()) or [asignacion]
+            ordenes = sorted({d.orden_id for d in asignacion.descargas.all() if d.orden_id})
+            fecha = asignacion.plan.fecha
+            asignacion.deshacer_descarga()
+            for a in viaje:
+                a.delete()
+            messages.warning(
+                request,
+                f"Se quitó del plan del {fecha:%d/%m/%Y} la disposición de "
+                + ', '.join(f'#{n}' for n in ordenes)
+                + ": vuelven a quedar sin disponer.")
+            return redirect(volver)
+
+        messages.error(request, "No se reconoció la acción enviada.")
+        return redirect(volver)
 
     def get(self, request):
         filtradas, todas, filtros = _filas_trazabilidad(request)
@@ -5804,6 +5920,11 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'dias_mayor': max((f['dias'] for f in pendientes), default=0),
             'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
             'dispuestas_30': dispuestas_30,
+            # Para registrar desde aquí: el mismo personal y los mismos
+            # gestores que ofrece el plan de trabajo.
+            'personas_por_cargo': _personal_por_cargo() if pendientes else [],
+            'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre'),
+            'hoy': timezone.localdate(),
         })
 
 
