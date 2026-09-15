@@ -5434,64 +5434,61 @@ class TrazabilidadDisposicionesTests(BaseDisposicion):
         self.assertEqual(self.client.get(self.panel).status_code, 403)
         self.assertEqual(self.client.get(reverse('gestion:trazabilidad_disposiciones_excel')).status_code, 403)
 
-    def test_una_fila_por_orden_con_su_estado(self):
+    def test_solo_las_pendientes_en_orden_consecutivo_y_sin_paginas(self):
         hace_9 = timezone.localdate() - datetime.timedelta(days=9)
-        pendiente = self._orden(fecha=hace_9)
-        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        b = self._orden(placa='OBB178', fecha=hace_9)
+        dispuesta = self._orden(placa='WNO623', pendiente=False)
         self._orden(placa='OBC727', respuesta='')          # NO_APLICA: no sale
+        d = self._orden()
         respuesta = self.client.get(self.panel)
         contenido = respuesta.content.decode()
-        self.assertEqual(respuesta.context['n_pendientes'], 1)
-        self.assertEqual(respuesta.context['n_dispuestas'], 1)
-        self.assertIn(f'#{pendiente.numero_orden}', contenido)
-        self.assertIn('Sin disponer · 9 días', contenido)
-        self.assertIn('WGY347', contenido)
-        self.assertIn(f'#{dispuesta.numero_orden}', contenido)
-        self.assertIn('Al convertir la orden', contenido)
-        self.assertIn(self.gestor.nombre, contenido)
-        self.assertNotIn('submit_deshacer', contenido, "lo dispuesto al convertir no se deshace desde aquí")
-        self.assertEqual(contenido.count('<tr>') - 1, 2, "la NO_APLICA no aparece")
+        self.assertEqual(respuesta.context['n_pendientes'], 2)
+        self.assertEqual([f['orden'].pk for f in respuesta.context['filas']], [b.pk, d.pk],
+                         "solo las sin disponer, por número")
+        self.assertIn('9 días', contenido)
+        self.assertIn('OBB178', contenido)
+        self.assertNotIn(f'#{dispuesta.numero_orden}', contenido, "lo dispuesto no sale aquí")
+        self.assertNotIn('Dispuesta', contenido)
+        self.assertNotIn('submit_deshacer', contenido)
+        self.assertNotIn('page=', contenido)
+        self.assertNotIn('Mostrando', contenido, "sin paginación")
 
-    def test_la_tabla_va_consecutiva_primero_sin_disponer_y_luego_dispuestas(self):
-        # Creadas en desorden de estado y con fechas cruzadas a propósito.
-        a = self._orden(pendiente=False)                                        # dispuesta
-        b = self._orden(placa='OBB178', fecha=timezone.localdate() - datetime.timedelta(days=9))
-        c = self._orden(placa='WNO623', pendiente=False, fecha=timezone.localdate() - datetime.timedelta(days=20))
-        d = self._orden(placa='OBC727')
-        filas = self.client.get(self.panel).context['filas']
-        self.assertEqual([f['orden'].pk for f in filas], [b.pk, d.pk, a.pk, c.pk],
-                         "sin disponer en consecutivo, luego dispuestas en consecutivo")
+    def test_todas_las_pendientes_salen_en_una_sola_pagina(self):
+        for i in range(34):
+            self._orden(placa=f'P{i:05d}')
+        respuesta = self.client.get(self.panel)
+        self.assertEqual(len(respuesta.context['filas']), 34)
+        self.assertContains(respuesta, '34 órdenes sin disponer')
+        self.assertNotContains(respuesta, 'page=')
 
     def test_los_filtros(self):
-        """Filtran la tabla; los contadores y la ficha de pendientes no dependen del filtro."""
-        pendiente = self._orden()
-        dispuesta = self._orden(placa='OBB178', pendiente=False)
+        """Filtran la tabla; los contadores y el popup no dependen del filtro."""
+        una = self._orden()
+        otra = self._orden(placa='OBB178')
 
         def filas(consulta):
             respuesta = self.client.get(self.panel + consulta)
-            self.assertEqual(respuesta.context['n_pendientes'], 1)
+            self.assertEqual(respuesta.context['n_pendientes'], 2)
+            self.assertEqual(len(respuesta.context['pendientes']), 2)
             return [f['orden'].pk for f in respuesta.context['filas']]
 
-        self.assertEqual(filas('?estado=pendientes'), [pendiente.pk])
-        self.assertEqual(filas('?estado=dispuestas'), [dispuesta.pk])
-        self.assertEqual(filas('?placa=OBB'), [dispuesta.pk])
-        self.assertEqual(filas(f'?q={pendiente.numero_orden}'), [pendiente.pk])
-        self.assertEqual(filas('?q=Transportes'), [pendiente.pk, dispuesta.pk])
-        mes = timezone.localdate().strftime('%Y-%m')
-        self.assertEqual(sorted(filas(f'?mes={mes}')), sorted([pendiente.pk, dispuesta.pk]))
-        self.assertEqual(filas('?mes=2000-01'), [])
+        self.assertEqual(filas('?placa=OBB'), [otra.pk])
+        self.assertEqual(filas(f'?q={una.numero_orden}'), [una.pk])
+        self.assertEqual(filas('?q=Transportes'), [una.pk, otra.pk])
+        self.assertEqual(filas('?q=nadie'), [])
 
-    def test_lo_dispuesto_desde_el_plan_dice_quien_y_se_puede_deshacer(self):
+    def test_lo_dispuesto_desde_el_panel_sale_de_la_lista_y_queda_en_el_expediente(self):
         orden = self._orden()
         self.registrar_desde_panel([orden])
-        contenido = self.client.get(self.panel).content.decode()
-        self.assertIn('Carlos Pérez, Luis Gómez', contenido)
-        self.assertIn(f'Plan del {timezone.localdate():%d/%m/%Y}', contenido)
-        self.assertIn('submit_deshacer', contenido)
+        self.assertNotContains(self.client.get(self.panel), f'#{orden.numero_orden}')
+        expediente = self.client.get(reverse('gestion:detalle_orden', args=[orden.pk]))
+        self.assertContains(expediente, 'Dispuesta')
+        self.assertContains(expediente, 'Plan de trabajo')
+        self.assertContains(expediente, 'Carlos Pérez, Luis Gómez')
 
     def test_el_excel_sale_con_el_filtro(self):
         self._orden()
-        respuesta = self.client.get(reverse('gestion:trazabilidad_disposiciones_excel') + '?estado=pendientes')
+        respuesta = self.client.get(reverse('gestion:trazabilidad_disposiciones_excel') + '?placa=WGY')
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn('spreadsheet', respuesta['Content-Type'])
 
@@ -5606,43 +5603,32 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         self.assertEqual(sorted(c.to[0] for c in mail.outbox),
                          sorted([self.conductor.email, self.ayudante.email]))
 
-    def test_deshacer_quita_el_viaje_entero_y_las_ordenes_vuelven_a_sin_disponer(self):
-        una = self._orden()
-        otra = self._orden(placa='OBB178')
-        self.registrar_desde_panel([una, otra])
-        primera = self.asignaciones()[0]
-
-        respuesta = self.client.post(self.panel, {
-            'submit_deshacer': '1', 'asignacion': primera.pk}, follow=True)
-
-        self.assertContains(respuesta, 'vuelven a quedar sin disponer')
-        self.assertEqual(self.asignaciones(), [], "se van las DOS asignaciones del viaje")
-        for orden in (una, otra):
-            self.assertEqual(self.estado(orden), 'PENDIENTE')
-            self.assertTrue(orden.disposiciones.get().deshecha, "el historial queda")
-        contenido = self.client.get(self.panel).content.decode()
-        self.assertEqual(contenido.count('Sin disponer ·'), 2)
-
-    def test_lo_registrado_desde_el_plan_se_deshace_desde_el_panel(self):
+    def test_lo_registrado_aqui_se_deshace_desde_el_plan(self):
         orden = self._orden()
-        hoy = timezone.localdate()
-        self.client.post(f"{reverse('planes:plan_dia')}?fecha={hoy.isoformat()}", {
-            'submit_asignacion': '1', 'fecha': hoy.isoformat(),
-            'tipo': 'DISPOSICION_FINAL', 'personas': [self.conductor.pk],
-            'ordenes': [orden.pk], 'dispositor': self.gestor.pk})
+        self.registrar_desde_panel([orden])
+        self.assertNotContains(self.client.get(self.panel), f'#{orden.numero_orden}')
         asignacion = self.asignaciones()[0]
-        self.assertEqual(self.estado(orden), 'DISPUESTA')
-        contenido = self.client.get(self.panel).content.decode()
-        self.assertIn(f'name="asignacion" value="{asignacion.pk}"', contenido)
-        self.client.post(self.panel, {'submit_deshacer': '1', 'asignacion': asignacion.pk})
-        self.assertEqual(self.asignaciones(), [])
+        self.client.post(reverse('planes:eliminar_asignacion', args=[asignacion.pk]),
+                         {'fecha': timezone.localdate().isoformat()})
+        self.assertEqual(self.estado(orden), 'DISPUESTA', "quitar a uno deja al otro encargado")
+        self.assertEqual(len(self.asignaciones()), 1)
+        otra = self.asignaciones()[0]
+        self.client.post(reverse('planes:eliminar_asignacion', args=[otra.pk]),
+                         {'fecha': timezone.localdate().isoformat()})
         self.assertEqual(self.estado(orden), 'PENDIENTE')
+        self.assertTrue(orden.disposiciones.get().deshecha, "el historial queda")
+        self.assertContains(self.client.get(self.panel), f'#{orden.numero_orden}')
 
-    def test_deshacer_algo_que_ya_no_esta_solo_avisa(self):
-        respuesta = self.client.post(self.panel, {'submit_deshacer': '1', 'asignacion': 999}, follow=True)
-        self.assertContains(respuesta, 'ya no está en el plan')
+    def test_el_panel_ya_no_deshace_por_post(self):
+        orden = self._orden()
+        self.registrar_desde_panel([orden])
+        asignacion = self.asignaciones()[0]
+        respuesta = self.client.post(self.panel, {
+            'submit_deshacer': '1', 'asignacion': asignacion.pk}, follow=True)
+        self.assertContains(respuesta, 'No se reconoció la acción')
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
 
-    def test_solo_administradores_registran_o_deshacen(self):
+    def test_solo_administradores_registran(self):
         orden = self._orden()
         self.entrar(self.asesor)
         respuesta = self.client.post(self.panel, {

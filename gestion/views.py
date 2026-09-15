@@ -5587,82 +5587,36 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
 
 def _filas_trazabilidad(request):
     """
-    Una fila por ORDEN con estado de disposición (las NO_APLICA no cuentan).
-    Devuelve (filas_filtradas, todas_las_filas, filtros) — las completas
-    alimentan los contadores, que no dependen del filtro puesto.
+    Una fila por orden SIN DISPONER, en orden consecutivo (pedido del
+    usuario, sep-2026: el panel es la lista de lo que se debe; lo dispuesto se
+    consulta en el expediente de cada orden y en el plan). Devuelve
+    (filas_filtradas, todas_las_filas, filtros): los contadores y el popup
+    usan las completas, que no dependen del filtro puesto.
     """
-    from django.db.models import Prefetch
-    vigentes = (DisposicionOrden.objects.filter(deshecha=False)
-                .select_related('dispositor', 'registrado_por')
-                .prefetch_related('asignaciones_plan__persona', 'asignaciones_plan__plan'))
-    ordenes = (OrdenServicio.objects.exclude(estado_disposicion='NO_APLICA')
-               .select_related('cliente')
-               .prefetch_related('recorridos__vehiculo',
-                                 Prefetch('disposiciones', queryset=vigentes, to_attr='vigentes'))
+    ordenes = (OrdenServicio.objects.filter(estado_disposicion='PENDIENTE')
+               .select_related('cliente').prefetch_related('recorridos__vehiculo')
                .order_by('numero_orden'))
-
     hoy = timezone.localdate()
     filas = []
     for orden in ordenes:
         recorridos = list(orden.recorridos.all())
-        placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
         servicio = min((r.fecha_recorrido for r in recorridos), default=None)
         # Desde cuándo se debe: el día del servicio (o el de creación).
         desde = servicio or timezone.localdate(orden.fecha_creacion)
-        fila = {'orden': orden, 'servicio': servicio, 'placa': placa,
-                'cargada_el': desde, 'duplicada': False}
-        if orden.estado_disposicion == 'PENDIENTE':
-            fila.update({
-                'estado': 'PENDIENTE', 'dias': (hoy - desde).days,
-                'dispuesta_el': None, 'quien': '', 'via': '', 'gestor': '',
-                'nota': '', 'asignacion_id': None,
-            })
-        else:
-            registro = orden.vigentes[0] if orden.vigentes else None
-            if registro is None:
-                continue
-            asignaciones = list(registro.asignaciones_plan.all())
-            if asignaciones:
-                quien = ', '.join(dict.fromkeys(a.persona_nombre for a in asignaciones))
-                via = f"Plan del {asignaciones[0].plan.fecha:%d/%m/%Y}"
-            else:
-                quien = ((registro.registrado_por.get_full_name()
-                          or registro.registrado_por.username)
-                         if registro.registrado_por_id else '—')
-                via = registro.get_via_display()
-            fila.update({
-                'estado': 'DISPUESTA', 'dias': (registro.fecha - desde).days,
-                'dispuesta_el': registro.fecha, 'quien': quien, 'via': via,
-                'gestor': registro.dispositor.nombre if registro.dispositor_id else '',
-                'nota': registro.nota,
-                # Solo lo que vino del plan se puede deshacer desde el panel.
-                'asignacion_id': asignaciones[0].pk if asignaciones else None,
-            })
-        filas.append(fila)
-
-    # Pendientes primero y luego las dispuestas, cada bloque en orden
-    # consecutivo de número de orden (pedido del usuario, sep-2026).
-    filas.sort(key=lambda f: (f['estado'] != 'PENDIENTE', f['orden'].numero_orden))
+        filas.append({
+            'orden': orden, 'servicio': servicio,
+            'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
+            'desde': desde, 'dias': (hoy - desde).days,
+        })
 
     filtros = {
-        'estado': request.GET.get('estado', ''),
         'placa': (request.GET.get('placa') or '').strip(),
-        'mes': (request.GET.get('mes') or '').strip(),   # AAAA-MM
         'q': (request.GET.get('q') or '').strip(),
     }
     filtradas = filas
-    if filtros['estado'] == 'pendientes':
-        filtradas = [f for f in filtradas if f['estado'] == 'PENDIENTE']
-    elif filtros['estado'] == 'dispuestas':
-        filtradas = [f for f in filtradas if f['estado'] == 'DISPUESTA']
     if filtros['placa']:
         buscada = filtros['placa'].upper()
         filtradas = [f for f in filtradas if buscada in f['placa'].upper()]
-    if filtros['mes']:
-        # El mes se compara contra la fecha que define a cada fila: la de la
-        # disposición si ya se hizo, la del servicio si sigue pendiente.
-        filtradas = [f for f in filtradas
-                     if (f['dispuesta_el'] or f['cargada_el']).strftime('%Y-%m') == filtros['mes']]
     if filtros['q']:
         q = filtros['q'].upper()
         filtradas = [f for f in filtradas
@@ -5694,17 +5648,17 @@ def _personal_por_cargo():
 
 class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     """
-    Panel de trazabilidad de las disposiciones: el estado REAL orden por
-    orden — cuáles siguen sin disponer (y hace cuántos días), cuáles ya se
-    dispusieron, quién las hizo, cuándo, con cuál gestor y por cuál vía
-    (viaje del plan, al convertir, reporte de la oficina).
+    Panel de disposiciones: la lista COMPLETA de las órdenes sin disponer, en
+    orden consecutivo y sin páginas (pedido del usuario, sep-2026). Lo ya
+    dispuesto no sale aquí: se consulta en el expediente de cada orden (con
+    su historial) y en el plan de trabajo.
 
-    Desde aquí también se REGISTRA la disposición (sep-2026, pedido del
-    usuario): se marcan las órdenes sin disponer y se dice quién hizo el
-    viaje, qué día, a cuál gestor. Es LA MISMA actividad «Disposición final»
-    del plan de trabajo —mismo formulario, mismo registro— así que lo que se
-    registra aquí aparece en el plan de ese día, y lo del plan aparece aquí.
-    Deshacer desde el panel quita del plan la actividad de ese viaje.
+    Desde aquí también se REGISTRA la disposición: se marcan las órdenes sin
+    disponer y se dice quién hizo el viaje, qué día, a cuál gestor. Es LA
+    MISMA actividad «Disposición final» del plan de trabajo —mismo
+    formulario, mismo registro—, así que lo registrado aquí aparece en el
+    plan de ese día. Revertir una disposición se hace quitando la actividad
+    en el plan o con «Marcar como sin disponer» en el expediente de la orden.
 
     SOLO administradores (decisión del usuario, sep-2026): el «quién» sale
     del plan de trabajo, que ya es de acceso restringido.
@@ -5722,7 +5676,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     def post(self, request):
         from django.utils.dateparse import parse_date
         from planes.forms import AsignacionForm
-        from planes.models import Asignacion, PlanDia
+        from planes.models import PlanDia
         from planes.views import _avisar_asignaciones
         volver = self._volver(request)
 
@@ -5762,68 +5716,28 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
                 _avisar_asignaciones(request, creadas)
             return redirect(volver)
 
-        if 'submit_deshacer' in request.POST:
-            asignacion = (Asignacion.objects
-                          .filter(pk=request.POST.get('asignacion'), tipo='DISPOSICION_FINAL')
-                          .select_related('plan').first())
-            if asignacion is None:
-                messages.error(request, "Esa disposición ya no está en el plan de trabajo.")
-                return redirect(volver)
-            # El viaje entero: la pareja comparte los mismos registros. Se
-            # deshace la disposición UNA vez y se quitan todas las asignaciones
-            # del viaje (en el plan se quitan de a una; aquí se deshace la
-            # disposición completa, que es lo que se ve en la fila).
-            viaje = list(Asignacion.objects
-                         .filter(disposiciones__in=asignacion.disposiciones.all()).distinct()) or [asignacion]
-            ordenes = asignacion.ordenes_dispuestas
-            fecha = asignacion.plan.fecha
-            asignacion.deshacer_disposicion()
-            for a in viaje:
-                a.delete()
-            messages.warning(
-                request,
-                f"Se quitó del plan del {fecha:%d/%m/%Y} la disposición de "
-                + ', '.join(f'#{n}' for n in ordenes)
-                + ": vuelven a quedar sin disponer.")
-            return redirect(volver)
-
         messages.error(request, "No se reconoció la acción enviada.")
         return redirect(volver)
 
     def get(self, request):
         filtradas, todas, filtros = _filas_trazabilidad(request)
-
-        pendientes = [f for f in todas if f['estado'] == 'PENDIENTE']
-        hace_30 = timezone.localdate() - datetime.timedelta(days=30)
-        dispuestas_30 = sum(1 for f in todas if f['dispuesta_el']
-                            and f['dispuesta_el'] >= hace_30)
-
-        paginador = Paginator(filtradas, 30)
-        pagina = paginador.get_page(request.GET.get('page'))
         return render(request, self.template_name, {
-            'page_obj': pagina,
-            'filas': pagina.object_list,
-            'pagina_rango': rango_de_paginas(pagina),
+            'filas': filtradas,
             'filtros': filtros,
-            'n_pendientes': len(pendientes),
-            # En la ficha y en el popup van las ÓRDENES que se deben, en
-            # orden consecutivo.
-            'pendientes': sorted(pendientes, key=lambda f: f['orden'].numero_orden),
-            'dias_mayor': max((f['dias'] for f in pendientes), default=0),
-            'n_dispuestas': sum(1 for f in todas if f['estado'] == 'DISPUESTA'),
-            'dispuestas_30': dispuestas_30,
+            'n_pendientes': len(todas),
+            # La ficha y el popup llevan TODAS las que se deben, en orden.
+            'pendientes': todas,
+            'dias_mayor': max((f['dias'] for f in todas), default=0),
             # Para registrar desde aquí: el mismo personal y los mismos
-            # gestores que ofrece el plan de trabajo. Las pendientes van
-            # agrupadas por camión, que es como la oficina las piensa
-            # («lo del WGY347»), cada grupo de la más vieja a la más nueva.
-            'personas_por_cargo': _personal_por_cargo() if pendientes else [],
+            # gestores que ofrece el plan de trabajo.
+            'personas_por_cargo': _personal_por_cargo() if todas else [],
             'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre'),
             'hoy': timezone.localdate(),
         })
 
 
 class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
-    """El panel en Excel, con el filtro puesto, para cruzarlo con la oficina."""
+    """Las órdenes sin disponer en Excel, con el filtro puesto, para cruzarlas con la oficina."""
 
     def get(self, request):
         from openpyxl import Workbook
@@ -5833,12 +5747,11 @@ class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
         filtradas, _, filtros = _filas_trazabilidad(request)
         libro = Workbook()
         hoja = libro.active
-        hoja.title = 'Disposiciones'
+        hoja.title = 'Sin disponer'
         hoja.sheet_view.showGridLines = False
 
         cabeceras = ['Orden', 'Cliente', 'Fecha del servicio', 'Placa',
-                     'Estado', 'Cargada el', 'Dispuesta el', 'Días', 'Quién',
-                     'Gestor', 'Vía', 'Detalle']
+                     'Días sin disponer']
         hoja.append(cabeceras)
         for celda in hoja[1]:
             celda.font = Font(bold=True, color='FFFFFF', size=10)
@@ -5849,11 +5762,7 @@ class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
         for f in filtradas:
             hoja.append([
                 f['orden'].numero_orden, f['orden'].cliente.nombre,
-                f['servicio'], f['placa'],
-                'Sin disponer' if f['estado'] == 'PENDIENTE' else 'Dispuesta',
-                f['cargada_el'], f['dispuesta_el'],
-                f['dias'] if f['dias'] is not None else '',
-                f['quien'], f['gestor'], f['via'], f['nota'],
+                f['servicio'], f['placa'], f['dias'],
             ])
         borde = Side(style='thin', color='D6DDEA')
         for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
@@ -5862,11 +5771,11 @@ class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
                 celda.alignment = Alignment(vertical='center', wrap_text=True)
                 if n % 2 == 0:
                     celda.fill = PatternFill('solid', fgColor='F5F8FC')
-                if celda.column in (3, 6, 7):
+                if celda.column == 3:
                     celda.number_format = 'DD/MM/YYYY'
                     celda.alignment = Alignment(horizontal='center',
                                                 vertical='center')
-        for i, ancho in enumerate([9, 32, 14, 10, 13, 12, 12, 7, 30, 24, 20, 46],
+        for i, ancho in enumerate([9, 40, 16, 12, 16],
                                   start=1):
             hoja.column_dimensions[get_column_letter(i)].width = ancho
         hoja.freeze_panes = 'A2'
