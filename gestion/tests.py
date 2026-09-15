@@ -5701,7 +5701,7 @@ class CuadrarPendientesTests(BaseDisposicion):
         self.assertIn('foto de la oficina', registro.deshecha_nota)
         self.assertEqual(self.estado(sobra), 'DISPUESTA')
         self.assertEqual(sobra.disposicion_vigente.via, 'REPORTE')
-        self.assertEqual(sobra.disposicion_vigente.fecha, datetime.date(2026, 9, 8))
+        self.assertEqual(sobra.disposicion_vigente.fecha, datetime.date(2026, 9, 14))
 
     def test_no_toca_lo_pendiente_posterior_a_la_foto(self):
         vieja = self._orden()
@@ -5724,6 +5724,24 @@ class CuadrarPendientesTests(BaseDisposicion):
         self.assertIn('OTR999', salida)
         self.assertIn('OTRO CLIENTE', salida)
         self.assertEqual(orden.recorridos.get().vehiculo.placa, 'WGY347')
+
+    def test_la_foto_real_tiene_48_ordenes_hasta_la_22300(self):
+        from .management.commands import cuadrar_pendientes as cmd
+        self.assertEqual(len(cmd.FOTO), 48)
+        self.assertEqual((min(cmd.FOTO), max(cmd.FOTO), cmd.TOPE), (22204, 22300, 22300))
+        self.assertEqual(cmd.FECHA_FOTO, datetime.date(2026, 9, 14))
+        self.assertIn(22281, cmd.FOTO)
+        self.assertNotIn(22295, cmd.FOTO)
+
+    def test_una_dispuesta_al_convertir_que_la_foto_reclama_vuelve_a_pendiente(self):
+        """El caso real del 14-sep: 22281/22296/22297 salían dispuestas al convertir."""
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        self.correr('--confirmar', foto={orden.numero_orden: self.fila(orden, '')})
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+        registro.refresh_from_db()
+        self.assertEqual((registro.via, registro.deshecha), ('CONVERTIR', True))
+        self.assertIn('foto de la oficina', registro.deshecha_nota)
 
     def test_avisa_si_una_orden_de_la_foto_no_existe(self):
         salida = self.correr(foto={99999: ('X', '01/09/2026', 'A', 'B', 'XXX111')})

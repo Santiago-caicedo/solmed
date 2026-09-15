@@ -1,23 +1,24 @@
 """
 Deja las órdenes SIN DISPONER exactamente como la fotografía de la oficina.
 
-La oficina pasó el 08-sep-2026 el listado de las órdenes que siguen sin
-disponer (02/08 → 09/09). Decisión de Santiago: «debemos dejar tal cual las
-que aparecen en esa foto». El listado va ESCRITO aquí abajo: así el comando es
-el documento de lo acordado y no depende de un archivo que se mueva de sitio.
+La oficina pasó el 14-sep-2026 el listado DEFINITIVO de las órdenes que
+siguen sin disponer (02/08 → 13/09; reemplaza al del 08-sep). Decisión de
+Santiago: «esta es la última y la verdad absoluta de todo». El listado va
+ESCRITO aquí abajo: así el comando es el documento de lo acordado y no
+depende de un archivo que se mueva de sitio.
 
-La foto es un RETRATO: solo juzga órdenes hasta la #22279 (la última que
-retrata). Lo posterior es operación viva y no se toca — la primera vista
-previa en el servidor (11-sep) iba a llevarse 12 órdenes reales de sep.
+La foto es un RETRATO: solo juzga órdenes hasta la #22300 (la última que
+retrata). Lo posterior es operación viva y no se toca — con la foto anterior
+la primera vista previa iba a llevarse 12 órdenes reales de sep.
 
 Contra lo que el sistema tiene hoy:
   · FALTAN  — están en la foto y no están sin disponer → quedan SIN DISPONER
     (si tenían una disposición vigente, se marca deshecha con la razón).
-  · SOBRAN  — están sin disponer y la foto no las nombra (hasta la #22279)
+  · SOBRAN  — están sin disponer y la foto no las nombra (hasta la #22300)
     → quedan DISPUESTAS con vía «reporte de la oficina» y la fecha del listado.
     Ojo: eso no dice quién la dispuso; es lo que afirma la oficina.
 
-Cliente, fecha y placa de la foto NO se escriben: solo se contrastan y las
+Cliente y fecha de la foto NO se escriben: solo se contrastan y las
 diferencias salen avisadas.
 
     python manage.py cuadrar_pendientes                  # vista previa
@@ -32,51 +33,64 @@ from django.db.models import Min
 
 from gestion.models import OrdenServicio
 
-MARCA = 'foto de la oficina 08-sep'
-FECHA_FOTO = datetime.date(2026, 9, 8)
+MARCA = 'foto de la oficina 14-sep'
+FECHA_FOTO = datetime.date(2026, 9, 14)
 
 # Hasta dónde alcanza la foto (la última orden que retrata).
-TOPE = 22279
+TOPE = 22300
 
-# La fotografía del 08-sep-2026, tal cual: número → (cliente, fecha, conductor,
-# ayudante, placa). Todo menos el número es para CONTRASTAR, no para escribir.
+# La fotografía del 14-sep-2026, tal cual: número → (cliente, fecha, conductor,
+# ayudante, placa). Esta foto no trae cuadrilla ni placa (quedan vacíos).
+# Todo menos el número es para CONTRASTAR, no para escribir.
 FOTO = {
-    22204: ('CREPES Y WAFFLES S.A', '02/08/2026', 'WILLIAM', 'JULIO', 'OBC727'),
-    22207: ('D1 SAS', '05/08/2026', 'JAVIER', 'DAVID', 'WNO623'),
-    22211: ('D1 SAS', '06/08/2026', 'OSCAR', 'SOLO', 'WNO623'),
-    22212: ('LABORATORIOS SIEGFRIED SAS', '06/08/2026', 'ALONSO', 'DAVID', 'WGY347'),
-    22213: ('CREPES Y WAFFLES S.A', '07/08/2026', 'WILLIAM', 'JULIO', 'WGY347'),
-    22215: ('CREPES Y WAFFLES S.A', '09/08/2026', 'WILLIAM', 'JEFFERSON', 'WGY347'),
-    22218: ('D1 SAS', '11/08/2026', 'JAVIER', 'JEFFERSON', 'WNO623'),
-    22222: ('MECANICOS ASOCIADOS SAS', '12/08/2026', 'ALONSO', 'OSCAR', 'WGY347'),
-    22225: ('MECANICOS ASOCIADOS SAS', '13/08/2026', 'JAVIER', 'JULIO', 'OBB178'),
-    22228: ('D1 SAS', '14/08/2026', 'OSCAR', 'SOLO', 'WNO623'),
-    22229: ('CREPES Y WAFFLES S.A', '15/08/2026', 'JAVIER', 'JEFFERSON', 'OBB178'),
-    22230: ('INMEL INGENIERIA S.A.S', '15/08/2026', 'WILLIAM', 'OSCAR', 'WGY347'),
-    22231: ('CREPES Y WAFFLES S.A', '16/08/2026', 'ALONSO', 'OSCAR', 'WGY347'),
-    22238: ('D1 SAS', '20/08/2026', 'JAVIER', 'JULIO', 'WNO623'),
-    22239: ('CREPES Y WAFFLES S.A', '21/08/2026', 'WILLIAM', 'JULIO', 'WGY347'),
-    22240: ('D1 SAS', '21/08/2026', 'JAVIER', 'SOLO', 'WNO623'),
-    22243: ('CREPES Y WAFFLES S.A', '23/08/2026', 'WILLIAM', 'JEFFERSON', 'WGY347'),
-    22244: ('MECANICOS ASOCIADOS SAS', '23/08/2026', 'ALONSO', 'OSCAR', 'WGY347'),
-    22246: ('CREPES Y WAFFLES S.A', '25/08/2026', 'WILLIAM', 'JEFFERSON', 'WGY347'),
-    22247: ('D1 SAS', '25/08/2026', 'OSCAR', 'SOLO', 'WNO623'),
-    22248: ('LACTENOVO SAS', '25/08/2026', 'WILLIAM', 'JULIO', 'WGY347'),
-    22251: ('CREPES Y WAFFLES S.A', '27/08/2026', 'JAVIER', 'JEFFERSON', 'OBB178'),
-    22257: ('D1 SAS', '28/08/2026', 'ALONSO', 'JUAN', 'WNO623'),
-    22258: ('MECANICOS ASOCIADOS SAS', '28/08/2026', 'ALONSO', 'JULIO', 'WGY347'),
-    22259: ('MECANICOS ASOCIADOS SAS', '28/08/2026', 'ALONSO', 'JULIO', 'WGY347'),
-    22260: ('CREPES Y WAFFLES S.A', '29/08/2026', 'JAVIER', 'OSCAR', 'OBB178'),
-    22261: ('CREPES Y WAFFLES S.A', '30/08/2026', 'WILLIAM', 'JULIO', 'WGY347'),
-    22265: ('D1 SAS', '02/09/2026', 'WILLIAM', 'JULIO', 'WNO623'),
-    22266: ('CREPES Y WAFFLES S.A', '03/09/2026', 'WILLIAM', 'JEFFERSON', 'WGY347'),
-    22270: ('D1 SAS', '04/09/2026', 'OSCAR', 'ANDRES', 'WNO623'),
-    22271: ('COLORPLASTIC SOCIEDAD POR ACCIONES SIMPLIFICADA', '04/09/2026',
-            'JAVIER', 'JEFFERSON', 'OBB178'),
-    22273: ('CREPES Y WAFFLES S.A', '05/09/2026', 'WILLIAM', 'JEFFERSON', 'WGY347'),
-    22274: ('CREPES Y WAFFLES S.A', '06/09/2026', 'ALONSO', 'JEFFERSON', 'WGY347'),
-    22278: ('D1 SAS', '08/09/2026', 'ALONSO', 'JULIO', 'WNO623'),
-    22279: ('CREPES Y WAFFLES S.A', '09/09/2026', 'JAVIER', 'JULIO', 'OBB178'),
+    22204: ('CREPES Y WAFFLES S.A', '02/08/2026', '', '', ''),
+    22207: ('D1 SAS', '05/08/2026', '', '', ''),
+    22211: ('D1 SAS', '06/08/2026', '', '', ''),
+    22212: ('LABORATORIOS SIEGFRIED SAS', '06/08/2026', '', '', ''),
+    22213: ('CREPES Y WAFFLES S.A', '07/08/2026', '', '', ''),
+    22215: ('CREPES Y WAFFLES S.A', '09/08/2026', '', '', ''),
+    22218: ('D1 SAS', '11/08/2026', '', '', ''),
+    22222: ('MECANICOS ASOCIADOS SAS', '12/08/2026', '', '', ''),
+    22225: ('MECANICOS ASOCIADOS SAS', '13/08/2026', '', '', ''),
+    22228: ('D1 SAS', '14/08/2026', '', '', ''),
+    22229: ('CREPES Y WAFFLES S.A', '15/08/2026', '', '', ''),
+    22230: ('INMEL INGENIERIA S.A.S', '15/08/2026', '', '', ''),
+    22231: ('CREPES Y WAFFLES S.A', '16/08/2026', '', '', ''),
+    22238: ('D1 SAS', '20/08/2026', '', '', ''),
+    22239: ('CREPES Y WAFFLES S.A', '21/08/2026', '', '', ''),
+    22240: ('D1 SAS', '21/08/2026', '', '', ''),
+    22243: ('CREPES Y WAFFLES S.A', '23/08/2026', '', '', ''),
+    22244: ('MECANICOS ASOCIADOS SAS', '23/08/2026', '', '', ''),
+    22246: ('CREPES Y WAFFLES S.A', '25/08/2026', '', '', ''),
+    22247: ('D1 SAS', '25/08/2026', '', '', ''),
+    22248: ('LACTENOVO SAS', '25/08/2026', '', '', ''),
+    22251: ('CREPES Y WAFFLES S.A', '27/08/2026', '', '', ''),
+    22257: ('D1 SAS', '28/08/2026', '', '', ''),
+    22258: ('MECANICOS ASOCIADOS SAS', '28/08/2026', '', '', ''),
+    22259: ('MECANICOS ASOCIADOS SAS', '28/08/2026', '', '', ''),
+    22260: ('CREPES Y WAFFLES S.A', '29/08/2026', '', '', ''),
+    22261: ('CREPES Y WAFFLES S.A', '30/08/2026', '', '', ''),
+    22265: ('D1 SAS', '02/09/2026', '', '', ''),
+    22266: ('CREPES Y WAFFLES S.A', '03/09/2026', '', '', ''),
+    22270: ('D1 SAS', '04/09/2026', '', '', ''),
+    22271: ('COLORPLASTIC SOCIEDAD POR ACCIONES SIMPLIFICADA', '04/09/2026', '', '', ''),
+    22273: ('CREPES Y WAFFLES S.A', '05/09/2026', '', '', ''),
+    22274: ('CREPES Y WAFFLES S.A', '06/09/2026', '', '', ''),
+    22278: ('D1 SAS', '08/09/2026', '', '', ''),
+    22279: ('CREPES Y WAFFLES S.A', '09/09/2026', '', '', ''),
+    22280: ('D1 SAS', '09/09/2026', '', '', ''),
+    22281: ('D1 SAS', '09/09/2026', '', '', ''),
+    22283: ('D1 SAS', '09/09/2026', '', '', ''),
+    22284: ('D1 SAS', '09/09/2026', '', '', ''),
+    22285: ('D1 SAS', '10/09/2026', '', '', ''),
+    22289: ('D1 SAS', '10/09/2026', '', '', ''),
+    22291: ('D1 SAS', '11/09/2026', '', '', ''),
+    22294: ('MECANICOS ASOCIADOS SAS', '11/09/2026', '', '', ''),
+    22296: ('MECANICOS ASOCIADOS SAS', '12/09/2026', '', '', ''),
+    22297: ('MECANICOS ASOCIADOS SAS', '12/09/2026', '', '', ''),
+    22298: ('CREPES Y WAFFLES S.A', '13/09/2026', '', '', ''),
+    22299: ('CREPES Y WAFFLES S.A', '13/09/2026', '', '', ''),
+    22300: ('CREPES Y WAFFLES S.A', '13/09/2026', '', '', ''),
 }
 
 
@@ -89,7 +103,7 @@ def _sin_tildes(texto):
 
 class Command(BaseCommand):
     help = ("Deja las órdenes sin disponer exactamente como el listado de la "
-            "oficina del 08-sep-2026 (vista previa; escribe con --confirmar).")
+            "oficina del 14-sep-2026 (vista previa; escribe con --confirmar).")
 
     def add_arguments(self, parser):
         parser.add_argument('--confirmar', action='store_true',
