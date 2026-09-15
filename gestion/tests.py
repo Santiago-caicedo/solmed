@@ -2359,6 +2359,116 @@ class ConciliacionTests(BaseCRM):
 
 
 # ============================================================
+#  CONCILIACIONES: LA COLA, FILA POR FILA
+# ============================================================
+class ConciliacionesTests(BaseCRM):
+    """
+    La página «Conciliaciones»: todas las órdenes pendientes de Transporte -
+    Cantidad, consecutivas y sin páginas, con el dato capturable en la misma
+    fila. Cada fila se guarda sola (por fetch o, sin JS, volviendo a la
+    página) usando la misma vista que el expediente.
+    """
+
+    def setUp(self):
+        datos = self.servicio_completo()
+        self.__dict__.update(datos)
+        self.url = reverse('gestion:conciliaciones')
+        self.entrar(self.asesor)
+
+    def _otra_orden(self, placa, **extra):
+        # `self.programacion` es la programación del escenario (servicio_completo
+        # la pone en self.__dict__), así que el ayudante se llama por la clase.
+        programacion = BaseCRM.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.vehiculo(placa), **extra)
+        return programacion.convertir_en_orden(self.asesor)
+
+    def test_la_lista_trae_solo_las_pendientes_consecutivas_y_sin_paginas(self):
+        b = self._otra_orden('OBB178')
+        conciliada = self._otra_orden('WNO623', transporte_cantidad='3 m³')   # nace conciliada
+        cancelada = self._otra_orden('OBC727')
+        cancelada.estado_orden = 'CANCELADA'
+        cancelada.save()
+        respuesta = self.client.get(self.url)
+        self.assertEqual([f['orden'].pk for f in respuesta.context['filas']],
+                         [self.orden.pk, b.pk])
+        self.assertEqual(respuesta.context['n_pendientes'], 2)
+        contenido = respuesta.content.decode()
+        self.assertNotIn(f'#{conciliada.numero_orden}', contenido)
+        self.assertNotIn(f'#{cancelada.numero_orden}', contenido)
+        self.assertNotIn('page=', contenido)
+        # Cada fila es un formulario propio hacia la misma vista de conciliar.
+        self.assertEqual(contenido.count('class="cn-form"'), 2)
+        self.assertIn(reverse('gestion:conciliar_orden', args=[self.orden.pk]), contenido)
+        self.assertIn('Succión de pozo séptico', contenido, "dice qué se hizo, para saber qué conciliar")
+        self.assertIn('Quedan <strong id="cn-quedan">2</strong>', contenido)
+
+    def test_guardar_una_fila_por_fetch_concilia_solo_esa_y_responde_json(self):
+        otra = self._otra_orden('OBB178')
+        respuesta = self.client.post(
+            reverse('gestion:conciliar_orden', args=[self.orden.pk]),
+            {'transporte_cantidad': '12 m³', 'volver': 'conciliaciones'},
+            HTTP_X_REQUESTED_WITH='fetch')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json()['ok'], True)
+        self.assertEqual(respuesta.json()['cantidad'], '12 m³')
+        self.orden.refresh_from_db(); otra.refresh_from_db()
+        self.assertEqual(self.orden.estado_conciliacion, 'CONCILIADA')
+        self.assertEqual(otra.estado_conciliacion, 'PENDIENTE', "solo la fila guardada")
+        self.programacion.refresh_from_db()
+        self.assertEqual(self.programacion.transporte_cantidad, '12 m³')
+        # Ya no está en la cola.
+        self.assertNotIn(f'#{self.orden.numero_orden}', self.client.get(self.url).content.decode())
+
+    def test_por_fetch_el_error_llega_como_json_400_y_no_cambia_nada(self):
+        respuesta = self.client.post(
+            reverse('gestion:conciliar_orden', args=[self.orden.pk]),
+            {'transporte_cantidad': '  '}, HTTP_X_REQUESTED_WITH='fetch')
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertFalse(respuesta.json()['ok'])
+        self.assertIn('Escribe la cantidad', respuesta.json()['mensaje'])
+        self.orden.refresh_from_db()
+        self.assertEqual(self.orden.estado_conciliacion, 'PENDIENTE')
+
+    def test_sin_javascript_vuelve_a_la_pagina_de_conciliaciones(self):
+        respuesta = self.client.post(
+            reverse('gestion:conciliar_orden', args=[self.orden.pk]),
+            {'transporte_cantidad': '12 m³', 'volver': 'conciliaciones'})
+        # assertRedirects pediría la página y se comería el mensaje: se mira aparte.
+        self.assertRedirects(respuesta, self.url, fetch_redirect_response=False)
+        self.assertContains(self.client.get(self.url), 'conciliada: Transporte - Cantidad = 12 m³')
+
+    def test_desde_el_expediente_sigue_volviendo_al_expediente(self):
+        respuesta = self.client.post(
+            reverse('gestion:conciliar_orden', args=[self.orden.pk]),
+            {'transporte_cantidad': '12 m³'})
+        self.assertRedirects(respuesta, reverse('gestion:detalle_orden', args=[self.orden.pk]))
+
+    def test_corregir_vuelve_a_conciliar_con_el_valor_nuevo(self):
+        for cantidad in ('12 m³', '13 m³'):
+            self.client.post(reverse('gestion:conciliar_orden', args=[self.orden.pk]),
+                             {'transporte_cantidad': cantidad}, HTTP_X_REQUESTED_WITH='fetch')
+        self.programacion.refresh_from_db()
+        self.assertEqual(self.programacion.transporte_cantidad, '13 m³')
+
+    def test_el_boton_esta_en_ordenes_y_la_tarjeta_del_tablero_lleva_aqui(self):
+        self.assertContains(self.client.get(reverse('gestion:lista_ordenes')), self.url)
+        admin = self.persona('admin', superusuario=True)
+        self.entrar(admin)
+        self.assertContains(self.client.get(reverse('gestion:dashboard')), f'href="{self.url}"')
+
+    def test_solo_gestion(self):
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_la_estructura_que_el_js_espera(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn('name="transporte_cantidad"', contenido)
+        self.assertIn('id="cn-avance"', contenido)
+        self.assertIn("'X-Requested-With': 'fetch'", contenido)
+        self.assertNotIn('new bootstrap.', contenido, "el bundle carga después del bloque de contenido")
+
+
+# ============================================================
 #  PAGOS
 # ============================================================
 class PagosTests(BaseCRM):

@@ -3181,21 +3181,74 @@ class ConciliarOrdenView(AsesorRequiredMixin, View):
     """
     def post(self, request, pk):
         orden = get_object_or_404(OrdenServicio, pk=pk)
-        if orden.estado_conciliacion == 'NO_APLICA':
-            messages.info(request, "Esta orden no maneja conciliación (se creó sin programación).")
+        # Desde la página de Conciliaciones cada fila se guarda sola: por
+        # fetch (respuesta JSON, sin recargar) o, sin JavaScript, volviendo a
+        # esa misma página. Desde el expediente se vuelve al expediente.
+        por_fetch = request.headers.get('X-Requested-With') == 'fetch'
+        volver = ('gestion:conciliaciones' if request.POST.get('volver') == 'conciliaciones'
+                  else None)
+
+        def responder(ok, texto, estado=200):
+            if por_fetch:
+                return JsonResponse({
+                    'ok': ok, 'mensaje': texto, 'numero': orden.numero_orden,
+                    'cantidad': orden.programacion_origen.transporte_cantidad
+                    if ok and getattr(orden, 'programacion_origen', None) else '',
+                }, status=estado)
+            (messages.success if ok else messages.error)(request, texto)
+            if volver:
+                return redirect(volver)
             return redirect('gestion:detalle_orden', pk=pk)
 
+        if orden.estado_conciliacion == 'NO_APLICA':
+            return responder(False, "Esta orden no maneja conciliación (se creó sin programación).", 400)
         cantidad = request.POST.get('transporte_cantidad', '').strip()
         if not cantidad:
-            messages.error(request, "Ingresa la cantidad de transporte para conciliar la orden.")
-            return redirect('gestion:detalle_orden', pk=pk)
+            return responder(False, "Escribe la cantidad de transporte para conciliar la orden.", 400)
 
         orden.conciliar_transporte(cantidad)
-        messages.success(
-            request,
-            f"Orden #{orden.numero_orden} conciliada: Transporte - Cantidad = {cantidad}."
-        )
-        return redirect('gestion:detalle_orden', pk=pk)
+        return responder(True, f"Orden #{orden.numero_orden} conciliada: Transporte - Cantidad = {cantidad}.")
+
+
+class ConciliacionesView(AsesorRequiredMixin, View):
+    """
+    La cola de conciliación de «Transporte - Cantidad»: todas las órdenes
+    pendientes, en orden consecutivo y sin páginas, con el dato capturable en
+    la misma fila (pedido del usuario, sep-2026: antes tocaba entrar a cada
+    expediente). Cada fila se guarda sola por ConciliarOrdenView.
+
+    Mismo acceso que conciliar desde el expediente: gestión.
+    """
+    template_name = 'gestion/conciliaciones.html'
+
+    def get(self, request):
+        from django.db.models import Min
+        ordenes = (OrdenServicio.objects
+                   .filter(estado_conciliacion='PENDIENTE')
+                   .exclude(estado_orden='CANCELADA')
+                   .select_related('cliente', 'programacion_origen')
+                   .prefetch_related('recorridos__vehiculo')
+                   .annotate(servicio=Min('recorridos__fecha_recorrido'))
+                   .order_by('numero_orden'))
+        filas = []
+        for orden in ordenes:
+            programacion = getattr(orden, 'programacion_origen', None)
+            filas.append({
+                'orden': orden,
+                'servicio': orden.servicio,
+                'placa': ', '.join(sorted({r.vehiculo.placa for r in orden.recorridos.all()
+                                           if r.vehiculo_id})),
+                'descripcion': (programacion.observaciones_servicio if programacion else '')
+                               or orden.descripcion or '',
+            })
+        hoy = timezone.localdate()
+        conciliadas_hoy = OrdenServicio.objects.filter(
+            estado_conciliacion='CONCILIADA', fecha_conciliacion__date=hoy).count()
+        return render(request, self.template_name, {
+            'filas': filas,
+            'n_pendientes': len(filas),
+            'conciliadas_hoy': conciliadas_hoy,
+        })
 
 
 # ============================================================

@@ -100,6 +100,7 @@ urlpatterns = [
     path('ordenes/<int:orden_pk>/registrar-pago/', views.RegistrarPagoView.as_view(), name='registrar_pago'),
     # Conciliación de "Transporte - Cantidad" (el asesor la hace durante el mes).
     path('ordenes/<int:pk>/conciliar/', views.ConciliarOrdenView.as_view(), name='conciliar_orden'),
+    path('ordenes/conciliaciones/', views.ConciliacionesView.as_view(), name='conciliaciones'),
 
     # --- Módulo de Programación (paso previo a la orden) ---
     path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),

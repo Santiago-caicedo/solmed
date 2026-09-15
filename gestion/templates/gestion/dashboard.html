@@ -108,7 +108,7 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
         <div class="metric-value">{{ actas_firmadas }}</div>
         <div class="metric-foot">Con firma del cliente</div>
     </a>
-    <a class="metric t-amber" href="{% url 'gestion:lista_ordenes' %}?conciliacion=PENDIENTE">
+    <a class="metric t-amber" href="{% url 'gestion:conciliaciones' %}">
         <div class="metric-eyebrow"><span>Por conciliar</span><i class="bi bi-calculator"></i></div>
         <div class="metric-value">{{ pendientes_conciliacion_count }}</div>
         <div class="metric-foot">Transporte - Cantidad pendiente</div>

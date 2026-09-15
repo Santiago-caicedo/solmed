@@ -1,0 +1,178 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Conciliaciones{% endblock %}
+{% block content %}
+{# La cola de conciliación: una fila por orden pendiente, el dato se escribe y se guarda en la misma fila. #}
+{# Cada fila es un <form> normal (funciona sin JS); el JS lo intercepta para guardar sin recargar. #}
+<style>
+.cn-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.cn-cab h2{ margin:0; }
+.cn-cab .sub{ color:var(--ink-2); }
+
+/* El avance de la tanda: cuántas quedan y cuántas van */
+.cn-avance{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); padding:.8rem 1rem; margin-bottom:1rem; }
+.cn-avance-txt{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.85rem; color:var(--ink-2); }
+.cn-avance-txt strong{ font-family:var(--mono); font-size:1.15rem; color:var(--ink); }
+.cn-barra{ height:6px; border-radius:99px; background:var(--line-2); margin-top:.55rem; overflow:hidden; }
+.cn-barra > i{ display:block; height:100%; width:0; background:var(--brand-600); border-radius:99px; transition:width .25s ease; }
+@media (prefers-reduced-motion: reduce){ .cn-barra > i{ transition:none; } }
+
+/* Las filas */
+.cn-tabla td{ vertical-align:middle; }
+.cn-tabla .num{ font-family:var(--mono); font-weight:600; }
+.cn-tabla .fec, .cn-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
+.cn-tabla .des{ font-size:.82rem; color:var(--ink-2); max-width:26rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cn-form{ display:flex; align-items:center; gap:.4rem; margin:0; min-width:15rem; }
+.cn-form input{ font-family:var(--mono); min-height:38px; }
+.cn-form .btn{ min-width:44px; min-height:38px; }
+.cn-msg{ font-size:.76rem; color:var(--err); margin-top:.25rem; }
+.cn-msg:empty{ display:none; }
+
+/* Estado de la fila tras guardar: el valor queda a la vista y se puede corregir */
+tr.cn-hecha td{ background:var(--ok-tint); }
+.cn-hecho{ display:flex; align-items:center; gap:.6rem; }
+.cn-hecho .val{ font-family:var(--mono); font-weight:600; color:var(--ok); }
+.cn-hecho .corregir{ font-size:.76rem; color:var(--ink-3); background:none; border:0; padding:0; text-decoration:underline dotted; }
+.cn-hecho .corregir:hover{ color:var(--ink); }
+tr.cn-guardando .btn{ opacity:.6; }
+.cn-vacio{ text-align:center; padding:2rem 1rem; color:var(--ink-2); }
+.cn-vacio i{ font-size:2rem; color:var(--ok); display:block; margin-bottom:.4rem; }
+</style>
+
+<div class="cn-cab">
+    <div>
+        <h2>Conciliaciones</h2>
+        <div class="sub">Transporte - Cantidad pendiente, orden por orden. Escribe la cantidad y guarda cada fila.</div>
+    </div>
+    <a href="{% url 'gestion:lista_ordenes' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Órdenes de servicio</a>
+</div>
+
+<div class="cn-avance" id="cn-avance" data-pendientes="{{ n_pendientes }}" data-hechas="0">
+    <div class="cn-avance-txt">
+        <span>Quedan <strong id="cn-quedan">{{ n_pendientes }}</strong> por conciliar</span>
+        <span><strong id="cn-hechas">0</strong> conciliada<span id="cn-hechas-s">s</span> ahora{% if conciliadas_hoy %} · {{ conciliadas_hoy }} hoy en total{% endif %}</span>
+    </div>
+    <div class="cn-barra" role="progressbar" aria-label="Avance de la conciliación" aria-valuemin="0" aria-valuemax="{{ n_pendientes }}" aria-valuenow="0"><i id="cn-barra"></i></div>
+</div>
+
+<div class="card shadow">
+    <div class="card-body">
+        {% if filas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 cn-tabla">
+                <thead>
+                    <tr>
+                        <th>Orden</th><th>Cliente</th><th>Servicio</th><th>Placa</th><th>Qué se hizo</th>
+                        <th style="min-width:16rem">Transporte - Cantidad</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in filas %}
+                    <tr id="fila-{{ f.orden.pk }}" data-orden="{{ f.orden.numero_orden }}">
+                        <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a></td>
+                        <td>{{ f.orden.cliente.nombre|truncatechars:34 }}</td>
+                        <td class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="pla">{{ f.placa|default:"—" }}</td>
+                        <td class="des" title="{{ f.descripcion }}">{{ f.descripcion|default:"—" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'gestion:conciliar_orden' f.orden.pk %}" class="cn-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="volver" value="conciliaciones">
+                                <input type="text" name="transporte_cantidad" class="form-control form-control-sm"
+                                       maxlength="50" required autocomplete="off"
+                                       placeholder="Ej: 12 m³" aria-label="Transporte - Cantidad de la orden #{{ f.orden.numero_orden }}">
+                                <button class="btn btn-success btn-sm" title="Guardar esta fila" aria-label="Conciliar la orden #{{ f.orden.numero_orden }}">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                            </form>
+                            <div class="cn-msg" aria-live="polite"></div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="cn-vacio"><i class="bi bi-check2-circle"></i>No hay órdenes pendientes de conciliación.</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    // Guardado por fila sin recargar: el <form> se envía por fetch y la fila
+    // cambia de estado con la respuesta. Enter guarda y pasa al siguiente
+    // campo, para ir de corrido. Sin JS el formulario funciona igual.
+    var avance = document.getElementById('cn-avance');
+    if (!avance) return;
+    var total = Number(avance.dataset.pendientes);
+    var hechas = 0;
+
+    function pintarAvance() {
+        var quedan = Math.max(total - hechas, 0);
+        document.getElementById('cn-quedan').textContent = quedan;
+        document.getElementById('cn-hechas').textContent = hechas;
+        document.getElementById('cn-hechas-s').textContent = hechas === 1 ? '' : 's';
+        document.getElementById('cn-barra').style.width = total ? (hechas / total * 100) + '%' : '0';
+        avance.querySelector('.cn-barra').setAttribute('aria-valuenow', hechas);
+    }
+
+    function siguienteCampo(desde) {
+        var campos = Array.prototype.slice.call(document.querySelectorAll('tr:not(.cn-hecha) .cn-form input[name="transporte_cantidad"]'));
+        var i = campos.indexOf(desde);
+        var proximo = campos[i + 1] || campos[0];
+        if (proximo && proximo !== desde) proximo.focus();
+    }
+
+    function marcarHecha(fila, cantidad, form) {
+        fila.classList.remove('cn-guardando');
+        fila.classList.add('cn-hecha');
+        var celda = form.parentNode;
+        var msg = celda.querySelector('.cn-msg');
+        msg.textContent = '';
+        form.hidden = true;
+        var hecho = document.createElement('div');
+        hecho.className = 'cn-hecho';
+        hecho.innerHTML = '<i class="bi bi-check-circle-fill" style="color:var(--ok)"></i>'
+            + '<span class="val"></span><button type="button" class="corregir">corregir</button>';
+        hecho.querySelector('.val').textContent = cantidad;
+        hecho.querySelector('.corregir').addEventListener('click', function () {
+            // Corregir: la misma fila vuelve a ser editable con el valor puesto.
+            hecho.remove();
+            form.hidden = false;
+            fila.classList.remove('cn-hecha');
+            hechas -= 1; pintarAvance();
+            var campo = form.querySelector('input[name="transporte_cantidad"]');
+            campo.value = cantidad; campo.focus(); campo.select();
+        });
+        celda.insertBefore(hecho, msg);
+        hechas += 1; pintarAvance();
+    }
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!form.classList.contains('cn-form')) return;
+        e.preventDefault();
+        var fila = form.closest('tr');
+        var campo = form.querySelector('input[name="transporte_cantidad"]');
+        var msg = form.parentNode.querySelector('.cn-msg');
+        var cantidad = campo.value.trim();
+        if (!cantidad) { msg.textContent = 'Escribe la cantidad.'; campo.focus(); return; }
+        fila.classList.add('cn-guardando');
+        msg.textContent = '';
+        fetch(form.action, {
+            method: 'POST', body: new FormData(form), credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'fetch' }
+        }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok && d.ok, d: d }; }); })
+          .then(function (res) {
+              if (res.ok) { marcarHecha(fila, res.d.cantidad || cantidad, form); siguienteCampo(campo); }
+              else { fila.classList.remove('cn-guardando'); msg.textContent = res.d.mensaje || 'No se pudo guardar.'; campo.focus(); }
+          })
+          .catch(function () { fila.classList.remove('cn-guardando'); msg.textContent = 'Sin conexión: no se guardó. Inténtalo de nuevo.'; });
+    });
+
+    var primero = document.querySelector('.cn-form input[name="transporte_cantidad"]');
+    if (primero) primero.focus();
+    pintarAvance();
+})();
+</script>
+{% endblock %}
