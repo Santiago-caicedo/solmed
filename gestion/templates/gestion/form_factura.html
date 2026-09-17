@@ -96,7 +96,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                             <td>{% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</td>
                             <td class="text-end">
                                 <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
-                                       inputmode="decimal" placeholder="Ej: 500.000" autocomplete="off"
+                                       inputmode="decimal" placeholder="$500.000" autocomplete="off"
                                        value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
                                        {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
@@ -165,6 +165,14 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         var n = parseFloat(limpio);
         return isNaN(n) ? 0 : n;
     }
+    // Separadores de miles con punto mientras se escribe (y coma para
+    // decimales, máximo dos). El servidor lee este mismo formato.
+    function formatear(texto) {
+        var limpio = String(texto || '').replace(/[^\d,]/g, '');
+        var partes = limpio.split(',');
+        var entero = partes[0].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return partes.length > 1 ? entero + ',' + partes.slice(1).join('').slice(0, 2) : entero;
+    }
     function pintar() {
         var total = 0, n = 0;
         form.querySelectorAll('.ff-check').forEach(function (c) {
@@ -183,7 +191,14 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             if (e.target.checked) { var p = e.target.closest('tr').querySelector('.ff-precio'); p.focus(); }
         }
     });
-    form.addEventListener('input', function (e) { if (e.target.classList.contains('ff-precio')) pintar(); });
+    form.addEventListener('input', function (e) {
+        if (!e.target.classList.contains('ff-precio')) return;
+        var nuevo = formatear(e.target.value);
+        if (nuevo !== e.target.value) { e.target.value = nuevo; }
+        pintar();
+    });
+    // Los precios ya guardados (al editar) salen formateados desde el inicio.
+    form.querySelectorAll('.ff-precio').forEach(function (p) { if (p.value) p.value = formatear(p.value); });
     // Enter en un precio no envía: pasa al siguiente precio habilitado.
     form.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' || !e.target.classList.contains('ff-precio')) return;

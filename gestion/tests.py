@@ -2539,6 +2539,8 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, 'Sin conciliar')
         self.assertContains(respuesta, 'Succión de pozo')
         self.assertNotContains(respuesta, f'#{ajena.numero_orden}')
+        self.assertContains(respuesta, 'placeholder="$500.000"')
+        self.assertContains(respuesta, 'function formatear', msg_prefix="separadores de miles al escribir")
 
     def test_crear_guarda_las_lineas_con_precio_en_formato_colombiano(self):
         respuesta = self._crear(**{f'precio_{self.una.pk}': '1.250.000', f'precio_{self.otra.pk}': '$ 500.000,50'})
