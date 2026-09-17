@@ -6496,9 +6496,11 @@ def _ordenes_facturables(cliente, factura=None):
           .annotate(servicio=Min('recorridos__fecha_recorrido'))
           .order_by('numero_orden'))
     filas = []
-    precios = {}
+    precios, observaciones = {}, {}
     if factura is not None:
-        precios = {l.orden_id: l.precio for l in factura.lineas.all()}
+        for l in factura.lineas.all():
+            precios[l.orden_id] = l.precio
+            observaciones[l.orden_id] = l.observaciones
     for orden in qs:
         try:
             linea = orden.linea_factura
@@ -6521,6 +6523,7 @@ def _ordenes_facturables(cliente, factura=None):
             'sin_peso': orden.estado_conciliacion == 'PENDIENTE' or not peso,
             'sin_acta': not firmada,
             'precio': precios.get(orden.pk),
+            'observaciones': observaciones.get(orden.pk, ''),
             'en_esta': orden.pk in precios,
         })
     return filas
@@ -6651,8 +6654,10 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             if precio is None or precio < 0:
                 errores.append(f"Escribe el precio de la orden #{numero}.")
                 continue
-            lineas.append((numero, precio))
+            observaciones = (request.POST.get(f'observaciones_{numero}') or '').strip()[:255]
+            lineas.append((numero, precio, observaciones))
             facturables[numero]['precio'] = precio
+            facturables[numero]['observaciones'] = observaciones
         if not lineas and not errores:
             errores.append("Marca al menos una orden para facturar.")
         if errores:
@@ -6665,10 +6670,11 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                           'copiar_factura', 'copiar_xml', 'copiar_actas'):
                 setattr(factura, campo, datos[campo])
             factura.save()
-            factura.lineas.exclude(orden_id__in=[n for n, _ in lineas]).delete()
-            for numero, precio in lineas:
+            factura.lineas.exclude(orden_id__in=[n for n, _, _ in lineas]).delete()
+            for numero, precio, observaciones in lineas:
                 LineaFactura.objects.update_or_create(
-                    factura=factura, orden_id=numero, defaults={'precio': precio})
+                    factura=factura, orden_id=numero,
+                    defaults={'precio': precio, 'observaciones': observaciones})
         messages.success(request, f"Factura {factura.codigo} guardada con "
                                   f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}. "
                                   f"Revisa el PDF y, cuando esté bien, envíala.")
@@ -6908,7 +6914,8 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
                 precio = Decimal(crudo) if crudo else Decimal('0')
             except InvalidOperation:
                 precio = Decimal('0')
-            linea = LineaFactura(orden=fila['orden'], precio=precio)
+            linea = LineaFactura(orden=fila['orden'], precio=precio,
+                                 observaciones=(request.POST.get(f'observaciones_{numero}') or '').strip()[:255])
             linea.placa, linea.servicio = fila['placa'], fila['servicio']
             linea.sede, linea.direccion, linea.servicios = fila['sede'], fila['direccion'], fila['servicios']
             lineas.append(linea)

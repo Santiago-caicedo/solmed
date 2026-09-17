@@ -13,6 +13,8 @@
 .ff-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ff-tabla tr.ff-srv td{ border-top:0; padding-top:0; font-size:.74rem; color:var(--ink-2); }
 .ff-tabla tr.ff-srv .k{ color:var(--brand-700); font-weight:600; }
+.ff-obs{ margin-top:.3rem; font-size:.8rem; }
+.ff-obs:disabled{ background:var(--panel-2); color:var(--ink-3); }
 .ff-tabla tr.ff-orden td{ border-bottom:0; }
 tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-tabla .peso{ font-family:var(--mono); font-size:.82rem; }
@@ -125,7 +127,15 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
                             </td>
                         </tr>
-                        <tr class="ff-srv"><td></td><td colspan="4"><span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
+                        <tr class="ff-srv"><td></td><td colspan="4">
+                            <span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}
+                            {# Va aquí, a lo ancho, para no añadirle otra columna a la tabla. #}
+                            <input type="text" name="observaciones_{{ f.orden.pk }}" class="form-control form-control-sm ff-obs"
+                                   maxlength="255" autocomplete="off" value="{{ f.observaciones|default:'' }}"
+                                   placeholder="Observaciones adicionales de esta orden (opcional)"
+                                   {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
+                                   aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
+                        </td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -236,8 +246,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             var fila = c.closest('tr');
             var precio = fila.querySelector('.ff-precio');
             fila.classList.toggle('ff-marcada', c.checked);
-            if (fila.nextElementSibling && fila.nextElementSibling.classList.contains('ff-srv')) {
-                fila.nextElementSibling.classList.toggle('ff-marcada', c.checked);
+            var abajo = fila.nextElementSibling;
+            if (abajo && abajo.classList.contains('ff-srv')) {
+                abajo.classList.toggle('ff-marcada', c.checked);
+                var obs = abajo.querySelector('.ff-obs');
+                if (obs) obs.disabled = !c.checked;
             }
             precio.disabled = !c.checked;
             if (c.checked) { n += 1; total += numero(precio.value); }

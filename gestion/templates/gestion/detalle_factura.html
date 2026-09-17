@@ -89,7 +89,8 @@
                                 <td class="peso">{{ l.peso|default:"—" }}</td>
                                 <td class="precio">${{ l.precio|floatformat:0|intcomma }}</td>
                             </tr>
-                            <tr class="fd-srv"><td colspan="6"><span class="k">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
+                            <tr class="fd-srv"><td colspan="6"><span class="k">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}
+                                {% if l.observaciones %}<br><span class="k">Observaciones:</span> {{ l.observaciones }}{% endif %}</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>

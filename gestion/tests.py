@@ -2603,6 +2603,33 @@ class FacturacionTests(BaseCRM):
         self.entrar(self.asesor)
         self.assertEqual(self.client.post(url, {'cliente': self.cli.pk}).status_code, 403)
 
+    def test_cada_orden_lleva_sus_observaciones_adicionales(self):
+        self._crear(**{f'observaciones_{self.una.pk}': 'Se atendió en horario nocturno',
+                       f'observaciones_{self.otra.pk}': '  '})
+        factura = Factura.objects.get()
+        self.assertEqual(factura.lineas.get(orden=self.una).observaciones,
+                         'Se atendió en horario nocturno')
+        self.assertEqual(factura.lineas.get(orden=self.otra).observaciones, '',
+                         "en blanco se guarda vacío, no espacios")
+        # Se ven en la factura y en su PDF.
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(detalle, 'Se atendió en horario nocturno')
+        self.assertTrue(self.client.get(
+            reverse('gestion:factura_pdf', args=[factura.pk])).content.startswith(b'%PDF'))
+        # Y vuelven al formulario al editar, para corregirlas.
+        editar = self.client.get(reverse('gestion:editar_factura', args=[factura.pk]))
+        self.assertContains(editar, f'name="observaciones_{self.una.pk}"')
+        self.assertContains(editar, 'value="Se atendió en horario nocturno"')
+
+    def test_la_vista_previa_muestra_las_observaciones_de_cada_orden(self):
+        html = self.client.post(reverse('gestion:previa_factura'), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+            f'precio_{self.una.pk}': '500.000',
+            f'observaciones_{self.una.pk}': 'Requiere segundo viaje'},
+            HTTP_X_REQUESTED_WITH='fetch').content.decode()
+        self.assertIn('Observaciones:', html)
+        self.assertIn('Requiere segundo viaje', html)
+
     def test_sin_ordenes_o_sin_precio_no_se_guarda(self):
         respuesta = self._crear(ordenes=[])
         self.assertContains(respuesta, 'Marca al menos una orden')

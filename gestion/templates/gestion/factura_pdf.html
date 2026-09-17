@@ -142,7 +142,8 @@
                 </tr>
                 <tr class="servicios">
                     <td></td>
-                    <td colspan="5"><span class="srv-lbl">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td>
+                    <td colspan="5"><span class="srv-lbl">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}
+                        {% if l.observaciones %}<br><span class="srv-lbl">Observaciones:</span> {{ l.observaciones }}{% endif %}</td>
                 </tr>
             {% empty %}
                 <tr><td colspan="6" style="color:#51606E;text-align:center;padding:10px">Marca las órdenes que van en la factura para verlas aquí.</td></tr>

@@ -2238,6 +2238,9 @@ class LineaFactura(models.Model):
     orden = models.OneToOneField(
         'OrdenServicio', on_delete=models.PROTECT, related_name='linea_factura')
     precio = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    # Lo que haya que aclararle al cliente de ESA orden (sale bajo ella en el PDF).
+    observaciones = models.CharField(max_length=255, blank=True,
+                                     verbose_name="Observaciones adicionales")
 
     class Meta:
         ordering = ['orden__numero_orden']
