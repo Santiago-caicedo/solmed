@@ -2508,8 +2508,10 @@ class FacturacionTests(BaseCRM):
                  'copiar_factura': '1', 'copiar_xml': '1'}
         for o in ordenes:
             datos[f'precio_{o.pk}'] = '500.000'
+        follow = datos.pop('follow', False)
         datos.update(extra)
-        return self.client.post(reverse('gestion:crear_factura'), datos)
+        follow = datos.pop('follow', follow)
+        return self.client.post(reverse('gestion:crear_factura'), datos, follow=follow)
 
     def test_solo_administradores(self):
         f = Factura.objects.create(cliente=self.cli)
@@ -2692,6 +2694,61 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(factura.total, Decimal('900000'))
         self.assertEqual((factura.descripcion, factura.correo_facturacion), ('Cambiada', 'otro@cliente.co'))
         self.assertFalse(LineaFactura.objects.filter(orden=self.otra).exists(), "la quitada vuelve a ser facturable")
+
+    def test_el_boton_de_prefactura_guarda_y_envia_solo_el_pdf(self):
+        mail.outbox.clear()
+        respuesta = self._crear(submit_prefactura='1')
+        factura = Factura.objects.get()
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertEqual(factura.lineas.count(), 2, "primero guarda")
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ['facturacion@cliente.co'])
+        self.assertIn('Prefactura F-0001', correo.subject)
+        self.assertEqual([a[0] for a in correo.attachments], ['Prefactura_F-0001.pdf'],
+                         "solo el PDF: sin XML ni actas")
+        self.assertTrue(correo.attachments[0][1].startswith(b'%PDF'))
+        self.assertIn('PREFACTURA', correo.body)
+        # Es un adelanto: la factura NO queda marcada como enviada.
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'EMITIDA')
+        self.assertIsNone(factura.enviada_en)
+        # Y queda en el Centro de correos.
+        self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle, ['Prefactura_F-0001.pdf'])
+
+    def test_el_boton_de_prefactura_con_actas_las_adjunta(self):
+        Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
+        mail.outbox.clear()
+        self._crear(submit_prefactura_actas='1')
+        nombres = [a[0] for a in mail.outbox[0].attachments]
+        self.assertEqual(nombres, ['Prefactura_F-0001.pdf',
+                                   f'Acta_servicio_{self.una.numero_orden}.pdf'])
+
+    def test_sin_actas_firmadas_la_prefactura_sale_igual_pero_avisa(self):
+        mail.outbox.clear()
+        respuesta = self._crear(submit_prefactura_actas='1', follow=True)
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
+        self.assertContains(respuesta, 'ninguna de sus órdenes tiene acta firmada')
+
+    def test_sin_correo_de_facturacion_no_se_envia_la_prefactura_pero_se_guarda(self):
+        mail.outbox.clear()
+        respuesta = self._crear(submit_prefactura='1', correo_facturacion='', follow=True)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertTrue(Factura.objects.exists(), "la factura sí quedó guardada")
+        self.assertContains(respuesta, 'no tiene correo de facturación')
+
+    def test_los_botones_de_prefactura_estan_en_el_formulario(self):
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        self.assertContains(respuesta, 'name="submit_prefactura"')
+        self.assertContains(respuesta, 'Enviar prefactura al cliente')
+        self.assertContains(respuesta, 'name="submit_prefactura_actas"')
+        self.assertContains(respuesta, 'Enviar con actas de las órdenes')
+
+    def test_guardar_sin_los_botones_de_envio_no_manda_nada(self):
+        mail.outbox.clear()
+        self._crear()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(Factura.objects.get().estado, 'EMITIDA')
 
     def test_el_detalle_y_el_pdf(self):
         self._crear()

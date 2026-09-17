@@ -32,7 +32,12 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-etq:first-child{ margin-top:0; }
 .ff-internas{ background:var(--warn-tint); border-color:var(--warn-line); }
 .ff-internas:focus{ background:var(--panel); }
-.ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem; display:flex; justify-content:flex-end; gap:.5rem; z-index:2; }
+.ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem;
+    display:flex; flex-direction:column; align-items:stretch; gap:.5rem; z-index:2; }
+/* Las acciones a la derecha; si no caben, se parten ordenadas hacia la derecha. */
+.ff-guardar .acciones{ display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
+.ff-enviar-nota{ font-size:.76rem; color:var(--ink-3); }
+.ff-enviar-nota .dest{ font-family:var(--mono); color:var(--ink-2); }
 .ff-tabla .sub{ display:block; font-family:var(--mono); font-size:.72rem; color:var(--ink-3); font-weight:400; }
 .ff-tabla .sub .ff-falta, .ff-tabla .sub .ff-ok{ display:inline-block; margin-top:.15rem; }
 /* La vista previa del PDF, en vivo, al lado del formulario */
@@ -191,8 +196,24 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     </div>
 
     <div class="ff-guardar">
-        <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
-        <button class="btn btn-success" id="ff-enviar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar factura{% endif %}</button>
+        {# Los botones de envío guardan primero: el PDF ya se vio en la vista previa. #}
+        <div class="ff-enviar-nota" id="ff-nota-envio">
+            La prefactura se le envía a <span class="dest" id="ff-dest">—</span>
+        </div>
+        <div class="acciones">
+            <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
+            <button name="submit_prefactura" value="1" class="btn btn-outline-primary" id="ff-prefactura"
+                    formnovalidate
+                    onclick="return confirm('Se guarda la factura y se le envía la PREFACTURA (solo el PDF) al cliente. ¿Seguir?');">
+                <i class="bi bi-send me-1"></i>Enviar prefactura al cliente
+            </button>
+            <button name="submit_prefactura_actas" value="1" class="btn btn-outline-primary" id="ff-prefactura-actas"
+                    formnovalidate
+                    onclick="return confirm('Se guarda la factura y se le envía la PREFACTURA con las actas de las órdenes. ¿Seguir?');">
+                <i class="bi bi-paperclip me-1"></i>Enviar con actas de las órdenes
+            </button>
+            <button name="submit_guardar" value="1" class="btn btn-success" id="ff-enviar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar factura{% endif %}</button>
+        </div>
     </div>
 </form>
 </div>
@@ -309,6 +330,23 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     function programarPrevia() { clearTimeout(temporizador); temporizador = setTimeout(pedirPrevia, 400); }
     form.addEventListener('input', programarPrevia);
     form.addEventListener('change', programarPrevia);
+
+    // Los botones de prefactura necesitan correo de facturación: sin él, apagados.
+    var campoCorreo = document.getElementById('correo_facturacion');
+    var destino = document.getElementById('ff-dest');
+    var nota = document.getElementById('ff-nota-envio');
+    var botonesEnvio = [document.getElementById('ff-prefactura'),
+                        document.getElementById('ff-prefactura-actas')];
+    function pintarEnvio() {
+        var correo = (campoCorreo.value || '').trim();
+        destino.textContent = correo || '—';
+        nota.innerHTML = correo
+            ? 'La prefactura se le env\u00eda a <span class="dest">' + correo + '</span>'
+            : 'Escribe el correo de facturaci\u00f3n para poder enviarle la prefactura.';
+        botonesEnvio.forEach(function (b) { if (b) b.disabled = !correo; });
+    }
+    campoCorreo.addEventListener('input', pintarEnvio);
+    pintarEnvio();
     // La hoja carta se escala al ancho disponible, manteniendo la proporción.
     var hoja = document.getElementById('ff-hoja');
     function escalar() {

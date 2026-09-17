@@ -6677,6 +6677,16 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=numero,
                     defaults={'precio': precio, 'observaciones': observaciones})
+        # Los botones de prefactura guardan y envían en un solo paso: el PDF
+        # ya se vio en la vista previa mientras se armaba la factura.
+        con_actas = 'submit_prefactura_actas' in request.POST
+        if con_actas or 'submit_prefactura' in request.POST:
+            messages.success(request, f"Factura {factura.codigo} guardada con "
+                                      f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
+            _enviar_factura(request, factura, prefactura=True,
+                            incluir={'factura': True, 'xml': False, 'actas': con_actas})
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+
         messages.success(request, f"Factura {factura.codigo} guardada con "
                                   f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}. "
                                   f"Revisa el PDF y, cuando esté bien, envíala.")
@@ -6759,94 +6769,120 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         return volver
 
     def _enviar(self, request, factura):
-        """Manda al correo de facturación lo marcado en «Copiar al cliente» y lo registra."""
-        from django.core.mail import EmailMultiAlternatives
-        from django.template.loader import render_to_string
-
+        """Manda al correo de facturación lo marcado en «Copiar al cliente»."""
         if not request.POST.get('revisado'):
             messages.error(request, "Antes de enviar, revisa la vista previa del PDF y marca "
                                     "«Revisé el PDF y está correcto».")
             return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
-        correos = _lista_correos(factura.correo_facturacion)
-        if not correos:
-            messages.error(request, "La factura no tiene correo de facturación: edítala y ponlo.")
-            return redirect('gestion:detalle_factura', pk=factura.pk)
+        _enviar_factura(request, factura, incluir={
+            'factura': factura.copiar_factura, 'xml': factura.copiar_xml,
+            'actas': factura.copiar_actas})
+        return redirect('gestion:detalle_factura', pk=factura.pk)
 
-        adjuntos, avisos = [], []
-        if factura.copiar_factura:
-            if factura.pdf_oficial:
-                with factura.pdf_oficial.open('rb') as fh:
-                    adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.pdf",
-                                     fh.read(), 'application/pdf'))
-            else:
-                adjuntos.append((f"Factura_{factura.codigo}.pdf", _pdf_factura(factura, request),
-                                 'application/pdf'))
-        if factura.copiar_xml:
-            if factura.xml:
-                with factura.xml.open('rb') as fh:
-                    adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.xml",
-                                     fh.read(), 'application/xml'))
-            else:
-                avisos.append("no se adjuntó el XML porque aún no está cargado")
-        if factura.copiar_actas:
-            actas = list(factura.actas_firmadas())
-            for acta in actas:
-                adjuntos.append((f"Acta_servicio_{acta.recorrido.orden.numero_orden}.pdf",
-                                 _pdf_manifiesto(acta), 'application/pdf'))
-            if not actas:
-                avisos.append("ninguna de sus órdenes tiene acta firmada todavía")
-        if not adjuntos:
-            messages.error(request, "No hay nada que enviar: marca qué se le copia al cliente.")
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-        if sum(len(a[1]) for a in adjuntos) > PESO_MAX_ADJUNTOS:
-            messages.error(request, "Los adjuntos pesan más de lo que acepta el correo. "
-                                    "Quita alguno (por ejemplo las actas) y vuelve a enviar.")
-            return redirect('gestion:detalle_factura', pk=factura.pk)
 
-        asunto = f"Factura {factura.codigo}"
-        if factura.numero_externo:
-            asunto += f" ({factura.numero_externo})"
-        asunto += " — SOLMED SAS"
-        ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
+def _enviar_factura(request, factura, incluir, prefactura=False):
+    """
+    Envía la factura al correo de facturación con lo que pida `incluir`
+    ({'factura','xml','actas'}) y lo registra en el Centro de correos.
+    Devuelve True si el correo salió.
+
+    Con `prefactura=True` va el PDF de ESTE sistema (aunque ya exista el
+    oficial), el asunto dice «Prefactura» y la factura NO queda marcada como
+    enviada: es un adelanto para que el cliente lo revise, no la factura.
+    """
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    etiqueta = 'Prefactura' if prefactura else 'Factura'
+    correos = _lista_correos(factura.correo_facturacion)
+    if not correos:
+        messages.error(request, f"La factura no tiene correo de facturación: "
+                                f"edítala y ponlo para poder enviar la {etiqueta.lower()}.")
+        return False
+
+    adjuntos, avisos = [], []
+    if incluir.get('factura'):
+        if factura.pdf_oficial and not prefactura:
+            with factura.pdf_oficial.open('rb') as fh:
+                adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.pdf",
+                                 fh.read(), 'application/pdf'))
+        else:
+            adjuntos.append((f"{etiqueta}_{factura.codigo}.pdf", _pdf_factura(factura, request),
+                             'application/pdf'))
+    if incluir.get('xml'):
+        if factura.xml:
+            with factura.xml.open('rb') as fh:
+                adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.xml",
+                                 fh.read(), 'application/xml'))
+        else:
+            avisos.append("no se adjuntó el XML porque aún no está cargado")
+    if incluir.get('actas'):
+        actas = list(factura.actas_firmadas())
+        for acta in actas:
+            adjuntos.append((f"Acta_servicio_{acta.recorrido.orden.numero_orden}.pdf",
+                             _pdf_manifiesto(acta), 'application/pdf'))
+        if not actas:
+            avisos.append("ninguna de sus órdenes tiene acta firmada todavía")
+    if not adjuntos:
+        messages.error(request, "No hay nada que enviar: marca qué se le copia al cliente.")
+        return False
+    if sum(len(a[1]) for a in adjuntos) > PESO_MAX_ADJUNTOS:
+        messages.error(request, "Los adjuntos pesan más de lo que acepta el correo. "
+                                "Quita alguno (por ejemplo las actas) y vuelve a enviar.")
+        return False
+
+    asunto = f"{etiqueta} {factura.codigo}"
+    if factura.numero_externo and not prefactura:
+        asunto += f" ({factura.numero_externo})"
+    asunto += " — SOLMED SAS"
+    ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
+    if prefactura:
+        mensaje = (f"Buen día,\n\nAdjuntamos la PREFACTURA {factura.codigo} correspondiente a "
+                   f"las órdenes de servicio {ordenes}, para su revisión antes de expedir la "
+                   f"factura electrónica.")
+    else:
         mensaje = (f"Buen día,\n\nAdjuntamos la factura {factura.numero_externo or factura.codigo} "
-                   f"correspondiente a las órdenes de servicio {ordenes}."
-                   + (f"\nOrden de compra: {factura.orden_compra}." if factura.orden_compra else ""))
-        nombres = [a[0] for a in adjuntos]
-        registro = EnvioCorreo(
-            cliente=factura.cliente, destinatarios=', '.join(correos), asunto=asunto,
-            mensaje=mensaje, adjuntos=[f"factura:{factura.pk}"], adjuntos_detalle=nombres,
-            responder_a=', '.join(_reply_to()), enviado_por=request.user,
-        )
-        cuerpo = mensaje + "\n\nDocumentos adjuntos:\n" + "\n".join(f"- {n}" for n in nombres) \
-            + "\n\nCordialmente,\nSOLMED SAS"
-        html = render_to_string('gestion/correo_envio.html', {
-            'mensaje': mensaje, 'adjuntos': nombres, 'cliente': factura.cliente})
-        correo = EmailMultiAlternatives(subject=asunto, body=cuerpo,
-                                        from_email=settings.DEFAULT_FROM_EMAIL,
-                                        to=correos, reply_to=_reply_to())
-        correo.attach_alternative(html, 'text/html')
-        for nombre, contenido, tipo in adjuntos:
-            correo.attach(nombre, contenido, tipo)
-        try:
-            correo.send(fail_silently=False)
-        except Exception as e:
-            registro.estado = 'FALLIDO'
-            registro.error = str(e)
-            registro.save()
-            messages.error(request, f"El servidor de correo rechazó el envío ({e}). "
-                                    "Quedó registrado como fallido en el Centro de correos.")
-            return redirect('gestion:detalle_factura', pk=factura.pk)
+                   f"correspondiente a las órdenes de servicio {ordenes}.")
+    if factura.orden_compra:
+        mensaje += f"\nOrden de compra: {factura.orden_compra}."
+    nombres = [a[0] for a in adjuntos]
+    registro = EnvioCorreo(
+        cliente=factura.cliente, destinatarios=', '.join(correos), asunto=asunto,
+        mensaje=mensaje, adjuntos=[f"factura:{factura.pk}"], adjuntos_detalle=nombres,
+        responder_a=', '.join(_reply_to()), enviado_por=request.user,
+    )
+    cuerpo = mensaje + "\n\nDocumentos adjuntos:\n" + "\n".join(f"- {n}" for n in nombres) \
+        + "\n\nCordialmente,\nSOLMED SAS"
+    html = render_to_string('gestion/correo_envio.html', {
+        'mensaje': mensaje, 'adjuntos': nombres, 'cliente': factura.cliente})
+    correo = EmailMultiAlternatives(subject=asunto, body=cuerpo,
+                                    from_email=settings.DEFAULT_FROM_EMAIL,
+                                    to=correos, reply_to=_reply_to())
+    correo.attach_alternative(html, 'text/html')
+    for nombre, contenido, tipo in adjuntos:
+        correo.attach(nombre, contenido, tipo)
+    try:
+        correo.send(fail_silently=False)
+    except Exception as e:
+        registro.estado = 'FALLIDO'
+        registro.error = str(e)
         registro.save()
+        messages.error(request, f"El servidor de correo rechazó el envío ({e}). "
+                                "Quedó registrado como fallido en el Centro de correos.")
+        return False
+    registro.save()
+    if not prefactura:
+        # La prefactura es un adelanto: la factura sigue sin enviarse.
         factura.estado = 'ENVIADA'
         factura.enviada_en = timezone.now()
         factura.save(update_fields=['estado', 'enviada_en'])
-        texto = f"Factura {factura.codigo} enviada a {registro.destinatarios} con {len(adjuntos)} adjunto(s)."
-        if avisos:
-            texto += " Ojo: " + '; '.join(avisos) + "."
-            messages.warning(request, texto)
-        else:
-            messages.success(request, texto)
-        return redirect('gestion:detalle_factura', pk=factura.pk)
+    texto = (f"{etiqueta} {factura.codigo} enviada a {registro.destinatarios} "
+             f"con {len(adjuntos)} adjunto(s).")
+    if avisos:
+        messages.warning(request, texto + " Ojo: " + '; '.join(avisos) + ".")
+    else:
+        messages.success(request, texto)
+    return True
 
 
 def _lineas_con_detalle(factura):
