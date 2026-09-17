@@ -30,6 +30,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-total .n{ font-size:.8rem; color:var(--ink-2); }
 .ff-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
 .ff-etq:first-child{ margin-top:0; }
+.ff-internas{ background:var(--warn-tint); border-color:var(--warn-line); }
+.ff-internas:focus{ background:var(--panel); }
 .ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem; display:flex; justify-content:flex-end; gap:.5rem; z-index:2; }
 .ff-tabla .sub{ display:block; font-family:var(--mono); font-size:.72rem; color:var(--ink-3); font-weight:400; }
 .ff-tabla .sub .ff-falta, .ff-tabla .sub .ff-ok{ display:inline-block; margin-top:.15rem; }
@@ -160,6 +162,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     <label class="ff-etq" for="descripcion">Descripción</label>
                     <textarea name="descripcion" id="descripcion" class="form-control" rows="3"
                               placeholder="Ej: Servicio de transporte y disposición de residuos correspondiente a las órdenes relacionadas.">{{ datos.descripcion|default:"" }}</textarea>
+                    <label class="ff-etq" for="observaciones_internas">Observaciones internas <span class="text-muted text-lowercase">(opcional)</span></label>
+                    <textarea name="observaciones_internas" id="observaciones_internas" class="form-control ff-internas" rows="2"
+                              placeholder="Notas de la oficina: no salen en el PDF ni se le envían al cliente.">{{ datos.observaciones_internas|default:"" }}</textarea>
+                    <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Solo se ven aquí dentro: no salen en el PDF ni en el correo al cliente.</div>
+
                     <label class="ff-etq" for="orden_compra">Orden de compra <span class="text-muted text-lowercase">(opcional)</span></label>
                     <input type="text" name="orden_compra" id="orden_compra" class="form-control" maxlength="100"
                            value="{{ datos.orden_compra|default:"" }}" placeholder="Ej: OC-2026-00125">

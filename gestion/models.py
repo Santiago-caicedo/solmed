@@ -2182,6 +2182,11 @@ class Factura(models.Model):
     numero = models.PositiveIntegerField(unique=True, editable=False)
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='facturas')
     descripcion = models.TextField(blank=True, verbose_name="Descripción")
+    # Notas de trabajo de la oficina: NO salen en el PDF ni se le envían al
+    # cliente; se ven solo dentro del sistema (decisión del usuario, sep-2026).
+    observaciones_internas = models.TextField(
+        blank=True, verbose_name="Observaciones internas",
+        help_text="Solo para la oficina: no sale en el PDF ni se envía al cliente.")
     orden_compra = models.CharField(max_length=100, blank=True, verbose_name="Orden de compra")
     correo_facturacion = models.EmailField(blank=True, verbose_name="Correo de facturación")
     # Lo que devuelve el software de facturación electrónica.

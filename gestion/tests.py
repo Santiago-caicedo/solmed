@@ -2621,6 +2621,40 @@ class FacturacionTests(BaseCRM):
         self.assertContains(editar, f'name="observaciones_{self.una.pk}"')
         self.assertContains(editar, 'value="Se atendió en horario nocturno"')
 
+    def test_las_observaciones_internas_se_guardan_y_NO_salen_al_cliente(self):
+        """Son notas de la oficina: ni en el PDF, ni en la vista previa, ni en el correo."""
+        from .views import _html_factura, _lineas_con_detalle
+        secreto = 'OJO: el cliente no ha confirmado la OC, revisar con contabilidad'
+        self._crear(observaciones_internas=secreto, descripcion='Transporte de residuos')
+        factura = Factura.objects.get()
+        self.assertEqual(factura.observaciones_internas, secreto)
+
+        # Se ven en la factura (y vuelven al formulario para corregirlas)…
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(detalle, secreto)
+        self.assertContains(detalle, 'no salen en el PDF ni al cliente')
+        self.assertContains(self.client.get(reverse('gestion:editar_factura', args=[factura.pk])), secreto)
+
+        # …pero NO en el HTML del que sale el PDF.
+        html_pdf = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
+        self.assertNotIn(secreto, html_pdf)
+        self.assertIn('Transporte de residuos', html_pdf, "la descripción sí va")
+
+        # …ni en la vista previa en vivo.
+        previa = self.client.post(reverse('gestion:previa_factura'), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk], f'precio_{self.una.pk}': '500.000',
+            'observaciones_internas': secreto}, HTTP_X_REQUESTED_WITH='fetch').content.decode()
+        self.assertNotIn(secreto, previa)
+
+        # …ni en el correo al cliente (cuerpo, HTML ni adjuntos).
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        correo = mail.outbox[0]
+        cuerpo = correo.body + ' '.join(str(a) for a, _ in correo.alternatives)
+        self.assertNotIn(secreto, cuerpo)
+        self.assertNotIn(secreto.encode(), b''.join(a[1] for a in correo.attachments))
+
     def test_la_vista_previa_muestra_las_observaciones_de_cada_orden(self):
         html = self.client.post(reverse('gestion:previa_factura'), {
             'cliente': self.cli.pk, 'ordenes': [self.una.pk],

@@ -6611,6 +6611,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         if factura:
             datos = {
                 'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
+                'observaciones_internas': factura.observaciones_internas,
                 'correo_facturacion': factura.correo_facturacion,
                 'copiar_factura': factura.copiar_factura, 'copiar_xml': factura.copiar_xml,
                 'copiar_actas': factura.copiar_actas,
@@ -6628,6 +6629,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
         datos = {
             'descripcion': (request.POST.get('descripcion') or '').strip(),
+            'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
             'orden_compra': (request.POST.get('orden_compra') or '').strip(),
             'correo_facturacion': (request.POST.get('correo_facturacion') or '').strip(),
             'copiar_factura': bool(request.POST.get('copiar_factura')),
@@ -6666,8 +6668,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         with transaction.atomic():
             if factura is None:
                 factura = Factura(cliente=cliente, creada_por=request.user)
-            for campo in ('descripcion', 'orden_compra', 'correo_facturacion',
-                          'copiar_factura', 'copiar_xml', 'copiar_actas'):
+            for campo in ('descripcion', 'observaciones_internas', 'orden_compra',
+                          'correo_facturacion', 'copiar_factura', 'copiar_xml', 'copiar_actas'):
                 setattr(factura, campo, datos[campo])
             factura.save()
             factura.lineas.exclude(orden_id__in=[n for n, _, _ in lineas]).delete()
@@ -6897,8 +6899,10 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
         borrador = factura or Factura(cliente=cliente, creada_en=timezone.now())
         if factura is None:
             borrador.numero = (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1
+        # Las observaciones internas quedan FUERA a propósito: no van al PDF.
         for campo in ('descripcion', 'orden_compra', 'correo_facturacion'):
             setattr(borrador, campo, (request.POST.get(campo) or '').strip())
+        borrador.observaciones_internas = ''
         borrador.numero_externo = factura.numero_externo if factura else ''
 
         marcadas = {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()}
