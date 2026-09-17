@@ -1,0 +1,189 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}{{ factura.codigo }}{% endblock %}
+{% block content %}
+{# El expediente de la factura: órdenes y total, datos, factura electrónica, otros adjuntos, envío al cliente. #}
+<style>
+.fd-cab{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.fd-cod{ font-family:var(--mono); font-weight:600; }
+.fd-meta{ color:var(--ink-2); font-size:.9rem; }
+.fd-tabla td{ vertical-align:middle; }
+.fd-tabla .num{ font-family:var(--mono); font-weight:600; }
+.fd-tabla .fec, .fd-tabla .pla, .fd-tabla .peso{ font-family:var(--mono); font-size:.82rem; color:var(--ink-2); white-space:nowrap; }
+.fd-tabla .precio{ font-family:var(--mono); text-align:right; white-space:nowrap; }
+.fd-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
+.fd-total .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.fd-total .v{ font-family:var(--mono); font-size:1.35rem; font-weight:600; }
+.fd-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .25rem; }
+.fd-etq:first-child{ margin-top:0; }
+.fd-dato{ margin:0; }
+.fd-vacio{ color:var(--ink-3); }
+.fd-archivo{ display:flex; align-items:center; gap:.5rem; font-size:.85rem; }
+.fd-archivo form{ margin:0; }
+.fd-quitar{ border:0; background:none; padding:0; font-size:.76rem; color:var(--ink-3); text-decoration:underline dotted; }
+.fd-quitar:hover{ color:var(--err); }
+.fd-envio{ border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-md); background:var(--panel-2); padding:.85rem 1rem; }
+.fd-envio .que{ font-size:.84rem; color:var(--ink-2); margin:.4rem 0 .6rem; }
+.fd-envio .que li{ margin-bottom:.15rem; }
+.fd-envio .falta{ color:var(--warn); }
+.fd-hist{ font-size:.82rem; }
+.fd-hist .mono{ font-family:var(--mono); }
+</style>
+
+<div class="fd-cab">
+    <div>
+        <h2 class="mb-0"><span class="fd-cod">{{ factura.codigo }}</span> · {{ factura.cliente.nombre }}</h2>
+        <div class="fd-meta">
+            NIT {{ factura.cliente.identificacion }} · creada el {{ factura.creada_en|date:"d/m/Y" }}{% if factura.creada_por %} por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }}{% endif %}
+            {% if factura.estado == 'ENVIADA' %}<span class="badge bg-success ms-1">Enviada{% if factura.enviada_en %} el {{ factura.enviada_en|date:"d/m/Y" }}{% endif %}</span>
+            {% else %}<span class="badge bg-secondary ms-1">Emitida</span>{% endif %}
+            {% if factura.numero_externo %}<span class="badge bg-dark ms-1">Electrónica {{ factura.numero_externo }}</span>{% endif %}
+        </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'gestion:factura_pdf' factura.pk %}" class="btn btn-outline-secondary"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+        <a href="{% url 'gestion:editar_factura' factura.pk %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar</a>
+        <a href="{% url 'gestion:lista_facturas' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Facturas</a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        {# ---- Órdenes ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-list-check me-1"></i>Órdenes facturadas</h5></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 fd-tabla">
+                        <thead><tr><th>Orden</th><th>Fecha</th><th>Placa</th><th>Peso</th><th class="text-end">Precio</th></tr></thead>
+                        <tbody>
+                        {% for l in lineas %}
+                            <tr>
+                                <td class="num"><a href="{% url 'gestion:detalle_orden' l.orden.pk %}">#{{ l.orden.numero_orden }}</a></td>
+                                <td class="fec">{{ l.servicio|date:"d/m/Y"|default:"—" }}</td>
+                                <td class="pla">{{ l.placa|default:"—" }}</td>
+                                <td class="peso">{{ l.peso|default:"—" }}</td>
+                                <td class="precio">${{ l.precio|floatformat:0|intcomma }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="fd-total"><span class="k">Total</span><span class="v">${{ factura.total|floatformat:0|intcomma }}</span></div>
+                <div class="text-muted small mt-1">Sin impuestos: los pone el software de facturación electrónica.</div>
+            </div>
+        </div>
+
+        {# ---- Datos ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-card-text me-1"></i>Datos de la factura</h5></div>
+            <div class="card-body">
+                <div class="fd-etq">Descripción</div>
+                <p class="fd-dato">{{ factura.descripcion|linebreaksbr|default:"<span class='fd-vacio'>—</span>" }}</p>
+                <div class="fd-etq">Orden de compra</div>
+                <p class="fd-dato">{{ factura.orden_compra|default:"—" }}</p>
+                <div class="fd-etq">Correo de facturación</div>
+                <p class="fd-dato">{{ factura.correo_facturacion|default:"—" }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        {# ---- Factura electrónica ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>Factura electrónica</h5></div>
+            <div class="card-body">
+                <p class="text-muted small">Cuando la pases al software de facturación, registra aquí su número y sube el XML y el PDF oficial.</p>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <label class="fd-etq" for="numero_externo">Número</label>
+                    <input type="text" name="numero_externo" id="numero_externo" class="form-control form-control-sm" maxlength="50"
+                           value="{{ factura.numero_externo }}" placeholder="Ej: FE-1245">
+                    <label class="fd-etq" for="xml">XML</label>
+                    {% if factura.xml %}<div class="fd-archivo mb-1"><i class="bi bi-filetype-xml"></i><a href="{{ factura.xml.url }}" target="_blank" rel="noopener">Ver el XML cargado</a></div>{% endif %}
+                    <input type="file" name="xml" id="xml" class="form-control form-control-sm" accept=".xml,text/xml,application/xml">
+                    <label class="fd-etq" for="pdf_oficial">PDF oficial</label>
+                    {% if factura.pdf_oficial %}<div class="fd-archivo mb-1"><i class="bi bi-file-earmark-pdf"></i><a href="{{ factura.pdf_oficial.url }}" target="_blank" rel="noopener">Ver el PDF cargado</a></div>{% endif %}
+                    <input type="file" name="pdf_oficial" id="pdf_oficial" class="form-control form-control-sm" accept=".pdf,application/pdf">
+                    <button name="submit_electronica" value="1" class="btn btn-outline-primary btn-sm mt-3 w-100">Guardar</button>
+                </form>
+            </div>
+        </div>
+
+        {# ---- Adjuntar otros ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-paperclip me-1"></i>Adjuntar otros</h5></div>
+            <div class="card-body">
+                {% if adjuntos %}
+                <ul class="list-unstyled mb-3">
+                    {% for a in adjuntos %}
+                    <li class="fd-archivo mb-1">
+                        <i class="bi bi-file-earmark"></i><a href="{{ a.archivo.url }}" target="_blank" rel="noopener">{{ a.nombre }}</a>
+                        <form method="post" onsubmit="return confirm('¿Quitar este adjunto?');">{% csrf_token %}<input type="hidden" name="adjunto" value="{{ a.pk }}"><button name="submit_quitar_adjunto" value="1" class="fd-quitar">quitar</button></form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted small">Remisiones, cotizaciones, soportes de entrega… Se guardan con la factura (no se le copian al cliente).</p>
+                {% endif %}
+                <form method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-end flex-wrap">
+                    {% csrf_token %}
+                    <div class="flex-grow-1">
+                        <label class="fd-etq" for="adj-nombre">Nombre <span class="text-muted text-lowercase">(opcional)</span></label>
+                        <input type="text" name="nombre" id="adj-nombre" class="form-control form-control-sm" maxlength="150" placeholder="Ej: Remisión 45">
+                    </div>
+                    <div class="flex-grow-1">
+                        <label class="fd-etq" for="adj-archivo">Archivo</label>
+                        <input type="file" name="archivo" id="adj-archivo" class="form-control form-control-sm" required>
+                    </div>
+                    <button name="submit_adjunto" value="1" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-lg"></i> Adjuntar</button>
+                </form>
+            </div>
+        </div>
+
+        {# ---- Enviar al cliente ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-send me-1"></i>Copiar al cliente</h5></div>
+            <div class="card-body">
+                <form method="post" class="mb-3">
+                    {% csrf_token %}
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_factura" id="cf" value="1" {% if factura.copiar_factura %}checked{% endif %}><label class="form-check-label" for="cf">Factura</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_xml" id="cx" value="1" {% if factura.copiar_xml %}checked{% endif %}><label class="form-check-label" for="cx">XML</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_actas" id="ca" value="1" {% if factura.copiar_actas %}checked{% endif %}><label class="form-check-label" for="ca">O.T.S. (actas firmadas)</label></div>
+                    <button name="submit_copiar" value="1" class="btn btn-link btn-sm px-0">Guardar selección</button>
+                </form>
+                <div class="fd-envio">
+                    <div><strong>Se enviará a:</strong> {{ factura.correo_facturacion|default:"<span class='falta'>sin correo de facturación — edítala y ponlo</span>" }}</div>
+                    <ul class="que mb-0">
+                        {% if factura.copiar_factura %}<li>Factura: {% if factura.pdf_oficial %}el PDF oficial cargado{% else %}el PDF interno {{ factura.codigo }}{% endif %}</li>{% endif %}
+                        {% if factura.copiar_xml %}<li>XML: {% if factura.xml %}el archivo cargado{% else %}<span class="falta">aún no está cargado, no se adjuntará</span>{% endif %}</li>{% endif %}
+                        {% if factura.copiar_actas %}<li>Actas firmadas: {% if actas %}{{ actas|length }} de {{ lineas|length }} órdenes{% else %}<span class="falta">ninguna orden tiene acta firmada todavía</span>{% endif %}</li>{% endif %}
+                        {% if not factura.copiar_factura and not factura.copiar_xml and not factura.copiar_actas %}<li class="falta">Nada marcado.</li>{% endif %}
+                    </ul>
+                    <form method="post" onsubmit="return confirm('¿Enviar la factura al cliente ahora?');">
+                        {% csrf_token %}
+                        <button name="submit_enviar" value="1" class="btn btn-success w-100" {% if not factura.correo_facturacion %}disabled{% endif %}>
+                            <i class="bi bi-send-fill me-1"></i>{% if factura.estado == 'ENVIADA' %}Enviar de nuevo{% else %}Enviar al cliente{% endif %}
+                        </button>
+                    </form>
+                </div>
+                {% if envios %}
+                <div class="fd-etq mt-3">Envíos</div>
+                <ul class="list-unstyled fd-hist mb-0">
+                    {% for e in envios %}
+                    <li><span class="mono">{{ e.fecha|date:"d/m/Y H:i" }}</span> · {{ e.destinatarios }} ·
+                        {% if e.estado == 'ENVIADO' %}<span class="text-success">enviado</span>{% else %}<span class="text-danger">fallido</span>{% endif %}
+                        · <a href="{% url 'gestion:detalle_envio_correo' e.pk %}">ver</a></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        <form method="post" onsubmit="return confirm('¿Eliminar la factura {{ factura.codigo }}? Sus órdenes vuelven a poder facturarse.');" class="text-end">
+            {% csrf_token %}
+            <button name="submit_eliminar" value="1" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>Eliminar factura</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

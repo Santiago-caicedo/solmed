@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Banco, Bascula, Cliente, ContactoProveedor, DisposicionOrden, EnvioCorreo, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Banco, Bascula, Cliente, ContactoProveedor, AdjuntoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -236,4 +236,23 @@ class DisposicionOrdenAdmin(admin.ModelAdmin):
     search_fields = ('orden__numero_orden', 'nota')
     date_hierarchy = 'fecha'
     raw_id_fields = ('orden',)
+
+
+class LineaFacturaInline(admin.TabularInline):
+    model = LineaFactura
+    extra = 0
+    raw_id_fields = ('orden',)
+
+
+class AdjuntoFacturaInline(admin.TabularInline):
+    model = AdjuntoFactura
+    extra = 0
+
+
+@admin.register(Factura)
+class FacturaAdmin(admin.ModelAdmin):
+    list_display = ('codigo', 'cliente', 'numero_externo', 'estado', 'creada_en', 'creada_por')
+    list_filter = ('estado',)
+    search_fields = ('numero', 'numero_externo', 'cliente__nombre', 'orden_compra')
+    inlines = [LineaFacturaInline, AdjuntoFacturaInline]
 

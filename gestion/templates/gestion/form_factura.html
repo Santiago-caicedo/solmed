@@ -1,0 +1,199 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}{% if factura %}Editar {{ factura.codigo }}{% else %}Nueva factura{% endif %}{% endblock %}
+{% block content %}
+{# Se elige el cliente, se marcan sus órdenes con el precio (el peso es la cantidad conciliada) y se llenan los datos. #}
+<style>
+.ff-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; margin-bottom:.25rem; }
+.ff-tabla td{ vertical-align:middle; }
+.ff-tabla .num{ font-family:var(--mono); font-weight:600; }
+.ff-tabla .fec, .ff-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
+.ff-tabla .des{ font-size:.82rem; color:var(--ink-2); max-width:13rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ff-tabla .peso{ font-family:var(--mono); font-size:.82rem; }
+.ff-falta{ font-family:var(--mono); font-size:.68rem; font-weight:600; padding:.1rem .45rem; border-radius:99px;
+    background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
+.ff-ok{ color:var(--ok); }
+.ff-precio{ font-family:var(--mono); text-align:right; width:8.5rem; }
+.ff-precio:disabled{ background:var(--panel-2); color:var(--ink-3); }
+tr.ff-marcada td{ background:var(--brand-tint); }
+.ff-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
+.ff-total .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.ff-total .v{ font-family:var(--mono); font-size:1.35rem; font-weight:600; }
+.ff-total .n{ font-size:.8rem; color:var(--ink-2); }
+.ff-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
+.ff-etq:first-child{ margin-top:0; }
+.ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem; display:flex; justify-content:flex-end; gap:.5rem; z-index:2; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">{% if factura %}Editar {{ factura.codigo }}{% else %}Nueva factura{% endif %}</h2>
+        <div class="text-muted">Elige el cliente, marca sus órdenes y escribe el precio de cada una</div>
+    </div>
+    <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
+</div>
+
+{% if errores %}
+<div class="alert alert-danger">
+    <ul class="mb-0">{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{# ---------- 1. Cliente ---------- #}
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <div class="ff-paso">1 · Cliente</div>
+        {% if factura %}
+        <div class="fs-5 fw-semibold">{{ cliente.nombre }}</div>
+        <div class="text-muted small">NIT {{ cliente.identificacion }} · el cliente de una factura no se cambia; si es otro, crea una nueva.</div>
+        {% else %}
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label mb-1" for="cliente">¿A quién se le factura?</label>
+                <select name="cliente" id="cliente" class="form-select" onchange="this.form.submit()">
+                    <option value="">--- Elige el cliente ---</option>
+                    {% for c in clientes %}
+                    <option value="{{ c.pk }}" {% if cliente and c.pk == cliente.pk %}selected{% endif %}>{{ c.nombre }} · {{ c.identificacion }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <noscript><div class="col-auto"><button class="btn btn-primary">Ver sus órdenes</button></div></noscript>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if cliente %}
+<form method="post" id="form-factura">
+    {% csrf_token %}
+    <input type="hidden" name="cliente" value="{{ cliente.pk }}">
+
+    {# ---------- 2. Órdenes ---------- #}
+    <div class="card shadow mb-4">
+        <div class="card-body">
+            <div class="ff-paso">2 · Órdenes</div>
+            {% if filas %}
+            <p class="text-muted small mb-2">Marca las que van en esta factura y escribe su precio. El peso es la cantidad conciliada; si a una orden le falta el acta firmada o la conciliación, se avisa pero se puede facturar.</p>
+            <div class="table-responsive">
+                <table class="table align-middle mb-0 ff-tabla">
+                    <thead>
+                        <tr>
+                            <th style="width:2rem"></th><th>Orden</th><th>Fecha</th><th>Placa</th><th>Qué se hizo</th>
+                            <th>Peso</th><th>Acta</th><th class="text-end">Precio</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for f in filas %}
+                        <tr class="{% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
+                            <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
+                                       {% if f.orden.pk in datos.marcadas %}checked{% endif %}
+                                       aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
+                            <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a></td>
+                            <td class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
+                            <td class="pla">{{ f.placa|default:"—" }}</td>
+                            <td class="des" title="{{ f.descripcion }}">{{ f.descripcion|default:"—" }}</td>
+                            <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
+                            <td>{% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</td>
+                            <td class="text-end">
+                                <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
+                                       inputmode="decimal" placeholder="Ej: 500.000" autocomplete="off"
+                                       value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
+                                       aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="ff-total">
+                <span class="n"><span id="ff-n">0</span> orden(es)</span>
+                <span class="k">Total</span>
+                <span class="v">$<span id="ff-total">0</span></span>
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">Este cliente no tiene órdenes por facturar: todas están en otra factura o no tiene órdenes.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ---------- 3. Datos ---------- #}
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card shadow mb-4">
+                <div class="card-body">
+                    <div class="ff-paso">3 · Datos de la factura</div>
+                    <label class="ff-etq" for="descripcion">Descripción</label>
+                    <textarea name="descripcion" id="descripcion" class="form-control" rows="3"
+                              placeholder="Ej: Servicio de transporte y disposición de residuos correspondiente a las órdenes relacionadas.">{{ datos.descripcion|default:"" }}</textarea>
+                    <label class="ff-etq" for="orden_compra">Orden de compra <span class="text-muted text-lowercase">(opcional)</span></label>
+                    <input type="text" name="orden_compra" id="orden_compra" class="form-control" maxlength="100"
+                           value="{{ datos.orden_compra|default:"" }}" placeholder="Ej: OC-2026-00125">
+                    <label class="ff-etq" for="correo_facturacion">Correo de facturación</label>
+                    <input type="email" name="correo_facturacion" id="correo_facturacion" class="form-control"
+                           value="{{ datos.correo_facturacion|default:"" }}" placeholder="facturacion@cliente.com">
+                    <div class="form-text">Viene de la ficha del cliente (correo de facturación electrónica). Puedes cambiarlo solo para esta factura.</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow mb-4">
+                <div class="card-body">
+                    <div class="ff-paso">4 · Copiar al cliente</div>
+                    <p class="text-muted small">Lo que se adjunta cuando se envíe. Se puede cambiar después desde la factura.</p>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_factura" id="copiar_factura" value="1" {% if datos.copiar_factura %}checked{% endif %}><label class="form-check-label" for="copiar_factura">Factura <span class="text-muted small">(la electrónica si ya se subió; si no, esta)</span></label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_xml" id="copiar_xml" value="1" {% if datos.copiar_xml %}checked{% endif %}><label class="form-check-label" for="copiar_xml">XML</label></div>
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_actas" id="copiar_actas" value="1" {% if datos.copiar_actas %}checked{% endif %}><label class="form-check-label" for="copiar_actas">O.T.S. <span class="text-muted small">(las actas de servicio firmadas)</span></label></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ff-guardar">
+        <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
+        <button class="btn btn-success" id="ff-enviar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar factura{% endif %}</button>
+    </div>
+</form>
+
+<script>
+(function () {
+    // Marcar una orden habilita su precio; el total se suma en vivo.
+    var form = document.getElementById('form-factura');
+    if (!form) return;
+    function numero(texto) {
+        var limpio = String(texto || '').replace(/\$/g, '').replace(/\./g, '').replace(',', '.').trim();
+        var n = parseFloat(limpio);
+        return isNaN(n) ? 0 : n;
+    }
+    function pintar() {
+        var total = 0, n = 0;
+        form.querySelectorAll('.ff-check').forEach(function (c) {
+            var fila = c.closest('tr');
+            var precio = fila.querySelector('.ff-precio');
+            fila.classList.toggle('ff-marcada', c.checked);
+            precio.disabled = !c.checked;
+            if (c.checked) { n += 1; total += numero(precio.value); }
+        });
+        document.getElementById('ff-n').textContent = n;
+        document.getElementById('ff-total').textContent = Math.round(total).toLocaleString('es-CO');
+    }
+    form.addEventListener('change', function (e) {
+        if (e.target.classList.contains('ff-check')) {
+            pintar();
+            if (e.target.checked) { var p = e.target.closest('tr').querySelector('.ff-precio'); p.focus(); }
+        }
+    });
+    form.addEventListener('input', function (e) { if (e.target.classList.contains('ff-precio')) pintar(); });
+    // Enter en un precio no envía: pasa al siguiente precio habilitado.
+    form.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || !e.target.classList.contains('ff-precio')) return;
+        e.preventDefault();
+        var precios = Array.prototype.slice.call(form.querySelectorAll('.ff-precio:not(:disabled)'));
+        var i = precios.indexOf(e.target);
+        if (precios[i + 1]) precios[i + 1].focus();
+    });
+    pintar();
+})();
+</script>
+{% endif %}
+{% endblock %}

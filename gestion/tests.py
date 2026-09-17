@@ -44,7 +44,7 @@ from .models import (
     Bascula, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
     DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal,
     EncuestaConductor, EnvioCorreo, FotoAyudante, Manifiesto, MedidaACPM,
-    DisposicionOrden, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
+    DisposicionOrden, Factura, LineaFactura, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
     Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio,
     Tercero, TipoResiduo, Vehiculo, cursos_faltantes_ayudante,
 )
@@ -2466,6 +2466,219 @@ class ConciliacionesTests(BaseCRM):
         self.assertIn('id="cn-avance"', contenido)
         self.assertIn("'X-Requested-With': 'fetch'", contenido)
         self.assertNotIn('new bootstrap.', contenido, "el bundle carga después del bloque de contenido")
+
+
+# ============================================================
+#  FACTURACIÓN INTERNA
+# ============================================================
+class FacturacionTests(BaseCRM):
+    """
+    La factura interna se arma con las órdenes del cliente (precio escrito,
+    peso = cantidad conciliada), genera su PDF para transcribirlo al software
+    de facturación electrónica, guarda lo que ese software devuelve y se envía
+    al cliente con lo marcado. Solo administradores; una orden en una sola
+    factura.
+    """
+
+    def setUp(self):
+        self.admin = self.persona('admin', superusuario=True)
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente(contab_correo_facturacion='facturacion@cliente.co')
+        self.una = self._orden('WGY347', transporte_cantidad='12 m³')      # conciliada
+        self.otra = self._orden('OBB178')                                   # sin conciliar
+        self.entrar(self.admin)
+
+    def _orden(self, placa, cliente=None, **extra):
+        camion = Vehiculo.objects.filter(placa=placa).first() or self.vehiculo(placa)
+        programacion = self.programacion(cliente=cliente or self.cli, conductor=self.conductor,
+                                         vehiculo=camion, observaciones_servicio='Succión de pozo', **extra)
+        return programacion.convertir_en_orden(self.asesor)
+
+    def _crear(self, ordenes=None, **extra):
+        ordenes = ordenes if ordenes is not None else [self.una, self.otra]
+        datos = {'cliente': self.cli.pk, 'ordenes': [o.pk for o in ordenes],
+                 'descripcion': 'Transporte de residuos', 'orden_compra': 'OC-1',
+                 'correo_facturacion': 'facturacion@cliente.co',
+                 'copiar_factura': '1', 'copiar_xml': '1'}
+        for o in ordenes:
+            datos[f'precio_{o.pk}'] = '500.000'
+        datos.update(extra)
+        return self.client.post(reverse('gestion:crear_factura'), datos)
+
+    def test_solo_administradores(self):
+        f = Factura.objects.create(cliente=self.cli)
+        urls = [reverse('gestion:lista_facturas'), reverse('gestion:crear_factura'),
+                reverse('gestion:detalle_factura', args=[f.pk]),
+                reverse('gestion:editar_factura', args=[f.pk]),
+                reverse('gestion:factura_pdf', args=[f.pk])]
+        self.entrar(self.asesor)
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.client.post(reverse('gestion:crear_factura'), {}).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:lista_facturas'))
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:lista_facturas'))
+
+    def test_el_formulario_ofrece_las_ordenes_facturables_con_su_peso_y_sus_avisos(self):
+        facturada = self._orden('WNO623')
+        Factura.objects.create(cliente=self.cli).lineas.create(orden=facturada, precio=1)
+        cancelada = self._orden('OBC727')
+        cancelada.estado_orden = 'CANCELADA'; cancelada.save()
+        ajena = self._orden('VCP886', cliente=self.cliente(nombre='Otro', identificacion='1'))
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        filas = {f['orden'].pk: f for f in respuesta.context['filas']}
+        self.assertEqual(set(filas), {self.una.pk, self.otra.pk}, "ni facturadas, ni canceladas, ni de otro cliente")
+        self.assertEqual(filas[self.una.pk]['peso'], '12 m³')
+        self.assertTrue(filas[self.otra.pk]['sin_peso'])
+        self.assertTrue(filas[self.una.pk]['sin_acta'])
+        self.assertEqual(respuesta.context['datos']['correo_facturacion'], 'facturacion@cliente.co',
+                         "el correo viene de la ficha del cliente")
+        self.assertContains(respuesta, 'Sin conciliar')
+        self.assertContains(respuesta, 'Succión de pozo')
+        self.assertNotContains(respuesta, f'#{ajena.numero_orden}')
+
+    def test_crear_guarda_las_lineas_con_precio_en_formato_colombiano(self):
+        respuesta = self._crear(**{f'precio_{self.una.pk}': '1.250.000', f'precio_{self.otra.pk}': '$ 500.000,50'})
+        factura = Factura.objects.get()
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertEqual(factura.codigo, 'F-0001')
+        self.assertEqual(factura.creada_por, self.admin)
+        self.assertEqual({l.orden_id: l.precio for l in factura.lineas.all()},
+                         {self.una.pk: Decimal('1250000'), self.otra.pk: Decimal('500000.50')})
+        self.assertEqual(factura.total, Decimal('1750000.50'))
+        self.assertEqual(factura.lineas.get(orden=self.una).peso, '12 m³')
+        self.assertEqual(factura.lineas.get(orden=self.otra).peso, '')
+        self.assertTrue(factura.copiar_factura and factura.copiar_xml and not factura.copiar_actas)
+        segunda = Factura.objects.create(cliente=self.cli)
+        self.assertEqual(segunda.codigo, 'F-0002', "consecutivo propio")
+
+    def test_sin_ordenes_o_sin_precio_no_se_guarda(self):
+        respuesta = self._crear(ordenes=[])
+        self.assertContains(respuesta, 'Marca al menos una orden')
+        respuesta = self._crear(ordenes=[self.una], **{f'precio_{self.una.pk}': ''})
+        self.assertContains(respuesta, f'Escribe el precio de la orden #{self.una.numero_orden}')
+        self.assertFalse(Factura.objects.exists())
+
+    def test_una_orden_va_en_una_sola_factura(self):
+        self._crear(ordenes=[self.una])
+        respuesta = self._crear(ordenes=[self.una])
+        self.assertContains(respuesta, 'ya está facturada')
+        self.assertEqual(Factura.objects.count(), 1)
+        self.assertContains(self.client.get(reverse('gestion:detalle_orden', args=[self.una.pk])),
+                            'Facturada en F-0001')
+
+    def test_editar_cambia_lineas_y_precios(self):
+        self._crear()
+        factura = Factura.objects.get()
+        url = reverse('gestion:editar_factura', args=[factura.pk])
+        self.assertContains(self.client.get(url), 'value="500000"')
+        self.client.post(url, {'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+                               f'precio_{self.una.pk}': '900.000', 'descripcion': 'Cambiada',
+                               'orden_compra': '', 'correo_facturacion': 'otro@cliente.co'})
+        factura.refresh_from_db()
+        self.assertEqual([l.orden_id for l in factura.lineas.all()], [self.una.pk])
+        self.assertEqual(factura.total, Decimal('900000'))
+        self.assertEqual((factura.descripcion, factura.correo_facturacion), ('Cambiada', 'otro@cliente.co'))
+        self.assertFalse(LineaFactura.objects.filter(orden=self.otra).exists(), "la quitada vuelve a ser facturable")
+
+    def test_el_detalle_y_el_pdf(self):
+        self._crear()
+        factura = Factura.objects.get()
+        respuesta = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(respuesta, 'F-0001')
+        self.assertContains(respuesta, '1.000.000')
+        self.assertContains(respuesta, '12 m³')
+        self.assertContains(respuesta, 'el PDF interno F-0001')
+        self.assertContains(respuesta, 'aún no está cargado')
+        pdf = self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]))
+        self.assertEqual(pdf.status_code, 200)
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+
+    def test_registrar_la_factura_electronica_y_adjuntar_otros(self):
+        self._crear()
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        self.client.post(url, {'submit_electronica': '1', 'numero_externo': 'FE-1245',
+                               'xml': SimpleUploadedFile('f.xml', b'<Invoice/>', 'application/xml'),
+                               'pdf_oficial': SimpleUploadedFile('f.pdf', b'%PDF-1.4 x', 'application/pdf')})
+        factura.refresh_from_db()
+        self.assertEqual(factura.numero_externo, 'FE-1245')
+        self.assertTrue(factura.xml and factura.pdf_oficial)
+        self.client.post(url, {'submit_adjunto': '1', 'nombre': 'Remisión 45',
+                               'archivo': SimpleUploadedFile('rem.pdf', b'%PDF-1.4 r', 'application/pdf')})
+        adjunto = factura.adjuntos.get()
+        self.assertEqual(adjunto.nombre, 'Remisión 45')
+        self.assertContains(self.client.get(url), 'Remisión 45')
+        self.client.post(url, {'submit_quitar_adjunto': '1', 'adjunto': adjunto.pk})
+        self.assertFalse(factura.adjuntos.exists())
+
+    def test_enviar_al_cliente_adjunta_lo_marcado_y_queda_en_el_historial(self):
+        self._crear(copiar_actas='1')
+        factura = Factura.objects.get()
+        Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        mail.outbox.clear()
+        respuesta = self.client.post(url, {'submit_enviar': '1'}, follow=True)
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ['facturacion@cliente.co'])
+        self.assertIn('Factura F-0001', correo.subject)
+        nombres = [a[0] for a in correo.attachments]
+        self.assertEqual(nombres, ['Factura_F-0001.pdf', f'Acta_servicio_{self.una.numero_orden}.pdf'],
+                         "el PDF interno (no hay oficial), sin XML (no cargado) y una acta firmada")
+        self.assertTrue(correo.attachments[0][1].startswith(b'%PDF'))
+        self.assertContains(respuesta, 'no se adjuntó el XML')
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'ENVIADA')
+        self.assertIsNotNone(factura.enviada_en)
+        registro = EnvioCorreo.objects.get()
+        self.assertEqual((registro.cliente, registro.enviado_por, registro.estado), (self.cli, self.admin, 'ENVIADO'))
+        self.assertEqual(registro.adjuntos_detalle, nombres)
+        self.assertContains(self.client.get(url), 'Enviar de nuevo')
+
+    def test_enviar_prefiere_el_pdf_oficial_y_el_xml_cuando_estan(self):
+        self._crear(copiar_xml='1')
+        factura = Factura.objects.get()
+        factura.numero_externo = 'FE-9'
+        factura.xml.save('f.xml', SimpleUploadedFile('f.xml', b'<Invoice/>'), save=False)
+        factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF-1.4 oficial'), save=True)
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {'submit_enviar': '1'})
+        adj = {a[0]: a[1] for a in mail.outbox[0].attachments}
+        self.assertEqual(set(adj), {'Factura_FE-9.pdf', 'Factura_FE-9.xml'})
+        self.assertEqual(adj['Factura_FE-9.pdf'], b'%PDF-1.4 oficial')
+
+    def test_sin_correo_o_sin_nada_marcado_no_se_envia(self):
+        self._crear(correo_facturacion='')
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        mail.outbox.clear()
+        self.assertContains(self.client.post(url, {'submit_enviar': '1'}, follow=True), 'no tiene correo de facturación')
+        factura.correo_facturacion = 'f@c.co'; factura.copiar_factura = factura.copiar_xml = False; factura.save()
+        self.assertContains(self.client.post(url, {'submit_enviar': '1'}, follow=True), 'No hay nada que enviar')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_eliminar_libera_las_ordenes(self):
+        self._crear()
+        factura = Factura.objects.get()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {'submit_eliminar': '1'})
+        self.assertFalse(Factura.objects.exists())
+        self.assertFalse(LineaFactura.objects.exists())
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        self.assertEqual({f['orden'].pk for f in respuesta.context['filas']}, {self.una.pk, self.otra.pk})
+
+    def test_la_lista_busca_por_numero_cliente_o_electronica(self):
+        self._crear()
+        factura = Factura.objects.get()
+        factura.numero_externo = 'FE-77'; factura.save()
+        url = reverse('gestion:lista_facturas')
+        for q in ('F-0001', '1', 'Transportes', 'FE-77', 'OC-1'):
+            with self.subTest(q=q):
+                self.assertEqual([f.pk for f in self.client.get(url + f'?q={q}').context['facturas']], [factura.pk])
+        self.assertEqual(list(self.client.get(url + '?q=nada').context['facturas']), [])
 
 
 # ============================================================

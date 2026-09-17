@@ -42,7 +42,7 @@ from .renumeracion import reubicar_orden
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import Bascula, DisposicionOrden, EnvioCorreo, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import AdjuntoFactura, Bascula, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -6473,3 +6473,376 @@ class EliminarDocumentoProveedorView(AsesorRequiredMixin, View):
         documento.delete()
         messages.success(request, "Documento eliminado del expediente.")
         return redirect('gestion:ficha_proveedor', pk=proveedor_pk)
+
+
+# ============================================================
+#  FACTURACIÓN (interna): la factura se arma con las órdenes del cliente y
+#  el PDF se transcribe al software de facturación electrónica. Solo
+#  administradores (decisión del usuario, sep-2026).
+# ============================================================
+
+def _ordenes_facturables(cliente, factura=None):
+    """
+    Las órdenes del cliente que pueden ir en la factura: las que no están en
+    ninguna otra (una orden va en una sola) y no están canceladas, más las
+    que ya están en ESTA factura (para editarla). Cada una trae lo que le
+    falta —acta firmada, conciliación— para avisarlo, no para frenar.
+    """
+    from django.db.models import Min
+    qs = (OrdenServicio.objects.filter(cliente=cliente)
+          .exclude(estado_orden='CANCELADA')
+          .select_related('programacion_origen')
+          .prefetch_related('recorridos__vehiculo', 'recorridos__manifiesto')
+          .annotate(servicio=Min('recorridos__fecha_recorrido'))
+          .order_by('numero_orden'))
+    filas = []
+    precios = {}
+    if factura is not None:
+        precios = {l.orden_id: l.precio for l in factura.lineas.all()}
+    for orden in qs:
+        try:
+            linea = orden.linea_factura
+        except LineaFactura.DoesNotExist:
+            linea = None
+        if linea is not None and (factura is None or linea.factura_id != factura.pk):
+            continue    # ya facturada en otra
+        recorridos = list(orden.recorridos.all())
+        firmada = any(getattr(r, 'manifiesto', None) is not None
+                      and r.manifiesto.estado_firma == 'FIRMADO'
+                      for r in recorridos if hasattr(r, 'manifiesto'))
+        programacion = getattr(orden, 'programacion_origen', None)
+        peso = (programacion.transporte_cantidad if programacion else '') or ''
+        filas.append({
+            'orden': orden,
+            'servicio': orden.servicio,
+            'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
+            'descripcion': (programacion.observaciones_servicio if programacion else '') or orden.descripcion or '',
+            'peso': peso,
+            'sin_peso': orden.estado_conciliacion == 'PENDIENTE' or not peso,
+            'sin_acta': not firmada,
+            'precio': precios.get(orden.pk),
+            'en_esta': orden.pk in precios,
+        })
+    return filas
+
+
+def _correo_facturacion_de(cliente):
+    """El correo al que se factura: el de facturación electrónica, si no el de contabilidad, si no el general."""
+    return (cliente.contab_correo_facturacion or cliente.contab_correo or cliente.email or '').strip()
+
+
+class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
+    """Las facturas internas, la más reciente arriba, con buscador por número o cliente."""
+    model = Factura
+    template_name = 'gestion/lista_facturas.html'
+    context_object_name = 'facturas'
+
+    def get_queryset(self):
+        qs = Factura.objects.select_related('cliente').prefetch_related('lineas')
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            numero = q.upper().replace('F-', '').lstrip('0')
+            filtro = Q(cliente__nombre__icontains=q) | Q(numero_externo__icontains=q) | Q(orden_compra__icontains=q)
+            if numero.isdigit():
+                filtro |= Q(numero=int(numero))
+            qs = qs.filter(filtro)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['q'] = self.request.GET.get('q', '').strip()
+        context['n_total'] = Factura.objects.count()
+        context['n_enviadas'] = Factura.objects.filter(estado='ENVIADA').count()
+        return context
+
+
+class FacturaFormView(AdministradorRequiredMixin, View):
+    """
+    Crear o editar una factura: se elige el cliente, se marcan sus órdenes
+    facturables con el precio de cada una (el peso viene de la conciliación),
+    y se llenan descripción, orden de compra, correo y qué se le copia al
+    cliente. Un solo formulario; sin cliente elegido solo se pide el cliente.
+    """
+    template_name = 'gestion/form_factura.html'
+
+    def _factura(self, pk):
+        return get_object_or_404(Factura.objects.select_related('cliente'), pk=pk) if pk else None
+
+    def _render(self, request, factura, cliente, datos=None, errores=()):
+        datos = datos or {}
+        filas = _ordenes_facturables(cliente, factura) if cliente else []
+        return render(request, self.template_name, {
+            'factura': factura,
+            'cliente': cliente,
+            'clientes': Cliente.objects.order_by('nombre'),
+            'filas': filas,
+            'datos': datos,
+            'errores': errores,
+        })
+
+    def get(self, request, pk=None):
+        factura = self._factura(pk)
+        cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.GET.get('cliente') or 0).first()
+        datos = {}
+        if factura:
+            datos = {
+                'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
+                'correo_facturacion': factura.correo_facturacion,
+                'copiar_factura': factura.copiar_factura, 'copiar_xml': factura.copiar_xml,
+                'copiar_actas': factura.copiar_actas,
+                'marcadas': {l.orden_id for l in factura.lineas.all()},
+            }
+        elif cliente:
+            datos = {'correo_facturacion': _correo_facturacion_de(cliente),
+                     'copiar_factura': True, 'copiar_xml': True, 'copiar_actas': False,
+                     'marcadas': set()}
+        return self._render(request, factura, cliente, datos)
+
+    def post(self, request, pk=None):
+        from decimal import Decimal, InvalidOperation
+        factura = self._factura(pk)
+        cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        datos = {
+            'descripcion': (request.POST.get('descripcion') or '').strip(),
+            'orden_compra': (request.POST.get('orden_compra') or '').strip(),
+            'correo_facturacion': (request.POST.get('correo_facturacion') or '').strip(),
+            'copiar_factura': bool(request.POST.get('copiar_factura')),
+            'copiar_xml': bool(request.POST.get('copiar_xml')),
+            'copiar_actas': bool(request.POST.get('copiar_actas')),
+            'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},
+        }
+        errores = []
+        if cliente is None:
+            errores.append("Elige el cliente.")
+            return self._render(request, factura, None, datos, errores)
+
+        facturables = {f['orden'].pk: f for f in _ordenes_facturables(cliente, factura)}
+        lineas = []
+        for numero in sorted(datos['marcadas']):
+            if numero not in facturables:
+                errores.append(f"La orden #{numero} no es de este cliente o ya está facturada.")
+                continue
+            crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
+            try:
+                precio = Decimal(crudo)
+            except (InvalidOperation, ValueError):
+                precio = None
+            if precio is None or precio < 0:
+                errores.append(f"Escribe el precio de la orden #{numero}.")
+                continue
+            lineas.append((numero, precio))
+            facturables[numero]['precio'] = precio
+        if not lineas and not errores:
+            errores.append("Marca al menos una orden para facturar.")
+        if errores:
+            return self._render(request, factura, cliente, datos, errores)
+
+        with transaction.atomic():
+            if factura is None:
+                factura = Factura(cliente=cliente, creada_por=request.user)
+            for campo in ('descripcion', 'orden_compra', 'correo_facturacion',
+                          'copiar_factura', 'copiar_xml', 'copiar_actas'):
+                setattr(factura, campo, datos[campo])
+            factura.save()
+            factura.lineas.exclude(orden_id__in=[n for n, _ in lineas]).delete()
+            for numero, precio in lineas:
+                LineaFactura.objects.update_or_create(
+                    factura=factura, orden_id=numero, defaults={'precio': precio})
+        messages.success(request, f"Factura {factura.codigo} guardada con "
+                                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
+        return redirect('gestion:detalle_factura', pk=factura.pk)
+
+
+class DetalleFacturaView(AdministradorRequiredMixin, View):
+    """
+    El expediente de la factura: sus órdenes y el total, los datos, la
+    factura electrónica (número, XML, PDF oficial), los otros adjuntos, qué
+    se le copia al cliente, el envío y su historial de correos.
+    """
+    template_name = 'gestion/detalle_factura.html'
+
+    def get(self, request, pk):
+        factura = get_object_or_404(Factura.objects.select_related('cliente', 'creada_por'), pk=pk)
+        lineas = list(factura.lineas.select_related('orden__cliente', 'orden__programacion_origen')
+                      .prefetch_related('orden__recorridos__vehiculo'))
+        for l in lineas:
+            recorridos = list(l.orden.recorridos.all())
+            l.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
+            l.servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+        return render(request, self.template_name, {
+            'factura': factura,
+            'lineas': lineas,
+            'actas': list(factura.actas_firmadas()),
+            'adjuntos': list(factura.adjuntos.all()),
+            'envios': EnvioCorreo.objects.filter(
+                cliente=factura.cliente, asunto__startswith=f"Factura {factura.codigo}")
+                .select_related('enviado_por')[:10],
+        })
+
+    def post(self, request, pk):
+        factura = get_object_or_404(Factura.objects.select_related('cliente'), pk=pk)
+        volver = redirect('gestion:detalle_factura', pk=pk)
+
+        if 'submit_electronica' in request.POST:
+            factura.numero_externo = (request.POST.get('numero_externo') or '').strip()[:50]
+            if request.FILES.get('xml'):
+                factura.xml = request.FILES['xml']
+            if request.FILES.get('pdf_oficial'):
+                factura.pdf_oficial = request.FILES['pdf_oficial']
+            factura.save()
+            messages.success(request, "Datos de la factura electrónica guardados.")
+            return volver
+
+        if 'submit_copiar' in request.POST:
+            factura.copiar_factura = bool(request.POST.get('copiar_factura'))
+            factura.copiar_xml = bool(request.POST.get('copiar_xml'))
+            factura.copiar_actas = bool(request.POST.get('copiar_actas'))
+            factura.save(update_fields=['copiar_factura', 'copiar_xml', 'copiar_actas'])
+            messages.success(request, "Se guardó qué se le copia al cliente.")
+            return volver
+
+        if 'submit_adjunto' in request.POST:
+            archivo = request.FILES.get('archivo')
+            if not archivo:
+                messages.error(request, "Elige el archivo que quieres adjuntar.")
+                return volver
+            nombre = (request.POST.get('nombre') or '').strip() or archivo.name
+            AdjuntoFactura.objects.create(factura=factura, nombre=nombre[:150], archivo=archivo)
+            messages.success(request, f"Adjunto «{nombre}» agregado.")
+            return volver
+
+        if 'submit_quitar_adjunto' in request.POST:
+            adjunto = factura.adjuntos.filter(pk=request.POST.get('adjunto') or 0).first()
+            if adjunto is not None:
+                adjunto.archivo.delete(save=False)
+                adjunto.delete()
+                messages.success(request, "Adjunto quitado.")
+            return volver
+
+        if 'submit_enviar' in request.POST:
+            return self._enviar(request, factura)
+
+        if 'submit_eliminar' in request.POST:
+            codigo, n = factura.codigo, factura.lineas.count()
+            for adjunto in factura.adjuntos.all():
+                adjunto.archivo.delete(save=False)
+            factura.delete()
+            messages.warning(request, f"Factura {codigo} eliminada: sus {n} orden(es) vuelven a poder facturarse.")
+            return redirect('gestion:lista_facturas')
+
+        messages.error(request, "No se reconoció la acción enviada.")
+        return volver
+
+    def _enviar(self, request, factura):
+        """Manda al correo de facturación lo marcado en «Copiar al cliente» y lo registra."""
+        from django.core.mail import EmailMultiAlternatives
+        from django.template.loader import render_to_string
+
+        correos = _lista_correos(factura.correo_facturacion)
+        if not correos:
+            messages.error(request, "La factura no tiene correo de facturación: edítala y ponlo.")
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+
+        adjuntos, avisos = [], []
+        if factura.copiar_factura:
+            if factura.pdf_oficial:
+                with factura.pdf_oficial.open('rb') as fh:
+                    adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.pdf",
+                                     fh.read(), 'application/pdf'))
+            else:
+                adjuntos.append((f"Factura_{factura.codigo}.pdf", _pdf_factura(factura, request),
+                                 'application/pdf'))
+        if factura.copiar_xml:
+            if factura.xml:
+                with factura.xml.open('rb') as fh:
+                    adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.xml",
+                                     fh.read(), 'application/xml'))
+            else:
+                avisos.append("no se adjuntó el XML porque aún no está cargado")
+        if factura.copiar_actas:
+            actas = list(factura.actas_firmadas())
+            for acta in actas:
+                adjuntos.append((f"Acta_servicio_{acta.recorrido.orden.numero_orden}.pdf",
+                                 _pdf_manifiesto(acta), 'application/pdf'))
+            if not actas:
+                avisos.append("ninguna de sus órdenes tiene acta firmada todavía")
+        if not adjuntos:
+            messages.error(request, "No hay nada que enviar: marca qué se le copia al cliente.")
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+        if sum(len(a[1]) for a in adjuntos) > PESO_MAX_ADJUNTOS:
+            messages.error(request, "Los adjuntos pesan más de lo que acepta el correo. "
+                                    "Quita alguno (por ejemplo las actas) y vuelve a enviar.")
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+
+        asunto = f"Factura {factura.codigo}"
+        if factura.numero_externo:
+            asunto += f" ({factura.numero_externo})"
+        asunto += " — SOLMED SAS"
+        ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
+        mensaje = (f"Buen día,\n\nAdjuntamos la factura {factura.numero_externo or factura.codigo} "
+                   f"correspondiente a las órdenes de servicio {ordenes}."
+                   + (f"\nOrden de compra: {factura.orden_compra}." if factura.orden_compra else ""))
+        nombres = [a[0] for a in adjuntos]
+        registro = EnvioCorreo(
+            cliente=factura.cliente, destinatarios=', '.join(correos), asunto=asunto,
+            mensaje=mensaje, adjuntos=[f"factura:{factura.pk}"], adjuntos_detalle=nombres,
+            responder_a=', '.join(_reply_to()), enviado_por=request.user,
+        )
+        cuerpo = mensaje + "\n\nDocumentos adjuntos:\n" + "\n".join(f"- {n}" for n in nombres) \
+            + "\n\nCordialmente,\nSOLMED SAS"
+        html = render_to_string('gestion/correo_envio.html', {
+            'mensaje': mensaje, 'adjuntos': nombres, 'cliente': factura.cliente})
+        correo = EmailMultiAlternatives(subject=asunto, body=cuerpo,
+                                        from_email=settings.DEFAULT_FROM_EMAIL,
+                                        to=correos, reply_to=_reply_to())
+        correo.attach_alternative(html, 'text/html')
+        for nombre, contenido, tipo in adjuntos:
+            correo.attach(nombre, contenido, tipo)
+        try:
+            correo.send(fail_silently=False)
+        except Exception as e:
+            registro.estado = 'FALLIDO'
+            registro.error = str(e)
+            registro.save()
+            messages.error(request, f"El servidor de correo rechazó el envío ({e}). "
+                                    "Quedó registrado como fallido en el Centro de correos.")
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+        registro.save()
+        factura.estado = 'ENVIADA'
+        factura.enviada_en = timezone.now()
+        factura.save(update_fields=['estado', 'enviada_en'])
+        texto = f"Factura {factura.codigo} enviada a {registro.destinatarios} con {len(adjuntos)} adjunto(s)."
+        if avisos:
+            texto += " Ojo: " + '; '.join(avisos) + "."
+            messages.warning(request, texto)
+        else:
+            messages.success(request, texto)
+        return redirect('gestion:detalle_factura', pk=factura.pk)
+
+
+def _pdf_factura(factura, request=None):
+    """El PDF interno de la factura, generado al momento (no se guarda)."""
+    template = get_template('gestion/factura_pdf.html')
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, 'rb') as fh:
+        logo_b64 = 'data:image/png;base64,' + base64.b64encode(fh.read()).decode('utf-8')
+    lineas = list(factura.lineas.select_related('orden__programacion_origen')
+                  .prefetch_related('orden__recorridos__vehiculo'))
+    for l in lineas:
+        recorridos = list(l.orden.recorridos.all())
+        l.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
+        l.servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+        programacion = getattr(l.orden, 'programacion_origen', None)
+        l.detalle = (programacion.observaciones_servicio if programacion else '') or l.orden.descripcion or ''
+    html = template.render({'factura': factura, 'lineas': lineas, 'logo_b64': logo_b64,
+                            'total': factura.total, 'hoy': timezone.localdate()})
+    return HTML(string=html, base_url=request.build_absolute_uri() if request else None).write_pdf()
+
+
+class FacturaPDFView(AdministradorRequiredMixin, View):
+    def get(self, request, pk):
+        factura = get_object_or_404(Factura, pk=pk)
+        respuesta = HttpResponse(_pdf_factura(factura, request), content_type='application/pdf')
+        respuesta['Content-Disposition'] = f'attachment; filename="factura_{factura.codigo}.pdf"'
+        return respuesta
+

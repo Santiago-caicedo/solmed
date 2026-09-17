@@ -101,6 +101,12 @@ urlpatterns = [
     # Conciliación de "Transporte - Cantidad" (el asesor la hace durante el mes).
     path('ordenes/<int:pk>/conciliar/', views.ConciliarOrdenView.as_view(), name='conciliar_orden'),
     path('ordenes/conciliaciones/', views.ConciliacionesView.as_view(), name='conciliaciones'),
+    # Facturación interna (solo administradores).
+    path('facturacion/', views.ListaFacturasView.as_view(), name='lista_facturas'),
+    path('facturacion/nueva/', views.FacturaFormView.as_view(), name='crear_factura'),
+    path('facturacion/<int:pk>/', views.DetalleFacturaView.as_view(), name='detalle_factura'),
+    path('facturacion/<int:pk>/editar/', views.FacturaFormView.as_view(), name='editar_factura'),
+    path('facturacion/<int:pk>/pdf/', views.FacturaPDFView.as_view(), name='factura_pdf'),
 
     # --- Módulo de Programación (paso previo a la orden) ---
     path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),

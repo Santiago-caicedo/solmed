@@ -468,6 +468,14 @@
                 <i class="bi bi-folder-fill"></i>Documentación
             </a>
         </li>
+        {% if es_administrador %}
+        {# Facturación interna: solo administradores (decisión del usuario, sep-2026). #}
+        <li>
+            <a href="{% url 'gestion:lista_facturas' %}" class="nav-link {% if 'facturacion' in request.path %}active{% endif %}">
+                <i class="bi bi-receipt"></i>Facturación
+            </a>
+        </li>
+        {% endif %}
         {% endif %}
 
         {% if ve_personal %}

@@ -1,0 +1,81 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Facturación{% endblock %}
+{% block content %}
+{# Facturación interna: la factura se arma con las órdenes del cliente y su PDF se transcribe al software de facturación electrónica. #}
+<style>
+.fc-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
+.fc-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-sm); background:var(--panel); }
+.fc-tile .v{ font-family:var(--mono); font-size:1.5rem; font-weight:600; line-height:1.1; color:var(--ink); }
+.fc-tile .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.fc-cod{ font-family:var(--mono); font-weight:600; }
+.fc-total{ font-family:var(--mono); white-space:nowrap; }
+.fc-ext{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Facturación</h2>
+        <div class="text-muted">Las facturas se arman con las órdenes del cliente; el PDF se pasa al software de facturación electrónica</div>
+    </div>
+    <a href="{% url 'gestion:crear_factura' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Nueva factura</a>
+</div>
+
+<div class="fc-tiles mb-4">
+    <div class="fc-tile"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></div>
+    <div class="fc-tile"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label mb-1" for="q">Buscar</label>
+                <input type="text" name="q" id="q" class="form-control form-control-sm" value="{{ q }}"
+                       placeholder="F-0001, cliente, número electrónico u orden de compra">
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Buscar</button>
+                {% if q %}<a href="{% url 'gestion:lista_facturas' %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+            </div>
+        </form>
+    </div>
+    <div class="card-body">
+        {% if facturas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Factura</th><th>Cliente</th><th>Fecha</th><th>Órdenes</th>
+                        <th class="text-end">Total</th><th>Factura electrónica</th><th>Estado</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in facturas %}
+                    <tr>
+                        <td class="fc-cod"><a href="{% url 'gestion:detalle_factura' f.pk %}">{{ f.codigo }}</a></td>
+                        <td>{{ f.cliente.nombre|truncatechars:36 }}</td>
+                        <td>{{ f.creada_en|date:"d/m/Y" }}</td>
+                        <td>{{ f.lineas.all|length }}</td>
+                        <td class="text-end fc-total">${{ f.total|floatformat:0|intcomma }}</td>
+                        <td class="fc-ext">{{ f.numero_externo|default:"—" }}</td>
+                        <td>
+                            {% if f.estado == 'ENVIADA' %}<span class="badge bg-success">Enviada</span>
+                            {% else %}<span class="badge bg-secondary">Emitida</span>{% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'gestion:detalle_factura' f.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
+                            <a href="{% url 'gestion:factura_pdf' f.pk %}" class="btn btn-sm btn-outline-secondary" title="PDF"><i class="bi bi-file-earmark-pdf"></i></a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="facturas" %}
+        {% else %}
+        <p class="text-muted mb-0">{% if q %}Nada con esa búsqueda.{% else %}Todavía no hay facturas. Crea la primera con «Nueva factura».{% endif %}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

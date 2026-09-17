@@ -3,7 +3,9 @@ import datetime
 import uuid
 from django.db import models, transaction
 from django.conf import settings # Para relacionar con el usuario/asesor
-from django.db.models import Sum
+from decimal import Decimal
+
+from django.db.models import Max, Sum
 from django.utils import timezone
 
 
@@ -2162,6 +2164,106 @@ class DisposicionOrden(models.Model):
     def personas(self):
         """Quiénes respondieron por ella, si vino del plan de trabajo."""
         return list(dict.fromkeys(a.persona_nombre for a in self.asignaciones_plan.all()))
+
+
+class Factura(models.Model):
+    """
+    Factura INTERNA (sep-2026): se arma aquí con las órdenes del cliente, su
+    precio y el peso conciliado, y el PDF que genera el sistema se transcribe
+    después al software de facturación electrónica. No es la factura legal:
+    cuando esa exista se le registra su número y se le adjuntan su XML y su
+    PDF oficial, para dejar el cruce entre las dos. Consecutivo propio.
+    """
+    ESTADO_CHOICES = [
+        ('EMITIDA', 'Emitida'),
+        ('ENVIADA', 'Enviada al cliente'),
+    ]
+
+    numero = models.PositiveIntegerField(unique=True, editable=False)
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='facturas')
+    descripcion = models.TextField(blank=True, verbose_name="Descripción")
+    orden_compra = models.CharField(max_length=100, blank=True, verbose_name="Orden de compra")
+    correo_facturacion = models.EmailField(blank=True, verbose_name="Correo de facturación")
+    # Lo que devuelve el software de facturación electrónica.
+    numero_externo = models.CharField(
+        max_length=50, blank=True, verbose_name="Número de la factura electrónica")
+    xml = models.FileField(upload_to='facturas/xml/', blank=True, null=True,
+                           verbose_name="Factura XML")
+    pdf_oficial = models.FileField(upload_to='facturas/pdf/', blank=True, null=True,
+                                   verbose_name="Factura electrónica (PDF)")
+    # Qué se le copia al cliente al enviar.
+    copiar_factura = models.BooleanField(default=True, verbose_name="Factura")
+    copiar_xml = models.BooleanField(default=True, verbose_name="XML")
+    copiar_actas = models.BooleanField(default=False, verbose_name="O.T.S. (actas firmadas)")
+    estado = models.CharField(max_length=10, choices=ESTADO_CHOICES, default='EMITIDA')
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='facturas_creadas')
+    creada_en = models.DateTimeField(auto_now_add=True)
+    enviada_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-numero']
+        verbose_name = "Factura"
+        verbose_name_plural = "Facturas"
+
+    def __str__(self):
+        return f"{self.codigo} — {self.cliente.nombre}"
+
+    def save(self, *args, **kwargs):
+        if self.numero is None:
+            ultimo = Factura.objects.aggregate(m=Max('numero'))['m'] or 0
+            self.numero = ultimo + 1
+        super().save(*args, **kwargs)
+
+    @property
+    def codigo(self):
+        return f"F-{self.numero:04d}"
+
+    @property
+    def total(self):
+        return sum((l.precio for l in self.lineas.all()), Decimal('0'))
+
+    def actas_firmadas(self):
+        """Las actas firmadas de sus órdenes (lo que el formato llama O.T.S.)."""
+        return (Manifiesto.objects
+                .filter(recorrido__orden__linea_factura__factura=self, estado_firma='FIRMADO')
+                .select_related('recorrido__orden').order_by('recorrido__orden__numero_orden'))
+
+
+class LineaFactura(models.Model):
+    """Una orden dentro de una factura: el precio se escribe; el peso es la cantidad conciliada."""
+    factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='lineas')
+    # OneToOne: una orden va en UNA sola factura.
+    orden = models.OneToOneField(
+        'OrdenServicio', on_delete=models.PROTECT, related_name='linea_factura')
+    precio = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+
+    class Meta:
+        ordering = ['orden__numero_orden']
+
+    def __str__(self):
+        return f"{self.factura.codigo} · orden #{self.orden_id}"
+
+    @property
+    def peso(self):
+        """Transporte - Cantidad de la conciliación ('' si aún no se concilió)."""
+        programacion = getattr(self.orden, 'programacion_origen', None)
+        return (programacion.transporte_cantidad if programacion else '') or ''
+
+
+class AdjuntoFactura(models.Model):
+    """«Adjuntar otros»: remisiones, cotizaciones, soportes… de una factura."""
+    factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='adjuntos')
+    nombre = models.CharField(max_length=150)
+    archivo = models.FileField(upload_to='facturas/adjuntos/')
+    subido_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['subido_en']
+
+    def __str__(self):
+        return self.nombre
 
 
 class NovedadOperacional(models.Model):
