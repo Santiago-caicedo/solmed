@@ -2574,6 +2574,10 @@ class FacturacionTests(BaseCRM):
         formulario = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
         self.assertContains(formulario, f'data-previa="{url}"')
         self.assertContains(formulario, 'id="ff-previa"')
+        # «Ampliar» abre un popup con la factura completa (por data-bs-toggle, sin el objeto bootstrap).
+        self.assertContains(formulario, 'data-bs-target="#ff-modal"')
+        self.assertContains(formulario, 'id="ff-modal-previa"')
+        self.assertNotContains(formulario, 'new bootstrap.')
         respuesta = self.client.post(url, {
             'cliente': self.cli.pk, 'ordenes': [self.una.pk],
             f'precio_{self.una.pk}': '1.250.000', 'descripcion': 'Borrador en vivo',

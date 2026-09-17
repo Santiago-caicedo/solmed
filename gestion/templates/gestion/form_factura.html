@@ -39,6 +39,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-previa .hoja{ overflow:hidden; background:var(--panel-2); }
 .ff-previa iframe{ display:block; width:816px; height:1056px; border:0; background:#fff; transform-origin:top left;
     box-shadow:0 1px 4px rgba(0,0,0,.12); }
+/* El popup con la factura a tamaño real */
+.ff-modal .modal-header{ background:var(--g-900); color:#fff; border:0; }
+.ff-modal .modal-header .btn-close{ filter:invert(1) grayscale(1); opacity:.7; }
+.ff-modal .modal-body{ padding:0; background:var(--panel-2); }
+.ff-modal iframe{ display:block; width:100%; height:1100px; border:0; background:#fff; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -182,7 +187,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             <div><div class="ff-paso">Vista previa</div><h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>Así va quedando el PDF</h5></div>
             <div class="d-flex align-items-center gap-2">
                 <span class="estado" id="ff-previa-estado" aria-live="polite">—</span>
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="ff-ampliar" aria-pressed="false"><i class="bi bi-arrows-angle-expand me-1"></i>Ampliar</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="ff-ampliar" data-bs-toggle="modal" data-bs-target="#ff-modal"><i class="bi bi-arrows-angle-expand me-1"></i>Ampliar</button>
             </div>
         </div>
         <div class="card-body p-2">
@@ -190,6 +195,21 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         </div>
     </div>
 </div>
+</div>
+
+{# El popup: la factura completa a tamaño real, con lo último marcado. Abre con data-bs-toggle. #}
+<div class="modal fade ff-modal" id="ff-modal" tabindex="-1" aria-labelledby="ff-modal-titulo">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="ff-modal-titulo"><i class="bi bi-file-earmark-pdf me-1"></i>Así va quedando la factura</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <iframe id="ff-modal-previa" title="Vista previa completa de la factura"></iframe>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -278,18 +298,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         hoja.style.height = Math.round(1056 * k) + 'px';
     }
     window.addEventListener('resize', escalar);
-    // «Ampliar»: la vista previa pasa a todo el ancho (y deja de ir pegada) para leerla con calma.
-    var ampliar = document.getElementById('ff-ampliar');
-    ampliar.addEventListener('click', function () {
-        var grande = ampliar.getAttribute('aria-pressed') !== 'true';
-        ampliar.setAttribute('aria-pressed', grande ? 'true' : 'false');
-        ampliar.innerHTML = grande ? '<i class="bi bi-arrows-angle-contract me-1"></i>Reducir'
-                                   : '<i class="bi bi-arrows-angle-expand me-1"></i>Ampliar';
-        document.getElementById('ff-col-previa').className = grande ? 'col-12' : 'col-xl-5';
-        document.getElementById('ff-col-form').className = grande ? 'col-12' : 'col-xl-7';
-        document.querySelector('.ff-previa').style.position = grande ? 'static' : '';
-        escalar();
-        if (grande) document.getElementById('ff-col-previa').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // «Ampliar»: el popup muestra la misma vista previa a tamaño real (lo último recibido).
+    // Bootstrap lo abre por data-bs-toggle; aquí solo se copia el contenido al abrirlo.
+    var modal = document.getElementById('ff-modal');
+    modal.addEventListener('show.bs.modal', function () {
+        document.getElementById('ff-modal-previa').srcdoc = marco.srcdoc || '';
     });
     escalar();
     pedirPrevia();
