@@ -89,6 +89,7 @@
                 <div class="os-box">
                     <div class="t">FACTURA</div>
                     <div class="n">{{ factura.codigo }}</div>
+                    {% if provisional %}<div style="color:#2C4D9E;font-size:6.2pt">número provisional</div>{% endif %}
                 </div>
             </td>
         </tr>
@@ -143,6 +144,8 @@
                     <td></td>
                     <td colspan="5"><span class="srv-lbl">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td>
                 </tr>
+            {% empty %}
+                <tr><td colspan="6" style="color:#51606E;text-align:center;padding:10px">Marca las órdenes que van en la factura para verlas aquí.</td></tr>
             {% endfor %}
             </tbody>
         </table>

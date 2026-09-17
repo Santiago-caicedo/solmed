@@ -2568,6 +2568,37 @@ class FacturacionTests(BaseCRM):
         segunda = Factura.objects.create(cliente=self.cli)
         self.assertEqual(segunda.codigo, 'F-0002', "consecutivo propio")
 
+    def test_la_vista_previa_en_vivo_pinta_el_pdf_con_lo_que_va_marcado(self):
+        url = reverse('gestion:previa_factura')
+        # El formulario la pide y la muestra en un marco; nada se guarda.
+        formulario = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        self.assertContains(formulario, f'data-previa="{url}"')
+        self.assertContains(formulario, 'id="ff-previa"')
+        respuesta = self.client.post(url, {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+            f'precio_{self.una.pk}': '1.250.000', 'descripcion': 'Borrador en vivo',
+            'orden_compra': 'OC-9'}, HTTP_X_REQUESTED_WITH='fetch')
+        self.assertEqual(respuesta.status_code, 200)
+        html = respuesta.content.decode()
+        self.assertIn('F-0001', html)
+        self.assertIn('número provisional', html)
+        self.assertIn(self.cli.nombre, html)
+        self.assertIn(str(self.una.numero_orden), html)
+        self.assertIn('Sede Norte', html)
+        self.assertIn('Canecas (3)', html)
+        self.assertIn('1.250.000', html)
+        self.assertIn('Borrador en vivo', html)
+        self.assertIn('OC-9', html)
+        self.assertNotIn(str(self.otra.numero_orden), html, "solo lo marcado")
+        self.assertFalse(Factura.objects.exists(), "la vista previa no guarda nada")
+
+    def test_la_vista_previa_sin_cliente_o_sin_ordenes_lo_dice(self):
+        url = reverse('gestion:previa_factura')
+        self.assertContains(self.client.post(url, {}), 'Elige el cliente')
+        self.assertContains(self.client.post(url, {'cliente': self.cli.pk}), 'Marca las órdenes')
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.post(url, {'cliente': self.cli.pk}).status_code, 403)
+
     def test_sin_ordenes_o_sin_precio_no_se_guarda(self):
         respuesta = self._crear(ordenes=[])
         self.assertContains(respuesta, 'Marca al menos una orden')

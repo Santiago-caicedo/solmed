@@ -104,6 +104,7 @@ urlpatterns = [
     # Facturación interna (solo administradores).
     path('facturacion/', views.ListaFacturasView.as_view(), name='lista_facturas'),
     path('facturacion/nueva/', views.FacturaFormView.as_view(), name='crear_factura'),
+    path('facturacion/previa/', views.FacturaPreviaView.as_view(), name='previa_factura'),
     path('facturacion/<int:pk>/', views.DetalleFacturaView.as_view(), name='detalle_factura'),
     path('facturacion/<int:pk>/editar/', views.FacturaFormView.as_view(), name='editar_factura'),
     path('facturacion/<int:pk>/pdf/', views.FacturaPDFView.as_view(), name='factura_pdf'),

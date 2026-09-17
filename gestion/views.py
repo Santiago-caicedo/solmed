@@ -6856,16 +6856,64 @@ def _lineas_con_detalle(factura):
     return lineas
 
 
-def _pdf_factura(factura, request=None):
-    """El PDF interno de la factura, generado al momento (no se guarda)."""
+def _html_factura(factura, lineas, total, provisional=False):
+    """El HTML del PDF interno (misma plantilla para el PDF y para la vista previa en vivo)."""
     template = get_template('gestion/factura_pdf.html')
     logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
     with open(logo_path, 'rb') as fh:
         logo_b64 = 'data:image/png;base64,' + base64.b64encode(fh.read()).decode('utf-8')
-    lineas = _lineas_con_detalle(factura)
-    html = template.render({'factura': factura, 'lineas': lineas, 'logo_b64': logo_b64,
-                            'total': factura.total, 'hoy': timezone.localdate()})
+    return template.render({'factura': factura, 'lineas': lineas, 'logo_b64': logo_b64,
+                            'total': total, 'hoy': timezone.localdate(),
+                            'provisional': provisional})
+
+
+def _pdf_factura(factura, request=None):
+    """El PDF interno de la factura, generado al momento (no se guarda)."""
+    html = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
     return HTML(string=html, base_url=request.build_absolute_uri() if request else None).write_pdf()
+
+
+class FacturaPreviaView(AdministradorRequiredMixin, View):
+    """
+    Vista previa EN VIVO del PDF mientras se arma la factura: recibe el
+    formulario tal como va (sin guardar nada) y devuelve el HTML de la misma
+    plantilla del PDF. El formulario la pide cada vez que algo cambia.
+    """
+    def post(self, request):
+        from decimal import Decimal, InvalidOperation
+        from django.db.models import Max
+        factura = Factura.objects.filter(pk=request.POST.get('factura') or 0).first()
+        cliente = (factura.cliente if factura
+                   else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first())
+        if cliente is None:
+            return HttpResponse('<p style="font-family:Helvetica,Arial;color:#51606E;padding:2rem;'
+                                'text-align:center">Elige el cliente para ver la vista previa.</p>')
+        borrador = factura or Factura(cliente=cliente, creada_en=timezone.now())
+        if factura is None:
+            borrador.numero = (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1
+        for campo in ('descripcion', 'orden_compra', 'correo_facturacion'):
+            setattr(borrador, campo, (request.POST.get(campo) or '').strip())
+        borrador.numero_externo = factura.numero_externo if factura else ''
+
+        marcadas = {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()}
+        facturables = {f['orden'].pk: f for f in _ordenes_facturables(cliente, factura)}
+        lineas, total = [], Decimal('0')
+        for numero in sorted(marcadas):
+            fila = facturables.get(numero)
+            if fila is None:
+                continue
+            crudo = (request.POST.get(f'precio_{numero}') or '').strip()
+            crudo = crudo.replace('$', '').replace('.', '').replace(',', '.')
+            try:
+                precio = Decimal(crudo) if crudo else Decimal('0')
+            except InvalidOperation:
+                precio = Decimal('0')
+            linea = LineaFactura(orden=fila['orden'], precio=precio)
+            linea.placa, linea.servicio = fila['placa'], fila['servicio']
+            linea.sede, linea.direccion, linea.servicios = fila['sede'], fila['direccion'], fila['servicios']
+            lineas.append(linea)
+            total += precio
+        return HttpResponse(_html_factura(borrador, lineas, total, provisional=factura is None))
 
 
 class FacturaPDFView(AdministradorRequiredMixin, View):

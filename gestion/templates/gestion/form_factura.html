@@ -5,10 +5,11 @@
 {# Se elige el cliente, se marcan sus órdenes con el precio (el peso es la cantidad conciliada) y se llenan los datos. #}
 <style>
 .ff-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; margin-bottom:.25rem; }
-.ff-tabla td{ vertical-align:middle; }
+.ff-tabla td{ vertical-align:middle; padding:.45rem .5rem; }
+.ff-tabla{ table-layout:auto; }
 .ff-tabla .num{ font-family:var(--mono); font-weight:600; }
 .ff-tabla .fec, .ff-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
-.ff-tabla .sede{ font-size:.84rem; max-width:14rem; }
+.ff-tabla .sede{ font-size:.84rem; max-width:9rem; }
 .ff-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ff-tabla tr.ff-srv td{ border-top:0; padding-top:0; font-size:.74rem; color:var(--ink-2); }
 .ff-tabla tr.ff-srv .k{ color:var(--brand-700); font-weight:600; }
@@ -18,7 +19,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-falta{ font-family:var(--mono); font-size:.68rem; font-weight:600; padding:.1rem .45rem; border-radius:99px;
     background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
 .ff-ok{ color:var(--ok); }
-.ff-precio{ font-family:var(--mono); text-align:right; width:8.5rem; }
+.ff-precio{ font-family:var(--mono); text-align:right; width:7.5rem; }
 .ff-precio:disabled{ background:var(--panel-2); color:var(--ink-3); }
 tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
@@ -28,6 +29,16 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
 .ff-etq:first-child{ margin-top:0; }
 .ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem; display:flex; justify-content:flex-end; gap:.5rem; z-index:2; }
+.ff-tabla .sub{ display:block; font-family:var(--mono); font-size:.72rem; color:var(--ink-3); font-weight:400; }
+.ff-tabla .sub .ff-falta, .ff-tabla .sub .ff-ok{ display:inline-block; margin-top:.15rem; }
+/* La vista previa del PDF, en vivo, al lado del formulario */
+.ff-previa{ position:sticky; top:1rem; }
+.ff-previa .card-header{ display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+.ff-previa .estado{ font-size:.72rem; color:var(--ink-3); }
+/* El marco es una hoja carta (816×1056 px) escalada para caber en la columna: se ve la página en proporción. */
+.ff-previa .hoja{ overflow:hidden; background:var(--panel-2); }
+.ff-previa iframe{ display:block; width:816px; height:1056px; border:0; background:#fff; transform-origin:top left;
+    box-shadow:0 1px 4px rgba(0,0,0,.12); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -69,9 +80,12 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 </div>
 
 {% if cliente %}
-<form method="post" id="form-factura">
+<div class="row g-4" id="ff-fila">
+<div class="col-xl-7" id="ff-col-form">
+<form method="post" id="form-factura" data-previa="{% url 'gestion:previa_factura' %}">
     {% csrf_token %}
     <input type="hidden" name="cliente" value="{{ cliente.pk }}">
+    {% if factura %}<input type="hidden" name="factura" value="{{ factura.pk }}">{% endif %}
 
     {# ---------- 2. Órdenes ---------- #}
     <div class="card shadow mb-4">
@@ -83,8 +97,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                 <table class="table align-middle mb-0 ff-tabla">
                     <thead>
                         <tr>
-                            <th style="width:2rem"></th><th>Orden</th><th>Fecha</th><th>Placa</th><th>Sede</th>
-                            <th>Peso</th><th>Acta</th><th class="text-end">Precio</th>
+                            <th style="width:2rem"></th><th>Orden</th><th>Sede</th>
+                            <th>Peso</th><th class="text-end">Precio</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -93,12 +107,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                             <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
                                        {% if f.orden.pk in datos.marcadas %}checked{% endif %}
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
-                            <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a></td>
-                            <td class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
-                            <td class="pla">{{ f.placa|default:"—" }}</td>
+                            <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
+                                <span class="sub">{{ f.servicio|date:"d/m/Y"|default:"—" }}{% if f.placa %} · {{ f.placa }}{% endif %}
+                                    {% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</span></td>
                             <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
                             <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
-                            <td>{% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</td>
                             <td class="text-end">
                                 <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
                                        inputmode="decimal" placeholder="$500.000" autocomplete="off"
@@ -107,7 +120,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
                             </td>
                         </tr>
-                        <tr class="ff-srv"><td></td><td colspan="7"><span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
+                        <tr class="ff-srv"><td></td><td colspan="4"><span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -160,6 +173,24 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         <button class="btn btn-success" id="ff-enviar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar factura{% endif %}</button>
     </div>
 </form>
+</div>
+
+{# ---------- La vista previa del PDF, en vivo ---------- #}
+<div class="col-xl-5" id="ff-col-previa">
+    <div class="card shadow ff-previa">
+        <div class="card-header">
+            <div><div class="ff-paso">Vista previa</div><h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>Así va quedando el PDF</h5></div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="estado" id="ff-previa-estado" aria-live="polite">—</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="ff-ampliar" aria-pressed="false"><i class="bi bi-arrows-angle-expand me-1"></i>Ampliar</button>
+            </div>
+        </div>
+        <div class="card-body p-2">
+            <div class="hoja" id="ff-hoja"><iframe id="ff-previa" title="Vista previa del PDF de la factura"></iframe></div>
+        </div>
+    </div>
+</div>
+</div>
 
 <script>
 (function () {
@@ -217,6 +248,51 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         if (precios[i + 1]) precios[i + 1].focus();
     });
     pintar();
+
+    // --- Vista previa en vivo: la misma plantilla del PDF, pedida al servidor
+    // cada vez que cambia algo (con una espera corta para no pedirla por tecla).
+    var marco = document.getElementById('ff-previa');
+    var estado = document.getElementById('ff-previa-estado');
+    var temporizador = null, pendiente = null;
+    function pedirPrevia() {
+        if (!marco) return;
+        estado.textContent = 'actualizando…';
+        if (pendiente) pendiente.abort();
+        pendiente = new AbortController();
+        fetch(form.dataset.previa, {
+            method: 'POST', body: new FormData(form), credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'fetch' }, signal: pendiente.signal
+        }).then(function (r) { return r.text(); })
+          .then(function (html) { marco.srcdoc = html; estado.textContent = 'al día'; })
+          .catch(function (e) { if (e.name !== 'AbortError') estado.textContent = 'no se pudo actualizar'; });
+    }
+    function programarPrevia() { clearTimeout(temporizador); temporizador = setTimeout(pedirPrevia, 400); }
+    form.addEventListener('input', programarPrevia);
+    form.addEventListener('change', programarPrevia);
+    // La hoja carta se escala al ancho disponible, manteniendo la proporción.
+    var hoja = document.getElementById('ff-hoja');
+    function escalar() {
+        if (!hoja || !marco) return;
+        var k = Math.min(hoja.clientWidth / 816, 1);
+        marco.style.transform = 'scale(' + k + ')';
+        hoja.style.height = Math.round(1056 * k) + 'px';
+    }
+    window.addEventListener('resize', escalar);
+    // «Ampliar»: la vista previa pasa a todo el ancho (y deja de ir pegada) para leerla con calma.
+    var ampliar = document.getElementById('ff-ampliar');
+    ampliar.addEventListener('click', function () {
+        var grande = ampliar.getAttribute('aria-pressed') !== 'true';
+        ampliar.setAttribute('aria-pressed', grande ? 'true' : 'false');
+        ampliar.innerHTML = grande ? '<i class="bi bi-arrows-angle-contract me-1"></i>Reducir'
+                                   : '<i class="bi bi-arrows-angle-expand me-1"></i>Ampliar';
+        document.getElementById('ff-col-previa').className = grande ? 'col-12' : 'col-xl-5';
+        document.getElementById('ff-col-form').className = grande ? 'col-12' : 'col-xl-7';
+        document.querySelector('.ff-previa').style.position = grande ? 'static' : '';
+        escalar();
+        if (grande) document.getElementById('ff-col-previa').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    escalar();
+    pedirPrevia();
 })();
 </script>
 {% endif %}
