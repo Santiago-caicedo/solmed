@@ -1,103 +1,170 @@
-{% load humanize %}
-{% comment %}
-PDF interno de la factura (WeasyPrint): el documento con el que se transcribe
-la factura al software de facturación electrónica. Se genera al descargar.
-Contexto: factura, lineas (con placa/servicio/detalle), total, logo_b64, hoy.
-{% endcomment %}<!doctype html>
-<html lang="es">
+{% load humanize %}<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8">
-<title>Factura {{ factura.codigo }}</title>
-<style>
-  @page { size: Letter; margin: 16mm 16mm 18mm; }
-  body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5pt; color: #111A24; }
-  .cab { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #5E8C1B; padding-bottom: 8px; }
-  .cab img { height: 46px; }
-  .empresa { font-size: 9pt; color: #51606E; margin-top: 4px; line-height: 1.35; }
-  .titulo { text-align: right; }
-  .titulo .t { font-size: 9pt; letter-spacing: 2px; color: #51606E; }
-  .titulo .n { font-family: "DejaVu Sans Mono", "Courier New", monospace; font-size: 20pt; font-weight: bold; color: #12200a; }
-  .titulo .f { font-size: 9pt; color: #51606E; }
-  .aviso { margin: 10px 0 14px; padding: 6px 10px; background: #F7F9FB; border: 1px solid #DCE1E8; border-radius: 4px; font-size: 8.5pt; color: #51606E; }
-  .bloques { display: flex; gap: 14px; margin-bottom: 14px; }
-  .bloque { flex: 1; border: 1px solid #DCE1E8; border-radius: 4px; padding: 8px 10px; }
-  .bloque .k { font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase; color: #8A97A5; margin-bottom: 4px; }
-  .bloque .v { font-size: 10.5pt; }
-  .bloque .v b { font-size: 11.5pt; }
-  table.lineas { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  table.lineas th { text-align: left; font-size: 8pt; letter-spacing: 1px; text-transform: uppercase; color: #51606E; border-bottom: 1.5px solid #111A24; padding: 6px 6px; }
-  table.lineas td { padding: 6px 6px; border-bottom: 1px solid #E9EDF2; vertical-align: top; }
-  table.lineas .mono { font-family: "DejaVu Sans Mono", "Courier New", monospace; }
-  table.lineas .der { text-align: right; white-space: nowrap; }
-  table.lineas .det { font-size: 9pt; color: #51606E; }
-  .total { display: flex; justify-content: flex-end; margin-top: 8px; }
-  .total .caja { border-top: 2px solid #5E8C1B; padding: 8px 10px 0; min-width: 230px; display: flex; justify-content: space-between; align-items: baseline; }
-  .total .k { font-size: 8pt; letter-spacing: 1px; text-transform: uppercase; color: #51606E; }
-  .total .v { font-family: "DejaVu Sans Mono", "Courier New", monospace; font-size: 15pt; font-weight: bold; }
-  .nota-total { text-align: right; font-size: 8pt; color: #8A97A5; margin-top: 2px; }
-  .descripcion { margin-top: 16px; }
-  .descripcion .k { font-size: 7.5pt; letter-spacing: 1px; text-transform: uppercase; color: #8A97A5; margin-bottom: 4px; }
-  .descripcion .v { border: 1px solid #DCE1E8; border-radius: 4px; padding: 8px 10px; min-height: 40px; white-space: pre-line; }
-  .pie { position: fixed; bottom: -8mm; left: 0; right: 0; font-size: 8pt; color: #8A97A5; text-align: center; }
-</style>
+    <meta charset="UTF-8">
+    <title>Factura {{ factura.codigo }}</title>
+    {% comment %}
+       PDF interno de la FACTURA: el documento con el que se transcribe la
+       factura al software de facturación electrónica. Sigue la línea del
+       formato físico del acta (GO-F-04): secciones azules redondeadas, bandas,
+       cabecera con logo y razón social, número en rojo. Se genera al descargar.
+       Contexto: factura, lineas (placa, servicio, sede, direccion, servicios),
+       total, logo_b64, hoy.
+    {% endcomment %}
+    <style>
+        @page { size: letter portrait; margin: 0.4in 0.5in 0.5in 0.5in; }
+        body { font-family: "Helvetica", Arial, sans-serif; font-size: 8pt; color: #000; line-height: 1.25; }
+
+        .section { border: 1.4px solid #2C4D9E; border-radius: 8px; margin-bottom: 5px; overflow: hidden; }
+        .lbl { color: #2C4D9E; font-weight: bold; }
+        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        td, th { padding: 3px 6px; vertical-align: middle; word-wrap: break-word; }
+        .grid td { border: 0.9px solid #2C4D9E; }
+        .grid tr:first-child > * { border-top: none; }
+        .grid tr:last-child > * { border-bottom: none; }
+        .grid tr > *:first-child { border-left: none; }
+        .grid tr > *:last-child { border-right: none; }
+        .band { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center;
+                text-transform: uppercase; letter-spacing: .4px; padding: 3px 6px; }
+
+        /* ---- Cabecera (misma que el acta) ---- */
+        .header td { vertical-align: middle; }
+        .header .h-left { width: 26%; }
+        .header .h-mid { width: 40%; text-align: center; color: #2C4D9E; }
+        .header .h-mid .empresa { font-weight: bold; font-size: 8.6pt; }
+        .header .h-meta { width: 17%; }
+        .header .h-os { width: 17%; }
+        .meta-box td { border: 0.9px solid #2C4D9E; font-size: 6.6pt; padding: 1.5px 4px; }
+        .os-box { border: 1.4px solid #2C4D9E; border-radius: 6px; text-align: center; padding: 3px 2px; }
+        .os-box .t { color: #2C4D9E; font-weight: bold; font-size: 7.2pt; }
+        .os-box .n { color: #C00000; font-weight: bold; font-size: 14pt; letter-spacing: 1px; }
+
+        .aviso { color: #2C4D9E; font-size: 7pt; text-align: center; margin: 2px 0 6px; }
+
+        /* ---- Órdenes ---- */
+        .lineas th { background: #EDF1FA; color: #2C4D9E; font-weight: bold; font-size: 7pt;
+                     text-transform: uppercase; border-bottom: 0.9px solid #2C4D9E; text-align: left; }
+        .lineas td { border-bottom: 0.9px solid #2C4D9E; }
+        .lineas tr.orden td { padding-top: 4px; }
+        .lineas tr.orden td { border-bottom: none; }
+        .lineas tr.servicios td { padding-top: 0; padding-bottom: 4px; font-size: 7.2pt; color: #333; }
+        .lineas tr:last-child td { border-bottom: none; }
+        .num { font-weight: bold; }
+        .der { text-align: right; white-space: nowrap; }
+        .mono { font-family: "Courier New", monospace; }
+        .sede-dir { color: #444; font-size: 7pt; display: block; }
+        .srv-lbl { color: #2C4D9E; font-weight: bold; }
+
+        /* ---- Total ---- */
+        .total td { padding: 4px 6px; }
+        .total .k { color: #2C4D9E; font-weight: bold; text-transform: uppercase; text-align: right; }
+        .total .v { font-weight: bold; font-size: 11pt; text-align: right; white-space: nowrap; width: 26%; }
+        .total .nota { color: #2C4D9E; font-size: 6.6pt; text-align: right; }
+
+        .obs { min-height: 34px; padding: 4px 6px; white-space: pre-line; }
+
+        .footer { position: fixed; bottom: -0.35in; left: 0; right: 0; text-align: center;
+                  font-size: 6.8pt; color: #2C4D9E; font-weight: bold; }
+    </style>
 </head>
 <body>
-  <div class="cab">
-    <div>
-      <img src="{{ logo_b64 }}" alt="SOLMED">
-      <div class="empresa">SOLMED SAS · Transporte y gestión de residuos</div>
+
+    <!-- ================= CABECERA ================= -->
+    <table class="header" style="margin-bottom: 4px;">
+        <tr>
+            <td class="h-left"><img src="{{ logo_b64 }}" style="max-width: 125px;"></td>
+            <td class="h-mid">
+                <span class="empresa">SOLUCIONES MEDIOAMBIENTALES S.A.S.</span><br>
+                <b>SOLMED S.A.S.</b><br>
+                NIT 830.514.597-2
+            </td>
+            <td class="h-meta">
+                <table class="meta-box">
+                    <tr><td><span class="lbl">Documento:</span> Factura interna</td></tr>
+                    <tr><td><span class="lbl">Fecha:</span> {{ factura.creada_en|date:"d-m-Y" }}</td></tr>
+                    <tr><td><span class="lbl">Electrónica:</span> {{ factura.numero_externo|default:"—" }}</td></tr>
+                </table>
+            </td>
+            <td class="h-os">
+                <div class="os-box">
+                    <div class="t">FACTURA</div>
+                    <div class="n">{{ factura.codigo }}</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+    <div class="aviso">Documento interno para elaborar la factura electrónica · No es una factura de venta</div>
+
+    <!-- ================= CLIENTE ================= -->
+    <div class="section">
+        <div class="band">Cliente</div>
+        <table class="grid">
+            <tr>
+                <td style="width: 62%;"><span class="lbl">Empresa:</span> {{ factura.cliente.nombre }}</td>
+                <td style="width: 38%;"><span class="lbl">NIT:</span> {{ factura.cliente.identificacion }}</td>
+            </tr>
+            <tr>
+                <td><span class="lbl">Dirección:</span>
+                    {% if factura.cliente.contab_domicilio_fiscal %}{{ factura.cliente.contab_domicilio_fiscal }}{% else %}{{ factura.cliente.direccion|default:"—" }}{% if factura.cliente.ciudad %}, {{ factura.cliente.ciudad }}{% endif %}{% endif %}</td>
+                <td><span class="lbl">Tel.:</span> {{ factura.cliente.telefono|default:"—" }}</td>
+            </tr>
+            <tr>
+                <td><span class="lbl">Correo de facturación:</span> {{ factura.correo_facturacion|default:"—" }}</td>
+                <td><span class="lbl">Orden de compra:</span> {{ factura.orden_compra|default:"—" }}</td>
+            </tr>
+        </table>
     </div>
-    <div class="titulo">
-      <div class="t">FACTURA INTERNA</div>
-      <div class="n">{{ factura.codigo }}</div>
-      <div class="f">{{ factura.creada_en|date:"d/m/Y" }}{% if factura.numero_externo %} · Electrónica {{ factura.numero_externo }}{% endif %}</div>
+
+    <!-- ================= ÓRDENES FACTURADAS ================= -->
+    <div class="section">
+        <div class="band">Órdenes de servicio facturadas</div>
+        <table class="lineas">
+            <thead>
+                <tr>
+                    <th style="width: 10%;">Orden</th>
+                    <th style="width: 12%;">Fecha</th>
+                    <th style="width: 36%;">Sede</th>
+                    <th style="width: 11%;">Placa</th>
+                    <th style="width: 13%;">Peso</th>
+                    <th style="width: 18%;" class="der">Precio</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for l in lineas %}
+                <tr class="orden">
+                    <td class="num mono">{{ l.orden.numero_orden }}</td>
+                    <td>{{ l.servicio|date:"d-m-Y"|default:"—" }}</td>
+                    <td>{{ l.sede|default:"—" }}{% if l.direccion %}<span class="sede-dir">{{ l.direccion }}</span>{% endif %}</td>
+                    <td class="mono">{{ l.placa|default:"—" }}</td>
+                    <td>{{ l.peso|default:"—" }}</td>
+                    <td class="der mono">${{ l.precio|floatformat:0|intcomma }}</td>
+                </tr>
+                <tr class="servicios">
+                    <td></td>
+                    <td colspan="5"><span class="srv-lbl">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
     </div>
-  </div>
 
-  <div class="aviso">Documento interno para elaborar la factura electrónica. No es una factura de venta.</div>
-
-  <div class="bloques">
-    <div class="bloque">
-      <div class="k">Cliente</div>
-      <div class="v"><b>{{ factura.cliente.nombre }}</b><br>
-        NIT {{ factura.cliente.identificacion }}<br>
-        {% if factura.cliente.contab_domicilio_fiscal %}{{ factura.cliente.contab_domicilio_fiscal }}{% elif factura.cliente.direccion %}{{ factura.cliente.direccion }}{% if factura.cliente.ciudad %}, {{ factura.cliente.ciudad }}{% endif %}{% endif %}<br>
-        {% if factura.correo_facturacion %}{{ factura.correo_facturacion }}{% endif %}
-      </div>
+    <!-- ================= TOTAL ================= -->
+    <div class="section">
+        <table class="total">
+            <tr>
+                <td class="k">Total {{ lineas|length }} orden{{ lineas|length|pluralize:"es" }}</td>
+                <td class="v">${{ total|floatformat:0|intcomma }}</td>
+            </tr>
+            <tr><td class="nota" colspan="2">Valores sin impuestos: los liquida el software de facturación electrónica.</td></tr>
+        </table>
     </div>
-    <div class="bloque">
-      <div class="k">Orden de compra</div>
-      <div class="v">{{ factura.orden_compra|default:"—" }}</div>
-      <div class="k" style="margin-top:8px">Órdenes de servicio</div>
-      <div class="v">{{ lineas|length }}</div>
+
+    <!-- ================= DESCRIPCIÓN ================= -->
+    <div class="section">
+        <div class="band">Descripción</div>
+        <div class="obs">{{ factura.descripcion|default:"" }}</div>
     </div>
-  </div>
 
-  <table class="lineas">
-    <thead>
-      <tr><th>Orden</th><th>Fecha</th><th>Servicio</th><th>Placa</th><th>Peso</th><th class="der">Precio</th></tr>
-    </thead>
-    <tbody>
-    {% for l in lineas %}
-      <tr>
-        <td class="mono">#{{ l.orden.numero_orden }}</td>
-        <td class="mono">{{ l.servicio|date:"d/m/Y"|default:"—" }}</td>
-        <td class="det">{{ l.detalle|default:"—"|truncatechars:90 }}</td>
-        <td class="mono">{{ l.placa|default:"—" }}</td>
-        <td class="mono">{{ l.peso|default:"—" }}</td>
-        <td class="der mono">${{ l.precio|floatformat:0|intcomma }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  <div class="total"><div class="caja"><span class="k">Total</span><span class="v">${{ total|floatformat:0|intcomma }}</span></div></div>
-  <div class="nota-total">Valores sin impuestos.</div>
-
-  <div class="descripcion">
-    <div class="k">Descripción</div>
-    <div class="v">{{ factura.descripcion|default:"—" }}</div>
-  </div>
-
-  <div class="pie">Generado por la plataforma SOLMED el {{ hoy|date:"d/m/Y" }} · {{ factura.codigo }}</div>
+    <div class="footer">SOLMED S.A.S. · Factura interna {{ factura.codigo }} · Generada el {{ hoy|date:"d-m-Y" }} por la plataforma SOLMED</div>
 </body>
 </html>

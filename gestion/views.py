@@ -6491,7 +6491,7 @@ def _ordenes_facturables(cliente, factura=None):
     from django.db.models import Min
     qs = (OrdenServicio.objects.filter(cliente=cliente)
           .exclude(estado_orden='CANCELADA')
-          .select_related('programacion_origen')
+          .select_related('programacion_origen__sede_cliente', 'programacion_origen__tercero')
           .prefetch_related('recorridos__vehiculo', 'recorridos__manifiesto')
           .annotate(servicio=Min('recorridos__fecha_recorrido'))
           .order_by('numero_orden'))
@@ -6516,7 +6516,7 @@ def _ordenes_facturables(cliente, factura=None):
             'orden': orden,
             'servicio': orden.servicio,
             'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
-            'descripcion': (programacion.observaciones_servicio if programacion else '') or orden.descripcion or '',
+            **_lugar_y_servicios(orden),
             'peso': peso,
             'sin_peso': orden.estado_conciliacion == 'PENDIENTE' or not peso,
             'sin_acta': not firmada,
@@ -6524,6 +6524,27 @@ def _ordenes_facturables(cliente, factura=None):
             'en_esta': orden.pk in precios,
         })
     return filas
+
+
+def _lugar_y_servicios(orden):
+    """
+    Dónde se prestó la orden (el tercero o la sede elegidos al programar; si
+    no, la dirección del servicio) y qué servicios se instruyeron, tal como
+    los resume la programación («Canecas (3)», «Sondeo red aguas negras (20 m)»).
+    Es lo que la factura muestra por cada orden.
+    """
+    programacion = getattr(orden, 'programacion_origen', None)
+    sede, direccion = '', orden.direccion_servicio or ''
+    if programacion is not None:
+        if programacion.tercero_id:
+            sede, direccion = programacion.tercero.nombre, programacion.tercero.direccion or direccion
+        elif programacion.sede_cliente_id:
+            sede, direccion = programacion.sede_cliente.nombre, programacion.sede_cliente.direccion or direccion
+    return {
+        'sede': sede,
+        'direccion': direccion,
+        'servicios': programacion.resumen_instrucciones() if programacion is not None else [],
+    }
 
 
 def _correo_facturacion_de(cliente):
@@ -6664,12 +6685,7 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
 
     def get(self, request, pk):
         factura = get_object_or_404(Factura.objects.select_related('cliente', 'creada_por'), pk=pk)
-        lineas = list(factura.lineas.select_related('orden__cliente', 'orden__programacion_origen')
-                      .prefetch_related('orden__recorridos__vehiculo'))
-        for l in lineas:
-            recorridos = list(l.orden.recorridos.all())
-            l.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
-            l.servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+        lineas = _lineas_con_detalle(factura)
         return render(request, self.template_name, {
             'factura': factura,
             'lineas': lineas,
@@ -6825,20 +6841,28 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         return redirect('gestion:detalle_factura', pk=factura.pk)
 
 
+def _lineas_con_detalle(factura):
+    """Las líneas de la factura con placa, fecha, sede y servicios de cada orden."""
+    lineas = list(factura.lineas
+                  .select_related('orden__cliente', 'orden__programacion_origen__sede_cliente',
+                                  'orden__programacion_origen__tercero')
+                  .prefetch_related('orden__recorridos__vehiculo'))
+    for l in lineas:
+        recorridos = list(l.orden.recorridos.all())
+        l.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
+        l.servicio = min((r.fecha_recorrido for r in recorridos), default=None)
+        datos = _lugar_y_servicios(l.orden)
+        l.sede, l.direccion, l.servicios = datos['sede'], datos['direccion'], datos['servicios']
+    return lineas
+
+
 def _pdf_factura(factura, request=None):
     """El PDF interno de la factura, generado al momento (no se guarda)."""
     template = get_template('gestion/factura_pdf.html')
     logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
     with open(logo_path, 'rb') as fh:
         logo_b64 = 'data:image/png;base64,' + base64.b64encode(fh.read()).decode('utf-8')
-    lineas = list(factura.lineas.select_related('orden__programacion_origen')
-                  .prefetch_related('orden__recorridos__vehiculo'))
-    for l in lineas:
-        recorridos = list(l.orden.recorridos.all())
-        l.placa = ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id}))
-        l.servicio = min((r.fecha_recorrido for r in recorridos), default=None)
-        programacion = getattr(l.orden, 'programacion_origen', None)
-        l.detalle = (programacion.observaciones_servicio if programacion else '') or l.orden.descripcion or ''
+    lineas = _lineas_con_detalle(factura)
     html = template.render({'factura': factura, 'lineas': lineas, 'logo_b64': logo_b64,
                             'total': factura.total, 'hoy': timezone.localdate()})
     return HTML(string=html, base_url=request.build_absolute_uri() if request else None).write_pdf()

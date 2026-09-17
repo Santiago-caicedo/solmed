@@ -8,7 +8,12 @@
 .ff-tabla td{ vertical-align:middle; }
 .ff-tabla .num{ font-family:var(--mono); font-weight:600; }
 .ff-tabla .fec, .ff-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
-.ff-tabla .des{ font-size:.82rem; color:var(--ink-2); max-width:13rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ff-tabla .sede{ font-size:.84rem; max-width:14rem; }
+.ff-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ff-tabla tr.ff-srv td{ border-top:0; padding-top:0; font-size:.74rem; color:var(--ink-2); }
+.ff-tabla tr.ff-srv .k{ color:var(--brand-700); font-weight:600; }
+.ff-tabla tr.ff-orden td{ border-bottom:0; }
+tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-tabla .peso{ font-family:var(--mono); font-size:.82rem; }
 .ff-falta{ font-family:var(--mono); font-size:.68rem; font-weight:600; padding:.1rem .45rem; border-radius:99px;
     background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
@@ -78,20 +83,20 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                 <table class="table align-middle mb-0 ff-tabla">
                     <thead>
                         <tr>
-                            <th style="width:2rem"></th><th>Orden</th><th>Fecha</th><th>Placa</th><th>Qué se hizo</th>
+                            <th style="width:2rem"></th><th>Orden</th><th>Fecha</th><th>Placa</th><th>Sede</th>
                             <th>Peso</th><th>Acta</th><th class="text-end">Precio</th>
                         </tr>
                     </thead>
                     <tbody>
                     {% for f in filas %}
-                        <tr class="{% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
+                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
                             <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
                                        {% if f.orden.pk in datos.marcadas %}checked{% endif %}
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
                             <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a></td>
                             <td class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
                             <td class="pla">{{ f.placa|default:"—" }}</td>
-                            <td class="des" title="{{ f.descripcion }}">{{ f.descripcion|default:"—" }}</td>
+                            <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
                             <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
                             <td>{% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</td>
                             <td class="text-end">
@@ -102,6 +107,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
                             </td>
                         </tr>
+                        <tr class="ff-srv"><td></td><td colspan="7"><span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -179,6 +185,9 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             var fila = c.closest('tr');
             var precio = fila.querySelector('.ff-precio');
             fila.classList.toggle('ff-marcada', c.checked);
+            if (fila.nextElementSibling && fila.nextElementSibling.classList.contains('ff-srv')) {
+                fila.nextElementSibling.classList.toggle('ff-marcada', c.checked);
+            }
             precio.disabled = !c.checked;
             if (c.checked) { n += 1; total += numero(precio.value); }
         });

@@ -2486,14 +2486,18 @@ class FacturacionTests(BaseCRM):
         self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
         self.con_ss(self.conductor)
         self.cli = self.cliente(contab_correo_facturacion='facturacion@cliente.co')
-        self.una = self._orden('WGY347', transporte_cantidad='12 m³')      # conciliada
-        self.otra = self._orden('OBB178')                                   # sin conciliar
+        self.sede = Sede.objects.create(cliente=self.cli, nombre='Sede Norte', direccion='Cll 170 # 8-20')
+        # Conciliada, en una sede y con servicios instruidos.
+        self.una = self._orden('WGY347', transporte_cantidad='12 m³', sede_cliente=self.sede,
+                               succ_canecas=True, succ_canecas_cant='3',
+                               sond_red_aguas_negras=True, sond_red_aguas_negras_cant='20 m')
+        self.otra = self._orden('OBB178')                                   # sin conciliar, sin sede
         self.entrar(self.admin)
 
     def _orden(self, placa, cliente=None, **extra):
         camion = Vehiculo.objects.filter(placa=placa).first() or self.vehiculo(placa)
         programacion = self.programacion(cliente=cliente or self.cli, conductor=self.conductor,
-                                         vehiculo=camion, observaciones_servicio='Succión de pozo', **extra)
+                                         vehiculo=camion, **extra)
         return programacion.convertir_en_orden(self.asesor)
 
     def _crear(self, ordenes=None, **extra):
@@ -2537,7 +2541,14 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(respuesta.context['datos']['correo_facturacion'], 'facturacion@cliente.co',
                          "el correo viene de la ficha del cliente")
         self.assertContains(respuesta, 'Sin conciliar')
-        self.assertContains(respuesta, 'Succión de pozo')
+        # Dónde se prestó y qué servicios se instruyeron, por cada orden.
+        self.assertEqual((filas[self.una.pk]['sede'], filas[self.una.pk]['direccion']),
+                         ('Sede Norte', 'Cll 170 # 8-20'))
+        self.assertEqual(filas[self.una.pk]['servicios'], ['Canecas (3)', 'Sondeo red aguas negras (20 m)'])
+        self.assertEqual(filas[self.otra.pk]['sede'], '')
+        self.assertContains(respuesta, 'Sede Norte')
+        self.assertContains(respuesta, 'Canecas (3) · Sondeo red aguas negras (20 m)')
+        self.assertNotContains(respuesta, 'Qué se hizo')
         self.assertNotContains(respuesta, f'#{ajena.numero_orden}')
         self.assertContains(respuesta, 'placeholder="$500.000"')
         self.assertContains(respuesta, 'function formatear', msg_prefix="separadores de miles al escribir")
@@ -2593,6 +2604,8 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, 'F-0001')
         self.assertContains(respuesta, '1.000.000')
         self.assertContains(respuesta, '12 m³')
+        self.assertContains(respuesta, 'Sede Norte')
+        self.assertContains(respuesta, 'Canecas (3) · Sondeo red aguas negras (20 m)')
         self.assertContains(respuesta, 'el PDF interno F-0001')
         self.assertContains(respuesta, 'aún no está cargado')
         pdf = self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]))

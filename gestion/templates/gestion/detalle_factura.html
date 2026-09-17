@@ -11,6 +11,11 @@
 .fd-tabla .num{ font-family:var(--mono); font-weight:600; }
 .fd-tabla .fec, .fd-tabla .pla, .fd-tabla .peso{ font-family:var(--mono); font-size:.82rem; color:var(--ink-2); white-space:nowrap; }
 .fd-tabla .precio{ font-family:var(--mono); text-align:right; white-space:nowrap; }
+.fd-tabla .sede{ min-width:11rem; }
+.fd-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; }
+.fd-tabla tr.fd-srv td{ border-top:0; padding-top:0; font-size:.76rem; color:var(--ink-2); }
+.fd-tabla tr.fd-srv .k{ color:var(--brand-700); font-weight:600; }
+.fd-tabla tr.fd-orden td{ border-bottom:0; }
 .fd-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
 .fd-total .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
 .fd-total .v{ font-family:var(--mono); font-size:1.35rem; font-weight:600; }
@@ -73,16 +78,18 @@
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table align-middle mb-0 fd-tabla">
-                        <thead><tr><th>Orden</th><th>Fecha</th><th>Placa</th><th>Peso</th><th class="text-end">Precio</th></tr></thead>
+                        <thead><tr><th>Orden</th><th>Fecha</th><th>Sede</th><th>Placa</th><th>Peso</th><th class="text-end">Precio</th></tr></thead>
                         <tbody>
                         {% for l in lineas %}
-                            <tr>
+                            <tr class="fd-orden">
                                 <td class="num"><a href="{% url 'gestion:detalle_orden' l.orden.pk %}">#{{ l.orden.numero_orden }}</a></td>
                                 <td class="fec">{{ l.servicio|date:"d/m/Y"|default:"—" }}</td>
+                                <td class="sede">{{ l.sede|default:"—" }}{% if l.direccion %}<small>{{ l.direccion }}</small>{% endif %}</td>
                                 <td class="pla">{{ l.placa|default:"—" }}</td>
                                 <td class="peso">{{ l.peso|default:"—" }}</td>
                                 <td class="precio">${{ l.precio|floatformat:0|intcomma }}</td>
                             </tr>
+                            <tr class="fd-srv"><td colspan="6"><span class="k">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>
