@@ -2543,7 +2543,7 @@ class FacturacionTests(BaseCRM):
     def test_crear_guarda_las_lineas_con_precio_en_formato_colombiano(self):
         respuesta = self._crear(**{f'precio_{self.una.pk}': '1.250.000', f'precio_{self.otra.pk}': '$ 500.000,50'})
         factura = Factura.objects.get()
-        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
         self.assertEqual(factura.codigo, 'F-0001')
         self.assertEqual(factura.creada_por, self.admin)
         self.assertEqual({l.orden_id: l.precio for l in factura.lineas.all()},
@@ -2596,6 +2596,13 @@ class FacturacionTests(BaseCRM):
         pdf = self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]))
         self.assertEqual(pdf.status_code, 200)
         self.assertTrue(pdf.content.startswith(b'%PDF'))
+        self.assertIn('attachment', pdf['Content-Disposition'])
+        # La vista previa se ve en la página antes de enviar; el botón nace apagado.
+        self.assertIn('inline', self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]) + '?ver=1')['Content-Disposition'])
+        self.assertContains(respuesta, 'Vista previa de la factura')
+        self.assertContains(respuesta, '?ver=1')
+        self.assertContains(respuesta, 'Revisé el PDF y está correcto')
+        self.assertRegex(respuesta.content.decode(), r'id="btn-enviar" disabled')
 
     def test_registrar_la_factura_electronica_y_adjuntar_otros(self):
         self._crear()
@@ -2621,7 +2628,10 @@ class FacturacionTests(BaseCRM):
         Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
         url = reverse('gestion:detalle_factura', args=[factura.pk])
         mail.outbox.clear()
-        respuesta = self.client.post(url, {'submit_enviar': '1'}, follow=True)
+        self.assertContains(self.client.post(url, {'submit_enviar': '1'}, follow=True),
+                            'revisa la vista previa', msg_prefix="sin marcar la revisión no se envía")
+        self.assertEqual(len(mail.outbox), 0)
+        respuesta = self.client.post(url, {'submit_enviar': '1', 'revisado': '1'}, follow=True)
         self.assertEqual(len(mail.outbox), 1)
         correo = mail.outbox[0]
         self.assertEqual(correo.to, ['facturacion@cliente.co'])
@@ -2646,7 +2656,8 @@ class FacturacionTests(BaseCRM):
         factura.xml.save('f.xml', SimpleUploadedFile('f.xml', b'<Invoice/>'), save=False)
         factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF-1.4 oficial'), save=True)
         mail.outbox.clear()
-        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {'submit_enviar': '1'})
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
         adj = {a[0]: a[1] for a in mail.outbox[0].attachments}
         self.assertEqual(set(adj), {'Factura_FE-9.pdf', 'Factura_FE-9.xml'})
         self.assertEqual(adj['Factura_FE-9.pdf'], b'%PDF-1.4 oficial')
@@ -2656,9 +2667,9 @@ class FacturacionTests(BaseCRM):
         factura = Factura.objects.get()
         url = reverse('gestion:detalle_factura', args=[factura.pk])
         mail.outbox.clear()
-        self.assertContains(self.client.post(url, {'submit_enviar': '1'}, follow=True), 'no tiene correo de facturación')
+        self.assertContains(self.client.post(url, {'submit_enviar': '1', 'revisado': '1'}, follow=True), 'no tiene correo de facturación')
         factura.correo_facturacion = 'f@c.co'; factura.copiar_factura = factura.copiar_xml = False; factura.save()
-        self.assertContains(self.client.post(url, {'submit_enviar': '1'}, follow=True), 'No hay nada que enviar')
+        self.assertContains(self.client.post(url, {'submit_enviar': '1', 'revisado': '1'}, follow=True), 'No hay nada que enviar')
         self.assertEqual(len(mail.outbox), 0)
 
     def test_eliminar_libera_las_ordenes(self):

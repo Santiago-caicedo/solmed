@@ -6649,8 +6649,9 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=numero, defaults={'precio': precio})
         messages.success(request, f"Factura {factura.codigo} guardada con "
-                                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
-        return redirect('gestion:detalle_factura', pk=factura.pk)
+                                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}. "
+                                  f"Revisa el PDF y, cuando esté bien, envíala.")
+        return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
 
 
 class DetalleFacturaView(AdministradorRequiredMixin, View):
@@ -6738,6 +6739,10 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         from django.core.mail import EmailMultiAlternatives
         from django.template.loader import render_to_string
 
+        if not request.POST.get('revisado'):
+            messages.error(request, "Antes de enviar, revisa la vista previa del PDF y marca "
+                                    "«Revisé el PDF y está correcto».")
+            return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
         correos = _lista_correos(factura.correo_facturacion)
         if not correos:
             messages.error(request, "La factura no tiene correo de facturación: edítala y ponlo.")
@@ -6840,9 +6845,11 @@ def _pdf_factura(factura, request=None):
 
 
 class FacturaPDFView(AdministradorRequiredMixin, View):
+    """El PDF interno: con ?ver=1 se muestra en la página (vista previa); sin él se descarga."""
     def get(self, request, pk):
         factura = get_object_or_404(Factura, pk=pk)
         respuesta = HttpResponse(_pdf_factura(factura, request), content_type='application/pdf')
-        respuesta['Content-Disposition'] = f'attachment; filename="factura_{factura.codigo}.pdf"'
+        modo = 'inline' if request.GET.get('ver') else 'attachment'
+        respuesta['Content-Disposition'] = f'{modo}; filename="factura_{factura.codigo}.pdf"'
         return respuesta
 

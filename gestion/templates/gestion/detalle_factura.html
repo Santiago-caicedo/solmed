@@ -28,6 +28,10 @@
 .fd-envio .falta{ color:var(--warn); }
 .fd-hist{ font-size:.82rem; }
 .fd-hist .mono{ font-family:var(--mono); }
+/* La vista previa del PDF: se revisa aquí antes de enviar */
+.fd-previa{ border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:var(--panel-2); }
+.fd-previa iframe{ display:block; width:100%; height:72vh; border:0; background:#fff; }
+.fd-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; }
 </style>
 
 <div class="fd-cab">
@@ -41,9 +45,23 @@
         </div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <a href="{% url 'gestion:factura_pdf' factura.pk %}" class="btn btn-outline-secondary"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+        <a href="#revisar" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>Ver PDF</a>
+        <a href="{% url 'gestion:factura_pdf' factura.pk %}" class="btn btn-outline-secondary"><i class="bi bi-download me-1"></i>Descargar PDF</a>
         <a href="{% url 'gestion:editar_factura' factura.pk %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar</a>
         <a href="{% url 'gestion:lista_facturas' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Facturas</a>
+    </div>
+</div>
+
+{# ---- 1. Revisar: la vista previa del PDF, antes de cualquier envío ---- #}
+<div class="card shadow mb-4" id="revisar">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div><span class="fd-paso">1 · Revisar</span><h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>Vista previa de la factura</h5></div>
+        <span class="text-muted small">Así sale el PDF. Si algo no cuadra, <a href="{% url 'gestion:editar_factura' factura.pk %}">edítala</a> antes de enviar.</span>
+    </div>
+    <div class="card-body p-2">
+        <div class="fd-previa">
+            <iframe src="{% url 'gestion:factura_pdf' factura.pk %}?ver=1" title="Vista previa de la factura {{ factura.codigo }}"></iframe>
+        </div>
     </div>
 </div>
 
@@ -143,7 +161,7 @@
 
         {# ---- Enviar al cliente ---- #}
         <div class="card shadow mb-4">
-            <div class="card-header"><h5 class="mb-0"><i class="bi bi-send me-1"></i>Copiar al cliente</h5></div>
+            <div class="card-header"><span class="fd-paso">2 · Enviar</span><h5 class="mb-0"><i class="bi bi-send me-1"></i>Copiar al cliente</h5></div>
             <div class="card-body">
                 <form method="post" class="mb-3">
                     {% csrf_token %}
@@ -160,9 +178,13 @@
                         {% if factura.copiar_actas %}<li>Actas firmadas: {% if actas %}{{ actas|length }} de {{ lineas|length }} órdenes{% else %}<span class="falta">ninguna orden tiene acta firmada todavía</span>{% endif %}</li>{% endif %}
                         {% if not factura.copiar_factura and not factura.copiar_xml and not factura.copiar_actas %}<li class="falta">Nada marcado.</li>{% endif %}
                     </ul>
-                    <form method="post" onsubmit="return confirm('¿Enviar la factura al cliente ahora?');">
+                    <form method="post" id="form-enviar">
                         {% csrf_token %}
-                        <button name="submit_enviar" value="1" class="btn btn-success w-100" {% if not factura.correo_facturacion %}disabled{% endif %}>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="revisado" value="1" id="revisado">
+                            <label class="form-check-label" for="revisado">Revisé el PDF y está correcto</label>
+                        </div>
+                        <button name="submit_enviar" value="1" class="btn btn-success w-100" id="btn-enviar" disabled>
                             <i class="bi bi-send-fill me-1"></i>{% if factura.estado == 'ENVIADA' %}Enviar de nuevo{% else %}Enviar al cliente{% endif %}
                         </button>
                     </form>
@@ -180,6 +202,15 @@
             </div>
         </div>
 
+        <script>
+        (function () {
+            // El envío se habilita solo cuando se marca que el PDF se revisó (y hay correo).
+            var casilla = document.getElementById('revisado'), boton = document.getElementById('btn-enviar');
+            if (!casilla || !boton) return;
+            var hayCorreo = {% if factura.correo_facturacion %}true{% else %}false{% endif %};
+            casilla.addEventListener('change', function () { boton.disabled = !(casilla.checked && hayCorreo); });
+        })();
+        </script>
         <form method="post" onsubmit="return confirm('¿Eliminar la factura {{ factura.codigo }}? Sus órdenes vuelven a poder facturarse.');" class="text-end">
             {% csrf_token %}
             <button name="submit_eliminar" value="1" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>Eliminar factura</button>
