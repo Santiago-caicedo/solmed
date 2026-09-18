@@ -2591,7 +2591,7 @@ class FacturacionTests(BaseCRM):
         self.assertIn(self.cli.nombre, html)
         self.assertIn(str(self.una.numero_orden), html)
         self.assertIn('Sede Norte', html)
-        self.assertIn('Canecas (3)', html)
+        self.assertNotIn('Canecas (3)', html, "el PDF ya no lista los servicios")
         self.assertIn('1.250.000', html)
         self.assertIn('Borrador en vivo', html)
         self.assertIn('OC-9', html)
@@ -2776,6 +2776,41 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, '?ver=1')
         self.assertContains(respuesta, 'Revisé el PDF y está correcto')
         self.assertRegex(respuesta.content.decode(), r'id="btn-enviar" disabled')
+
+    def test_el_pdf_no_se_desborda_de_la_pagina_y_no_lista_los_servicios(self):
+        """
+        El precio salía CORTADO («$850.00»): los anchos de las columnas suman
+        100% y el padding de cada celda se sumaba encima, así que la tabla se
+        pasaba del margen y la última columna caía fuera de la hoja.
+        """
+        from weasyprint import HTML
+        from .views import _html_factura, _lineas_con_detalle
+        self._crear(ordenes=[self.una], **{f'precio_{self.una.pk}': '1.250.000',
+                                           f'observaciones_{self.una.pk}': 'Nota de la orden'})
+        factura = Factura.objects.get()
+        html = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
+
+        # El PDF ya no lista los servicios (decisión del usuario, sep-2026),
+        # pero sí las observaciones de cada orden.
+        self.assertNotIn('Servicios:', html)
+        self.assertNotIn('Canecas', html)
+        self.assertIn('Nota de la orden', html)
+        self.assertIn('$1.250.000', html)
+
+        pagina = HTML(string=html).render().pages[0]
+        caja = getattr(pagina, '_page_box', None)
+        if caja is None:      # API interna: si cambia, no se rompe la batería
+            self.skipTest('esta versión de WeasyPrint no expone las cajas de la página')
+
+        def borde_derecho(c):
+            try:
+                propio = c.position_x + c.margin_width()
+            except Exception:
+                propio = 0
+            return max([propio] + [borde_derecho(h) for h in (getattr(c, 'children', None) or [])])
+
+        self.assertLessEqual(round(borde_derecho(caja), 1), round(pagina.width, 1),
+                             "algo se sale de la hoja: la última columna saldría cortada")
 
     def test_registrar_la_factura_electronica_y_adjuntar_otros(self):
         self._crear()

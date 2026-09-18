@@ -18,7 +18,11 @@
         .section { border: 1.4px solid #2C4D9E; border-radius: 8px; margin-bottom: 5px; overflow: hidden; }
         .lbl { color: #2C4D9E; font-weight: bold; }
         table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-        td, th { padding: 3px 6px; vertical-align: middle; word-wrap: break-word; }
+        /* border-box: el ancho de cada columna INCLUYE su padding. Sin esto la
+           tabla se pasa del margen de la página y la última columna (el precio)
+           sale cortada. */
+        td, th { padding: 3px 6px; vertical-align: middle; word-wrap: break-word;
+                 box-sizing: border-box; }
         .grid td { border: 0.9px solid #2C4D9E; }
         .grid tr:first-child > * { border-top: none; }
         .grid tr:last-child > * { border-bottom: none; }
@@ -46,7 +50,9 @@
                      text-transform: uppercase; border-bottom: 0.9px solid #2C4D9E; text-align: left; }
         .lineas td { border-bottom: 0.9px solid #2C4D9E; }
         .lineas tr.orden td { padding-top: 4px; }
-        .lineas tr.orden td { border-bottom: none; }
+        /* Sin fila debajo, la orden cierra con su propio borde. */
+        .lineas tr.orden:not(:has(+ tr.servicios)) td { border-bottom: 0.9px solid #2C4D9E; }
+        .lineas tr.orden:has(+ tr.servicios) td { border-bottom: none; }
         .lineas tr.servicios td { padding-top: 0; padding-bottom: 4px; font-size: 7.2pt; color: #333; }
         .lineas tr:last-child td { border-bottom: none; }
         .num { font-weight: bold; }
@@ -140,11 +146,12 @@
                     <td>{{ l.peso|default:"—" }}</td>
                     <td class="der mono">${{ l.precio|floatformat:0|intcomma }}</td>
                 </tr>
+                {% if l.observaciones %}
                 <tr class="servicios">
                     <td></td>
-                    <td colspan="5"><span class="srv-lbl">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}
-                        {% if l.observaciones %}<br><span class="srv-lbl">Observaciones:</span> {{ l.observaciones }}{% endif %}</td>
+                    <td colspan="5"><span class="srv-lbl">Observaciones:</span> {{ l.observaciones }}</td>
                 </tr>
+                {% endif %}
             {% empty %}
                 <tr><td colspan="6" style="color:#51606E;text-align:center;padding:10px">Marca las órdenes que van en la factura para verlas aquí.</td></tr>
             {% endfor %}
