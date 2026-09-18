@@ -2266,6 +2266,84 @@ class OrdenHistoricaTests(BaseCRM):
         self.assertEqual(orden.estado_orden, 'FINALIZADA',
                          "editar no le mueve el estado a la histórica")
 
+    def test_al_editarla_la_historica_entra_a_la_cola_de_conciliacion(self):
+        """
+        Nace en NO_APLICA porque no tenía programación; al editarla se le crea
+        una, así que ya puede conciliarse como cualquier otra (pedido del
+        usuario, sep-2026).
+        """
+        orden = self._historica()
+        self.assertEqual(orden.estado_conciliacion, 'NO_APLICA')
+        self.assertNotIn(orden.pk, [f['orden'].pk for f in
+                                    self.client.get(reverse('gestion:conciliaciones')).context['filas']])
+
+        datos = {'fecha': '2024-05-10', 'cliente': self.cli.pk,
+                 'requiere_disposicion_final': 'NO',
+                 'destino_sin_disposicion': Dispositor.objects.get(
+                     nombre=Dispositor.SIN_DISPOSICION).pk,
+                 'cuadrilla-vehiculo': self.camion.pk}
+        respuesta = self.client.post(
+            reverse('gestion:actualizar_orden', args=[orden.pk]), datos, follow=True)
+
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado_conciliacion, 'PENDIENTE')
+        self.assertContains(respuesta, 'entra a la cola de conciliación')
+        self.assertIn(orden.pk, [f['orden'].pk for f in
+                                 self.client.get(reverse('gestion:conciliaciones')).context['filas']])
+
+        # Y desde ahí se concilia como cualquier otra.
+        self.client.post(reverse('gestion:conciliar_orden', args=[orden.pk]),
+                         {'transporte_cantidad': '8 m³', 'volver': 'conciliaciones'})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado_conciliacion, 'CONCILIADA')
+        self.assertEqual(orden.programacion_origen.transporte_cantidad, '8 m³')
+
+    def test_si_al_editarla_ya_trae_la_cantidad_queda_conciliada(self):
+        orden = self._historica()
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]), {
+            'fecha': '2024-05-10', 'cliente': self.cli.pk,
+            'requiere_disposicion_final': 'NO',
+            'destino_sin_disposicion': Dispositor.objects.get(
+                nombre=Dispositor.SIN_DISPOSICION).pk,
+            'cuadrilla-vehiculo': self.camion.pk,
+            'transporte_cantidad': '12 m³'})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado_conciliacion, 'CONCILIADA')
+        self.assertIsNotNone(orden.fecha_conciliacion)
+
+    def test_reeditar_no_le_devuelve_la_conciliacion_ya_hecha(self):
+        """Una vez conciliada, volver a editarla no la manda de nuevo a la cola."""
+        orden = self._historica()
+        datos = {'fecha': '2024-05-10', 'cliente': self.cli.pk,
+                 'requiere_disposicion_final': 'NO',
+                 'destino_sin_disposicion': Dispositor.objects.get(
+                     nombre=Dispositor.SIN_DISPOSICION).pk,
+                 'cuadrilla-vehiculo': self.camion.pk}
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]), datos)
+        self.client.post(reverse('gestion:conciliar_orden', args=[orden.pk]),
+                         {'transporte_cantidad': '8 m³'})
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]),
+                         dict(datos, direccion='Otra'))
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado_conciliacion, 'CONCILIADA')
+
+    def test_editar_una_orden_normal_no_le_toca_la_conciliacion(self):
+        conductor = self.persona('cond_n', 'Conductores', 'Ana', 'Ruiz')
+        self.con_ss(conductor)
+        camion = self.vehiculo(placa='NRM001')
+        programacion = self.programacion(cliente=self.cli, conductor=conductor, vehiculo=camion)
+        orden = programacion.convertir_en_orden(self.asesor)
+        self.assertEqual(orden.estado_conciliacion, 'PENDIENTE')
+
+        self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]), {
+            'fecha': programacion.fecha.isoformat(), 'cliente': self.cli.pk,
+            'requiere_disposicion_final': 'NO',
+            'destino_sin_disposicion': Dispositor.objects.get(
+                nombre=Dispositor.SIN_DISPOSICION).pk,
+            'cuadrilla-conductor': conductor.pk, 'cuadrilla-vehiculo': camion.pk})
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado_conciliacion, 'PENDIENTE', "su estado lo maneja Conciliar")
+
     def test_reeditar_la_historica_conserva_su_programacion(self):
         """La segunda edición no crea otra programación: reutiliza la suya."""
         orden = self._historica()

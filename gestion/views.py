@@ -627,8 +627,27 @@ def _sincronizar_orden_desde_programacion(programacion, orden):
     orden.direccion_servicio = programacion.direccion_del_servicio()
     orden.bascula = programacion.bascula
     orden.registro_fotografico = programacion.registro_fotografico
-    orden.save(update_fields=['cliente', 'direccion_servicio', 'bascula',
-                              'registro_fotografico'])
+    campos = ['cliente', 'direccion_servicio', 'bascula', 'registro_fotografico']
+
+    # Una orden HISTÓRICA nace en NO_APLICA porque no tenía programación. Al
+    # editarla se le crea una, así que ya puede conciliarse como cualquier
+    # otra: entra a la cola con la misma regla que al convertir (con cantidad
+    # escrita, ya conciliada; sin ella, pendiente). Las demás órdenes no se
+    # tocan: su estado lo maneja «Conciliar» (pedido del usuario, sep-2026).
+    if orden.estado_conciliacion == 'NO_APLICA':
+        cantidad = (programacion.transporte_cantidad or '').strip()
+        orden.estado_conciliacion = 'CONCILIADA' if cantidad else 'PENDIENTE'
+        campos.append('estado_conciliacion')
+        if cantidad:
+            orden.fecha_conciliacion = timezone.now()
+            campos.append('fecha_conciliacion')
+        avisos.append(
+            "Esta orden histórica ya quedó conciliada con la cantidad de transporte."
+            if cantidad else
+            "Esta orden histórica entra a la cola de conciliación: ponle la "
+            "cantidad de transporte cuando hagas el corte del mes."
+        )
+    orden.save(update_fields=campos)
 
     cuadrilla = programacion.cuadrillas.first()
     recorrido = orden.recorridos.first()
