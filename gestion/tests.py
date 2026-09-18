@@ -2766,7 +2766,12 @@ class FacturacionTests(BaseCRM):
         self.assertTrue(pdf.content.startswith(b'%PDF'))
         self.assertIn('attachment', pdf['Content-Disposition'])
         # La vista previa se ve en la página antes de enviar; el botón nace apagado.
-        self.assertIn('inline', self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]) + '?ver=1')['Content-Disposition'])
+        previa = self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]) + '?ver=1')
+        self.assertIn('inline', previa['Content-Disposition'])
+        # Va dentro de un <iframe> de la propia página: con el DENY que Django
+        # pone por defecto el navegador no la pinta y el marco sale en error.
+        self.assertEqual(previa['X-Frame-Options'], 'SAMEORIGIN')
+        self.assertEqual(pdf['X-Frame-Options'], 'DENY', "la descarga no se enmarca")
         self.assertContains(respuesta, 'Vista previa de la factura')
         self.assertContains(respuesta, '?ver=1')
         self.assertContains(respuesta, 'Revisé el PDF y está correcto')

@@ -6968,7 +6968,14 @@ class FacturaPDFView(AdministradorRequiredMixin, View):
     def get(self, request, pk):
         factura = get_object_or_404(Factura, pk=pk)
         respuesta = HttpResponse(_pdf_factura(factura, request), content_type='application/pdf')
-        modo = 'inline' if request.GET.get('ver') else 'attachment'
+        ver = bool(request.GET.get('ver'))
+        modo = 'inline' if ver else 'attachment'
         respuesta['Content-Disposition'] = f'{modo}; filename="factura_{factura.codigo}.pdf"'
+        if ver:
+            # La vista previa vive en un <iframe> de la misma página. Django
+            # manda X-Frame-Options: DENY por defecto y el navegador se niega a
+            # pintarla ahí (el PDF se genera bien, pero el marco sale en error).
+            # Se permite SOLO el mismo origen, y solo en modo vista previa.
+            respuesta['X-Frame-Options'] = 'SAMEORIGIN'
         return respuesta
 

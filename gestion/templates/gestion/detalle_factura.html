@@ -64,7 +64,9 @@
 <div class="card shadow mb-4" id="revisar">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div><span class="fd-paso">1 · Revisar</span><h5 class="mb-0"><i class="bi bi-file-earmark-pdf me-1"></i>Vista previa de la factura</h5></div>
-        <span class="text-muted small">Así sale el PDF. Si algo no cuadra, <a href="{% url 'gestion:editar_factura' factura.pk %}">edítala</a> antes de enviar.</span>
+        <span class="text-muted small">Así sale el PDF. Si algo no cuadra, <a href="{% url 'gestion:editar_factura' factura.pk %}">edítala</a> antes de enviar.
+            {# Salida por si el navegador no pinta PDFs dentro de la página. #}
+            · <a href="{% url 'gestion:factura_pdf' factura.pk %}?ver=1" target="_blank" rel="noopener">¿No se ve? Ábrelo en otra pestaña</a></span>
     </div>
     <div class="card-body p-2">
         <div class="fd-previa">
