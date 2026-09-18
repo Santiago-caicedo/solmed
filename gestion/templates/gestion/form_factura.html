@@ -164,6 +164,25 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             <div class="card shadow mb-4">
                 <div class="card-body">
                     <div class="ff-paso">3 · Datos de la factura</div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="ff-etq" for="numero">Número</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">F-</span>
+                                <input type="text" name="numero" id="numero" class="form-control mono"
+                                       inputmode="numeric" autocomplete="off"
+                                       value="{{ datos.numero|default:'' }}">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="ff-etq" for="fecha_emision">Fecha de emisión</label>
+                            <input type="date" name="fecha_emision" id="fecha_emision"
+                                   class="form-control form-control-sm"
+                                   value="{{ datos.fecha_emision|date:'Y-m-d' }}">
+                        </div>
+                    </div>
+                    <div class="form-text">Se pueden corregir: el número tiene que estar libre.</div>
+
                     <label class="ff-etq" for="descripcion">Descripción</label>
                     <textarea name="descripcion" id="descripcion" class="form-control" rows="3"
                               placeholder="Ej: Servicio de transporte y disposición de residuos correspondiente a las órdenes relacionadas.">{{ datos.descripcion|default:"" }}</textarea>

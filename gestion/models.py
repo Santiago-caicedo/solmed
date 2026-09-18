@@ -2179,7 +2179,13 @@ class Factura(models.Model):
         ('ENVIADA', 'Enviada al cliente'),
     ]
 
-    numero = models.PositiveIntegerField(unique=True, editable=False)
+    # El consecutivo interno. Se asigna solo (max + 1) y se puede corregir a
+    # mano desde el formulario, a cualquier número que esté libre.
+    numero = models.PositiveIntegerField(unique=True)
+    # La fecha que lleva la factura. Se separa de `creada_en` (cuándo se
+    # registró en el sistema, auditoría) porque la oficina la ajusta.
+    fecha_emision = models.DateField(default=timezone.localdate,
+                                     verbose_name="Fecha de emisión")
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='facturas')
     descripcion = models.TextField(blank=True, verbose_name="Descripción")
     # Notas de trabajo de la oficina: NO salen en el PDF ni se le envían al

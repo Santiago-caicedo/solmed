@@ -2828,6 +2828,81 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(len(mail.outbox), 0)
         self.assertEqual(Factura.objects.get().estado, 'EMITIDA')
 
+    def test_el_numero_y_la_fecha_de_la_factura_se_pueden_corregir(self):
+        self._crear()
+        factura = Factura.objects.get()
+        self.assertEqual(factura.codigo, 'F-0001')
+        self.assertEqual(factura.fecha_emision, timezone.localdate())
+
+        url = reverse('gestion:editar_factura', args=[factura.pk])
+        # El formulario los trae puestos.
+        formulario = self.client.get(url)
+        self.assertContains(formulario, 'name="numero"')
+        self.assertContains(formulario, 'value="1"')
+        self.assertContains(formulario, f'value="{timezone.localdate():%Y-%m-%d}"')
+
+        emision = timezone.localdate() - datetime.timedelta(days=20)
+        self.client.post(url, {'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+                               f'precio_{self.una.pk}': '500.000', 'numero': '150',
+                               'fecha_emision': emision.isoformat(),
+                               'correo_facturacion': 'facturacion@cliente.co'})
+        factura.refresh_from_db()
+        self.assertEqual((factura.numero, factura.codigo), (150, 'F-0150'))
+        self.assertEqual(factura.fecha_emision, emision)
+        # La fecha nueva manda en el PDF y en los listados; creada_en no se toca.
+        from .views import _html_factura, _lineas_con_detalle
+        self.assertIn(f'{emision:%d-%m-%Y}', _html_factura(factura, _lineas_con_detalle(factura), factura.total))
+        self.assertContains(self.client.get(reverse('gestion:lista_facturas')), f'{emision:%d/%m/%Y}')
+        self.assertEqual(factura.creada_en.date(), timezone.localdate(), "queda el registro de cuándo se creó")
+
+    def test_no_se_puede_repetir_el_numero_de_otra_factura(self):
+        self._crear(ordenes=[self.una])
+        primera = Factura.objects.get()
+        self._crear(ordenes=[self.otra])
+        segunda = Factura.objects.exclude(pk=primera.pk).get()
+        self.assertEqual((primera.numero, segunda.numero), (1, 2))
+
+        respuesta = self.client.post(reverse('gestion:editar_factura', args=[segunda.pk]), {
+            'cliente': self.cli.pk, 'ordenes': [self.otra.pk],
+            f'precio_{self.otra.pk}': '500.000', 'numero': '1',
+            'correo_facturacion': 'facturacion@cliente.co'})
+        self.assertContains(respuesta, 'F-0001 ya lo tiene otra factura')
+        segunda.refresh_from_db()
+        self.assertEqual(segunda.numero, 2)
+        # Dejarle SU mismo número no se toma como repetido.
+        self.client.post(reverse('gestion:editar_factura', args=[segunda.pk]), {
+            'cliente': self.cli.pk, 'ordenes': [self.otra.pk],
+            f'precio_{self.otra.pk}': '600.000', 'numero': '2',
+            'correo_facturacion': 'facturacion@cliente.co'})
+        segunda.refresh_from_db()
+        self.assertEqual((segunda.numero, segunda.total), (2, Decimal('600000')))
+
+    def test_un_numero_invalido_no_rompe_nada(self):
+        self._crear()
+        factura = Factura.objects.get()
+        respuesta = self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+            f'precio_{self.una.pk}': '500.000', 'numero': 'abc',
+            'correo_facturacion': 'facturacion@cliente.co'})
+        self.assertContains(respuesta, 'entero positivo')
+        factura.refresh_from_db()
+        self.assertEqual(factura.numero, 1)
+
+    def test_al_crear_se_propone_el_siguiente_numero_y_la_fecha_de_hoy(self):
+        self._crear()
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        self.assertEqual(respuesta.context['datos']['numero'], 2)
+        self.assertEqual(respuesta.context['datos']['fecha_emision'], timezone.localdate())
+
+    def test_la_vista_previa_usa_el_numero_y_la_fecha_que_se_estan_escribiendo(self):
+        emision = timezone.localdate() - datetime.timedelta(days=5)
+        html = self.client.post(reverse('gestion:previa_factura'), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+            f'precio_{self.una.pk}': '500.000', 'numero': '77',
+            'fecha_emision': emision.isoformat()}, HTTP_X_REQUESTED_WITH='fetch').content.decode()
+        self.assertIn('F-0077', html)
+        self.assertIn(f'{emision:%d-%m-%Y}', html)
+
     def test_el_detalle_y_el_pdf(self):
         self._crear()
         factura = Factura.objects.get()

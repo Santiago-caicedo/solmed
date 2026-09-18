@@ -6629,6 +6629,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         datos = {}
         if factura:
             datos = {
+                'numero': factura.numero, 'fecha_emision': factura.fecha_emision,
                 'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
                 'observaciones_internas': factura.observaciones_internas,
                 'correo_facturacion': factura.correo_facturacion,
@@ -6637,7 +6638,10 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 'marcadas': {l.orden_id for l in factura.lineas.all()},
             }
         elif cliente:
+            from django.db.models import Max
             datos = {'correo_facturacion': _correo_facturacion_de(cliente),
+                     'numero': (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1,
+                     'fecha_emision': timezone.localdate(),
                      'copiar_factura': True, 'copiar_xml': True, 'copiar_actas': False,
                      'marcadas': set()}
         return self._render(request, factura, cliente, datos)
@@ -6647,6 +6651,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         factura = self._factura(pk)
         cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
         datos = {
+            'numero': (request.POST.get('numero') or '').strip(),
+            'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
             'descripcion': (request.POST.get('descripcion') or '').strip(),
             'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
             'orden_compra': (request.POST.get('orden_compra') or '').strip(),
@@ -6660,6 +6666,34 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         if cliente is None:
             errores.append("Elige el cliente.")
             return self._render(request, factura, None, datos, errores)
+
+        # El número de la factura: se puede corregir a cualquiera que esté libre.
+        # OJO con el nombre: más abajo `numero` es el de cada ORDEN.
+        from django.db.models import Max
+        from django.utils.dateparse import parse_date
+        numero_factura = datos['numero'] or None      # vacío = el que ya tiene
+        if numero_factura is not None:
+            if not numero_factura.isdigit() or int(numero_factura) < 1:
+                errores.append("El número de la factura tiene que ser un entero positivo.")
+                numero_factura = None
+            else:
+                numero_factura = int(numero_factura)
+                ocupada = Factura.objects.filter(numero=numero_factura)
+                if factura is not None:
+                    ocupada = ocupada.exclude(pk=factura.pk)
+                if ocupada.exists():
+                    errores.append(f"El número F-{numero_factura:04d} ya lo tiene otra "
+                                   f"factura: elige uno libre.")
+                    numero_factura = None
+        if numero_factura is None:
+            numero_factura = (factura.numero if factura is not None
+                              else (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1)
+
+        fecha_emision = parse_date(datos['fecha_emision']) if datos['fecha_emision'] else None
+        if datos['fecha_emision'] and fecha_emision is None:
+            errores.append("La fecha de emisión no es una fecha válida.")
+        if fecha_emision is None:
+            fecha_emision = factura.fecha_emision if factura is not None else timezone.localdate()
 
         facturables = {f['orden'].pk: f for f in _ordenes_facturables(cliente, factura)}
         lineas = []
@@ -6690,6 +6724,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             for campo in ('descripcion', 'observaciones_internas', 'orden_compra',
                           'correo_facturacion', 'copiar_factura', 'copiar_xml', 'copiar_actas'):
                 setattr(factura, campo, datos[campo])
+            factura.numero = numero_factura
+            factura.fecha_emision = fecha_emision
             factura.save()
             factura.lineas.exclude(orden_id__in=[n for n, _, _ in lineas]).delete()
             for numero, precio, observaciones in lineas:
@@ -6951,9 +6987,16 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
         if cliente is None:
             return HttpResponse('<p style="font-family:Helvetica,Arial;color:#51606E;padding:2rem;'
                                 'text-align:center">Elige el cliente para ver la vista previa.</p>')
+        from django.utils.dateparse import parse_date
         borrador = factura or Factura(cliente=cliente, creada_en=timezone.now())
-        if factura is None:
+        crudo = (request.POST.get('numero') or '').strip()
+        if crudo.isdigit() and int(crudo) >= 1:
+            borrador.numero = int(crudo)
+        elif factura is None:
             borrador.numero = (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1
+        fecha = parse_date((request.POST.get('fecha_emision') or '').strip())
+        if fecha is not None:
+            borrador.fecha_emision = fecha
         # Las observaciones internas quedan FUERA a propósito: no van al PDF.
         for campo in ('descripcion', 'orden_compra', 'correo_facturacion'):
             setattr(borrador, campo, (request.POST.get(campo) or '').strip())

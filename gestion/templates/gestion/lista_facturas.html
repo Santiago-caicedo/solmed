@@ -55,7 +55,7 @@
                     <tr>
                         <td class="fc-cod"><a href="{% url 'gestion:detalle_factura' f.pk %}">{{ f.codigo }}</a></td>
                         <td>{{ f.cliente.nombre|truncatechars:36 }}</td>
-                        <td>{{ f.creada_en|date:"d/m/Y" }}</td>
+                        <td>{{ f.fecha_emision|date:"d/m/Y" }}</td>
                         <td>{{ f.lineas.all|length }}</td>
                         <td class="text-end fc-total">${{ f.total|floatformat:0|intcomma }}</td>
                         <td class="fc-ext">{{ f.numero_externo|default:"—" }}</td>

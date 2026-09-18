@@ -87,7 +87,7 @@
             <td class="h-meta">
                 <table class="meta-box">
                     <tr><td><span class="lbl">Documento:</span> Factura interna</td></tr>
-                    <tr><td><span class="lbl">Fecha:</span> {{ factura.creada_en|date:"d-m-Y" }}</td></tr>
+                    <tr><td><span class="lbl">Fecha:</span> {{ factura.fecha_emision|date:"d-m-Y" }}</td></tr>
                     <tr><td><span class="lbl">Electrónica:</span> {{ factura.numero_externo|default:"—" }}</td></tr>
                 </table>
             </td>

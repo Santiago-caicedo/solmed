@@ -46,7 +46,7 @@
     <div>
         <h2 class="mb-0"><span class="fd-cod">{{ factura.codigo }}</span> · {{ factura.cliente.nombre }}</h2>
         <div class="fd-meta">
-            NIT {{ factura.cliente.identificacion }} · creada el {{ factura.creada_en|date:"d/m/Y" }}{% if factura.creada_por %} por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }}{% endif %}
+            NIT {{ factura.cliente.identificacion }} · emitida el {{ factura.fecha_emision|date:"d/m/Y" }}{% if factura.creada_por %} · registrada por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }}{% endif %}
             {% if factura.estado == 'ENVIADA' %}<span class="badge bg-success ms-1">Enviada{% if factura.enviada_en %} el {{ factura.enviada_en|date:"d/m/Y" }}{% endif %}</span>
             {% else %}<span class="badge bg-secondary ms-1">Emitida</span>{% endif %}
             {% if factura.numero_externo %}<span class="badge bg-dark ms-1">Electrónica {{ factura.numero_externo }}</span>{% endif %}
