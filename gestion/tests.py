@@ -2607,6 +2607,123 @@ class FacturacionTests(BaseCRM):
         self.entrar(self.admin)
         self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:lista_facturas'))
 
+    # ---- Lo que se le adjunta al cliente: siete cosas, en el orden pedido ----
+
+    ORDEN_ADJUNTOS = ['Orden de compra', 'Orden de pedido', 'Factura electrónica de venta',
+                      'XML', 'Órdenes de servicio', 'Básculas', 'Otros']
+
+    def _lista_de_adjuntos(self, contenido, clase):
+        """Solo el bloque «Copiar al cliente»: fuera hay otros «Órdenes de servicio»."""
+        return contenido.split(f'class="{clase}"', 1)[1].split('</ol>', 1)[0]
+
+    def test_el_formulario_lista_los_siete_adjuntos_en_su_orden(self):
+        contenido = self.client.get(
+            reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}').content.decode()
+        bloque = self._lista_de_adjuntos(contenido, 'ff-adj')
+        self.assertEqual(sorted(self.ORDEN_ADJUNTOS, key=bloque.index), self.ORDEN_ADJUNTOS,
+                         "el orden lo pidió la clienta: OC, pedido, factura electrónica, "
+                         "XML, órdenes de servicio, básculas y otros")
+        # Lo que no está en el sistema se sube desde el computador.
+        self.assertIn('enctype="multipart/form-data"', contenido)
+        for campo in ('archivo_orden_compra', 'archivo_orden_pedido', 'otros_archivos'):
+            self.assertIn(f'name="{campo}"', contenido)
+        # La vista previa no reenvía los archivos en cada tecla.
+        self.assertIn("el.type === 'file'", contenido)
+
+    def test_se_suben_los_documentos_del_cliente_al_crear_la_factura(self):
+        self._crear(archivo_orden_compra=SimpleUploadedFile('oc.pdf', b'%PDF-1.4 oc'),
+                    archivo_orden_pedido=SimpleUploadedFile('op.pdf', b'%PDF-1.4 op'),
+                    otros_archivos=[SimpleUploadedFile('remision.pdf', b'%PDF-1.4 rem')],
+                    copiar_orden_compra='1', copiar_orden_pedido='1', copiar_otros='1',
+                    orden_compra='OC-77')
+        factura = Factura.objects.get()
+        self.assertTrue(factura.archivo_orden_compra)
+        self.assertTrue(factura.archivo_orden_pedido)
+        self.assertEqual([a.nombre for a in factura.adjuntos.all()], ['remision.pdf'])
+        self.assertTrue(factura.copiar_orden_compra and factura.copiar_orden_pedido
+                        and factura.copiar_otros)
+
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        adjuntos = {a[0]: a[1] for a in mail.outbox[0].attachments}
+        self.assertEqual(adjuntos['Orden_compra_OC-77.pdf'], b'%PDF-1.4 oc')
+        self.assertEqual(adjuntos['Orden_pedido_F-0001.pdf'], b'%PDF-1.4 op')
+        self.assertEqual(adjuntos['remision.pdf'], b'%PDF-1.4 rem')
+
+    def test_los_adjuntos_salen_en_el_correo_en_el_orden_pedido(self):
+        self.una.bascula_adjunto.save('t.pdf', SimpleUploadedFile('t.pdf', b'%PDF-1.4 t'), save=True)
+        self._crear(archivo_orden_compra=SimpleUploadedFile('oc.pdf', b'%PDF-1.4 oc'),
+                    archivo_orden_pedido=SimpleUploadedFile('op.pdf', b'%PDF-1.4 op'),
+                    otros_archivos=[SimpleUploadedFile('remision.pdf', b'%PDF-1.4 rem')],
+                    copiar_orden_compra='1', copiar_orden_pedido='1', copiar_actas='1',
+                    copiar_basculas='1', copiar_otros='1')
+        factura = Factura.objects.get()
+        factura.numero_externo = 'FE-9'
+        factura.xml.save('f.xml', SimpleUploadedFile('f.xml', b'<Invoice/>'), save=False)
+        factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF-1.4 oficial'), save=True)
+        Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments],
+                         ['Orden_compra_OC-1.pdf', 'Orden_pedido_F-0001.pdf',
+                          'Factura_FE-9.pdf', 'Factura_FE-9.xml',
+                          f'Acta_servicio_{self.una.numero_orden}.pdf',
+                          f'Bascula_orden_{self.una.numero_orden}.pdf', 'remision.pdf'])
+
+    def test_la_factura_interna_ya_no_va_como_factura_electronica(self):
+        """Esa casilla es la ELECTRÓNICA: sin cargarla avisa, no manda la interna."""
+        self._crear()
+        factura = Factura.objects.get()
+        mail.outbox.clear()
+        respuesta = self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                                     {'submit_enviar': '1', 'revisado': '1'}, follow=True)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertContains(respuesta, 'no se adjuntó la factura electrónica')
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'EMITIDA', "nada se envió, sigue emitida")
+        # La interna sí sale, pero como PREFACTURA.
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk],
+            f'precio_{self.una.pk}': '500.000',
+            'correo_facturacion': 'facturacion@cliente.co', 'submit_prefactura': '1'})
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
+
+    def test_solo_se_envian_los_tiquetes_elegidos_en_el_popup(self):
+        for orden in (self.una, self.otra):
+            orden.bascula_adjunto.save(f'tq{orden.pk}.pdf',
+                                       SimpleUploadedFile('t.pdf', b'%PDF-1.4 t'), save=True)
+        self._crear(copiar_basculas='1', basculas_excluidas=str(self.una.pk))
+        factura = Factura.objects.get()
+        elegidas = {l.orden_id: l.copiar_bascula for l in factura.lineas.all()}
+        self.assertEqual(elegidas, {self.una.pk: False, self.otra.pk: True})
+        factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF'), save=True)
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        nombres = [a[0] for a in mail.outbox[0].attachments]
+        self.assertIn(f'Bascula_orden_{self.otra.numero_orden}.pdf', nombres)
+        self.assertNotIn(f'Bascula_orden_{self.una.numero_orden}.pdf', nombres)
+        # Una orden que se marque después entra sola: se guardan las EXCLUIDAS.
+        editar = self.client.get(reverse('gestion:editar_factura', args=[factura.pk]))
+        self.assertEqual(editar.context['datos']['basculas_excluidas'], str(self.una.pk))
+        self.assertContains(editar, 'name="basculas_excluidas"')
+
+    def test_el_expediente_guarda_la_seleccion_y_sube_archivos(self):
+        self._crear()
+        factura = Factura.objects.get()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {
+            'submit_copiar': '1', 'copiar_orden_compra': '1', 'copiar_otros': '1',
+            'archivo_orden_compra': SimpleUploadedFile('oc.pdf', b'%PDF-1.4 oc'),
+            'otros_archivos': [SimpleUploadedFile('extra.pdf', b'%PDF-1.4 x')]})
+        factura.refresh_from_db()
+        self.assertTrue(factura.copiar_orden_compra and factura.copiar_otros)
+        self.assertFalse(factura.copiar_factura, "lo que no se marcó queda apagado")
+        self.assertTrue(factura.archivo_orden_compra)
+        self.assertEqual([a.nombre for a in factura.adjuntos.all()], ['extra.pdf'])
+
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
         from io import BytesIO
@@ -2770,6 +2887,9 @@ class FacturacionTests(BaseCRM):
         self.assertNotIn(secreto, previa)
 
         # …ni en el correo al cliente (cuerpo, HTML ni adjuntos).
+        # La casilla «Factura electrónica de venta» manda el PDF oficial: sin él
+        # no habría nada que adjuntar y no saldría correo.
+        factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF-1.4 oficial'), save=True)
         mail.outbox.clear()
         self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
                          {'submit_enviar': '1', 'revisado': '1'})
@@ -2978,13 +3098,14 @@ class FacturacionTests(BaseCRM):
             orden.bascula_adjunto.save(f'tq{orden.pk}.pdf',
                                        SimpleUploadedFile('t.pdf', b'%PDF-1.4 t'), save=True)
         mail.outbox.clear()
-        self._crear(submit_basculas='1', basculas=[self.otra.pk])
+        self._crear(submit_basculas='1', basculas_excluidas=str(self.una.pk))
         self.assertEqual([a[0] for a in mail.outbox[0].attachments],
                          [f'Bascula_orden_{self.otra.numero_orden}.pdf'])
 
     def test_sin_ningun_tiquete_marcado_avisa_y_no_manda_correo(self):
         mail.outbox.clear()
-        respuesta = self._crear(submit_basculas='1', basculas=[], follow=True)
+        respuesta = self._crear(submit_basculas='1',
+                                basculas_excluidas=f'{self.una.pk},{self.otra.pk}', follow=True)
         self.assertEqual(len(mail.outbox), 0)
         self.assertTrue(Factura.objects.exists(), "la factura sí queda guardada")
         self.assertContains(respuesta, 'No marcaste ningún tiquete')
@@ -3012,8 +3133,11 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, '12 m³')
         self.assertContains(respuesta, 'Sede Norte')
         self.assertContains(respuesta, 'Canecas (3) · Sondeo red aguas negras (20 m)')
-        self.assertContains(respuesta, 'el PDF interno F-0001')
-        self.assertContains(respuesta, 'aún no está cargado')
+        self.assertContains(respuesta, 'todavía no se ha cargado la factura electrónica')
+        # Los siete adjuntos, en el orden que pidió la clienta.
+        bloque = self._lista_de_adjuntos(respuesta.content.decode(), 'fd-adj')
+        self.assertEqual(sorted(self.ORDEN_ADJUNTOS, key=bloque.index), self.ORDEN_ADJUNTOS,
+                         "los adjuntos al cliente van en el orden que pidió la clienta")
         pdf = self.client.get(reverse('gestion:factura_pdf', args=[factura.pk]))
         self.assertEqual(pdf.status_code, 200)
         self.assertTrue(pdf.content.startswith(b'%PDF'))
@@ -3098,10 +3222,11 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(correo.to, ['facturacion@cliente.co'])
         self.assertIn('Factura F-0001', correo.subject)
         nombres = [a[0] for a in correo.attachments]
-        self.assertEqual(nombres, ['Factura_F-0001.pdf', f'Acta_servicio_{self.una.numero_orden}.pdf'],
-                         "el PDF interno (no hay oficial), sin XML (no cargado) y una acta firmada")
+        self.assertEqual(nombres, [f'Acta_servicio_{self.una.numero_orden}.pdf'],
+                         "solo el acta: la factura electrónica y el XML no están cargados")
         self.assertTrue(correo.attachments[0][1].startswith(b'%PDF'))
         self.assertContains(respuesta, 'no se adjuntó el XML')
+        self.assertContains(respuesta, 'no se adjuntó la factura electrónica')
         factura.refresh_from_db()
         self.assertEqual(factura.estado, 'ENVIADA')
         self.assertIsNotNone(factura.enviada_en)

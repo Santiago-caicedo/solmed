@@ -2166,6 +2166,20 @@ class DisposicionOrden(models.Model):
         return list(dict.fromkeys(a.persona_nombre for a in self.asignaciones_plan.all()))
 
 
+# Lo que se le puede adjuntar al cliente, EN EL ORDEN que pidió la clienta
+# (sep-2026). El envío adjunta en este mismo orden y las pantallas lo listan
+# así: cambiar el orden aquí lo cambia en todas partes.
+ADJUNTOS_FACTURA = (
+    ('orden_compra', 'Orden de compra'),
+    ('orden_pedido', 'Orden de pedido'),
+    ('factura', 'Factura electrónica de venta'),
+    ('xml', 'XML'),
+    ('actas', 'Órdenes de servicio'),
+    ('basculas', 'Básculas'),
+    ('otros', 'Otros'),
+)
+
+
 class Factura(models.Model):
     """
     Factura INTERNA (sep-2026): se arma aquí con las órdenes del cliente, su
@@ -2202,10 +2216,24 @@ class Factura(models.Model):
                            verbose_name="Factura XML")
     pdf_oficial = models.FileField(upload_to='facturas/pdf/', blank=True, null=True,
                                    verbose_name="Factura electrónica (PDF)")
-    # Qué se le copia al cliente al enviar.
-    copiar_factura = models.BooleanField(default=True, verbose_name="Factura")
+    # Documentos que manda el cliente y se le devuelven con la factura. El
+    # sistema no los produce: se suben desde el computador (sep-2026).
+    archivo_orden_compra = models.FileField(
+        upload_to='facturas/orden_compra/', blank=True, null=True,
+        verbose_name="Orden de compra (archivo)")
+    archivo_orden_pedido = models.FileField(
+        upload_to='facturas/orden_pedido/', blank=True, null=True,
+        verbose_name="Orden de pedido (archivo)")
+    # Qué se le copia al cliente al enviar, EN ESTE ORDEN (lo pidió la clienta
+    # en sep-2026: orden de compra, orden de pedido, factura electrónica, XML,
+    # órdenes de servicio, básculas y otros).
+    copiar_orden_compra = models.BooleanField(default=False, verbose_name="Orden de compra")
+    copiar_orden_pedido = models.BooleanField(default=False, verbose_name="Orden de pedido")
+    copiar_factura = models.BooleanField(default=True, verbose_name="Factura electrónica de venta")
     copiar_xml = models.BooleanField(default=True, verbose_name="XML")
-    copiar_actas = models.BooleanField(default=False, verbose_name="O.T.S. (actas firmadas)")
+    copiar_actas = models.BooleanField(default=False, verbose_name="Órdenes de servicio")
+    copiar_basculas = models.BooleanField(default=False, verbose_name="Básculas")
+    copiar_otros = models.BooleanField(default=False, verbose_name="Otros")
     estado = models.CharField(max_length=10, choices=ESTADO_CHOICES, default='EMITIDA')
     creada_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
@@ -2252,6 +2280,9 @@ class LineaFactura(models.Model):
     # Lo que haya que aclararle al cliente de ESA orden (sale bajo ella en el PDF).
     observaciones = models.CharField(max_length=255, blank=True,
                                      verbose_name="Observaciones adicionales")
+    # Cuáles tiquetes de báscula van: se eligen en el popup y quedan guardados.
+    # Nace marcado: lo normal es mandarlos todos.
+    copiar_bascula = models.BooleanField(default=True, verbose_name="Enviar su tiquete de báscula")
 
     class Meta:
         ordering = ['orden__numero_orden']

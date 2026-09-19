@@ -39,6 +39,22 @@
 /* La vista previa del PDF: se revisa aquí antes de enviar */
 .fd-previa{ border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:var(--panel-2); }
 .fd-previa iframe{ display:block; width:100%; height:72vh; border:0; background:#fff; }
+/* Los siete adjuntos al cliente, en el orden que pidió la clienta */
+.fd-adj{ list-style:none; counter-reset:adj; margin:0; padding:0; }
+.fd-adj li{ counter-increment:adj; display:grid; grid-template-columns:1.6rem 1fr; gap:.15rem .55rem;
+    grid-template-areas:"n chk" ". est" ". sub"; padding:.5rem 0; border-bottom:1px solid var(--line-2); }
+.fd-adj li:last-child{ border-bottom:0; }
+.fd-adj li::before{ content:counter(adj); grid-area:n; font-family:var(--mono); font-size:.74rem;
+    font-weight:600; color:var(--ink-3); text-align:center; line-height:1.55rem; }
+.fd-adj .form-check{ grid-area:chk; margin:0; min-height:1.55rem; display:flex; align-items:center;
+    gap:.5rem; padding:0; }
+.fd-adj .form-check-input{ margin:0; flex:0 0 auto; }
+.fd-adj .form-check-label{ font-weight:500; }
+.fd-adj .est{ grid-area:est; font-size:.76rem; color:var(--ink-3); }
+.fd-adj .est .ok{ color:var(--ok); }
+.fd-adj .est .falta{ color:var(--warn); }
+.fd-adj .subir{ grid-area:sub; margin-top:.3rem; }
+.fd-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
 .fd-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; }
 </style>
 
@@ -184,20 +200,34 @@
         <div class="card shadow mb-4">
             <div class="card-header"><span class="fd-paso">2 · Enviar</span><h5 class="mb-0"><i class="bi bi-send me-1"></i>Copiar al cliente</h5></div>
             <div class="card-body">
-                <form method="post" class="mb-3">
+                {# El orden lo pidió la clienta: OC, pedido, factura electrónica, XML, órdenes de servicio, básculas y otros. #}
+                <form method="post" class="mb-3" enctype="multipart/form-data">
                     {% csrf_token %}
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_factura" id="cf" value="1" {% if factura.copiar_factura %}checked{% endif %}><label class="form-check-label" for="cf">Factura</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_xml" id="cx" value="1" {% if factura.copiar_xml %}checked{% endif %}><label class="form-check-label" for="cx">XML</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_actas" id="ca" value="1" {% if factura.copiar_actas %}checked{% endif %}><label class="form-check-label" for="ca">O.T.S. (actas firmadas)</label></div>
-                    <button name="submit_copiar" value="1" class="btn btn-link btn-sm px-0">Guardar selección</button>
+                    <ol class="fd-adj">
+                    {% for a in copiar %}
+                        <li>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="copiar_{{ a.clave }}" id="c-{{ a.clave }}" value="1" {% if a.marcado %}checked{% endif %}>
+                                <label class="form-check-label" for="c-{{ a.clave }}">{{ a.etiqueta }}</label>
+                            </div>
+                            <div class="est">{% if a.listo %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ a.detalle }}</span>{% else %}<span class="falta">{{ a.falta }}</span>{% endif %}</div>
+                            {% if a.clave == 'orden_compra' or a.clave == 'orden_pedido' %}
+                            <div class="subir"><input type="file" name="archivo_{{ a.clave }}" class="form-control form-control-sm"></div>
+                            {% elif a.clave == 'otros' %}
+                            <div class="subir"><input type="file" name="otros_archivos" class="form-control form-control-sm" multiple></div>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ol>
+                    <button name="submit_copiar" value="1" class="btn btn-primary btn-sm mt-2"><i class="bi bi-check2 me-1"></i>Guardar selección y subir archivos</button>
                 </form>
                 <div class="fd-envio">
                     <div><strong>Se enviará a:</strong> {{ factura.correo_facturacion|default:"<span class='falta'>sin correo de facturación — edítala y ponlo</span>" }}</div>
                     <ul class="que mb-0">
-                        {% if factura.copiar_factura %}<li>Factura: {% if factura.pdf_oficial %}el PDF oficial cargado{% else %}el PDF interno {{ factura.codigo }}{% endif %}</li>{% endif %}
-                        {% if factura.copiar_xml %}<li>XML: {% if factura.xml %}el archivo cargado{% else %}<span class="falta">aún no está cargado, no se adjuntará</span>{% endif %}</li>{% endif %}
-                        {% if factura.copiar_actas %}<li>Actas firmadas: {% if actas %}{{ actas|length }} de {{ lineas|length }} órdenes{% else %}<span class="falta">ninguna orden tiene acta firmada todavía</span>{% endif %}</li>{% endif %}
-                        {% if not factura.copiar_factura and not factura.copiar_xml and not factura.copiar_actas %}<li class="falta">Nada marcado.</li>{% endif %}
+                        {% for a in copiar %}{% if a.marcado %}
+                        <li>{{ a.etiqueta }}: {% if a.listo %}{{ a.detalle }}{% else %}<span class="falta">{{ a.falta }}, no se adjuntará</span>{% endif %}</li>
+                        {% endif %}{% endfor %}
+                        {% if not algo_marcado %}<li class="falta">Nada marcado.</li>{% endif %}
                     </ul>
                     <form method="post" id="form-enviar">
                         {% csrf_token %}

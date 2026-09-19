@@ -69,6 +69,21 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .fb-falta{ margin-top:.75rem; font-size:.82rem; color:var(--warn); background:var(--warn-tint);
     border:1px solid var(--warn-line); border-radius:var(--r-sm); padding:.5rem .75rem; }
 .fb-vacio{ text-align:center; color:var(--ink-2); padding:1.5rem .5rem; }
+/* Los siete adjuntos, en el orden que pidió la clienta */
+.ff-adj{ list-style:none; counter-reset:adj; margin:0; padding:0; }
+.ff-adj li{ counter-increment:adj; display:grid; grid-template-columns:1.6rem 1fr; gap:.55rem;
+    padding:.55rem 0; border-bottom:1px solid var(--line-2); }
+.ff-adj li:last-child{ border-bottom:0; padding-bottom:0; }
+.ff-adj li::before{ content:counter(adj); font-family:var(--mono); font-size:.74rem; font-weight:600;
+    color:var(--ink-3); text-align:center; line-height:1.55rem; }
+.ff-adj .form-check{ margin:0; min-height:1.55rem; display:flex; align-items:center; gap:.5rem; padding:0; }
+.ff-adj .form-check-input{ margin:0; flex:0 0 auto; }
+.ff-adj .form-check-label{ font-weight:500; }
+.ff-adj .est{ font-size:.76rem; color:var(--ink-3); margin-top:.1rem; }
+.ff-adj .est .ok{ color:var(--ok); }
+.ff-adj .est .falta{ color:var(--warn); }
+.ff-adj .subir{ margin-top:.35rem; }
+.ff-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -112,7 +127,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 {% if cliente %}
 <div class="row g-4" id="ff-fila">
 <div class="col-xl-7" id="ff-col-form">
-<form method="post" id="form-factura" data-previa="{% url 'gestion:previa_factura' %}">
+<form method="post" id="form-factura" enctype="multipart/form-data"
+      data-previa="{% url 'gestion:previa_factura' %}">
     {% csrf_token %}
     <input type="hidden" name="cliente" value="{{ cliente.pk }}">
     {% if factura %}<input type="hidden" name="factura" value="{{ factura.pk }}">{% endif %}
@@ -226,10 +242,81 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             <div class="card shadow mb-4">
                 <div class="card-body">
                     <div class="ff-paso">4 · Copiar al cliente</div>
-                    <p class="text-muted small">Lo que se adjunta cuando se envíe. Se puede cambiar después desde la factura.</p>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_factura" id="copiar_factura" value="1" {% if datos.copiar_factura %}checked{% endif %}><label class="form-check-label" for="copiar_factura">Factura <span class="text-muted small">(la electrónica si ya se subió; si no, esta)</span></label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_xml" id="copiar_xml" value="1" {% if datos.copiar_xml %}checked{% endif %}><label class="form-check-label" for="copiar_xml">XML</label></div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="copiar_actas" id="copiar_actas" value="1" {% if datos.copiar_actas %}checked{% endif %}><label class="form-check-label" for="copiar_actas">O.T.S. <span class="text-muted small">(las actas de servicio firmadas)</span></label></div>
+                    <p class="text-muted small">Lo que se adjunta cuando se envíe, en este orden. Se puede cambiar después desde la factura.</p>
+                    {# El orden lo pidió la clienta: OC, pedido, factura electrónica, XML, órdenes de servicio, básculas y otros. #}
+                    <ol class="ff-adj">
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_orden_compra" id="copiar_orden_compra" value="1" {% if datos.copiar_orden_compra %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_orden_compra">Orden de compra</label>
+                                </div>
+                                <div class="est">{% if factura.archivo_orden_compra %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.archivo_orden_compra.name|cut:"facturas/orden_compra/" }}</span> · súbela de nuevo para cambiarla{% else %}<span class="falta">no está en el sistema</span> · súbela aquí{% endif %}</div>
+                                <div class="subir"><input type="file" name="archivo_orden_compra" class="form-control form-control-sm"></div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_orden_pedido" id="copiar_orden_pedido" value="1" {% if datos.copiar_orden_pedido %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_orden_pedido">Orden de pedido</label>
+                                </div>
+                                <div class="est">{% if factura.archivo_orden_pedido %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.archivo_orden_pedido.name|cut:"facturas/orden_pedido/" }}</span> · súbela de nuevo para cambiarla{% else %}<span class="falta">no está en el sistema</span> · súbela aquí{% endif %}</div>
+                                <div class="subir"><input type="file" name="archivo_orden_pedido" class="form-control form-control-sm"></div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_factura" id="copiar_factura" value="1" {% if datos.copiar_factura %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_factura">Factura electrónica de venta</label>
+                                </div>
+                                <div class="est">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i>cargada</span>{% else %}<span class="falta">aún no está cargada</span> · se sube en la factura ya emitida{% endif %}</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_xml" id="copiar_xml" value="1" {% if datos.copiar_xml %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_xml">XML</label>
+                                </div>
+                                <div class="est">{% if factura.xml %}<span class="ok"><i class="bi bi-check2 me-1"></i>cargado</span>{% else %}<span class="falta">aún no está cargado</span> · se sube en la factura ya emitida{% endif %}</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_actas" id="copiar_actas" value="1" {% if datos.copiar_actas %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_actas">Órdenes de servicio</label>
+                                </div>
+                                <div class="est">las actas firmadas de las órdenes de esta factura</div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_basculas" id="copiar_basculas" value="1" {% if datos.copiar_basculas %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_basculas">Básculas</label>
+                                </div>
+                                <div class="est"><span id="ff-cuenta-basculas">—</span> ·
+                                    <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="ff-elegir-basculas"
+                                            data-bs-toggle="modal" data-bs-target="#fb-modal">elegir cuáles</button></div>
+                            </div>
+                        </li>
+                        <li>
+                            <div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="copiar_otros" id="copiar_otros" value="1" {% if datos.copiar_otros %}checked{% endif %}>
+                                    <label class="form-check-label" for="copiar_otros">Otros</label>
+                                </div>
+                                <div class="est">{% if factura.adjuntos.all %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.adjuntos.all|length }} archivo{{ factura.adjuntos.all|length|pluralize }}</span> · {% endif %}lo que no esté en el sistema, súbelo desde tu computador</div>
+                                <div class="subir"><input type="file" name="otros_archivos" class="form-control form-control-sm" multiple></div>
+                            </div>
+                        </li>
+                    </ol>
+                    {# Las básculas se guardan al revés: aquí van las que NO se envían. #}
+                    <input type="hidden" name="basculas_excluidas" id="ff-basculas-excluidas"
+                           value="{{ datos.basculas_excluidas|default:'' }}">
                 </div>
             </div>
         </div>
@@ -285,14 +372,14 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="fb-titulo"><i class="bi bi-speedometer2 me-1"></i>Enviar básculas
-                    <small>Los tiquetes de las órdenes de esta factura</small>
+                <h5 class="modal-title" id="fb-titulo"><i class="bi bi-speedometer2 me-1"></i><span id="fb-tit">Enviar básculas</span>
+                    <small id="fb-sub">Los tiquetes de las órdenes de esta factura</small>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body p-3">
                 <div class="d-flex justify-content-between align-items-center mb-2" id="fb-cab" hidden>
-                    <span class="text-muted small">Se le envían a <span class="mono" id="fb-dest">—</span></span>
+                    <span class="text-muted small"><span id="fb-dest-que">Se le envían a</span> <span class="mono" id="fb-dest">—</span></span>
                     <button type="button" class="btn btn-link btn-sm p-0" id="fb-todas">Marcar todas</button>
                 </div>
                 <div class="fb-lista" id="fb-lista"></div>
@@ -303,8 +390,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                 <span class="text-muted small" id="fb-cuenta">—</span>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="fb-listo" data-bs-dismiss="modal" hidden>
+                        <i class="bi bi-check2 me-1"></i>Listo
+                    </button>
                     <button type="button" class="btn btn-success" id="fb-enviar" disabled>
-                        <i class="bi bi-send-fill me-1"></i>Enviar
+                        <i class="bi bi-send-fill me-1"></i>Enviar ahora
                     </button>
                 </div>
             </div>
@@ -361,6 +451,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             if (c.checked) { n += 1; total += numero(precio.value); }
         });
         document.getElementById('ff-n').textContent = n;
+        if (typeof pintarCuentaBasculas === 'function') pintarCuentaBasculas();
         document.getElementById('ff-total').textContent = Math.round(total).toLocaleString('es-CO');
     }
     form.addEventListener('change', function (e) {
@@ -393,13 +484,24 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     var marco = document.getElementById('ff-previa');
     var estado = document.getElementById('ff-previa-estado');
     var temporizador = null, pendiente = null;
+    // Los campos de archivo se quedan fuera: la vista previa no los usa y
+    // subirlos en cada tecla haría lentísimo el formulario.
+    function datosPrevia() {
+        var datos = new FormData();
+        form.querySelectorAll('input, select, textarea').forEach(function (el) {
+            if (!el.name || el.disabled || el.type === 'file') return;
+            if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+            datos.append(el.name, el.value);
+        });
+        return datos;
+    }
     function pedirPrevia() {
         if (!marco) return;
         estado.textContent = 'actualizando…';
         if (pendiente) pendiente.abort();
         pendiente = new AbortController();
         fetch(form.dataset.previa, {
-            method: 'POST', body: new FormData(form), credentials: 'same-origin',
+            method: 'POST', body: datosPrevia(), credentials: 'same-origin',
             headers: { 'X-Requested-With': 'fetch' }, signal: pendiente.signal
         }).then(function (r) { return r.text(); })
           .then(function (html) { marco.srcdoc = html; estado.textContent = 'al día'; })
@@ -443,8 +545,40 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     var fbCuenta = document.getElementById('fb-cuenta');
     var fbTodas = document.getElementById('fb-todas');
 
+    var fbListo = document.getElementById('fb-listo');
+    var campoExcluidas = document.getElementById('ff-basculas-excluidas');
+    var cuentaBasculas = document.getElementById('ff-cuenta-basculas');
+
     function fbMarcadas() {
         return Array.prototype.slice.call(fbLista.querySelectorAll('input:checked'));
+    }
+    // Se guardan las EXCLUIDAS: así una orden que se marque después entra sola.
+    function excluidas() {
+        return (campoExcluidas.value || '').split(',').filter(Boolean);
+    }
+    function conTiquete() {
+        var pks = [];
+        form.querySelectorAll('.ff-check:checked').forEach(function (c) {
+            if (c.closest('tr').querySelector('.num').dataset.bascula === '1') pks.push(c.value);
+        });
+        return pks;
+    }
+    function pintarCuentaBasculas() {
+        if (!cuentaBasculas) return;
+        var con = conTiquete(), fuera = excluidas();
+        var n = con.filter(function (pk) { return fuera.indexOf(pk) === -1; }).length;
+        cuentaBasculas.textContent = con.length
+            ? n + ' de ' + con.length + ' tiquete' + (con.length === 1 ? '' : 's')
+            : 'ninguna orden marcada tiene tiquete';
+    }
+    function guardarEleccion() {
+        var mostradas = Array.prototype.slice.call(fbLista.querySelectorAll('input'));
+        var vistas = mostradas.map(function (c) { return c.value; });
+        // Se conservan las excluidas que el popup no está mostrando ahora.
+        var fuera = excluidas().filter(function (pk) { return vistas.indexOf(pk) === -1; });
+        mostradas.forEach(function (c) { if (!c.checked) fuera.push(c.value); });
+        campoExcluidas.value = fuera.join(',');
+        pintarCuentaBasculas();
     }
     function fbPintarCuenta() {
         var n = fbMarcadas().length;
@@ -454,7 +588,17 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         var total = fbLista.querySelectorAll('input').length;
         fbTodas.textContent = (n === total && total) ? 'Desmarcar todas' : 'Marcar todas';
     }
-    fbModal.addEventListener('show.bs.modal', function () {
+    fbModal.addEventListener('show.bs.modal', function (ev) {
+        var enviar = !(ev.relatedTarget && ev.relatedTarget.id === 'ff-elegir-basculas');
+        document.getElementById('fb-tit').textContent = enviar ? 'Enviar básculas' : 'Elegir básculas';
+        document.getElementById('fb-sub').textContent = enviar
+            ? 'Se le envían ahora, aparte de la factura'
+            : 'Cuáles van cuando se le envíe la factura';
+        fbEnviar.hidden = !enviar;
+        fbListo.hidden = enviar;
+        document.getElementById('fb-dest-que').textContent = enviar ? 'Se le envían a'
+                                                                   : 'Le llegarán a';
+        var fuera = excluidas();
         // Las órdenes marcadas de la factura, separadas por si traen tiquete.
         var conTiquete = [], sinTiquete = [];
         form.querySelectorAll('.ff-check:checked').forEach(function (c) {
@@ -474,10 +618,10 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         conTiquete.forEach(function (d) {
             var fila = document.createElement('label');
             fila.className = 'fb-item';
-            fila.innerHTML = '<input type="checkbox" class="form-check-input" name="basculas" checked'
-                + ' form="form-factura" value="' + d.pk + '">'
+            fila.innerHTML = '<input type="checkbox" class="form-check-input" value="' + d.pk + '">'
                 + '<span class="num"></span><span class="archivo"></span>'
                 + '<span class="meta"></span>';
+            fila.querySelector('input').checked = fuera.indexOf(d.pk) === -1;
             fila.querySelector('.num').textContent = d.orden;
             var archivo = fila.querySelector('.archivo');
             if (d.url) {
@@ -507,14 +651,16 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         document.getElementById('fb-dest').textContent = (campoCorreo.value || '').trim() || '—';
         fbPintarCuenta();
     });
-    fbLista.addEventListener('change', fbPintarCuenta);
+    fbLista.addEventListener('change', function () { fbPintarCuenta(); guardarEleccion(); });
     fbTodas.addEventListener('click', function () {
         var casillas = Array.prototype.slice.call(fbLista.querySelectorAll('input'));
         var todas = casillas.every(function (c) { return c.checked; });
         casillas.forEach(function (c) { c.checked = !todas; });
         fbPintarCuenta();
+        guardarEleccion();
     });
     fbEnviar.addEventListener('click', function () {
+        guardarEleccion();
         if (!(campoCorreo.value || '').trim()) {
             alert('La factura no tiene correo de facturación: escríbelo antes de enviar.');
             return;
@@ -533,6 +679,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     modal.addEventListener('show.bs.modal', function () {
         document.getElementById('ff-modal-previa').srcdoc = marco.srcdoc || '';
     });
+    pintarCuentaBasculas();
     escalar();
     pedirPrevia();
 })();

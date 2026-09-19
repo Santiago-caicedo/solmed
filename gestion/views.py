@@ -34,7 +34,7 @@ from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
-from .models import CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
+from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -6637,17 +6637,20 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
                 'observaciones_internas': factura.observaciones_internas,
                 'correo_facturacion': factura.correo_facturacion,
-                'copiar_factura': factura.copiar_factura, 'copiar_xml': factura.copiar_xml,
-                'copiar_actas': factura.copiar_actas,
                 'marcadas': {l.orden_id for l in factura.lineas.all()},
+                # Las básculas se guardan al revés: se listan las EXCLUIDAS, así
+                # una orden que se marque después entra sola.
+                'basculas_excluidas': ','.join(
+                    str(l.orden_id) for l in factura.lineas.all() if not l.copiar_bascula),
             }
+            datos.update({c: getattr(factura, c) for c in COPIAR_FACTURA})
         elif cliente:
             from django.db.models import Max
             datos = {'correo_facturacion': _correo_facturacion_de(cliente),
                      'numero': (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1,
                      'fecha_emision': timezone.localdate(),
-                     'copiar_factura': True, 'copiar_xml': True, 'copiar_actas': False,
-                     'marcadas': set()}
+                     'marcadas': set(), 'basculas_excluidas': ''}
+            datos.update({c: Factura._meta.get_field(c).default for c in COPIAR_FACTURA})
         return self._render(request, factura, cliente, datos)
 
     def post(self, request, pk=None):
@@ -6661,11 +6664,11 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
             'orden_compra': (request.POST.get('orden_compra') or '').strip(),
             'correo_facturacion': (request.POST.get('correo_facturacion') or '').strip(),
-            'copiar_factura': bool(request.POST.get('copiar_factura')),
-            'copiar_xml': bool(request.POST.get('copiar_xml')),
-            'copiar_actas': bool(request.POST.get('copiar_actas')),
             'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},
+            'basculas_excluidas': (request.POST.get('basculas_excluidas') or '').strip(),
         }
+        datos.update({c: bool(request.POST.get(c)) for c in COPIAR_FACTURA})
+        excluidas = {int(x) for x in datos['basculas_excluidas'].split(',') if x.strip().isdigit()}
         errores = []
         if cliente is None:
             errores.append("Elige el cliente.")
@@ -6726,22 +6729,30 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             if factura is None:
                 factura = Factura(cliente=cliente, creada_por=request.user)
             for campo in ('descripcion', 'observaciones_internas', 'orden_compra',
-                          'correo_facturacion', 'copiar_factura', 'copiar_xml', 'copiar_actas'):
+                          'correo_facturacion') + COPIAR_FACTURA:
                 setattr(factura, campo, datos[campo])
             factura.numero = numero_factura
             factura.fecha_emision = fecha_emision
+            # Los dos documentos del cliente se suben desde el computador.
+            for campo, archivo in (('archivo_orden_compra', request.FILES.get('archivo_orden_compra')),
+                                   ('archivo_orden_pedido', request.FILES.get('archivo_orden_pedido'))):
+                if archivo:
+                    setattr(factura, campo, archivo)
             factura.save()
             factura.lineas.exclude(orden_id__in=[n for n, _, _ in lineas]).delete()
             for numero, precio, observaciones in lineas:
                 LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=numero,
-                    defaults={'precio': precio, 'observaciones': observaciones})
+                    defaults={'precio': precio, 'observaciones': observaciones,
+                              'copiar_bascula': numero not in excluidas})
+            # «Otros»: lo que no está en el sistema se sube aquí mismo.
+            for archivo in request.FILES.getlist('otros_archivos'):
+                AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
+                                              archivo=archivo)
         # Los botones de prefactura guardan y envían en un solo paso: el PDF
         # ya se vio en la vista previa mientras se armaba la factura.
         if 'submit_basculas' in request.POST:
-            elegidas = {int(x) for x in request.POST.getlist('basculas') if str(x).isdigit()}
-            ordenes = [l.orden for l in factura.lineas.select_related('orden')
-                       if l.orden_id in elegidas and l.orden.bascula_adjunto]
+            ordenes = _basculas_elegidas(factura)
             messages.success(request, f"Factura {factura.codigo} guardada con "
                                       f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
             if not ordenes:
@@ -6775,11 +6786,14 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
     def get(self, request, pk):
         factura = get_object_or_404(Factura.objects.select_related('cliente', 'creada_por'), pk=pk)
         lineas = _lineas_con_detalle(factura)
+        copiar = _copiar_al_cliente(factura)
         return render(request, self.template_name, {
             'factura': factura,
             'lineas': lineas,
             'actas': list(factura.actas_firmadas()),
             'adjuntos': list(factura.adjuntos.all()),
+            'copiar': copiar,
+            'algo_marcado': any(a['marcado'] for a in copiar),
             'envios': EnvioCorreo.objects.filter(
                 cliente=factura.cliente, asunto__startswith=f"Factura {factura.codigo}")
                 .select_related('enviado_por')[:10],
@@ -6800,10 +6814,20 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             return volver
 
         if 'submit_copiar' in request.POST:
-            factura.copiar_factura = bool(request.POST.get('copiar_factura'))
-            factura.copiar_xml = bool(request.POST.get('copiar_xml'))
-            factura.copiar_actas = bool(request.POST.get('copiar_actas'))
-            factura.save(update_fields=['copiar_factura', 'copiar_xml', 'copiar_actas'])
+            for campo in COPIAR_FACTURA:
+                setattr(factura, campo, bool(request.POST.get(campo)))
+            campos = list(COPIAR_FACTURA)
+            # Los documentos del cliente que no estén en el sistema se suben
+            # desde el computador, en la misma lista.
+            for campo in ('archivo_orden_compra', 'archivo_orden_pedido'):
+                archivo = request.FILES.get(campo)
+                if archivo:
+                    setattr(factura, campo, archivo)
+                    campos.append(campo)
+            factura.save(update_fields=campos)
+            for archivo in request.FILES.getlist('otros_archivos'):
+                AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
+                                              archivo=archivo)
             messages.success(request, "Se guardó qué se le copia al cliente.")
             return volver
 
@@ -6845,17 +6869,22 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             messages.error(request, "Antes de enviar, revisa la vista previa del PDF y marca "
                                     "«Revisé el PDF y está correcto».")
             return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
-        _enviar_factura(request, factura, incluir={
-            'factura': factura.copiar_factura, 'xml': factura.copiar_xml,
-            'actas': factura.copiar_actas})
+        _enviar_factura(request, factura,
+                        incluir={clave: getattr(factura, f'copiar_{clave}')
+                                 for clave, _ in ADJUNTOS_FACTURA},
+                        basculas=_basculas_elegidas(factura))
         return redirect('gestion:detalle_factura', pk=factura.pk)
 
 
 def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     """
-    Envía al correo de facturación lo que pida `incluir`
-    ({'factura','xml','actas','basculas'}) y lo registra en el Centro de
-    correos. Devuelve True si el correo salió.
+    Envía al correo de facturación lo que pida `incluir` y lo registra en el
+    Centro de correos. Devuelve True si el correo salió.
+
+    Las claves de `incluir` van en el orden en que se adjuntan, que es el que
+    pidió la clienta (sep-2026): `orden_compra`, `orden_pedido`, `factura`
+    (la electrónica), `xml`, `actas` (las órdenes de servicio), `basculas` y
+    `otros`.
 
     Con `prefactura=True` va el PDF de ESTE sistema (aunque ya exista el
     oficial), el asunto dice «Prefactura» y la factura NO queda marcada como
@@ -6868,8 +6897,8 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
-    solo_basculas = bool(incluir.get('basculas')) and not (
-        incluir.get('factura') or incluir.get('xml') or incluir.get('actas'))
+    solo_basculas = bool(incluir.get('basculas')) and not any(
+        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k != 'basculas')
     etiqueta = ('Soportes de báscula' if solo_basculas
                 else 'Prefactura' if prefactura else 'Factura')
     correos = _lista_correos(factura.correo_facturacion)
@@ -6879,14 +6908,38 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
         return False
 
     adjuntos, avisos = [], []
-    if incluir.get('factura'):
-        if factura.pdf_oficial and not prefactura:
-            with factura.pdf_oficial.open('rb') as fh:
-                adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.pdf",
-                                 fh.read(), 'application/pdf'))
+
+    def adjuntar(campo, nombre):
+        """Adjunta un archivo guardado conservando su extensión."""
+        extension = os.path.splitext(campo.name)[1] or ''
+        with campo.open('rb') as fh:
+            adjuntos.append((f"{nombre}{extension}", fh.read(),
+                             mimetypes.guess_type(campo.name)[0] or 'application/octet-stream'))
+
+    # 1 · Orden de compra   2 · Orden de pedido   (documentos del cliente)
+    if incluir.get('orden_compra'):
+        if factura.archivo_orden_compra:
+            adjuntar(factura.archivo_orden_compra,
+                     f"Orden_compra_{factura.orden_compra or factura.codigo}")
         else:
+            avisos.append("no se adjuntó la orden de compra porque aún no está cargada")
+    if incluir.get('orden_pedido'):
+        if factura.archivo_orden_pedido:
+            adjuntar(factura.archivo_orden_pedido, f"Orden_pedido_{factura.codigo}")
+        else:
+            avisos.append("no se adjuntó la orden de pedido porque aún no está cargada")
+    # 3 · Factura electrónica de venta. La interna solo va como PREFACTURA:
+    # decisión de la clienta (sep-2026), esta casilla es la electrónica.
+    if incluir.get('factura'):
+        if prefactura:
             adjuntos.append((f"{etiqueta}_{factura.codigo}.pdf", _pdf_factura(factura, request),
                              'application/pdf'))
+        elif factura.pdf_oficial:
+            adjuntar(factura.pdf_oficial,
+                     f"Factura_{factura.numero_externo or factura.codigo}")
+        else:
+            avisos.append("no se adjuntó la factura electrónica porque aún no está cargada")
+    # 4 · XML
     if incluir.get('xml'):
         if factura.xml:
             with factura.xml.open('rb') as fh:
@@ -6894,6 +6947,7 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
                                  fh.read(), 'application/xml'))
         else:
             avisos.append("no se adjuntó el XML porque aún no está cargado")
+    # 5 · Órdenes de servicio (las actas firmadas)
     if incluir.get('actas'):
         actas = list(factura.actas_firmadas())
         for acta in actas:
@@ -6901,17 +6955,25 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
                              _pdf_manifiesto(acta), 'application/pdf'))
         if not actas:
             avisos.append("ninguna de sus órdenes tiene acta firmada todavía")
+    # 6 · Básculas (solo las elegidas en el popup)
     if incluir.get('basculas'):
-        for orden in basculas:
-            if not orden.bascula_adjunto:
-                continue
-            extension = os.path.splitext(orden.bascula_adjunto.name)[1] or '.pdf'
-            with orden.bascula_adjunto.open('rb') as fh:
-                adjuntos.append((f"Bascula_orden_{orden.numero_orden}{extension}", fh.read(),
-                                 mimetypes.guess_type(orden.bascula_adjunto.name)[0]
-                                 or 'application/octet-stream'))
+        con_tiquete = [o for o in basculas if o.bascula_adjunto]
+        for orden in con_tiquete:
+            adjuntar(orden.bascula_adjunto, f"Bascula_orden_{orden.numero_orden}")
+        if not con_tiquete:
+            avisos.append("ninguna de las órdenes elegidas tiene tiquete de báscula cargado")
+    # 7 · Otros: lo que la oficina subió a mano desde su computador
+    if incluir.get('otros'):
+        otros = list(factura.adjuntos.all())
+        for otro in otros:
+            adjuntar(otro.archivo, os.path.splitext(otro.nombre)[0] or otro.archivo.name)
+        if not otros:
+            avisos.append("no hay otros adjuntos cargados")
     if not adjuntos:
-        messages.error(request, "No hay nada que enviar: marca qué se le copia al cliente.")
+        # Con avisos, el porqué: «marcaste la factura electrónica pero no está cargada».
+        messages.error(request, "No hay nada que enviar: "
+                       + ('; '.join(avisos) + "." if avisos
+                          else "marca qué se le copia al cliente."))
         return False
     if sum(len(a[1]) for a in adjuntos) > PESO_MAX_ADJUNTOS:
         messages.error(request, "Los adjuntos pesan más de lo que acepta el correo. "
@@ -6977,6 +7039,59 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     else:
         messages.success(request, texto)
     return True
+
+
+def _basculas_elegidas(factura):
+    """Las órdenes de la factura cuyo tiquete de báscula se eligió enviar."""
+    return [l.orden for l in factura.lineas.select_related('orden')
+            if l.copiar_bascula and l.orden.bascula_adjunto]
+
+
+COPIAR_FACTURA = tuple(f'copiar_{clave}' for clave, _ in ADJUNTOS_FACTURA)
+
+
+def _copiar_al_cliente(factura):
+    """
+    Los siete adjuntos EN SU ORDEN, cada uno con si está marcado, si el
+    archivo ya está en el sistema y qué se adjuntaría. Lo usan el expediente
+    y el formulario para no repetir (ni desordenar) la lista.
+    """
+    lineas = list(factura.lineas.select_related('orden'))
+    con_tiquete = [l for l in lineas if l.orden.bascula_adjunto]
+    elegidas = [l for l in con_tiquete if l.copiar_bascula]
+    actas = list(factura.actas_firmadas())
+    otros = list(factura.adjuntos.all())
+    estado = {
+        'orden_compra': (factura.copiar_orden_compra, bool(factura.archivo_orden_compra),
+                         _nombre_archivo(factura.archivo_orden_compra),
+                         "todavía no está cargada"),
+        'orden_pedido': (factura.copiar_orden_pedido, bool(factura.archivo_orden_pedido),
+                         _nombre_archivo(factura.archivo_orden_pedido),
+                         "todavía no está cargada"),
+        'factura': (factura.copiar_factura, bool(factura.pdf_oficial),
+                    _nombre_archivo(factura.pdf_oficial),
+                    "todavía no se ha cargado la factura electrónica"),
+        'xml': (factura.copiar_xml, bool(factura.xml), _nombre_archivo(factura.xml),
+                "todavía no está cargado"),
+        'actas': (factura.copiar_actas, bool(actas),
+                  f"{len(actas)} de {len(lineas)} órdenes",
+                  "ninguna orden tiene acta firmada todavía"),
+        'basculas': (factura.copiar_basculas, bool(elegidas),
+                     f"{len(elegidas)} de {len(con_tiquete)} tiquetes",
+                     "ninguna orden con tiquete está marcada"),
+        'otros': (factura.copiar_otros, bool(otros),
+                  f"{len(otros)} archivo{'s' if len(otros) != 1 else ''}",
+                  "no hay archivos cargados"),
+    }
+    return [{'clave': clave, 'etiqueta': etiqueta, 'marcado': estado[clave][0],
+             'listo': estado[clave][1], 'detalle': estado[clave][2],
+             'falta': estado[clave][3]}
+            for clave, etiqueta in ADJUNTOS_FACTURA]
+
+
+def _nombre_archivo(campo):
+    """El nombre del archivo subido, sin las carpetas."""
+    return os.path.basename(campo.name) if campo else ''
 
 
 def _lineas_con_detalle(factura):
