@@ -52,7 +52,23 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-modal .modal-header{ background:var(--g-900); color:#fff; border:0; }
 .ff-modal .modal-header .btn-close{ filter:invert(1) grayscale(1); opacity:.7; }
 .ff-modal .modal-body{ padding:0; background:var(--panel-2); }
+.ff-modal .modal-title{ font-size:1.05rem; }
+.ff-modal .modal-title small{ display:block; font-size:.78rem; font-weight:400;
+    color:rgba(255,255,255,.7); margin-top:.15rem; }
 .ff-modal iframe{ display:block; width:100%; height:1100px; border:0; background:#fff; }
+/* Popup de los tiquetes de báscula */
+.fb-lista{ display:flex; flex-direction:column; }
+.fb-item{ display:grid; grid-template-columns:1.5rem 5rem 1fr auto; align-items:center; gap:.75rem;
+    min-height:48px; padding:.5rem .25rem; border-bottom:1px solid var(--line-2); cursor:pointer; margin:0; }
+.fb-item:last-child{ border-bottom:0; }
+.fb-item:hover{ background:var(--panel-2); }
+.fb-item:has(input:checked){ background:var(--brand-tint); }
+.fb-item .num{ font-family:var(--mono); font-weight:600; }
+.fb-item .archivo{ font-size:.82rem; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fb-item .meta{ font-family:var(--mono); font-size:.74rem; color:var(--ink-3); white-space:nowrap; }
+.fb-falta{ margin-top:.75rem; font-size:.82rem; color:var(--warn); background:var(--warn-tint);
+    border:1px solid var(--warn-line); border-radius:var(--r-sm); padding:.5rem .75rem; }
+.fb-vacio{ text-align:center; color:var(--ink-2); padding:1.5rem .5rem; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -121,7 +137,12 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                             <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
                                        {% if f.orden.pk in datos.marcadas %}checked{% endif %}
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
-                            <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
+                            <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
+                                data-bascula-nombre="{{ f.bascula_nombre }}"
+                                data-bascula-url="{% if f.bascula %}{{ f.bascula.url }}{% endif %}"
+                                data-fecha="{{ f.servicio|date:'d/m/Y'|default:'—' }}"
+                                data-sede="{{ f.sede|default:'' }}">
+                                <a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
                                 <span class="sub">{{ f.servicio|date:"d/m/Y"|default:"—" }}{% if f.placa %} · {{ f.placa }}{% endif %}
                                     {% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</span></td>
                             <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
@@ -231,6 +252,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     onclick="return confirm('Se guarda la factura y se le envía la PREFACTURA con las actas de las órdenes. ¿Seguir?');">
                 <i class="bi bi-paperclip me-1"></i>Enviar con actas de las órdenes
             </button>
+            {# Los tiquetes van aparte: se eligen uno por uno en su propio popup. #}
+            <button type="button" class="btn btn-outline-primary" id="ff-basculas"
+                    data-bs-toggle="modal" data-bs-target="#fb-modal">
+                <i class="bi bi-speedometer2 me-1"></i>Enviar básculas
+            </button>
             <button name="submit_guardar" value="1" class="btn btn-success" id="ff-enviar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar factura{% endif %}</button>
         </div>
     </div>
@@ -252,6 +278,38 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         </div>
     </div>
 </div>
+</div>
+
+{# Popup de los tiquetes de báscula: se eligen cuáles mandarle al cliente. #}
+<div class="modal fade ff-modal" id="fb-modal" tabindex="-1" aria-labelledby="fb-titulo">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fb-titulo"><i class="bi bi-speedometer2 me-1"></i>Enviar básculas
+                    <small>Los tiquetes de las órdenes de esta factura</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2" id="fb-cab" hidden>
+                    <span class="text-muted small">Se le envían a <span class="mono" id="fb-dest">—</span></span>
+                    <button type="button" class="btn btn-link btn-sm p-0" id="fb-todas">Marcar todas</button>
+                </div>
+                <div class="fb-lista" id="fb-lista"></div>
+                <div class="fb-falta" id="fb-falta" hidden></div>
+                <div class="fb-vacio" id="fb-vacio" hidden></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <span class="text-muted small" id="fb-cuenta">—</span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-success" id="fb-enviar" disabled>
+                        <i class="bi bi-send-fill me-1"></i>Enviar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 {# El popup: la factura completa a tamaño real, con lo último marcado. Abre con data-bs-toggle. #}
@@ -308,6 +366,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     form.addEventListener('change', function (e) {
         if (e.target.classList.contains('ff-check')) {
             pintar();
+            pintarEnvio();
             if (e.target.checked) { var p = e.target.closest('tr').querySelector('.ff-precio'); p.focus(); }
         }
     });
@@ -358,6 +417,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                         document.getElementById('ff-prefactura-actas')];
     function pintarEnvio() {
         var correo = (campoCorreo.value || '').trim();
+        var basculas = document.getElementById('ff-basculas');
+        if (basculas) basculas.disabled = !(correo && form.querySelectorAll('.ff-check:checked').length);
         destino.textContent = correo || '—';
         nota.innerHTML = correo
             ? 'La prefactura se le env\u00eda a <span class="dest">' + correo + '</span>'
@@ -375,6 +436,97 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         hoja.style.height = Math.round(1056 * k) + 'px';
     }
     window.addEventListener('resize', escalar);
+    // --- Popup de básculas: se arma con las órdenes marcadas en la tabla ---
+    var fbModal = document.getElementById('fb-modal');
+    var fbLista = document.getElementById('fb-lista');
+    var fbEnviar = document.getElementById('fb-enviar');
+    var fbCuenta = document.getElementById('fb-cuenta');
+    var fbTodas = document.getElementById('fb-todas');
+
+    function fbMarcadas() {
+        return Array.prototype.slice.call(fbLista.querySelectorAll('input:checked'));
+    }
+    function fbPintarCuenta() {
+        var n = fbMarcadas().length;
+        fbCuenta.textContent = n ? (n === 1 ? '1 tiquete marcado' : n + ' tiquetes marcados')
+                                 : 'Ninguno marcado';
+        fbEnviar.disabled = !n;
+        var total = fbLista.querySelectorAll('input').length;
+        fbTodas.textContent = (n === total && total) ? 'Desmarcar todas' : 'Marcar todas';
+    }
+    fbModal.addEventListener('show.bs.modal', function () {
+        // Las órdenes marcadas de la factura, separadas por si traen tiquete.
+        var conTiquete = [], sinTiquete = [];
+        form.querySelectorAll('.ff-check:checked').forEach(function (c) {
+            var celda = c.closest('tr').querySelector('.num');
+            var dato = {
+                pk: c.value,
+                orden: celda.querySelector('a').textContent.trim(),
+                fecha: celda.dataset.fecha || '',
+                sede: celda.dataset.sede || '',
+                nombre: celda.dataset.basculaNombre || '',
+                url: celda.dataset.basculaUrl || ''
+            };
+            (celda.dataset.bascula === '1' ? conTiquete : sinTiquete).push(dato);
+        });
+
+        fbLista.innerHTML = '';
+        conTiquete.forEach(function (d) {
+            var fila = document.createElement('label');
+            fila.className = 'fb-item';
+            fila.innerHTML = '<input type="checkbox" class="form-check-input" name="basculas" checked'
+                + ' form="form-factura" value="' + d.pk + '">'
+                + '<span class="num"></span><span class="archivo"></span>'
+                + '<span class="meta"></span>';
+            fila.querySelector('.num').textContent = d.orden;
+            var archivo = fila.querySelector('.archivo');
+            if (d.url) {
+                var enlace = document.createElement('a');
+                enlace.href = d.url; enlace.target = '_blank'; enlace.rel = 'noopener';
+                enlace.textContent = d.nombre || 'ver el tiquete';
+                enlace.addEventListener('click', function (e) { e.stopPropagation(); });
+                archivo.appendChild(enlace);
+            } else { archivo.textContent = d.nombre; }
+            fila.querySelector('.meta').textContent = [d.fecha, d.sede].filter(Boolean).join(' · ');
+            fbLista.appendChild(fila);
+        });
+
+        var falta = document.getElementById('fb-falta');
+        falta.hidden = sinTiquete.length === 0;
+        if (sinTiquete.length) {
+            falta.textContent = (sinTiquete.length === 1 ? 'La orden ' : 'Las órdenes ')
+                + sinTiquete.map(function (d) { return d.orden; }).join(', ')
+                + (sinTiquete.length === 1 ? ' no tiene tiquete de báscula cargado.'
+                                           : ' no tienen tiquete de báscula cargado.');
+        }
+        var vacio = document.getElementById('fb-vacio');
+        vacio.hidden = conTiquete.length > 0;
+        vacio.textContent = conTiquete.length ? ''
+            : 'Ninguna de las órdenes marcadas tiene tiquete de báscula cargado.';
+        document.getElementById('fb-cab').hidden = conTiquete.length === 0;
+        document.getElementById('fb-dest').textContent = (campoCorreo.value || '').trim() || '—';
+        fbPintarCuenta();
+    });
+    fbLista.addEventListener('change', fbPintarCuenta);
+    fbTodas.addEventListener('click', function () {
+        var casillas = Array.prototype.slice.call(fbLista.querySelectorAll('input'));
+        var todas = casillas.every(function (c) { return c.checked; });
+        casillas.forEach(function (c) { c.checked = !todas; });
+        fbPintarCuenta();
+    });
+    fbEnviar.addEventListener('click', function () {
+        if (!(campoCorreo.value || '').trim()) {
+            alert('La factura no tiene correo de facturación: escríbelo antes de enviar.');
+            return;
+        }
+        if (!confirm('Se guarda la factura y se le envían los tiquetes marcados al cliente. ¿Seguir?')) return;
+        fbEnviar.disabled = true;
+        var oculto = document.createElement('input');
+        oculto.type = 'hidden'; oculto.name = 'submit_basculas'; oculto.value = '1';
+        form.appendChild(oculto);
+        form.submit();
+    });
+
     // «Ampliar»: el popup muestra la misma vista previa a tamaño real (lo último recibido).
     // Bootstrap lo abre por data-bs-toggle; aquí solo se copia el contenido al abrirlo.
     var modal = document.getElementById('ff-modal');

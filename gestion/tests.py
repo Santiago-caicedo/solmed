@@ -2903,6 +2903,63 @@ class FacturacionTests(BaseCRM):
         self.assertIn('F-0077', html)
         self.assertIn(f'{emision:%d-%m-%Y}', html)
 
+    def test_el_boton_de_basculas_envia_solo_los_tiquetes_marcados(self):
+        # La primera orden tiene tiquete; la segunda no.
+        self.una.bascula = 'PESAN'
+        self.una.bascula_adjunto.save('tiquete.pdf', SimpleUploadedFile('tiquete.pdf', b'%PDF-1.4 t'), save=True)
+        mail.outbox.clear()
+
+        respuesta = self._crear(submit_basculas='1', basculas=[self.una.pk, self.otra.pk])
+        factura = Factura.objects.get()
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertEqual(factura.lineas.count(), 2, "primero guarda la factura")
+
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ['facturacion@cliente.co'])
+        self.assertIn('Soportes de báscula', correo.subject)
+        self.assertEqual([a[0] for a in correo.attachments],
+                         [f'Bascula_orden_{self.una.numero_orden}.pdf'],
+                         "solo la orden que tiene tiquete")
+        self.assertEqual(correo.attachments[0][1], b'%PDF-1.4 t')
+        self.assertIn(f'#{self.una.numero_orden}', correo.body)
+        # Es un envío de soportes: no toca el estado de la factura.
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'EMITIDA')
+        self.assertIsNone(factura.enviada_en)
+        self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle,
+                         [f'Bascula_orden_{self.una.numero_orden}.pdf'])
+
+    def test_las_basculas_no_marcadas_no_se_envian(self):
+        for orden in (self.una, self.otra):
+            orden.bascula_adjunto.save(f'tq{orden.pk}.pdf',
+                                       SimpleUploadedFile('t.pdf', b'%PDF-1.4 t'), save=True)
+        mail.outbox.clear()
+        self._crear(submit_basculas='1', basculas=[self.otra.pk])
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments],
+                         [f'Bascula_orden_{self.otra.numero_orden}.pdf'])
+
+    def test_sin_ningun_tiquete_marcado_avisa_y_no_manda_correo(self):
+        mail.outbox.clear()
+        respuesta = self._crear(submit_basculas='1', basculas=[], follow=True)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertTrue(Factura.objects.exists(), "la factura sí queda guardada")
+        self.assertContains(respuesta, 'No marcaste ningún tiquete')
+
+    def test_el_formulario_trae_el_boton_y_el_popup_de_basculas(self):
+        self.una.bascula_adjunto.save('tiquete.pdf', SimpleUploadedFile('t.pdf', b'%PDF'), save=True)
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        contenido = respuesta.content.decode()
+        self.assertContains(respuesta, 'Enviar básculas')
+        self.assertContains(respuesta, 'data-bs-target="#fb-modal"')
+        # Cada orden dice si trae tiquete: con eso el popup se arma sin ir al servidor.
+        filas = {f['orden'].pk: f for f in respuesta.context['filas']}
+        self.assertTrue(filas[self.una.pk]['bascula'])
+        self.assertIsNone(filas[self.otra.pk]['bascula'])
+        self.assertIn('data-bascula="1"', contenido)
+        self.assertIn('data-bascula="0"', contenido)
+        self.assertNotIn('new bootstrap.', contenido)
+
     def test_el_detalle_y_el_pdf(self):
         self._crear()
         factura = Factura.objects.get()
