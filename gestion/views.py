@@ -7080,3 +7080,188 @@ class FacturaPDFView(AdministradorRequiredMixin, View):
             respuesta['X-Frame-Options'] = 'SAMEORIGIN'
         return respuesta
 
+
+def _excel_factura(factura):
+    """
+    La misma factura, en Excel, siguiendo el formato del PDF: logo, cabecera de
+    SOLMED, número en rojo, secciones azules y las mismas columnas. Los precios
+    van como NÚMERO (no como texto) para que la hoja sirva para cuadrar cuentas.
+    """
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as ImagenExcel
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.properties import PageSetupProperties
+
+    AZUL, BANDA, ROJO, GRIS = '2C4D9E', 'EDF1FA', 'C00000', '444444'
+    lineas = _lineas_con_detalle(factura)
+
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = factura.codigo
+    hoja.sheet_view.showGridLines = False
+    hoja.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    hoja.page_setup.fitToWidth = 1
+    hoja.page_setup.fitToHeight = 0
+
+    azul = Side(style='thin', color=AZUL)
+    marco = Border(left=azul, right=azul, top=azul, bottom=azul)
+
+    def escribir(ref, valor, *, negrita=False, color='000000', tam=10, h='left',
+                 formato=None, relleno=None, borde=False, ajuste=False, fusion=None):
+        """Escribe una celda (o un rango fusionado) con el estilo de la factura."""
+        if fusion:
+            hoja.merge_cells(fusion)
+        celda = hoja[ref]
+        celda.value = valor
+        celda.font = Font(name='Calibri', bold=negrita, color=color, size=tam)
+        celda.alignment = Alignment(horizontal=h, vertical='center', wrap_text=ajuste)
+        if formato:
+            celda.number_format = formato
+        # En un rango fusionado el relleno y el borde hay que ponerlos celda por
+        # celda: si no, el color se corta y el marco sale roto.
+        for fila in (hoja[fusion] if fusion else ((celda,),)):
+            for c in fila:
+                if relleno:
+                    c.fill = PatternFill('solid', fgColor=relleno)
+                if borde:
+                    c.border = marco
+        return celda
+
+    def banda(fila, texto):
+        escribir(f'A{fila}', texto, negrita=True, color=AZUL, tam=10, h='center',
+                 relleno=BANDA, borde=True, fusion=f'A{fila}:F{fila}')
+        hoja.row_dimensions[fila].height = 18
+
+    def etiqueta(ref, texto, fusion=None):
+        escribir(ref, texto, negrita=True, color=AZUL, tam=9, borde=True,
+                 ajuste=True, fusion=fusion)
+
+    for columna, ancho in zip('ABCDEF', (14, 13, 44, 15, 14, 18)):
+        hoja.column_dimensions[columna].width = ancho
+
+    # ---------------- Cabecera (la misma del acta GO-F-04) ----------------
+    hoja.merge_cells('A1:B5')
+    logo = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    if os.path.exists(logo):
+        imagen = ImagenExcel(logo)
+        imagen.width = imagen.height = 82
+        hoja.add_image(imagen, 'A1')
+    escribir('C1', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.\nSOLMED S.A.S.\nNIT 830.514.597-2',
+             negrita=True, color=AZUL, tam=10, h='center', ajuste=True, fusion='C1:C5')
+    escribir('D1', 'FACTURA', negrita=True, color=AZUL, tam=9, h='center',
+             relleno=BANDA, borde=True, fusion='D1:F1')
+    escribir('D2', factura.codigo, negrita=True, color=ROJO, tam=18, h='center',
+             borde=True, fusion='D2:F2')
+    for i, (clave, valor) in enumerate((('Documento', 'Factura interna'),
+                                        ('Fecha', factura.fecha_emision),
+                                        ('Electrónica', factura.numero_externo or '—')), start=3):
+        etiqueta(f'D{i}', clave)
+        celda = escribir(f'E{i}', valor, tam=9, borde=True, fusion=f'E{i}:F{i}')
+        if clave == 'Fecha':
+            celda.number_format = 'DD/MM/YYYY'
+    for fila in range(1, 6):
+        hoja.row_dimensions[fila].height = 19
+    hoja.row_dimensions[2].height = 26
+
+    escribir('A6', 'Documento interno para elaborar la factura electrónica · '
+                   'No es una factura de venta',
+             color=AZUL, tam=8, h='center', fusion='A6:F6')
+    hoja.row_dimensions[6].height = 16
+
+    # ---------------- Cliente ----------------
+    fila = 7
+    banda(fila, 'CLIENTE')
+    cliente = factura.cliente
+    direccion = cliente.contab_domicilio_fiscal or ', '.join(
+        x for x in (cliente.direccion, cliente.ciudad) if x)
+    datos = (
+        ('Empresa', cliente.nombre, 'NIT', cliente.identificacion),
+        ('Dirección', direccion or '—', 'Teléfono', cliente.telefono or '—'),
+        ('Correo de facturación', factura.correo_facturacion or '—',
+         'Orden de compra', factura.orden_compra or '—'),
+    )
+    for k1, v1, k2, v2 in datos:
+        fila += 1
+        etiqueta(f'A{fila}', k1, fusion=f'A{fila}:B{fila}')
+        escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True)
+        etiqueta(f'D{fila}', k2)
+        escribir(f'E{fila}', v2, tam=9, borde=True, ajuste=True, fusion=f'E{fila}:F{fila}')
+        hoja.row_dimensions[fila].height = 17
+
+    # ---------------- Órdenes facturadas ----------------
+    fila += 1
+    banda(fila, 'ÓRDENES DE SERVICIO FACTURADAS')
+    fila += 1
+    titulos = (('A', 'Orden', 'center'), ('B', 'Fecha', 'center'), ('C', 'Sede', 'left'),
+               ('D', 'Placa', 'center'), ('E', 'Peso', 'center'), ('F', 'Precio', 'right'))
+    for columna, titulo, donde in titulos:
+        escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=9,
+                 h=donde, relleno=BANDA, borde=True)
+    hoja.row_dimensions[fila].height = 17
+
+    for l in lineas:
+        fila += 1
+        escribir(f'A{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
+                 formato='0', borde=True)
+        celda = escribir(f'B{fila}', l.servicio, tam=9, h='center', borde=True)
+        celda.number_format = 'DD/MM/YYYY'
+        sede = l.sede or '—'
+        escribir(f'C{fila}', f'{sede}\n{l.direccion}' if l.direccion else sede,
+                 tam=9, borde=True, ajuste=True)
+        escribir(f'D{fila}', l.placa or '—', tam=9, h='center', borde=True)
+        escribir(f'E{fila}', l.peso or '—', tam=9, h='center', borde=True)
+        escribir(f'F{fila}', l.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
+        hoja.row_dimensions[fila].height = 28 if l.direccion else 17
+        if l.observaciones:
+            fila += 1
+            escribir(f'A{fila}', '', borde=True)
+            escribir(f'B{fila}', f'Observaciones: {l.observaciones}', tam=8, color=GRIS,
+                     borde=True, ajuste=True, fusion=f'B{fila}:F{fila}')
+    if not lineas:
+        fila += 1
+        escribir(f'A{fila}', 'Esta factura no tiene órdenes.', tam=9, color=GRIS,
+                 h='center', borde=True, fusion=f'A{fila}:F{fila}')
+
+    # ---------------- Total ----------------
+    fila += 1
+    cuantas = len(lineas)
+    escribir(f'A{fila}', f"Total {cuantas} {'órdenes' if cuantas != 1 else 'orden'}",
+             negrita=True, color=AZUL, tam=10, h='right', borde=True, fusion=f'A{fila}:D{fila}')
+    escribir(f'E{fila}', factura.total, negrita=True, tam=14, h='right',
+             formato='"$"#,##0', borde=True, fusion=f'E{fila}:F{fila}')
+    hoja.row_dimensions[fila].height = 24
+    fila += 1
+    escribir(f'A{fila}', 'Valores sin impuestos: los liquida el software de facturación electrónica.',
+             color=AZUL, tam=8, h='right', borde=True, fusion=f'A{fila}:F{fila}')
+
+    # ---------------- Descripción ----------------
+    fila += 1
+    banda(fila, 'DESCRIPCIÓN')
+    fila += 1
+    escribir(f'A{fila}', factura.descripcion or '', tam=9, borde=True, ajuste=True,
+             fusion=f'A{fila}:F{fila}')
+    hoja.row_dimensions[fila].height = 46
+
+    fila += 2
+    escribir(f'A{fila}', f'SOLMED S.A.S. · Factura interna {factura.codigo} · '
+                         f'Generada el {timezone.localdate():%d-%m-%Y} por la plataforma SOLMED',
+             negrita=True, color=AZUL, tam=8, h='center', fusion=f'A{fila}:F{fila}')
+
+    hoja.print_area = f'A1:F{fila}'
+    flujo = BytesIO()
+    libro.save(flujo)
+    return flujo.getvalue()
+
+
+class FacturaExcelView(AdministradorRequiredMixin, View):
+    """La factura en Excel, con el mismo formato del PDF."""
+    def get(self, request, pk):
+        factura = get_object_or_404(Factura, pk=pk)
+        respuesta = HttpResponse(
+            _excel_factura(factura),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="factura_{factura.codigo}.xlsx"')
+        return respuesta
+

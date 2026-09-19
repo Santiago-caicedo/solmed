@@ -2596,7 +2596,8 @@ class FacturacionTests(BaseCRM):
         urls = [reverse('gestion:lista_facturas'), reverse('gestion:crear_factura'),
                 reverse('gestion:detalle_factura', args=[f.pk]),
                 reverse('gestion:editar_factura', args=[f.pk]),
-                reverse('gestion:factura_pdf', args=[f.pk])]
+                reverse('gestion:factura_pdf', args=[f.pk]),
+                reverse('gestion:factura_excel', args=[f.pk])]
         self.entrar(self.asesor)
         for url in urls:
             with self.subTest(url=url):
@@ -2605,6 +2606,48 @@ class FacturacionTests(BaseCRM):
         self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:lista_facturas'))
         self.entrar(self.admin)
         self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:lista_facturas'))
+
+    def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
+        """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        self._crear(**{f'precio_{self.una.pk}': '1.250.000',
+                       f'precio_{self.otra.pk}': '500.000',
+                       f'observaciones_{self.una.pk}': 'Hora extra de espera'})
+        factura = Factura.objects.get()
+        factura.numero_externo = 'FE-77'
+        factura.save()
+
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(detalle, reverse('gestion:factura_excel', args=[factura.pk]),
+                            msg_prefix="el botón «Descargar Excel» vive en el expediente")
+
+        respuesta = self.client.get(reverse('gestion:factura_excel', args=[factura.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn('spreadsheetml', respuesta['Content-Type'])
+        self.assertEqual(respuesta['Content-Disposition'],
+                         'attachment; filename="factura_F-0001.xlsx"')
+
+        hoja = load_workbook(BytesIO(respuesta.content)).active
+        self.assertEqual(hoja.title, 'F-0001')
+        self.assertEqual(len(hoja._images), 1, "el logo de SOLMED va en la hoja")
+        texto = '\n'.join(str(c.value) for fila in hoja.iter_rows() for c in fila
+                           if c.value is not None)
+        for esperado in ('F-0001', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.', 'CLIENTE',
+                         self.cli.nombre, 'ÓRDENES DE SERVICIO FACTURADAS', 'Sede Norte',
+                         'Cll 170 # 8-20', 'WGY347', '12 m³', 'FE-77', 'Total 2 órdenes',
+                         'Observaciones: Hora extra de espera', 'DESCRIPCIÓN',
+                         'Transporte de residuos', 'No es una factura de venta'):
+            self.assertIn(esperado, texto, f"falta «{esperado}» en el Excel")
+
+        # Los valores van como NÚMERO (y la fecha como fecha) para poder sumarlos.
+        celdas = {c.value for fila in hoja.iter_rows() for c in fila}
+        self.assertIn(Decimal('1250000.00'), celdas, "el precio de la orden, numérico")
+        self.assertIn(Decimal('1750000.00'), celdas, "el total, numérico")
+        precio = next(c for fila in hoja.iter_rows() for c in fila
+                      if c.value == Decimal('1250000.00'))
+        self.assertEqual(precio.number_format, '"$"#,##0')
+        self.assertIn(factura.fecha_emision, {getattr(v, 'date', lambda: v)() for v in celdas})
 
     def test_el_formulario_ofrece_las_ordenes_facturables_con_su_peso_y_sus_avisos(self):
         facturada = self._orden('WNO623')

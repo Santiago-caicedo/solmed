@@ -108,6 +108,7 @@ urlpatterns = [
     path('facturacion/<int:pk>/', views.DetalleFacturaView.as_view(), name='detalle_factura'),
     path('facturacion/<int:pk>/editar/', views.FacturaFormView.as_view(), name='editar_factura'),
     path('facturacion/<int:pk>/pdf/', views.FacturaPDFView.as_view(), name='factura_pdf'),
+    path('facturacion/<int:pk>/excel/', views.FacturaExcelView.as_view(), name='factura_excel'),
 
     # --- Módulo de Programación (paso previo a la orden) ---
     path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),
