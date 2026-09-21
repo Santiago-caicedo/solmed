@@ -5502,12 +5502,13 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
 # ============================================================
 class CuentasSinModulosTests(BaseCRM):
     """
-    Director Técnico, SISO, Soldador, Auxiliares Administrativas y
-    Administrativo existen por su expediente: entran y no ven nada más.
+    Director Técnico, SISO y Soldador existen por su expediente: entran y no
+    ven nada más. Auxiliares Administrativas y Administrativo SALIERON de
+    aquí en sep-2026: la clienta les dedicó las básculas, así que ahora
+    aterrizan en esa pantalla (ver BasculasTests).
     """
 
-    CARGOS = ['Director Técnico', 'SISO', 'Soldador - Armador',
-              'Auxiliares Administrativas', 'Administrativo']
+    CARGOS = ['Director Técnico', 'SISO', 'Soldador - Armador']
 
     def test_al_entrar_aterrizan_en_su_pantalla_y_no_en_un_error(self):
         for i, cargo in enumerate(self.CARGOS):
@@ -5518,6 +5519,16 @@ class CuentasSinModulosTests(BaseCRM):
                                  reverse('gestion:sin_acceso'))
                 self.assertEqual(respuesta.status_code, 200)
                 self.assertContains(respuesta, 'expediente')
+
+    def test_los_dos_cargos_de_oficina_ya_no_caen_aqui_sino_en_basculas(self):
+        """Estrenaron módulo: su casa es la cola de tiquetes, no «sin acceso»."""
+        for i, cargo in enumerate(('Auxiliares Administrativas', 'Administrativo')):
+            with self.subTest(cargo=cargo):
+                self.entrar(self.persona(f'oficina{i}', cargo, nombre='Luz'))
+                respuesta = self.client.get('/', follow=True)
+                self.assertEqual(respuesta.redirect_chain[-1][0], reverse('gestion:basculas'))
+                self.assertEqual(self.client.get(reverse('gestion:sin_acceso')).status_code, 200,
+                                 "la pantalla sigue existiendo, solo que ya no es su casa")
 
     def test_su_pantalla_no_muestra_ni_un_dato_de_la_operacion(self):
         datos = self.servicio_completo()
