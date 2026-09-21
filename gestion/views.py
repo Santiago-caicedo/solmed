@@ -33,7 +33,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
+from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, es_de
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
@@ -123,6 +123,17 @@ class PersonalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return (es_administrador(user)
                 or user.groups.filter(name='Asesores').exists()
                 or es_talento_humano(user))
+
+
+class BasculaRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    La pantalla de básculas: gestión y los cargos de oficina a los que la
+    clienta les dedicó el trabajo de subir los tiquetes (ver GRUPOS_BASCULA).
+    """
+    def test_func(self):
+        user = self.request.user
+        return (es_administrador(user)
+                or user.groups.filter(name__in=GRUPOS_BASCULA).exists())
 
 
 class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -2866,8 +2877,9 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
 class SinAccesoView(LoginRequiredMixin, TemplateView):
     """
     Casa de las cuentas que existen solo por su expediente (Director Técnico,
-    SISO, Soldador, Auxiliares Administrativas, Administrativo): entran, pero
-    no tienen ningún módulo asignado. No muestra ningún dato de la operación.
+    SISO, Soldador - Armador): entran, pero no tienen ningún módulo asignado.
+    No muestra ningún dato de la operación. Auxiliares Administrativas y
+    Administrativo salieron de aquí en sep-2026: ahora trabajan las básculas.
     """
     template_name = 'gestion/sin_acceso.html'
 
@@ -2892,6 +2904,9 @@ def dashboard_redirect_view(request):
         return redirect('gestion:lista_ordenes')
     if user.groups.filter(name='Planificadores').exists():
         return redirect('gestion:planificacion')
+    if user.groups.filter(name__in=GRUPOS_BASCULA).exists():
+        # Su único módulo: la cola de tiquetes de báscula.
+        return redirect('gestion:basculas')
     # Cargos sin módulo propio (Director Técnico, SISO, Soldador...): su
     # cuenta existe por el expediente, no para operar el CRM.
     return redirect('gestion:sin_acceso')
@@ -3268,6 +3283,108 @@ class ConciliacionesView(AsesorRequiredMixin, View):
             'n_pendientes': len(filas),
             'conciliadas_hoy': conciliadas_hoy,
         })
+
+
+# ============================================================
+#  MÓDULO DE BÁSCULAS
+#  La cola de tiquetes de pesaje: una fila por orden que se planeó
+#  pesar, con el archivo capturable ahí mismo. Pedido de la clienta
+#  (sep-2026) para dedicarle una persona a este trabajo.
+# ============================================================
+
+class BasculasView(BasculaRequiredMixin, View):
+    """
+    Todas las órdenes que se planearon pesar, marcando cuáles ya tienen su
+    tiquete y cuáles no (así lo pidió la clienta). Las que FALTAN salen
+    primero: la primera página es la cola de trabajo. El tiquete se sube en
+    la misma fila, sin entrar al expediente.
+    """
+    template_name = 'gestion/basculas.html'
+    por_pagina = 25
+
+    def get(self, request):
+        from django.db.models import Case, IntegerField, Min, Q, Value, When
+
+        estado = request.GET.get('estado') or 'todas'
+        q = (request.GET.get('q') or '').strip()
+        ordenes = (OrdenServicio.objects
+                   .filter(bascula__in=('PESAN', 'PESO_CLIENTE'))
+                   .exclude(estado_orden='CANCELADA')
+                   .select_related('cliente', 'programacion_origen__sede_cliente',
+                                   'programacion_origen__tercero')
+                   .prefetch_related('recorridos__vehiculo')
+                   .annotate(servicio=Min('recorridos__fecha_recorrido'),
+                             # 0 = le falta el tiquete: esas van arriba.
+                             tiene=Case(When(Q(bascula_adjunto='') | Q(bascula_adjunto__isnull=True),
+                                             then=Value(0)),
+                                        default=Value(1), output_field=IntegerField())))
+        if estado == 'pendientes':
+            ordenes = ordenes.filter(tiene=0)
+        elif estado == 'cargadas':
+            ordenes = ordenes.filter(tiene=1)
+        if q:
+            filtro = Q(cliente__nombre__icontains=q) | Q(recorridos__vehiculo__placa__icontains=q)
+            if q.lstrip('#').isdigit():
+                filtro |= Q(numero_orden=int(q.lstrip('#')))
+            ordenes = ordenes.filter(filtro).distinct()
+        ordenes = ordenes.order_by('tiene', '-numero_orden')
+
+        pagina = Paginator(ordenes, self.por_pagina).get_page(request.GET.get('page'))
+        filas = []
+        for orden in pagina.object_list:
+            datos = _lugar_y_servicios(orden)
+            filas.append({
+                'orden': orden,
+                'servicio': orden.servicio,
+                'placa': ', '.join(sorted({r.vehiculo.placa for r in orden.recorridos.all()
+                                           if r.vehiculo_id})),
+                'sede': datos['sede'],
+                'direccion': datos['direccion'],
+                'pesa_el_cliente': orden.bascula == 'PESO_CLIENTE',
+                'archivo': orden.bascula_adjunto or None,
+                'nombre': (os.path.basename(orden.bascula_adjunto.name)
+                           if orden.bascula_adjunto else ''),
+            })
+        # Los totales son de TODAS, no de la página: son el avance del trabajo.
+        todas = (OrdenServicio.objects
+                 .filter(bascula__in=('PESAN', 'PESO_CLIENTE'))
+                 .exclude(estado_orden='CANCELADA'))
+        n_total = todas.count()
+        n_faltan = todas.filter(Q(bascula_adjunto='') | Q(bascula_adjunto__isnull=True)).count()
+        return render(request, self.template_name, {
+            'filas': filas,
+            'page_obj': pagina,
+            'pagina_rango': rango_de_paginas(pagina, 2),
+            'estado': estado,
+            'q': q,
+            'n_total': n_total,
+            'n_faltan': n_faltan,
+            'n_cargadas': n_total - n_faltan,
+        })
+
+
+class SubirBasculaView(BasculaRequiredMixin, View):
+    """
+    Guarda el tiquete de UNA orden desde la cola de básculas. Si ya tenía uno,
+    lo reemplaza (la clienta pidió poder corregir); no se puede dejar la orden
+    sin tiquete desde aquí.
+    """
+    def post(self, request, pk):
+        orden = get_object_or_404(OrdenServicio, pk=pk)
+        volver = f"{reverse('gestion:basculas')}?{request.POST.get('filtros', '')}#fila-{orden.pk}"
+        if not orden.requiere_bascula:
+            messages.error(request, f"La orden #{orden.numero_orden} no se planeó con pesaje.")
+            return redirect(volver)
+        archivo = request.FILES.get('bascula_adjunto')
+        if not archivo:
+            messages.error(request, "Elige la foto o el archivo del tiquete de báscula.")
+            return redirect(volver)
+        tenia = bool(orden.bascula_adjunto)
+        orden.bascula_adjunto = archivo
+        orden.save(update_fields=['bascula_adjunto'])
+        messages.success(request, f"Tiquete de la orden #{orden.numero_orden} "
+                                  f"{'reemplazado' if tenia else 'cargado'}.")
+        return redirect(volver)
 
 
 # ============================================================

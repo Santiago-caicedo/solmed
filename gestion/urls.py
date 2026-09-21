@@ -101,6 +101,9 @@ urlpatterns = [
     # Conciliación de "Transporte - Cantidad" (el asesor la hace durante el mes).
     path('ordenes/<int:pk>/conciliar/', views.ConciliarOrdenView.as_view(), name='conciliar_orden'),
     path('ordenes/conciliaciones/', views.ConciliacionesView.as_view(), name='conciliaciones'),
+    # Básculas: módulo propio para subir los tiquetes de pesaje (sep-2026).
+    path('basculas/', views.BasculasView.as_view(), name='basculas'),
+    path('basculas/<int:pk>/', views.SubirBasculaView.as_view(), name='subir_bascula'),
     # Facturación interna (solo administradores).
     path('facturacion/', views.ListaFacturasView.as_view(), name='lista_facturas'),
     path('facturacion/nueva/', views.FacturaFormView.as_view(), name='crear_factura'),

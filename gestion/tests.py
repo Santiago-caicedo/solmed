@@ -2549,6 +2549,134 @@ class ConciliacionesTests(BaseCRM):
 # ============================================================
 #  FACTURACIÓN INTERNA
 # ============================================================
+# ============================================================
+#  MÓDULO DE BÁSCULAS
+# ============================================================
+class BasculasTests(BaseCRM):
+    """
+    La cola de tiquetes de pesaje (sep-2026, pedido de la clienta para
+    dedicarle una persona): todas las órdenes que se planearon pesar, las que
+    faltan primero, con el archivo capturable en la misma fila. La trabajan
+    gestión y los dos cargos de oficina que antes no tenían módulo.
+    """
+
+    def setUp(self):
+        self.admin = self.persona('admin', superusuario=True)
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.auxiliar = self.persona('auxi', 'Auxiliares Administrativas', 'Luz', 'Mora')
+        self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.sede = Sede.objects.create(cliente=self.cli, nombre='Sede Norte',
+                                        direccion='Cll 170 # 8-20')
+        self.pesan = self._orden('WGY347', bascula='PESAN', sede_cliente=self.sede)
+        self.del_cliente = self._orden('OBB178', bascula='PESO_CLIENTE')
+        self.sin_pesaje = self._orden('NRM001', bascula='NO')
+        self.url = reverse('gestion:basculas')
+
+    def _orden(self, placa, **extra):
+        camion = Vehiculo.objects.filter(placa=placa).first() or self.vehiculo(placa)
+        programacion = self.programacion(cliente=self.cli, conductor=self.conductor,
+                                         vehiculo=camion, **extra)
+        return programacion.convertir_en_orden(self.asesor)
+
+    def _subir(self, orden, contenido=b'%PDF-1.4 tiquete', follow=False, **extra):
+        datos = {'bascula_adjunto': SimpleUploadedFile('tiquete.pdf', contenido)}
+        datos.update(extra)
+        return self.client.post(reverse('gestion:subir_bascula', args=[orden.pk]), datos,
+                                follow=follow)
+
+    def test_quien_entra_y_quien_no(self):
+        """Gestión y los cargos de oficina a los que se les dedicó el trabajo."""
+        for persona in (self.admin, self.asesor, self.auxiliar,
+                        self.persona('admvo', 'Administrativo', 'Juan', 'Gil')):
+            with self.subTest(quien=persona.username):
+                self.entrar(persona)
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+        for rol in ('Conductores', 'Ayudantes', 'Talento Humano', 'SISO'):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'x{rol[:4].lower()}', rol))
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+                self.assertEqual(self._subir(self.pesan).status_code, 403)
+
+    def test_la_lista_trae_solo_las_de_pesaje_y_las_que_faltan_primero(self):
+        self.entrar(self.auxiliar)
+        self.del_cliente.bascula_adjunto.save('ya.pdf', SimpleUploadedFile('y.pdf', b'%PDF'),
+                                              save=True)
+        respuesta = self.client.get(self.url)
+        numeros = [f['orden'].numero_orden for f in respuesta.context['filas']]
+        self.assertEqual(numeros, [self.pesan.numero_orden, self.del_cliente.numero_orden],
+                         "la que falta va primero; la que no se pesa no aparece")
+        self.assertNotIn(self.sin_pesaje.numero_orden, numeros)
+        self.assertEqual((respuesta.context['n_total'], respuesta.context['n_faltan']), (2, 1))
+        # Los datos para casar el tiquete con su orden (lo pidió la clienta).
+        self.assertContains(respuesta, f'#{self.pesan.numero_orden}')
+        self.assertContains(respuesta, self.cli.nombre)
+        self.assertContains(respuesta, 'Sede Norte')
+        self.assertContains(respuesta, 'WGY347')
+        self.assertContains(respuesta, 'Pesa el cliente')
+
+    def test_subir_el_tiquete_desde_la_fila_y_reemplazarlo(self):
+        self.entrar(self.auxiliar)
+        respuesta = self._subir(self.pesan, filtros='estado=pendientes&q=&page=1')
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn(f'#fila-{self.pesan.pk}', respuesta['Location'])
+        self.assertIn('estado=pendientes', respuesta['Location'], "vuelve al mismo filtro")
+        self.pesan.refresh_from_db()
+        self.assertTrue(self.pesan.bascula_adjunto)
+        self.assertEqual(self.pesan.bascula_adjunto.read(), b'%PDF-1.4 tiquete')
+        self.assertEqual(self.client.get(self.url).context['n_faltan'], 1,
+                         "ya solo falta la otra")
+        # Reemplazar el que quedó mal (la clienta pidió poder corregir).
+        self._subir(self.pesan, contenido=b'%PDF-1.4 corregido')
+        self.pesan.refresh_from_db()
+        self.assertEqual(self.pesan.bascula_adjunto.read(), b'%PDF-1.4 corregido')
+
+    def test_sin_archivo_o_sin_pesaje_no_guarda(self):
+        self.entrar(self.auxiliar)
+        self.assertContains(self.client.post(reverse('gestion:subir_bascula', args=[self.pesan.pk]),
+                                             {}, follow=True), 'Elige la foto o el archivo')
+        self.pesan.refresh_from_db()
+        self.assertFalse(self.pesan.bascula_adjunto)
+        self.assertContains(self._subir(self.sin_pesaje, follow=True),
+                            'no se planeó con pesaje')
+        self.sin_pesaje.refresh_from_db()
+        self.assertFalse(self.sin_pesaje.bascula_adjunto)
+
+    def test_los_filtros_y_la_busqueda(self):
+        self.entrar(self.auxiliar)
+        self.del_cliente.bascula_adjunto.save('ya.pdf', SimpleUploadedFile('y.pdf', b'%PDF'),
+                                              save=True)
+        solo = lambda **g: [f['orden'].pk for f in self.client.get(self.url, g).context['filas']]
+        self.assertEqual(solo(estado='pendientes'), [self.pesan.pk])
+        self.assertEqual(solo(estado='cargadas'), [self.del_cliente.pk])
+        self.assertEqual(solo(q=str(self.pesan.numero_orden)), [self.pesan.pk])
+        self.assertEqual(solo(q='WGY347'), [self.pesan.pk])
+        self.assertEqual(solo(q='Transportes'), [self.pesan.pk, self.del_cliente.pk])
+        self.assertEqual(solo(q='nada de nada'), [])
+
+    def test_el_cargo_de_oficina_aterriza_en_basculas_y_no_ve_nada_mas(self):
+        self.entrar(self.auxiliar)
+        self.assertRedirects(self.client.get(reverse('gestion:dashboard_redirect')), self.url)
+        menu = self.client.get(self.url).content.decode()
+        self.assertIn(self.url, menu)
+        for otra in (reverse('gestion:lista_ordenes'), reverse('gestion:lista_clientes'),
+                     reverse('gestion:lista_facturas'), reverse('gestion:conciliaciones')):
+            with self.subTest(url=otra):
+                self.assertNotIn(f'href="{otra}"', menu, "no se le ofrece nada más")
+                self.assertEqual(self.client.get(otra).status_code, 403)
+
+    def test_el_asesor_sigue_subiendolo_desde_el_expediente(self):
+        """La pantalla nueva no le quita a gestión lo que ya hacía."""
+        self.entrar(self.asesor)
+        self.client.post(reverse('gestion:detalle_orden', args=[self.pesan.pk]),
+                         {'submit_bascula': '1',
+                          'bascula_adjunto': SimpleUploadedFile('t.pdf', b'%PDF-1.4 exp')})
+        self.pesan.refresh_from_db()
+        self.assertTrue(self.pesan.bascula_adjunto)
+        self.assertContains(self.client.get(self.url), 'Cargado')
+
+
 class FacturacionTests(BaseCRM):
     """
     La factura interna se arma con las órdenes del cliente (precio escrito,

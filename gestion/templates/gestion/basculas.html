@@ -1,0 +1,166 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Básculas{% endblock %}
+{% block content %}
+{# La cola de tiquetes de pesaje: una fila por orden, el archivo se sube ahí mismo. #}
+{# Cada fila es un <form> normal, así que funciona sin JS; con JS se envía al elegir el archivo. #}
+<style>
+.bs-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.bs-cab h2{ margin:0; }
+.bs-cab .sub{ color:var(--ink-2); }
+
+/* El avance del trabajo: cuántas faltan de todas las de pesaje */
+.bs-avance{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); padding:.8rem 1rem; margin-bottom:1rem; }
+.bs-avance-txt{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; font-size:.85rem; color:var(--ink-2); }
+.bs-avance-txt strong{ font-family:var(--mono); font-size:1.15rem; color:var(--ink); }
+.bs-barra{ height:6px; border-radius:99px; background:var(--line-2); margin-top:.55rem; overflow:hidden; }
+.bs-barra > i{ display:block; height:100%; background:var(--ok); border-radius:99px; }
+
+.bs-filtros{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-end; }
+.bs-chips{ display:flex; gap:.35rem; flex-wrap:wrap; }
+.bs-chip{ font-size:.8rem; padding:.3rem .7rem; border:1px solid var(--line); border-radius:99px;
+    background:var(--panel); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+.bs-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.bs-chip.act{ background:var(--brand-600); border-color:var(--brand-600); color:#fff; font-weight:500; }
+
+/* Las filas */
+.bs-tabla td{ vertical-align:middle; }
+.bs-tabla .num{ font-family:var(--mono); font-weight:600; white-space:nowrap; }
+.bs-tabla .fec, .bs-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
+.bs-tabla .cli small{ display:block; color:var(--ink-3); font-size:.74rem; }
+.bs-tabla .tipo{ font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-3); white-space:nowrap; }
+tr.bs-falta td{ background:var(--warn-tint); }
+tr.bs-hecha .estado{ color:var(--ok); }
+
+.bs-subir{ display:flex; align-items:center; gap:.4rem; margin:0; min-width:17rem; }
+.bs-subir input[type=file]{ font-size:.78rem; }
+.bs-subir .btn{ min-height:38px; white-space:nowrap; }
+.bs-hecho{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+.bs-hecho .estado{ display:flex; align-items:center; gap:.35rem; font-size:.82rem; font-weight:500; }
+.bs-hecho a.ver{ font-size:.8rem; }
+.bs-hecho .cambiar{ font-size:.76rem; color:var(--ink-3); background:none; border:0; padding:0;
+    text-decoration:underline dotted; }
+.bs-hecho .cambiar:hover{ color:var(--ink); }
+.bs-vacio{ text-align:center; padding:2rem 1rem; color:var(--ink-2); }
+.bs-vacio i{ font-size:2rem; color:var(--ok); display:block; margin-bottom:.4rem; }
+@media (max-width: 720px){ .bs-subir{ min-width:0; flex-wrap:wrap; } }
+</style>
+
+<div class="bs-cab">
+    <div>
+        <h2>Básculas</h2>
+        <div class="sub">Los tiquetes de pesaje, orden por orden. Elige el archivo en la fila y queda guardado.</div>
+    </div>
+    {% if es_asesor %}
+    <a href="{% url 'gestion:lista_ordenes' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Órdenes de servicio</a>
+    {% endif %}
+</div>
+
+<div class="bs-avance">
+    <div class="bs-avance-txt">
+        <span>Faltan <strong>{{ n_faltan }}</strong> tiquete{{ n_faltan|pluralize }} por subir</span>
+        <span><strong>{{ n_cargadas }}</strong> de {{ n_total }} ya cargado{{ n_cargadas|pluralize }}</span>
+    </div>
+    <div class="bs-barra" role="progressbar" aria-label="Avance de los tiquetes de báscula"
+         aria-valuemin="0" aria-valuemax="{{ n_total }}" aria-valuenow="{{ n_cargadas }}">
+        <i style="width:{% widthratio n_cargadas n_total 100 %}%"></i>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="bs-filtros">
+            <div class="flex-grow-1" style="max-width:22rem">
+                <label class="form-label mb-1" for="q">Buscar</label>
+                <input type="text" name="q" id="q" class="form-control form-control-sm" value="{{ q }}"
+                       placeholder="Número de orden, cliente o placa">
+            </div>
+            <input type="hidden" name="estado" value="{{ estado }}">
+            <button class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Buscar</button>
+            {% if q %}<a href="?estado={{ estado }}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+            <div class="bs-chips ms-auto">
+                <a href="?estado=todas{% if q %}&q={{ q }}{% endif %}" class="bs-chip {% if estado == 'todas' %}act{% endif %}">Todas</a>
+                <a href="?estado=pendientes{% if q %}&q={{ q }}{% endif %}" class="bs-chip {% if estado == 'pendientes' %}act{% endif %}">Faltan ({{ n_faltan }})</a>
+                <a href="?estado=cargadas{% if q %}&q={{ q }}{% endif %}" class="bs-chip {% if estado == 'cargadas' %}act{% endif %}">Ya cargadas</a>
+            </div>
+        </form>
+    </div>
+    <div class="card-body">
+        {% if filas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 bs-tabla">
+                <thead>
+                    <tr>
+                        <th>Orden</th><th>Servicio</th><th>Cliente</th><th>Placa</th>
+                        <th style="min-width:18rem">Tiquete de báscula</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in filas %}
+                    <tr id="fila-{{ f.orden.pk }}" class="{% if f.archivo %}bs-hecha{% else %}bs-falta{% endif %}">
+                        <td class="num">
+                            {% if es_asesor %}<a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
+                            {% else %}#{{ f.orden.numero_orden }}{% endif %}
+                            {% if f.pesa_el_cliente %}<div class="tipo">Pesa el cliente</div>{% endif %}
+                        </td>
+                        <td class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="cli">{{ f.orden.cliente.nombre|truncatechars:34 }}
+                            {% if f.sede %}<small>{{ f.sede }}{% if f.direccion %} · {{ f.direccion }}{% endif %}</small>{% endif %}</td>
+                        <td class="pla">{{ f.placa|default:"—" }}</td>
+                        <td>
+                            {% if f.archivo %}
+                            <div class="bs-hecho">
+                                <span class="estado"><i class="bi bi-check-circle-fill"></i>Cargado</span>
+                                <a class="ver" href="{{ f.archivo.url }}" target="_blank" rel="noopener">{{ f.nombre|truncatechars:26 }}</a>
+                                <button type="button" class="cambiar" data-cambiar="{{ f.orden.pk }}">cambiarlo</button>
+                            </div>
+                            {% endif %}
+                            <form method="post" action="{% url 'gestion:subir_bascula' f.orden.pk %}"
+                                  enctype="multipart/form-data" class="bs-subir"
+                                  id="subir-{{ f.orden.pk }}" {% if f.archivo %}hidden{% endif %}>
+                                {% csrf_token %}
+                                <input type="hidden" name="filtros" value="estado={{ estado }}&q={{ q|urlencode }}&page={{ page_obj.number }}">
+                                <input type="file" name="bascula_adjunto" class="form-control form-control-sm"
+                                       accept="image/*,application/pdf" capture="environment" required
+                                       aria-label="Tiquete de báscula de la orden #{{ f.orden.numero_orden }}">
+                                <button class="btn btn-success btn-sm">
+                                    <i class="bi bi-upload me-1"></i>{% if f.archivo %}Reemplazar{% else %}Subir{% endif %}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes con pesaje" %}
+        {% else %}
+        <div class="bs-vacio">
+            {% if q or estado != 'todas' %}
+            <p class="mb-0">Nada con ese filtro.</p>
+            {% else %}
+            <i class="bi bi-check2-circle"></i>
+            <p class="mb-0">No hay órdenes con pesaje todavía.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    // «cambiarlo» descubre el campo de esa fila; elegir el archivo lo sube solo.
+    document.querySelectorAll('[data-cambiar]').forEach(function (boton) {
+        boton.addEventListener('click', function () {
+            var form = document.getElementById('subir-' + boton.dataset.cambiar);
+            form.hidden = false;
+            form.querySelector('input[type=file]').click();
+        });
+    });
+    document.querySelectorAll('.bs-subir input[type=file]').forEach(function (campo) {
+        campo.addEventListener('change', function () {
+            if (campo.files.length) campo.form.submit();
+        });
+    });
+})();
+</script>
+{% endblock %}

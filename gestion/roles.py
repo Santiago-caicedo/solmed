@@ -16,6 +16,13 @@ GRUPOS_CONDUCTOR = (CONDUCTORES, CONDUCTOR_AYUDANTE)
 GRUPOS_AYUDANTE = (AYUDANTES, CONDUCTOR_AYUDANTE)
 
 
+# Quién trabaja la pantalla de BÁSCULAS (sep-2026, pedido de la clienta: una
+# persona dedicada a subir los tiquetes de pesaje). Los asesores ya podían
+# subirlos desde cada orden; a los dos cargos de oficina esta pantalla les
+# estrena módulo: antes su cuenta solo existía por el expediente.
+GRUPOS_BASCULA = ('Asesores', 'Auxiliares Administrativas', 'Administrativo')
+
+
 def es_de(nombres_grupos, grupos):
     """True si alguno de los grupos de la persona está en `grupos`."""
     return any(nombre in grupos for nombre in nombres_grupos)

@@ -430,6 +430,18 @@
             </a>
         </li>
         {% endif %}
+        {% if ve_basculas %}
+        {% comment %}
+        Básculas: los cargos de oficina a los que la clienta les dedicó este
+        trabajo entran aquí y no ven nada más (ver GRUPOS_BASCULA en roles.py).
+        {% endcomment %}
+        {% if not es_asesor and not es_administrador %}<li class="nav-section">Operación</li>{% endif %}
+        <li>
+            <a href="{% url 'gestion:basculas' %}" class="nav-link {% if request.path == '/app/basculas/' %}active{% endif %}">
+                <i class="bi bi-speedometer2"></i>Básculas
+            </a>
+        </li>
+        {% endif %}
         {% if es_asesor %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">

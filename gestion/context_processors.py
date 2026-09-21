@@ -6,6 +6,8 @@ los grupos: alguien con dos roles podía perder secciones. Aquí se calculan una
 sola vez por petición y con la misma lógica que los mixins de las vistas.
 """
 
+from .roles import GRUPOS_BASCULA
+
 
 def roles(request):
     user = getattr(request, 'user', None)
@@ -28,6 +30,8 @@ def roles(request):
         've_personal': (es_administrador or 'Asesores' in nombres
                         or es_talento_humano),
         'es_planificador': es_administrador or 'Planificadores' in nombres,
+        # Quién ve la pantalla de básculas (ver GRUPOS_BASCULA en roles.py).
+        've_basculas': es_administrador or bool(nombres & set(GRUPOS_BASCULA)),
         # Un administrador que además esté en Conductores no ve el menú del
         # conductor: manda su rol de gestión.
         'es_conductor': 'Conductores' in nombres and not es_administrador,

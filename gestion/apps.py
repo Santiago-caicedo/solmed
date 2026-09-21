@@ -77,8 +77,15 @@ def crear_roles(sender, **kwargs):
         "Director Técnico": {},
         "SISO": {},
         "Soldador - Armador": {},
-        "Auxiliares Administrativas": {},
-        "Administrativo": {},
+
+        # Sep-2026: la clienta les dedicó el trabajo de subir los tiquetes de
+        # báscula, así que estos dos sí estrenan módulo (ver GRUPOS_BASCULA).
+        "Auxiliares Administrativas": {
+            "ordenservicio": ["view", "change"],
+        },
+        "Administrativo": {
+            "ordenservicio": ["view", "change"],
+        },
 
     }
 
