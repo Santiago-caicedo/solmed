@@ -235,9 +235,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                               placeholder="Notas de la oficina: no salen en el PDF ni se le envían al cliente.">{{ datos.observaciones_internas|default:"" }}</textarea>
                     <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Solo se ven aquí dentro: no salen en el PDF ni en el correo al cliente.</div>
 
-                    <label class="ff-etq" for="orden_compra">Orden de compra <span class="text-muted text-lowercase">(opcional)</span></label>
-                    <input type="text" name="orden_compra" id="orden_compra" class="form-control" maxlength="100"
-                           value="{{ datos.orden_compra|default:"" }}" placeholder="Ej: OC-2026-00125">
+                    <label class="ff-etq" for="corte_facturacion">Corte de facturación <span class="text-muted text-lowercase">(opcional)</span></label>
+                    <input type="text" name="corte_facturacion" id="corte_facturacion" class="form-control ff-internas"
+                           maxlength="100" value="{{ datos.corte_facturacion|default:"" }}"
+                           placeholder="Ej: Corte 15 · del 1 al 15 de septiembre">
+                    <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Solo para la oficina: no sale en el PDF, ni en el Excel, ni en el correo.</div>
                     <label class="ff-etq" for="correo_facturacion">Correos de facturación</label>
                     {# Uno por fila: la factura se le manda a todos (pedido del usuario, sep-2026). #}
                     <div class="ff-correos" id="ff-correos">

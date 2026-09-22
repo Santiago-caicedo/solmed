@@ -2207,7 +2207,12 @@ class Factura(models.Model):
     observaciones_internas = models.TextField(
         blank=True, verbose_name="Observaciones internas",
         help_text="Solo para la oficina: no sale en el PDF ni se envía al cliente.")
-    orden_compra = models.CharField(max_length=100, blank=True, verbose_name="Orden de compra")
+    # Dato de trabajo de la oficina (sep-2026): NO sale en el PDF, ni en el
+    # Excel, ni en el correo. Ocupó el sitio de la antigua «orden de compra»,
+    # que se quitó: ese documento ahora se adjunta, no se teclea.
+    corte_facturacion = models.CharField(
+        max_length=100, blank=True, verbose_name="Corte de facturación",
+        help_text="Solo para la oficina: no se le muestra ni se le envía al cliente.")
     # VARIOS correos, separados por coma (sep-2026: la oficina factura a más de
     # una dirección). Por eso no es EmailField: no cabría la lista.
     correo_facturacion = models.CharField(

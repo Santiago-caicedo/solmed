@@ -116,8 +116,8 @@
                 <td><span class="lbl">Tel.:</span> {{ factura.cliente.telefono|default:"—" }}</td>
             </tr>
             <tr>
-                <td><span class="lbl">Correo de facturación:</span> {{ factura.correo_facturacion|default:"—" }}</td>
-                <td><span class="lbl">Orden de compra:</span> {{ factura.orden_compra|default:"—" }}</td>
+                {# El corte de facturación es interno: aquí NO va. #}
+                <td colspan="2"><span class="lbl">Correos de facturación:</span> {{ factura.correo_facturacion|default:"—" }}</td>
             </tr>
         </table>
     </div>

@@ -128,10 +128,15 @@
             <div class="card-body">
                 <div class="fd-etq">Descripción</div>
                 <p class="fd-dato">{{ factura.descripcion|linebreaksbr|default:"<span class='fd-vacio'>—</span>" }}</p>
-                <div class="fd-etq">Orden de compra</div>
-                <p class="fd-dato">{{ factura.orden_compra|default:"—" }}</p>
-                <div class="fd-etq">Correo de facturación</div>
+                <div class="fd-etq">Correos de facturación</div>
                 <p class="fd-dato">{{ factura.correo_facturacion|default:"—" }}</p>
+                {% if factura.corte_facturacion %}
+                {# Dato de trabajo de la oficina: no sale al cliente. #}
+                <div class="fd-internas">
+                    <div class="et"><i class="bi bi-eye-slash me-1"></i>Corte de facturación · no sale en el PDF ni al cliente</div>
+                    {{ factura.corte_facturacion }}
+                </div>
+                {% endif %}
                 {% if factura.observaciones_internas %}
                 {# Notas de la oficina: no van al PDF ni al cliente. #}
                 <div class="fd-internas">

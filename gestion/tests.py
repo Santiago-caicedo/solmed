@@ -2709,7 +2709,7 @@ class FacturacionTests(BaseCRM):
     def _crear(self, ordenes=None, **extra):
         ordenes = ordenes if ordenes is not None else [self.una, self.otra]
         datos = {'cliente': self.cli.pk, 'ordenes': [o.pk for o in ordenes],
-                 'descripcion': 'Transporte de residuos', 'orden_compra': 'OC-1',
+                 'descripcion': 'Transporte de residuos', 'corte_facturacion': 'Corte 15',
                  'correo_facturacion': 'facturacion@cliente.co',
                  'copiar_factura': '1', 'copiar_xml': '1'}
         for o in ordenes:
@@ -2763,7 +2763,7 @@ class FacturacionTests(BaseCRM):
                     archivo_orden_pedido=SimpleUploadedFile('op.pdf', b'%PDF-1.4 op'),
                     otros_archivos=[SimpleUploadedFile('remision.pdf', b'%PDF-1.4 rem')],
                     copiar_orden_compra='1', copiar_orden_pedido='1', copiar_otros='1',
-                    orden_compra='OC-77')
+                    corte_facturacion='Corte 30')
         factura = Factura.objects.get()
         self.assertTrue(factura.archivo_orden_compra)
         self.assertTrue(factura.archivo_orden_pedido)
@@ -2775,7 +2775,7 @@ class FacturacionTests(BaseCRM):
         self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
                          {'submit_enviar': '1', 'revisado': '1'})
         adjuntos = {a[0]: a[1] for a in mail.outbox[0].attachments}
-        self.assertEqual(adjuntos['Orden_compra_OC-77.pdf'], b'%PDF-1.4 oc')
+        self.assertEqual(adjuntos['Orden_compra_F-0001.pdf'], b'%PDF-1.4 oc')
         self.assertEqual(adjuntos['Orden_pedido_F-0001.pdf'], b'%PDF-1.4 op')
         self.assertEqual(adjuntos['remision.pdf'], b'%PDF-1.4 rem')
 
@@ -2795,7 +2795,7 @@ class FacturacionTests(BaseCRM):
         self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
                          {'submit_enviar': '1', 'revisado': '1'})
         self.assertEqual([a[0] for a in mail.outbox[0].attachments],
-                         ['Orden_compra_OC-1.pdf', 'Orden_pedido_F-0001.pdf',
+                         ['Orden_compra_F-0001.pdf', 'Orden_pedido_F-0001.pdf',
                           'Factura_FE-9.pdf', 'Factura_FE-9.xml',
                           f'Acta_servicio_{self.una.numero_orden}.pdf',
                           f'Bascula_orden_{self.una.numero_orden}.pdf', 'remision.pdf'])
@@ -2885,6 +2885,49 @@ class FacturacionTests(BaseCRM):
         respuesta = self._crear(correo_facturacion=['bueno@cliente.co', 'esto no es un correo'])
         self.assertContains(respuesta, 'no parece un correo')
         self.assertFalse(Factura.objects.exists())
+
+    def test_el_corte_de_facturacion_es_interno_y_no_sale_a_ninguna_parte(self):
+        """Ni en el PDF, ni en la vista previa, ni en el Excel, ni en el correo."""
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from .views import _html_factura, _lineas_con_detalle
+        corte = 'Corte 15 · del 1 al 15 de septiembre'
+        self._crear(corte_facturacion=corte, copiar_actas='1')
+        factura = Factura.objects.get()
+        self.assertEqual(factura.corte_facturacion, corte)
+        Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
+
+        # Se ve aquí dentro (y vuelve al formulario para corregirlo)…
+        self.assertContains(self.client.get(reverse('gestion:detalle_factura', args=[factura.pk])),
+                            corte)
+        self.assertContains(self.client.get(reverse('gestion:editar_factura', args=[factura.pk])),
+                            corte)
+        # …pero NO en el PDF.
+        html_pdf = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
+        self.assertNotIn(corte, html_pdf)
+        # …ni en la vista previa en vivo.
+        previa = self.client.post(reverse('gestion:previa_factura'), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk], f'precio_{self.una.pk}': '500.000',
+            'corte_facturacion': corte}, HTTP_X_REQUESTED_WITH='fetch').content.decode()
+        self.assertNotIn(corte, previa)
+        # …ni en el Excel.
+        excel = self.client.get(reverse('gestion:factura_excel', args=[factura.pk])).content
+        hoja = load_workbook(BytesIO(excel)).active
+        self.assertNotIn(corte, [str(c.value) for f in hoja.iter_rows() for c in f])
+        # …ni en el correo (cuerpo, HTML ni adjuntos).
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        correo = mail.outbox[0]
+        self.assertNotIn(corte, correo.body + ' '.join(str(a) for a, _ in correo.alternatives))
+        self.assertNotIn(corte.encode(), b''.join(a[1] for a in correo.attachments))
+
+    def test_ya_no_existe_el_campo_de_orden_de_compra(self):
+        """El documento se adjunta (punto 1 de «Copiar al cliente»), no se teclea."""
+        self.assertFalse(hasattr(Factura(), 'orden_compra'))
+        formulario = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        self.assertNotContains(formulario, 'name="orden_compra"')
+        self.assertContains(formulario, 'name="corte_facturacion"')
 
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
@@ -2983,7 +3026,7 @@ class FacturacionTests(BaseCRM):
         respuesta = self.client.post(url, {
             'cliente': self.cli.pk, 'ordenes': [self.una.pk],
             f'precio_{self.una.pk}': '1.250.000', 'descripcion': 'Borrador en vivo',
-            'orden_compra': 'OC-9'}, HTTP_X_REQUESTED_WITH='fetch')
+            'corte_facturacion': 'Corte 9'}, HTTP_X_REQUESTED_WITH='fetch')
         self.assertEqual(respuesta.status_code, 200)
         html = respuesta.content.decode()
         self.assertIn('F-0001', html)
@@ -2994,7 +3037,7 @@ class FacturacionTests(BaseCRM):
         self.assertNotIn('Canecas (3)', html, "el PDF ya no lista los servicios")
         self.assertIn('1.250.000', html)
         self.assertIn('Borrador en vivo', html)
-        self.assertIn('OC-9', html)
+        self.assertNotIn('Corte 9', html, "el corte de facturación es interno: no va al PDF")
         self.assertNotIn(str(self.otra.numero_orden), html, "solo lo marcado")
         self.assertFalse(Factura.objects.exists(), "la vista previa no guarda nada")
 
@@ -3091,7 +3134,7 @@ class FacturacionTests(BaseCRM):
         self.assertContains(self.client.get(url), 'value="500000"')
         self.client.post(url, {'cliente': self.cli.pk, 'ordenes': [self.una.pk],
                                f'precio_{self.una.pk}': '900.000', 'descripcion': 'Cambiada',
-                               'orden_compra': '', 'correo_facturacion': 'otro@cliente.co'})
+                               'correo_facturacion': 'otro@cliente.co'})
         factura.refresh_from_db()
         self.assertEqual([l.orden_id for l in factura.lineas.all()], [self.una.pk])
         self.assertEqual(factura.total, Decimal('900000'))
@@ -3437,7 +3480,8 @@ class FacturacionTests(BaseCRM):
         factura = Factura.objects.get()
         factura.numero_externo = 'FE-77'; factura.save()
         url = reverse('gestion:lista_facturas')
-        for q in ('F-0001', '1', 'Transportes', 'FE-77', 'OC-1'):
+        # Ya no se busca por orden de compra: ese campo se quitó (sep-2026).
+        for q in ('F-0001', '1', 'Transportes', 'FE-77'):
             with self.subTest(q=q):
                 self.assertEqual([f.pk for f in self.client.get(url + f'?q={q}').context['facturas']], [factura.pk])
         self.assertEqual(list(self.client.get(url + '?q=nada').context['facturas']), [])

@@ -6733,7 +6733,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         q = self.request.GET.get('q', '').strip()
         if q:
             numero = q.upper().replace('F-', '').lstrip('0')
-            filtro = Q(cliente__nombre__icontains=q) | Q(numero_externo__icontains=q) | Q(orden_compra__icontains=q)
+            filtro = Q(cliente__nombre__icontains=q) | Q(numero_externo__icontains=q)
             if numero.isdigit():
                 filtro |= Q(numero=int(numero))
             qs = qs.filter(filtro)
@@ -6778,7 +6778,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         if factura:
             datos = {
                 'numero': factura.numero, 'fecha_emision': factura.fecha_emision,
-                'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
+                'descripcion': factura.descripcion,
+                'corte_facturacion': factura.corte_facturacion,
                 'observaciones_internas': factura.observaciones_internas,
                 'correo_facturacion': factura.correo_facturacion,
                 'correos': _lista_correos(factura.correo_facturacion) or [''],
@@ -6808,7 +6809,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
             'descripcion': (request.POST.get('descripcion') or '').strip(),
             'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
-            'orden_compra': (request.POST.get('orden_compra') or '').strip(),
+            'corte_facturacion': (request.POST.get('corte_facturacion') or '').strip(),
             # Los correos se validan más abajo, con `errores` ya creado.
             'correos': [c.strip() for c in request.POST.getlist('correo_facturacion')] or [''],
             'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},
@@ -6877,7 +6878,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         with transaction.atomic():
             if factura is None:
                 factura = Factura(cliente=cliente, creada_por=request.user)
-            for campo in ('descripcion', 'observaciones_internas', 'orden_compra',
+            for campo in ('descripcion', 'observaciones_internas', 'corte_facturacion',
                           'correo_facturacion') + COPIAR_FACTURA:
                 setattr(factura, campo, datos[campo])
             factura.numero = numero_factura
@@ -7069,7 +7070,7 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     if incluir.get('orden_compra'):
         if factura.archivo_orden_compra:
             adjuntar(factura.archivo_orden_compra,
-                     f"Orden_compra_{factura.orden_compra or factura.codigo}")
+                     f"Orden_compra_{factura.codigo}")
         else:
             avisos.append("no se adjuntó la orden de compra porque aún no está cargada")
     if incluir.get('orden_pedido'):
@@ -7146,8 +7147,6 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     else:
         mensaje = (f"Buen día,\n\nAdjuntamos la factura {factura.numero_externo or factura.codigo} "
                    f"correspondiente a las órdenes de servicio {ordenes}.")
-    if factura.orden_compra:
-        mensaje += f"\nOrden de compra: {factura.orden_compra}."
     nombres = [a[0] for a in adjuntos]
     registro = EnvioCorreo(
         cliente=factura.cliente, destinatarios=', '.join(correos), asunto=asunto,
@@ -7301,8 +7300,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
         if fecha is not None:
             borrador.fecha_emision = fecha
         # Las observaciones internas quedan FUERA a propósito: no van al PDF.
-        for campo in ('descripcion', 'orden_compra'):
-            setattr(borrador, campo, (request.POST.get(campo) or '').strip())
+        borrador.descripcion = (request.POST.get('descripcion') or '').strip()
         borrador.correo_facturacion = ', '.join(
             c for valor in request.POST.getlist('correo_facturacion')
             for c in _lista_correos(valor))
@@ -7445,15 +7443,18 @@ def _excel_factura(factura):
     datos = (
         ('Empresa', cliente.nombre, 'NIT', cliente.identificacion),
         ('Dirección', direccion or '—', 'Teléfono', cliente.telefono or '—'),
-        ('Correo de facturación', factura.correo_facturacion or '—',
-         'Orden de compra', factura.orden_compra or '—'),
+        ('Correos de facturación', factura.correo_facturacion or '—', '', ''),
     )
     for k1, v1, k2, v2 in datos:
         fila += 1
         etiqueta(f'A{fila}', k1, fusion=f'A{fila}:B{fila}')
-        escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True)
-        etiqueta(f'D{fila}', k2)
-        escribir(f'E{fila}', v2, tam=9, borde=True, ajuste=True, fusion=f'E{fila}:F{fila}')
+        if k2:
+            escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True)
+            etiqueta(f'D{fila}', k2)
+            escribir(f'E{fila}', v2, tam=9, borde=True, ajuste=True, fusion=f'E{fila}:F{fila}')
+        else:
+            # Sin pareja a la derecha, el valor ocupa lo que queda de la fila.
+            escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True, fusion=f'C{fila}:F{fila}')
         hoja.row_dimensions[fila].height = 17
 
     # ---------------- Órdenes facturadas ----------------

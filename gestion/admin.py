@@ -253,6 +253,6 @@ class AdjuntoFacturaInline(admin.TabularInline):
 class FacturaAdmin(admin.ModelAdmin):
     list_display = ('codigo', 'cliente', 'numero_externo', 'estado', 'creada_en', 'creada_por')
     list_filter = ('estado',)
-    search_fields = ('numero', 'numero_externo', 'cliente__nombre', 'orden_compra')
+    search_fields = ('numero', 'numero_externo', 'cliente__nombre', 'corte_facturacion')
     inlines = [LineaFacturaInline, AdjuntoFacturaInline]
 
