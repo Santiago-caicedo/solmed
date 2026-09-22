@@ -2945,6 +2945,26 @@ class FacturacionTests(BaseCRM):
         factura.refresh_from_db()
         self.assertEqual(factura.estado, 'EMITIDA', "la factura misma no se ha enviado")
 
+    def test_la_electronica_y_el_xml_se_suben_desde_el_popup_y_entonces_va_esa_y_no_la_prefactura(self):
+        """Con la electrónica cargada, «Enviar ahora» es el envío de verdad."""
+        mail.outbox.clear()
+        respuesta = self._crear(submit_enviar_ahora='1',
+                                pdf_oficial=SimpleUploadedFile('FE-88.pdf', b'%PDF-1.4 oficial'),
+                                xml=SimpleUploadedFile('FE-88.xml', b'<Invoice/>'))
+        factura = Factura.objects.get()
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertEqual(factura.pdf_oficial.read(), b'%PDF-1.4 oficial')
+        self.assertEqual(factura.xml.read(), b'<Invoice/>')
+        correo = mail.outbox[0]
+        self.assertIn('Factura F-0001', correo.subject)
+        self.assertNotIn('Prefactura', correo.subject)
+        adjuntos = {a[0]: a[1] for a in correo.attachments}
+        self.assertEqual(adjuntos, {'Factura_F-0001.pdf': b'%PDF-1.4 oficial',
+                                    'Factura_F-0001.xml': b'<Invoice/>'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'ENVIADA', "se mandó la factura de verdad")
+        self.assertIsNotNone(factura.enviada_en)
+
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
         from io import BytesIO
@@ -3216,9 +3236,10 @@ class FacturacionTests(BaseCRM):
         # Lo del popup viaja con el formulario aunque el popup viva fuera del <form>.
         pop = contenido.split('id="fe-modal"', 1)[1].split('id="ff-modal"', 1)[0]
         for campo in ('copiar_orden_compra', 'copiar_factura', 'copiar_basculas', 'copiar_otros',
-                      'archivo_orden_compra', 'archivo_orden_pedido', 'otros_archivos'):
+                      'archivo_orden_compra', 'archivo_orden_pedido', 'pdf_oficial', 'xml',
+                      'otros_archivos'):
             self.assertIn(f'name="{campo}" ', pop + ' ')
-        self.assertEqual(pop.count('form="form-factura"'), 10, "7 casillas + 3 campos de archivo")
+        self.assertEqual(pop.count('form="form-factura"'), 12, "7 casillas + 5 campos de archivo")
         self.assertNotIn('new bootstrap.', contenido)
 
     def test_guardar_sin_los_botones_de_envio_no_manda_nada(self):

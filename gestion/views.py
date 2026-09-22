@@ -6884,10 +6884,11 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             factura.numero = numero_factura
             factura.fecha_emision = fecha_emision
             # Los dos documentos del cliente se suben desde el computador.
-            for campo, archivo in (('archivo_orden_compra', request.FILES.get('archivo_orden_compra')),
-                                   ('archivo_orden_pedido', request.FILES.get('archivo_orden_pedido'))):
-                if archivo:
-                    setattr(factura, campo, archivo)
+            # …y también la factura electrónica y su XML (sep-2026): se pueden
+            # subir desde el popup de envío, no solo desde el expediente.
+            for campo in ('archivo_orden_compra', 'archivo_orden_pedido', 'pdf_oficial', 'xml'):
+                if request.FILES.get(campo):
+                    setattr(factura, campo, request.FILES[campo])
             factura.save()
             factura.lineas.exclude(orden_id__in=[n for n, _, _ in lineas]).delete()
             for numero, precio, observaciones in lineas:
@@ -6900,13 +6901,13 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
                                               archivo=archivo)
         # «Enviar ahora» (el popup) guarda y envía en un solo paso lo marcado en
-        # «Copiar al cliente». Desde aquí siempre va como ADELANTO: la factura
-        # interna sale como prefactura y el estado no cambia; la electrónica se
-        # manda desde el expediente, ya revisada.
+        # «Copiar al cliente». Sin la factura electrónica cargada va como
+        # ADELANTO: sale la prefactura y el estado no cambia. Con ella cargada
+        # (también se puede subir desde el popup) es el envío de verdad.
         if 'submit_enviar_ahora' in request.POST:
             messages.success(request, f"Factura {factura.codigo} guardada con "
                                       f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
-            _enviar_factura(request, factura, prefactura=True,
+            _enviar_factura(request, factura, prefactura=not factura.pdf_oficial,
                             incluir={clave: getattr(factura, f'copiar_{clave}')
                                      for clave, _ in ADJUNTOS_FACTURA},
                             basculas=_basculas_elegidas(factura))
