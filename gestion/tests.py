@@ -2852,6 +2852,40 @@ class FacturacionTests(BaseCRM):
         self.assertTrue(factura.archivo_orden_compra)
         self.assertEqual([a.nombre for a in factura.adjuntos.all()], ['extra.pdf'])
 
+    def test_la_factura_admite_varios_correos_de_facturacion(self):
+        """Un campo por correo (y se aceptan pegados con coma); van todos."""
+        respuesta = self._crear(correo_facturacion=['facturacion@cliente.co',
+                                                    'contabilidad@cliente.co, tesoreria@cliente.co',
+                                                    '', 'FACTURACION@cliente.co'])
+        factura = Factura.objects.get()
+        self.assertEqual(factura.correo_facturacion,
+                         'facturacion@cliente.co, contabilidad@cliente.co, tesoreria@cliente.co',
+                         "sin vacíos y sin repetidos (aunque cambie el mayúsculas)")
+
+        # Vuelven al formulario, uno por fila, y el botón de añadir está ahí.
+        editar = self.client.get(reverse('gestion:editar_factura', args=[factura.pk]))
+        self.assertEqual(editar.context['datos']['correos'],
+                         ['facturacion@cliente.co', 'contabilidad@cliente.co',
+                          'tesoreria@cliente.co'])
+        self.assertContains(editar, 'Añadir otro correo')
+        self.assertContains(editar, 'value="tesoreria@cliente.co"')
+
+        # El envío les llega a los tres.
+        factura.pdf_oficial.save('f.pdf', SimpleUploadedFile('f.pdf', b'%PDF'), save=True)
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        self.assertEqual(mail.outbox[0].to, ['facturacion@cliente.co',
+                                             'contabilidad@cliente.co',
+                                             'tesoreria@cliente.co'])
+        self.assertEqual(EnvioCorreo.objects.get().destinatarios,
+                         'facturacion@cliente.co, contabilidad@cliente.co, tesoreria@cliente.co')
+
+    def test_un_correo_mal_escrito_se_reclama_y_no_se_guarda(self):
+        respuesta = self._crear(correo_facturacion=['bueno@cliente.co', 'esto no es un correo'])
+        self.assertContains(respuesta, 'no parece un correo')
+        self.assertFalse(Factura.objects.exists())
+
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
         from io import BytesIO

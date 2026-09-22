@@ -84,6 +84,13 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .ff-adj .est .falta{ color:var(--warn); }
 .ff-adj .subir{ margin-top:.35rem; }
 .ff-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
+/* Varios correos de facturación: una fila por correo */
+.ff-correos{ display:flex; flex-direction:column; gap:.4rem; }
+.ff-correo{ display:flex; align-items:center; gap:.4rem; }
+.ff-correo .ff-quitar{ flex:0 0 auto; width:32px; height:32px; line-height:1; border:1px solid var(--line);
+    border-radius:var(--r-sm); background:var(--panel); color:var(--ink-3); font-size:1.1rem; }
+.ff-correo .ff-quitar:hover{ border-color:var(--err); color:var(--err); }
+.ff-correos:has(.ff-correo:only-child) .ff-quitar{ visibility:hidden; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -231,10 +238,23 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     <label class="ff-etq" for="orden_compra">Orden de compra <span class="text-muted text-lowercase">(opcional)</span></label>
                     <input type="text" name="orden_compra" id="orden_compra" class="form-control" maxlength="100"
                            value="{{ datos.orden_compra|default:"" }}" placeholder="Ej: OC-2026-00125">
-                    <label class="ff-etq" for="correo_facturacion">Correo de facturación</label>
-                    <input type="email" name="correo_facturacion" id="correo_facturacion" class="form-control"
-                           value="{{ datos.correo_facturacion|default:"" }}" placeholder="facturacion@cliente.com">
-                    <div class="form-text">Viene de la ficha del cliente (correo de facturación electrónica). Puedes cambiarlo solo para esta factura.</div>
+                    <label class="ff-etq" for="correo_facturacion">Correos de facturación</label>
+                    {# Uno por fila: la factura se le manda a todos (pedido del usuario, sep-2026). #}
+                    <div class="ff-correos" id="ff-correos">
+                        {% for c in datos.correos %}
+                        <div class="ff-correo">
+                            <input type="email" name="correo_facturacion" class="form-control ff-correo-campo"
+                                   {% if forloop.first %}id="correo_facturacion"{% endif %}
+                                   value="{{ c }}" placeholder="facturacion@cliente.com"
+                                   aria-label="Correo de facturación {{ forloop.counter }}">
+                            <button type="button" class="ff-quitar" aria-label="Quitar este correo" title="Quitar">&times;</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-link btn-sm px-0 mt-1" id="ff-mas-correo">
+                        <i class="bi bi-plus-lg me-1"></i>Añadir otro correo
+                    </button>
+                    <div class="form-text">El primero viene de la ficha del cliente. Puedes añadir todos los que haga falta: la factura les llega a todos.</div>
                 </div>
             </div>
         </div>
@@ -511,14 +531,43 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     form.addEventListener('input', programarPrevia);
     form.addEventListener('change', programarPrevia);
 
+    // --- Varios correos de facturación: una fila por correo ---
+    var listaCorreos = document.getElementById('ff-correos');
+    function correosEscritos() {
+        return Array.prototype.slice.call(listaCorreos.querySelectorAll('.ff-correo-campo'))
+            .map(function (c) { return c.value.trim(); })
+            .filter(Boolean).join(', ');
+    }
+    function nuevaFilaCorreo() {
+        var fila = listaCorreos.firstElementChild.cloneNode(true);
+        var campo = fila.querySelector('.ff-correo-campo');
+        campo.value = '';
+        campo.removeAttribute('id');          // el id es solo del primero
+        campo.setAttribute('aria-label', 'Correo de facturación '
+            + (listaCorreos.children.length + 1));
+        listaCorreos.appendChild(fila);
+        campo.focus();
+    }
+    document.getElementById('ff-mas-correo').addEventListener('click', nuevaFilaCorreo);
+    listaCorreos.addEventListener('click', function (e) {
+        if (!e.target.classList.contains('ff-quitar')) return;
+        // Siempre queda una fila: si es la única, se vacía en vez de borrarse.
+        if (listaCorreos.children.length === 1) {
+            listaCorreos.querySelector('.ff-correo-campo').value = '';
+        } else {
+            e.target.closest('.ff-correo').remove();
+        }
+        pintarEnvio();
+        programarPrevia();
+    });
+
     // Los botones de prefactura necesitan correo de facturación: sin él, apagados.
-    var campoCorreo = document.getElementById('correo_facturacion');
     var destino = document.getElementById('ff-dest');
     var nota = document.getElementById('ff-nota-envio');
     var botonesEnvio = [document.getElementById('ff-prefactura'),
                         document.getElementById('ff-prefactura-actas')];
     function pintarEnvio() {
-        var correo = (campoCorreo.value || '').trim();
+        var correo = correosEscritos();
         var basculas = document.getElementById('ff-basculas');
         if (basculas) basculas.disabled = !(correo && form.querySelectorAll('.ff-check:checked').length);
         destino.textContent = correo || '—';
@@ -527,7 +576,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             : 'Escribe el correo de facturaci\u00f3n para poder enviarle la prefactura.';
         botonesEnvio.forEach(function (b) { if (b) b.disabled = !correo; });
     }
-    campoCorreo.addEventListener('input', pintarEnvio);
+    listaCorreos.addEventListener('input', pintarEnvio);
     pintarEnvio();
     // La hoja carta se escala al ancho disponible, manteniendo la proporción.
     var hoja = document.getElementById('ff-hoja');
@@ -648,7 +697,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         vacio.textContent = conTiquete.length ? ''
             : 'Ninguna de las órdenes marcadas tiene tiquete de báscula cargado.';
         document.getElementById('fb-cab').hidden = conTiquete.length === 0;
-        document.getElementById('fb-dest').textContent = (campoCorreo.value || '').trim() || '—';
+        document.getElementById('fb-dest').textContent = correosEscritos() || '—';
         fbPintarCuenta();
     });
     fbLista.addEventListener('change', function () { fbPintarCuenta(); guardarEleccion(); });
@@ -661,7 +710,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     });
     fbEnviar.addEventListener('click', function () {
         guardarEleccion();
-        if (!(campoCorreo.value || '').trim()) {
+        if (!correosEscritos()) {
             alert('La factura no tiene correo de facturación: escríbelo antes de enviar.');
             return;
         }

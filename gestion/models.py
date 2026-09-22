@@ -2208,7 +2208,11 @@ class Factura(models.Model):
         blank=True, verbose_name="Observaciones internas",
         help_text="Solo para la oficina: no sale en el PDF ni se envía al cliente.")
     orden_compra = models.CharField(max_length=100, blank=True, verbose_name="Orden de compra")
-    correo_facturacion = models.EmailField(blank=True, verbose_name="Correo de facturación")
+    # VARIOS correos, separados por coma (sep-2026: la oficina factura a más de
+    # una dirección). Por eso no es EmailField: no cabría la lista.
+    correo_facturacion = models.CharField(
+        max_length=500, blank=True, verbose_name="Correos de facturación",
+        help_text="Uno o varios, separados por coma.")
     # Lo que devuelve el software de facturación electrónica.
     numero_externo = models.CharField(
         max_length=50, blank=True, verbose_name="Número de la factura electrónica")

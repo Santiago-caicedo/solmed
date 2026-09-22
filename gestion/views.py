@@ -6690,6 +6690,33 @@ def _lugar_y_servicios(orden):
     }
 
 
+def _correos_de_facturacion(request, errores):
+    """
+    Los correos de facturación que vengan del formulario: un campo por correo,
+    y cada campo admite además varios pegados con coma. Salen limpios, sin
+    repetidos y en el orden escrito; los que no sean un correo se reclaman en
+    `errores` en vez de guardarse.
+    """
+    from django.core.exceptions import ValidationError
+    from django.core.validators import validate_email
+
+    crudos = []
+    for valor in request.POST.getlist('correo_facturacion'):
+        crudos += _lista_correos(valor)
+    vistos, buenos = set(), []
+    for correo in crudos:
+        if correo.lower() in vistos:
+            continue
+        try:
+            validate_email(correo)
+        except ValidationError:
+            errores.append(f"«{correo}» no parece un correo: revísalo o quítalo.")
+            continue
+        vistos.add(correo.lower())
+        buenos.append(correo)
+    return buenos
+
+
 def _correo_facturacion_de(cliente):
     """El correo al que se factura: el de facturación electrónica, si no el de contabilidad, si no el general."""
     return (cliente.contab_correo_facturacion or cliente.contab_correo or cliente.email or '').strip()
@@ -6754,6 +6781,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 'descripcion': factura.descripcion, 'orden_compra': factura.orden_compra,
                 'observaciones_internas': factura.observaciones_internas,
                 'correo_facturacion': factura.correo_facturacion,
+                'correos': _lista_correos(factura.correo_facturacion) or [''],
                 'marcadas': {l.orden_id for l in factura.lineas.all()},
                 # Las básculas se guardan al revés: se listan las EXCLUIDAS, así
                 # una orden que se marque después entra sola.
@@ -6764,6 +6792,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         elif cliente:
             from django.db.models import Max
             datos = {'correo_facturacion': _correo_facturacion_de(cliente),
+                     'correos': _lista_correos(_correo_facturacion_de(cliente)) or [''],
                      'numero': (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1,
                      'fecha_emision': timezone.localdate(),
                      'marcadas': set(), 'basculas_excluidas': ''}
@@ -6780,13 +6809,16 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'descripcion': (request.POST.get('descripcion') or '').strip(),
             'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
             'orden_compra': (request.POST.get('orden_compra') or '').strip(),
-            'correo_facturacion': (request.POST.get('correo_facturacion') or '').strip(),
+            # Los correos se validan más abajo, con `errores` ya creado.
+            'correos': [c.strip() for c in request.POST.getlist('correo_facturacion')] or [''],
             'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},
             'basculas_excluidas': (request.POST.get('basculas_excluidas') or '').strip(),
         }
         datos.update({c: bool(request.POST.get(c)) for c in COPIAR_FACTURA})
         excluidas = {int(x) for x in datos['basculas_excluidas'].split(',') if x.strip().isdigit()}
         errores = []
+        correos = _correos_de_facturacion(request, errores)
+        datos['correo_facturacion'] = ', '.join(correos)
         if cliente is None:
             errores.append("Elige el cliente.")
             return self._render(request, factura, None, datos, errores)
@@ -7269,8 +7301,11 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
         if fecha is not None:
             borrador.fecha_emision = fecha
         # Las observaciones internas quedan FUERA a propósito: no van al PDF.
-        for campo in ('descripcion', 'orden_compra', 'correo_facturacion'):
+        for campo in ('descripcion', 'orden_compra'):
             setattr(borrador, campo, (request.POST.get(campo) or '').strip())
+        borrador.correo_facturacion = ', '.join(
+            c for valor in request.POST.getlist('correo_facturacion')
+            for c in _lista_correos(valor))
         borrador.observaciones_internas = ''
         borrador.numero_externo = factura.numero_externo if factura else ''
 
