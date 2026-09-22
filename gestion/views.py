@@ -6899,24 +6899,17 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             for archivo in request.FILES.getlist('otros_archivos'):
                 AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
                                               archivo=archivo)
-        # Los botones de prefactura guardan y envían en un solo paso: el PDF
-        # ya se vio en la vista previa mientras se armaba la factura.
-        if 'submit_basculas' in request.POST:
-            ordenes = _basculas_elegidas(factura)
-            messages.success(request, f"Factura {factura.codigo} guardada con "
-                                      f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
-            if not ordenes:
-                messages.error(request, "No marcaste ningún tiquete de báscula para enviar.")
-            else:
-                _enviar_factura(request, factura, incluir={'basculas': True}, basculas=ordenes)
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-
-        con_actas = 'submit_prefactura_actas' in request.POST
-        if con_actas or 'submit_prefactura' in request.POST:
+        # «Enviar ahora» (el popup) guarda y envía en un solo paso lo marcado en
+        # «Copiar al cliente». Desde aquí siempre va como ADELANTO: la factura
+        # interna sale como prefactura y el estado no cambia; la electrónica se
+        # manda desde el expediente, ya revisada.
+        if 'submit_enviar_ahora' in request.POST:
             messages.success(request, f"Factura {factura.codigo} guardada con "
                                       f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
             _enviar_factura(request, factura, prefactura=True,
-                            incluir={'factura': True, 'xml': False, 'actas': con_actas})
+                            incluir={clave: getattr(factura, f'copiar_{clave}')
+                                     for clave, _ in ADJUNTOS_FACTURA},
+                            basculas=_basculas_elegidas(factura))
             return redirect('gestion:detalle_factura', pk=factura.pk)
 
         messages.success(request, f"Factura {factura.codigo} guardada con "
@@ -7047,9 +7040,13 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
 
-    solo_basculas = bool(incluir.get('basculas')) and not any(
-        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k != 'basculas')
-    etiqueta = ('Soportes de báscula' if solo_basculas
+    # Sin la factura entre lo que va, el correo son SOPORTES: no marca la
+    # factura como enviada. Si además solo van básculas, se dice así.
+    solo_soportes = not incluir.get('factura') and any(
+        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k != 'factura')
+    solo_basculas = solo_soportes and not any(
+        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k not in ('factura', 'basculas'))
+    etiqueta = ('Soportes de báscula' if solo_basculas else 'Soportes' if solo_soportes
                 else 'Prefactura' if prefactura else 'Factura')
     correos = _lista_correos(factura.correo_facturacion)
     if not correos:
@@ -7130,9 +7127,13 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
                                 "Quita alguno (por ejemplo las actas) y vuelve a enviar.")
         return False
 
-    asunto = (f"{etiqueta} · órdenes de servicio" if solo_basculas
-              else f"{etiqueta} {factura.codigo}")
-    if factura.numero_externo and not prefactura and not solo_basculas:
+    if solo_basculas:
+        asunto = f"{etiqueta} · órdenes de servicio"
+    elif solo_soportes:
+        asunto = f"Soportes de la factura {factura.codigo}"
+    else:
+        asunto = f"{etiqueta} {factura.codigo}"
+    if factura.numero_externo and not prefactura and not solo_soportes:
         asunto += f" ({factura.numero_externo})"
     asunto += " — SOLMED SAS"
     ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
@@ -7140,6 +7141,9 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
         cuales = ', '.join(f"#{o.numero_orden}" for o in basculas if o.bascula_adjunto)
         mensaje = (f"Buen día,\n\nAdjuntamos los tiquetes de báscula de las órdenes de "
                    f"servicio {cuales}.")
+    elif solo_soportes:
+        mensaje = (f"Buen día,\n\nAdjuntamos los soportes de la factura {factura.codigo} "
+                   f"correspondientes a las órdenes de servicio {ordenes}.")
     elif prefactura:
         mensaje = (f"Buen día,\n\nAdjuntamos la PREFACTURA {factura.codigo} correspondiente a "
                    f"las órdenes de servicio {ordenes}, para su revisión antes de expedir la "
@@ -7173,13 +7177,13 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
                                 "Quedó registrado como fallido en el Centro de correos.")
         return False
     registro.save()
-    if not prefactura and not solo_basculas:
+    if not prefactura and not solo_soportes:
         # La prefactura y los soportes son adelantos: la factura sigue sin enviarse.
         factura.estado = 'ENVIADA'
         factura.enviada_en = timezone.now()
         factura.save(update_fields=['estado', 'enviada_en'])
     texto = ((f"{etiqueta} enviados a {registro.destinatarios} "
-              f"({len(adjuntos)} archivo{'s' if len(adjuntos) != 1 else ''}).") if solo_basculas
+              f"({len(adjuntos)} archivo{'s' if len(adjuntos) != 1 else ''}).") if solo_soportes
              else (f"{etiqueta} {factura.codigo} enviada a {registro.destinatarios} "
                    f"con {len(adjuntos)} adjunto(s)."))
     if avisos:

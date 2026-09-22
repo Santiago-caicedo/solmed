@@ -2747,7 +2747,7 @@ class FacturacionTests(BaseCRM):
     def test_el_formulario_lista_los_siete_adjuntos_en_su_orden(self):
         contenido = self.client.get(
             reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}').content.decode()
-        bloque = self._lista_de_adjuntos(contenido, 'ff-adj')
+        bloque = self._lista_de_adjuntos(contenido, 'fe-lista')
         self.assertEqual(sorted(self.ORDEN_ADJUNTOS, key=bloque.index), self.ORDEN_ADJUNTOS,
                          "el orden lo pidió la clienta: OC, pedido, factura electrónica, "
                          "XML, órdenes de servicio, básculas y otros")
@@ -2816,7 +2816,8 @@ class FacturacionTests(BaseCRM):
         self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), {
             'cliente': self.cli.pk, 'ordenes': [self.una.pk],
             f'precio_{self.una.pk}': '500.000',
-            'correo_facturacion': 'facturacion@cliente.co', 'submit_prefactura': '1'})
+            'correo_facturacion': 'facturacion@cliente.co',
+            'copiar_factura': '1', 'submit_enviar_ahora': '1'})
         self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
 
     def test_solo_se_envian_los_tiquetes_elegidos_en_el_popup(self):
@@ -2928,6 +2929,21 @@ class FacturacionTests(BaseCRM):
         formulario = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
         self.assertNotContains(formulario, 'name="orden_compra"')
         self.assertContains(formulario, 'name="corte_facturacion"')
+
+    def test_mandar_solo_soportes_desde_el_expediente_no_marca_la_factura_enviada(self):
+        """Sin la factura entre lo que va, el correo son «Soportes» y el estado no cambia."""
+        Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
+        self._crear(copiar_factura='', copiar_xml='', copiar_actas='1')
+        factura = Factura.objects.get()
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1'})
+        correo = mail.outbox[0]
+        self.assertEqual(correo.subject, 'Soportes de la factura F-0001 — SOLMED SAS')
+        self.assertIn('soportes de la factura F-0001', correo.body)
+        self.assertEqual([a[0] for a in correo.attachments], [f'Acta_servicio_{self.una.numero_orden}.pdf'])
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'EMITIDA', "la factura misma no se ha enviado")
 
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
@@ -3141,9 +3157,10 @@ class FacturacionTests(BaseCRM):
         self.assertEqual((factura.descripcion, factura.correo_facturacion), ('Cambiada', 'otro@cliente.co'))
         self.assertFalse(LineaFactura.objects.filter(orden=self.otra).exists(), "la quitada vuelve a ser facturable")
 
-    def test_el_boton_de_prefactura_guarda_y_envia_solo_el_pdf(self):
+    def test_enviar_ahora_guarda_y_manda_la_prefactura(self):
+        """Desde el formulario la factura sale como PREFACTURA, y solo lo marcado."""
         mail.outbox.clear()
-        respuesta = self._crear(submit_prefactura='1')
+        respuesta = self._crear(submit_enviar_ahora='1')
         factura = Factura.objects.get()
         self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
         self.assertEqual(factura.lineas.count(), 2, "primero guarda")
@@ -3162,33 +3179,47 @@ class FacturacionTests(BaseCRM):
         # Y queda en el Centro de correos.
         self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle, ['Prefactura_F-0001.pdf'])
 
-    def test_el_boton_de_prefactura_con_actas_las_adjunta(self):
+    def test_enviar_ahora_con_las_ordenes_de_servicio_adjunta_las_actas(self):
         Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
         mail.outbox.clear()
-        self._crear(submit_prefactura_actas='1')
+        self._crear(submit_enviar_ahora='1', copiar_actas='1')
         nombres = [a[0] for a in mail.outbox[0].attachments]
         self.assertEqual(nombres, ['Prefactura_F-0001.pdf',
                                    f'Acta_servicio_{self.una.numero_orden}.pdf'])
 
     def test_sin_actas_firmadas_la_prefactura_sale_igual_pero_avisa(self):
         mail.outbox.clear()
-        respuesta = self._crear(submit_prefactura_actas='1', follow=True)
+        respuesta = self._crear(submit_enviar_ahora='1', copiar_actas='1', follow=True)
         self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
         self.assertContains(respuesta, 'ninguna de sus órdenes tiene acta firmada')
 
     def test_sin_correo_de_facturacion_no_se_envia_la_prefactura_pero_se_guarda(self):
         mail.outbox.clear()
-        respuesta = self._crear(submit_prefactura='1', correo_facturacion='', follow=True)
+        respuesta = self._crear(submit_enviar_ahora='1', correo_facturacion='', follow=True)
         self.assertEqual(len(mail.outbox), 0)
         self.assertTrue(Factura.objects.exists(), "la factura sí quedó guardada")
         self.assertContains(respuesta, 'no tiene correo de facturación')
 
-    def test_los_botones_de_prefactura_estan_en_el_formulario(self):
+    def test_el_formulario_tiene_un_solo_boton_de_envio_y_su_popup(self):
+        """Un botón abre el popup; ahí se marca todo lo que va (pedido del usuario, sep-2026)."""
         respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
-        self.assertContains(respuesta, 'name="submit_prefactura"')
-        self.assertContains(respuesta, 'Enviar prefactura al cliente')
-        self.assertContains(respuesta, 'name="submit_prefactura_actas"')
-        self.assertContains(respuesta, 'Enviar con actas de las órdenes')
+        contenido = respuesta.content.decode()
+        self.assertContains(respuesta, 'Enviar al cliente…')
+        self.assertContains(respuesta, 'data-bs-target="#fe-modal"')
+        self.assertContains(respuesta, 'id="fe-modal"')
+        self.assertContains(respuesta, 'Enviar ahora')
+        self.assertContains(respuesta, 'name="submit_guardar"')
+        # Los botones sueltos de antes ya no están.
+        for viejo in ('submit_prefactura', 'Enviar prefactura al cliente', 'Enviar con actas',
+                      'Enviar básculas', 'fb-modal', '4 · Copiar al cliente'):
+            self.assertNotIn(viejo, contenido, viejo)
+        # Lo del popup viaja con el formulario aunque el popup viva fuera del <form>.
+        pop = contenido.split('id="fe-modal"', 1)[1].split('id="ff-modal"', 1)[0]
+        for campo in ('copiar_orden_compra', 'copiar_factura', 'copiar_basculas', 'copiar_otros',
+                      'archivo_orden_compra', 'archivo_orden_pedido', 'otros_archivos'):
+            self.assertIn(f'name="{campo}" ', pop + ' ')
+        self.assertEqual(pop.count('form="form-factura"'), 10, "7 casillas + 3 campos de archivo")
+        self.assertNotIn('new bootstrap.', contenido)
 
     def test_guardar_sin_los_botones_de_envio_no_manda_nada(self):
         mail.outbox.clear()
@@ -3274,13 +3305,14 @@ class FacturacionTests(BaseCRM):
         self.assertIn('F-0077', html)
         self.assertIn(f'{emision:%d-%m-%Y}', html)
 
-    def test_el_boton_de_basculas_envia_solo_los_tiquetes_marcados(self):
+    def test_solo_basculas_marcadas_manda_los_tiquetes_como_soportes(self):
         # La primera orden tiene tiquete; la segunda no.
         self.una.bascula = 'PESAN'
         self.una.bascula_adjunto.save('tiquete.pdf', SimpleUploadedFile('tiquete.pdf', b'%PDF-1.4 t'), save=True)
         mail.outbox.clear()
 
-        respuesta = self._crear(submit_basculas='1', basculas=[self.una.pk, self.otra.pk])
+        respuesta = self._crear(submit_enviar_ahora='1', copiar_factura='', copiar_xml='',
+                                copiar_basculas='1')
         factura = Factura.objects.get()
         self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]))
         self.assertEqual(factura.lineas.count(), 2, "primero guarda la factura")
@@ -3306,24 +3338,27 @@ class FacturacionTests(BaseCRM):
             orden.bascula_adjunto.save(f'tq{orden.pk}.pdf',
                                        SimpleUploadedFile('t.pdf', b'%PDF-1.4 t'), save=True)
         mail.outbox.clear()
-        self._crear(submit_basculas='1', basculas_excluidas=str(self.una.pk))
+        self._crear(submit_enviar_ahora='1', copiar_factura='', copiar_xml='',
+                    copiar_basculas='1', basculas_excluidas=str(self.una.pk))
         self.assertEqual([a[0] for a in mail.outbox[0].attachments],
                          [f'Bascula_orden_{self.otra.numero_orden}.pdf'])
 
     def test_sin_ningun_tiquete_marcado_avisa_y_no_manda_correo(self):
         mail.outbox.clear()
-        respuesta = self._crear(submit_basculas='1',
+        respuesta = self._crear(submit_enviar_ahora='1', copiar_factura='', copiar_xml='',
+                                copiar_basculas='1',
                                 basculas_excluidas=f'{self.una.pk},{self.otra.pk}', follow=True)
         self.assertEqual(len(mail.outbox), 0)
         self.assertTrue(Factura.objects.exists(), "la factura sí queda guardada")
-        self.assertContains(respuesta, 'No marcaste ningún tiquete')
+        self.assertContains(respuesta, 'No hay nada que enviar')
+        self.assertContains(respuesta, 'tiquete de báscula')
 
-    def test_el_formulario_trae_el_boton_y_el_popup_de_basculas(self):
+    def test_cada_orden_dice_si_trae_tiquete_y_acta_para_el_popup(self):
         self.una.bascula_adjunto.save('tiquete.pdf', SimpleUploadedFile('t.pdf', b'%PDF'), save=True)
         respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
         contenido = respuesta.content.decode()
-        self.assertContains(respuesta, 'Enviar básculas')
-        self.assertContains(respuesta, 'data-bs-target="#fb-modal"')
+        self.assertContains(respuesta, 'elegir cuáles')
+        self.assertIn('data-acta="0"', contenido, "ninguna tiene acta firmada todavía")
         # Cada orden dice si trae tiquete: con eso el popup se arma sin ir al servidor.
         filas = {f['orden'].pk: f for f in respuesta.context['filas']}
         self.assertTrue(filas[self.una.pk]['bascula'])
