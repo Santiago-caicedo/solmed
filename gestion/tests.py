@@ -3144,7 +3144,10 @@ class FacturacionTests(BaseCRM):
         from .views import _html_factura, _lineas_con_detalle
         self.assertIn(f'{emision:%d-%m-%Y}', _html_factura(factura, _lineas_con_detalle(factura), factura.total))
         self.assertContains(self.client.get(reverse('gestion:lista_facturas')), f'{emision:%d/%m/%Y}')
-        self.assertEqual(factura.creada_en.date(), timezone.localdate(), "queda el registro de cuándo se creó")
+        # localtime: `creada_en` se guarda en UTC y comparar su .date() con la
+        # fecha local hacía fallar la prueba sola después de las 7 p.m.
+        self.assertEqual(timezone.localtime(factura.creada_en).date(), timezone.localdate(),
+                         "queda el registro de cuándo se creó")
 
     def test_no_se_puede_repetir_el_numero_de_otra_factura(self):
         self._crear(ordenes=[self.una])
