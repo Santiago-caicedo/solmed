@@ -337,8 +337,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     </li>
                     <li class="fe-item" data-clave="factura">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_factura" value="1" form="form-factura" {% if datos.copiar_factura %}checked{% endif %}><span>Factura electrónica de venta</span></label>
-                        {# Con la electrónica cargada se manda esa; sin ella, la PREFACTURA (el PDF de este sistema). #}
-                        <div class="fe-est" id="fe-est-factura" data-cargada="{% if factura.pdf_oficial %}1{% else %}0{% endif %}">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.pdf_oficial.name|cut:"facturas/pdf/" }}</span> · se manda la electrónica{% else %}<span class="falta">aún no está cargada</span> · si no la subes, se manda la <b>prefactura</b>, el PDF de esta factura{% endif %}</div>
+                        {# Con la electrónica cargada se manda esa; sin ella, la PRELIQUIDACIÓN interna (el PDF de este sistema). #}
+                        <div class="fe-est" id="fe-est-factura" data-cargada="{% if factura.pdf_oficial %}1{% else %}0{% endif %}">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.pdf_oficial.name|cut:"facturas/pdf/" }}</span> · se manda la electrónica{% else %}<span class="falta">aún no está cargada</span> · si no la subes, se manda la <b>preliquidación interna</b>, el PDF de esta factura{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.pdf_oficial %}Cambiar archivo{% else %}Subir la electrónica{% endif %}</span><input type="file" name="pdf_oficial" form="form-factura" accept="application/pdf,.pdf" data-para="factura"></label></div>
                     </li>
                     <li class="fe-item" data-clave="xml">
@@ -536,7 +536,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     var campoExcluidas = document.getElementById('ff-basculas-excluidas');
     var tqLista = document.getElementById('fe-tq-lista');
     var ETIQUETAS = { orden_compra: 'Orden de compra', orden_pedido: 'Orden de pedido',
-                      factura: 'Prefactura', xml: 'XML', actas: 'Órdenes de servicio',
+                      factura: 'Preliquidación interna', xml: 'XML', actas: 'Órdenes de servicio',
                       basculas: 'Básculas', otros: 'Otros' };
 
     // Las órdenes marcadas en la tabla, con lo que el popup necesita saber de cada una.
@@ -585,7 +585,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     + '</span> · ' + campo.files.length + ' por subir al guardar';
             } else {
                 est.innerHTML = '<span class="ok"><i class="bi bi-check2 me-1"></i>' + campo.files[0].name + '</span>'
-                    + (campo.dataset.para === 'factura' ? ' · se sube al guardar y se manda esta, no la prefactura' : ' · se sube al guardar');
+                    + (campo.dataset.para === 'factura' ? ' · se sube al guardar y se manda esta, no la preliquidación' : ' · se sube al guardar');
             }
         });
         // A quién, y qué va.
@@ -596,7 +596,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         var estFactura = document.getElementById('fe-est-factura');
         ETIQUETAS.factura = (estFactura.dataset.cargada === '1'
                              || feModal.querySelector('input[data-para=factura]').files.length)
-                            ? 'Factura electrónica' : 'Prefactura';
+                            ? 'Factura electrónica' : 'Preliquidación interna';
         var marcados = Array.prototype.slice.call(feModal.querySelectorAll('.fe-chk input:checked'))
             .map(function (c) { return ETIQUETAS[c.closest('.fe-item').dataset.clave]; });
         document.getElementById('fe-resumen').innerHTML = marcados.length

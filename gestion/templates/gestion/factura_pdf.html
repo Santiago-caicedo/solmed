@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Factura {{ factura.codigo }}</title>
+    <title>Preliquidación {{ factura.codigo }}</title>
     {% comment %}
        PDF interno de la FACTURA: el documento con el que se transcribe la
        factura al software de facturación electrónica. Sigue la línea del
@@ -86,21 +86,21 @@
             </td>
             <td class="h-meta">
                 <table class="meta-box">
-                    <tr><td><span class="lbl">Documento:</span> Factura interna</td></tr>
+                    <tr><td><span class="lbl">Documento:</span> Preliquidación interna</td></tr>
                     <tr><td><span class="lbl">Fecha:</span> {{ factura.fecha_emision|date:"d-m-Y" }}</td></tr>
                     <tr><td><span class="lbl">Electrónica:</span> {{ factura.numero_externo|default:"—" }}</td></tr>
                 </table>
             </td>
             <td class="h-os">
                 <div class="os-box">
-                    <div class="t">FACTURA</div>
+                    <div class="t">PRELIQUIDACIÓN</div>
                     <div class="n">{{ factura.codigo }}</div>
                     {% if provisional %}<div style="color:#2C4D9E;font-size:6.2pt">número provisional</div>{% endif %}
                 </div>
             </td>
         </tr>
     </table>
-    <div class="aviso">Documento interno para elaborar la factura electrónica · No es una factura de venta</div>
+    <div class="aviso">Preliquidación interna para elaborar la factura electrónica · No es una factura de venta</div>
 
     <!-- ================= CLIENTE ================= -->
     <div class="section">
@@ -176,6 +176,6 @@
         <div class="obs">{{ factura.descripcion|default:"" }}</div>
     </div>
 
-    <div class="footer">SOLMED S.A.S. · Factura interna {{ factura.codigo }} · Generada el {{ hoy|date:"d-m-Y" }} por la plataforma SOLMED</div>
+    <div class="footer">SOLMED S.A.S. · Preliquidación interna {{ factura.codigo }} · Generada el {{ hoy|date:"d-m-Y" }} por la plataforma SOLMED</div>
 </body>
 </html>

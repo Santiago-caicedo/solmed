@@ -2818,7 +2818,7 @@ class FacturacionTests(BaseCRM):
             f'precio_{self.una.pk}': '500.000',
             'correo_facturacion': 'facturacion@cliente.co',
             'copiar_factura': '1', 'submit_enviar_ahora': '1'})
-        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Preliquidacion_F-0001.pdf'])
 
     def test_solo_se_envian_los_tiquetes_elegidos_en_el_popup(self):
         for orden in (self.una, self.otra):
@@ -2957,7 +2957,7 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(factura.xml.read(), b'<Invoice/>')
         correo = mail.outbox[0]
         self.assertIn('Factura F-0001', correo.subject)
-        self.assertNotIn('Prefactura', correo.subject)
+        self.assertNotIn('Preliquidación', correo.subject)
         adjuntos = {a[0]: a[1] for a in correo.attachments}
         self.assertEqual(adjuntos, {'Factura_F-0001.pdf': b'%PDF-1.4 oficial',
                                     'Factura_F-0001.xml': b'<Invoice/>'})
@@ -3187,30 +3187,30 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(len(mail.outbox), 1)
         correo = mail.outbox[0]
         self.assertEqual(correo.to, ['facturacion@cliente.co'])
-        self.assertIn('Prefactura F-0001', correo.subject)
-        self.assertEqual([a[0] for a in correo.attachments], ['Prefactura_F-0001.pdf'],
+        self.assertIn('Preliquidación F-0001', correo.subject)
+        self.assertEqual([a[0] for a in correo.attachments], ['Preliquidacion_F-0001.pdf'],
                          "solo el PDF: sin XML ni actas")
         self.assertTrue(correo.attachments[0][1].startswith(b'%PDF'))
-        self.assertIn('PREFACTURA', correo.body)
+        self.assertIn('PRELIQUIDACIÓN INTERNA', correo.body)
         # Es un adelanto: la factura NO queda marcada como enviada.
         factura.refresh_from_db()
         self.assertEqual(factura.estado, 'EMITIDA')
         self.assertIsNone(factura.enviada_en)
         # Y queda en el Centro de correos.
-        self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle, ['Prefactura_F-0001.pdf'])
+        self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle, ['Preliquidacion_F-0001.pdf'])
 
     def test_enviar_ahora_con_las_ordenes_de_servicio_adjunta_las_actas(self):
         Manifiesto.objects.create(recorrido=self.una.recorridos.get(), estado_firma='FIRMADO')
         mail.outbox.clear()
         self._crear(submit_enviar_ahora='1', copiar_actas='1')
         nombres = [a[0] for a in mail.outbox[0].attachments]
-        self.assertEqual(nombres, ['Prefactura_F-0001.pdf',
+        self.assertEqual(nombres, ['Preliquidacion_F-0001.pdf',
                                    f'Acta_servicio_{self.una.numero_orden}.pdf'])
 
     def test_sin_actas_firmadas_la_prefactura_sale_igual_pero_avisa(self):
         mail.outbox.clear()
         respuesta = self._crear(submit_enviar_ahora='1', copiar_actas='1', follow=True)
-        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Prefactura_F-0001.pdf'])
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments], ['Preliquidacion_F-0001.pdf'])
         self.assertContains(respuesta, 'ninguna de sus órdenes tiene acta firmada')
 
     def test_sin_correo_de_facturacion_no_se_envia_la_prefactura_pero_se_guarda(self):

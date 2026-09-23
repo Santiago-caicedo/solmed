@@ -7031,7 +7031,7 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     `otros`.
 
     Con `prefactura=True` va el PDF de ESTE sistema (aunque ya exista el
-    oficial), el asunto dice «Prefactura» y la factura NO queda marcada como
+    oficial), el asunto dice «Preliquidación» y la factura NO queda marcada como
     enviada: es un adelanto para que el cliente lo revise, no la factura.
 
     `basculas` son las ÓRDENES cuyo tiquete se adjunta; cuando es lo único
@@ -7048,7 +7048,7 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     solo_basculas = solo_soportes and not any(
         incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k not in ('factura', 'basculas'))
     etiqueta = ('Soportes de báscula' if solo_basculas else 'Soportes' if solo_soportes
-                else 'Prefactura' if prefactura else 'Factura')
+                else 'Preliquidación' if prefactura else 'Factura')
     correos = _lista_correos(factura.correo_facturacion)
     if not correos:
         messages.error(request, f"La factura no tiene correo de facturación: "
@@ -7080,7 +7080,8 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
     # decisión de la clienta (sep-2026), esta casilla es la electrónica.
     if incluir.get('factura'):
         if prefactura:
-            adjuntos.append((f"{etiqueta}_{factura.codigo}.pdf", _pdf_factura(factura, request),
+            # Sin tilde en el nombre del archivo, como los demás adjuntos.
+            adjuntos.append((f"Preliquidacion_{factura.codigo}.pdf", _pdf_factura(factura, request),
                              'application/pdf'))
         elif factura.pdf_oficial:
             adjuntar(factura.pdf_oficial,
@@ -7146,7 +7147,7 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
         mensaje = (f"Buen día,\n\nAdjuntamos los soportes de la factura {factura.codigo} "
                    f"correspondientes a las órdenes de servicio {ordenes}.")
     elif prefactura:
-        mensaje = (f"Buen día,\n\nAdjuntamos la PREFACTURA {factura.codigo} correspondiente a "
+        mensaje = (f"Buen día,\n\nAdjuntamos la PRELIQUIDACIÓN INTERNA {factura.codigo} correspondiente a "
                    f"las órdenes de servicio {ordenes}, para su revisión antes de expedir la "
                    f"factura electrónica.")
     else:
@@ -7419,11 +7420,11 @@ def _excel_factura(factura):
         hoja.add_image(imagen, 'A1')
     escribir('C1', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.\nSOLMED S.A.S.\nNIT 830.514.597-2',
              negrita=True, color=AZUL, tam=10, h='center', ajuste=True, fusion='C1:C5')
-    escribir('D1', 'FACTURA', negrita=True, color=AZUL, tam=9, h='center',
+    escribir('D1', 'PRELIQUIDACIÓN', negrita=True, color=AZUL, tam=9, h='center',
              relleno=BANDA, borde=True, fusion='D1:F1')
     escribir('D2', factura.codigo, negrita=True, color=ROJO, tam=18, h='center',
              borde=True, fusion='D2:F2')
-    for i, (clave, valor) in enumerate((('Documento', 'Factura interna'),
+    for i, (clave, valor) in enumerate((('Documento', 'Preliquidación interna'),
                                         ('Fecha', factura.fecha_emision),
                                         ('Electrónica', factura.numero_externo or '—')), start=3):
         etiqueta(f'D{i}', clave)
@@ -7434,7 +7435,7 @@ def _excel_factura(factura):
         hoja.row_dimensions[fila].height = 19
     hoja.row_dimensions[2].height = 26
 
-    escribir('A6', 'Documento interno para elaborar la factura electrónica · '
+    escribir('A6', 'Preliquidación interna para elaborar la factura electrónica · '
                    'No es una factura de venta',
              color=AZUL, tam=8, h='center', fusion='A6:F6')
     hoja.row_dimensions[6].height = 16
@@ -7517,7 +7518,7 @@ def _excel_factura(factura):
     hoja.row_dimensions[fila].height = 46
 
     fila += 2
-    escribir(f'A{fila}', f'SOLMED S.A.S. · Factura interna {factura.codigo} · '
+    escribir(f'A{fila}', f'SOLMED S.A.S. · Preliquidación interna {factura.codigo} · '
                          f'Generada el {timezone.localdate():%d-%m-%Y} por la plataforma SOLMED',
              negrita=True, color=AZUL, tam=8, h='center', fusion=f'A{fila}:F{fila}')
 
