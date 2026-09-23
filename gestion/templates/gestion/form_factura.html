@@ -244,6 +244,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     <label class="ff-etq" for="descripcion">Descripción</label>
                     <textarea name="descripcion" id="descripcion" class="form-control" rows="3"
                               placeholder="Ej: Servicio de transporte y disposición de residuos correspondiente a las órdenes relacionadas.">{{ datos.descripcion|default:"" }}</textarea>
+                    <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Se ve en el expediente; no sale en el PDF ni en el Excel.</div>
                     <label class="ff-etq" for="observaciones_internas">Observaciones internas <span class="text-muted text-lowercase">(opcional)</span></label>
                     <textarea name="observaciones_internas" id="observaciones_internas" class="form-control ff-internas" rows="2"
                               placeholder="Notas de la oficina: no salen en el PDF ni se le envían al cliente.">{{ datos.observaciones_internas|default:"" }}</textarea>

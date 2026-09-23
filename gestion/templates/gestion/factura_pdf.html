@@ -170,11 +170,7 @@
         </table>
     </div>
 
-    <!-- ================= DESCRIPCIÓN ================= -->
-    <div class="section">
-        <div class="band">Descripción</div>
-        <div class="obs">{{ factura.descripcion|default:"" }}</div>
-    </div>
+    {# La descripción es de la oficina: no sale en el PDF (pedido del usuario, sep-2026). #}
 
     <div class="footer">SOLMED S.A.S. · Preliquidación interna {{ factura.codigo }} · Generada el {{ hoy|date:"d-m-Y" }} por la plataforma SOLMED</div>
 </body>

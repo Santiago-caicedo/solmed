@@ -7509,13 +7509,7 @@ def _excel_factura(factura):
     escribir(f'A{fila}', 'Valores sin impuestos: los liquida el software de facturación electrónica.',
              color=AZUL, tam=8, h='right', borde=True, fusion=f'A{fila}:F{fila}')
 
-    # ---------------- Descripción ----------------
-    fila += 1
-    banda(fila, 'DESCRIPCIÓN')
-    fila += 1
-    escribir(f'A{fila}', factura.descripcion or '', tam=9, borde=True, ajuste=True,
-             fusion=f'A{fila}:F{fila}')
-    hoja.row_dimensions[fila].height = 46
+    # (La descripción no va: es de la oficina, igual que en el PDF.)
 
     fila += 2
     escribir(f'A{fila}', f'SOLMED S.A.S. · Preliquidación interna {factura.codigo} · '

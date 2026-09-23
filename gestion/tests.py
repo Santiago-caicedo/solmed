@@ -2994,9 +2994,10 @@ class FacturacionTests(BaseCRM):
         for esperado in ('F-0001', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.', 'CLIENTE',
                          self.cli.nombre, 'ÓRDENES DE SERVICIO FACTURADAS', 'Sede Norte',
                          'Cll 170 # 8-20', 'WGY347', '12 m³', 'FE-77', 'Total 2 órdenes',
-                         'Observaciones: Hora extra de espera', 'DESCRIPCIÓN',
-                         'Transporte de residuos', 'No es una factura de venta'):
+                         'Observaciones: Hora extra de espera', 'No es una factura de venta'):
             self.assertIn(esperado, texto, f"falta «{esperado}» en el Excel")
+        self.assertNotIn('Transporte de residuos', texto, "la descripción es de la oficina")
+        self.assertNotIn('DESCRIPCIÓN', texto)
 
         # Los valores van como NÚMERO (y la fecha como fecha) para poder sumarlos.
         celdas = {c.value for fila in hoja.iter_rows() for c in fila}
@@ -3072,7 +3073,7 @@ class FacturacionTests(BaseCRM):
         self.assertIn('Sede Norte', html)
         self.assertNotIn('Canecas (3)', html, "el PDF ya no lista los servicios")
         self.assertIn('1.250.000', html)
-        self.assertIn('Borrador en vivo', html)
+        self.assertNotIn('Borrador en vivo', html, "la descripción es de la oficina: no va al PDF")
         self.assertNotIn('Corte 9', html, "el corte de facturación es interno: no va al PDF")
         self.assertNotIn(str(self.otra.numero_orden), html, "solo lo marcado")
         self.assertFalse(Factura.objects.exists(), "la vista previa no guarda nada")
@@ -3119,7 +3120,7 @@ class FacturacionTests(BaseCRM):
         # …pero NO en el HTML del que sale el PDF.
         html_pdf = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
         self.assertNotIn(secreto, html_pdf)
-        self.assertIn('Transporte de residuos', html_pdf, "la descripción sí va")
+        self.assertNotIn('Transporte de residuos', html_pdf, "la descripción tampoco va (sep-2026)")
 
         # …ni en la vista previa en vivo.
         previa = self.client.post(reverse('gestion:previa_factura'), {
