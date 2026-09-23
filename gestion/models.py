@@ -2195,6 +2195,8 @@ class Factura(models.Model):
 
     # El consecutivo interno. Se asigna solo (max + 1) y se puede corregir a
     # mano desde el formulario, a cualquier número que esté libre.
+    # El prefijo lo pidió la clienta (23-sep-2026: «SMS»; antes era «F»).
+    PREFIJO = 'SMS'
     numero = models.PositiveIntegerField(unique=True)
     # La fecha que lleva la factura. Se separa de `creada_en` (cuándo se
     # registró en el sistema, auditoría) porque la oficina la ajusta.
@@ -2266,7 +2268,7 @@ class Factura(models.Model):
 
     @property
     def codigo(self):
-        return f"F-{self.numero:04d}"
+        return f"{self.PREFIJO}-{self.numero:04d}"
 
     @property
     def total(self):

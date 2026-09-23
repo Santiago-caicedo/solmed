@@ -6771,7 +6771,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         qs = Factura.objects.select_related('cliente').prefetch_related('lineas')
         q = self.request.GET.get('q', '').strip()
         if q:
-            numero = q.upper().replace('F-', '').lstrip('0')
+            numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('F-', '').lstrip('0')
             filtro = Q(cliente__nombre__icontains=q) | Q(numero_externo__icontains=q)
             if numero.isdigit():
                 filtro |= Q(numero=int(numero))
@@ -6806,6 +6806,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'factura': factura,
             'cliente': cliente,
             'clientes': Cliente.objects.order_by('nombre'),
+            'prefijo': Factura.PREFIJO,
             # Las que tienen el global en otra preliquidación van aparte: solo conceptos.
             'filas': [f for f in filas if not f['global_en']],
             'filas_ajenas': [f for f in filas if f['global_en']],
@@ -6881,7 +6882,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 if factura is not None:
                     ocupada = ocupada.exclude(pk=factura.pk)
                 if ocupada.exists():
-                    errores.append(f"El número F-{numero_factura:04d} ya lo tiene otra "
+                    errores.append(f"El número {Factura.PREFIJO}-{numero_factura:04d} ya lo tiene otra "
                                    f"factura: elige uno libre.")
                     numero_factura = None
         if numero_factura is None:

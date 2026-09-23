@@ -346,7 +346,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                         <div class="col-6">
                             <label class="ff-etq" for="numero">Número</label>
                             <div class="input-group input-group-sm">
-                                <span class="input-group-text">F-</span>
+                                <span class="input-group-text">{{ prefijo }}-</span>
                                 <input type="text" name="numero" id="numero" class="form-control mono"
                                        inputmode="numeric" autocomplete="off"
                                        value="{{ datos.numero|default:'' }}">
