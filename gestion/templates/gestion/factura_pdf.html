@@ -54,6 +54,11 @@
         .lineas tr.orden:not(:has(+ tr.servicios)) td { border-bottom: 0.9px solid #2C4D9E; }
         .lineas tr.orden:has(+ tr.servicios) td { border-bottom: none; }
         .lineas tr.servicios td { padding-top: 0; padding-bottom: 4px; font-size: 7.2pt; color: #333; }
+        /* Las filas de una misma orden (observaciones, conceptos) van pegadas, sin raya entre ellas. */
+        .lineas tr.servicios:has(+ tr.servicios) td { border-bottom: none; }
+        .lineas tr.concepto td { font-size: 7.6pt; color: #000; }
+        .lineas tr.concepto .der { font-family: "Courier New", monospace; }
+        .sin-global { color: #51606E; font-size: 6.6pt; }
         .lineas tr:last-child td { border-bottom: none; }
         .num { font-weight: bold; }
         .der { text-align: right; white-space: nowrap; }
@@ -144,7 +149,8 @@
                     <td>{{ l.sede|default:"—" }}{% if l.direccion %}<span class="sede-dir">{{ l.direccion }}</span>{% endif %}</td>
                     <td class="mono">{{ l.placa|default:"—" }}</td>
                     <td>{{ l.peso|default:"—" }}</td>
-                    <td class="der mono">${{ l.precio|floatformat:0|intcomma }}</td>
+                    {# Sin global aquí (va en otra preliquidación): la orden queda de referencia y abajo sus conceptos. #}
+                    <td class="der mono">{% if l.lleva_global %}${{ l.precio|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
                 </tr>
                 {% if l.observaciones %}
                 <tr class="servicios">
@@ -152,6 +158,13 @@
                     <td colspan="5"><span class="srv-lbl">Observaciones:</span> {{ l.observaciones }}</td>
                 </tr>
                 {% endif %}
+                {% for c in l.conceptos_lista %}
+                <tr class="servicios concepto">
+                    <td></td>
+                    <td colspan="4"><span class="srv-lbl">Concepto adicional:</span> {{ c.descripcion }}</td>
+                    <td class="der">${{ c.precio|floatformat:0|intcomma }}</td>
+                </tr>
+                {% endfor %}
             {% empty %}
                 <tr><td colspan="6" style="color:#51606E;text-align:center;padding:10px">Marca las órdenes que van en la factura para verlas aquí.</td></tr>
             {% endfor %}

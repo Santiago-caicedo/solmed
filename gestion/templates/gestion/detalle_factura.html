@@ -16,6 +16,10 @@
 .fd-tabla tr.fd-srv td{ border-top:0; padding-top:0; font-size:.76rem; color:var(--ink-2); }
 .fd-tabla tr.fd-srv .k{ color:var(--brand-700); font-weight:600; }
 .fd-tabla tr.fd-orden td{ border-bottom:0; }
+.fd-tabla tr.fd-con td{ font-size:.82rem; color:var(--ink); }
+.fd-tabla tr.fd-srv:has(+ tr.fd-con) td{ border-bottom:0; }
+.fd-sin-global{ color:var(--ink-3); font-family:var(--mono); font-size:.82rem; white-space:nowrap; }
+.fd-sin-global small{ font-family:var(--sans); font-size:.7rem; }
 .fd-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
 .fd-total .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
 .fd-total .v{ font-family:var(--mono); font-size:1.35rem; font-weight:600; }
@@ -109,10 +113,14 @@
                                 <td class="sede">{{ l.sede|default:"—" }}{% if l.direccion %}<small>{{ l.direccion }}</small>{% endif %}</td>
                                 <td class="pla">{{ l.placa|default:"—" }}</td>
                                 <td class="peso">{{ l.peso|default:"—" }}</td>
-                                <td class="precio">${{ l.precio|floatformat:0|intcomma }}</td>
+                                <td class="precio">{% if l.lleva_global %}${{ l.precio|floatformat:0|intcomma }}{% else %}<span class="fd-sin-global" title="El global de esta orden va en otra preliquidación">— <small>sin global aquí</small></span>{% endif %}</td>
                             </tr>
                             <tr class="fd-srv"><td colspan="6"><span class="k">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}
                                 {% if l.observaciones %}<br><span class="k">Observaciones:</span> {{ l.observaciones }}{% endif %}</td></tr>
+                            {% for c in l.conceptos_lista %}
+                            <tr class="fd-srv fd-con"><td colspan="5"><span class="k">Concepto adicional:</span> {{ c.descripcion }}</td>
+                                <td class="precio">${{ c.precio|floatformat:0|intcomma }}</td></tr>
+                            {% endfor %}
                         {% endfor %}
                         </tbody>
                     </table>

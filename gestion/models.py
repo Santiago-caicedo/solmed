@@ -2270,21 +2270,36 @@ class Factura(models.Model):
 
     @property
     def total(self):
-        return sum((l.precio for l in self.lineas.all()), Decimal('0'))
+        """Los globales de las órdenes más sus conceptos adicionales."""
+        total = Decimal('0')
+        for l in self.lineas.all():
+            if l.lleva_global:
+                total += l.precio
+            total += sum((c.precio for c in l.conceptos.all()), Decimal('0'))
+        return total
 
     def actas_firmadas(self):
         """Las actas firmadas de sus órdenes (lo que el formato llama O.T.S.)."""
         return (Manifiesto.objects
-                .filter(recorrido__orden__linea_factura__factura=self, estado_firma='FIRMADO')
+                .filter(recorrido__orden__lineas_factura__factura=self, estado_firma='FIRMADO')
                 .select_related('recorrido__orden').order_by('recorrido__orden__numero_orden'))
 
 
 class LineaFactura(models.Model):
-    """Una orden dentro de una factura: el precio se escribe; el peso es la cantidad conciliada."""
+    """
+    Una orden DENTRO de una preliquidación. Lleva su global (el precio que se
+    escribe) o va solo por conceptos adicionales (sep-2026: servicios de esa
+    orden que se cobran aparte, en esta misma preliquidación o en otra).
+
+    El GLOBAL de una orden va en una sola preliquidación (restricción abajo);
+    por conceptos la orden puede aparecer en otra. Una preliquidación sin
+    ningún global es de una sola orden (lo valida el formulario).
+    """
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='lineas')
-    # OneToOne: una orden va en UNA sola factura.
-    orden = models.OneToOneField(
-        'OrdenServicio', on_delete=models.PROTECT, related_name='linea_factura')
+    orden = models.ForeignKey(
+        'OrdenServicio', on_delete=models.PROTECT, related_name='lineas_factura')
+    # False = «sin global aquí, solo conceptos»: el precio no cuenta.
+    lleva_global = models.BooleanField(default=True, verbose_name="Lleva el global de la orden")
     precio = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     # Lo que haya que aclararle al cliente de ESA orden (sale bajo ella en el PDF).
     observaciones = models.CharField(max_length=255, blank=True,
@@ -2295,15 +2310,47 @@ class LineaFactura(models.Model):
 
     class Meta:
         ordering = ['orden__numero_orden']
+        constraints = [
+            # Una orden aparece una sola vez por preliquidación…
+            models.UniqueConstraint(fields=['factura', 'orden'], name='linea_unica_por_factura'),
+            # …y su GLOBAL se factura una sola vez en total.
+            models.UniqueConstraint(fields=['orden'], condition=models.Q(lleva_global=True),
+                                    name='global_de_la_orden_una_sola_vez'),
+        ]
 
     def __str__(self):
         return f"{self.factura.codigo} · orden #{self.orden_id}"
+
+    @property
+    def subtotal(self):
+        """Lo que esta orden aporta a la preliquidación: su global (si va) más sus conceptos."""
+        total = self.precio if self.lleva_global else Decimal('0')
+        return total + sum((c.precio for c in self.conceptos.all()), Decimal('0'))
 
     @property
     def peso(self):
         """Transporte - Cantidad de la conciliación ('' si aún no se concilió)."""
         programacion = getattr(self.orden, 'programacion_origen', None)
         return (programacion.transporte_cantidad if programacion else '') or ''
+
+
+class ConceptoFactura(models.Model):
+    """
+    Concepto adicional (sep-2026): un servicio de la orden que se cobra aparte
+    del global. Nace al armar la preliquidación y vive solo en ella (se borra
+    con ella): descripción y precio, nada más — decisión de Santiago.
+    """
+    linea = models.ForeignKey(LineaFactura, on_delete=models.CASCADE, related_name='conceptos')
+    descripcion = models.CharField(max_length=255, verbose_name="Concepto")
+    precio = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+
+    class Meta:
+        ordering = ['pk']
+        verbose_name = "Concepto adicional"
+        verbose_name_plural = "Conceptos adicionales"
+
+    def __str__(self):
+        return f"{self.linea} · {self.descripcion}"
 
 
 class AdjuntoFactura(models.Model):

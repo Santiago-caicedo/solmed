@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Banco, Bascula, Cliente, ContactoProveedor, AdjuntoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Banco, Bascula, Cliente, ConceptoFactura, ContactoProveedor, AdjuntoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -236,6 +236,20 @@ class DisposicionOrdenAdmin(admin.ModelAdmin):
     search_fields = ('orden__numero_orden', 'nota')
     date_hierarchy = 'fecha'
     raw_id_fields = ('orden',)
+
+
+class ConceptoFacturaInline(admin.TabularInline):
+    model = ConceptoFactura
+    extra = 0
+
+
+@admin.register(LineaFactura)
+class LineaFacturaAdmin(admin.ModelAdmin):
+    """La orden dentro de una preliquidación, con sus conceptos adicionales."""
+    list_display = ('factura', 'orden', 'lleva_global', 'precio')
+    list_filter = ('lleva_global',)
+    search_fields = ('factura__numero', 'orden__numero_orden')
+    inlines = [ConceptoFacturaInline]
 
 
 class LineaFacturaInline(admin.TabularInline):
