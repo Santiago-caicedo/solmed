@@ -1484,8 +1484,11 @@ class ActaPDFView(AsesorRequiredMixin, View):
         respuesta = HttpResponse(
             _pdf_manifiesto(manifiesto, request),
             content_type='application/pdf')
+        # Con ?ver=1 se muestra en la pestaña (vista previa desde el popup de
+        # envío de la factura); sin él se descarga, como siempre.
+        modo = 'inline' if request.GET.get('ver') else 'attachment'
         respuesta['Content-Disposition'] = (
-            f'attachment; filename="acta_servicio_recorrido_{recorrido.pk}.pdf"')
+            f'{modo}; filename="acta_servicio_recorrido_{recorrido.pk}.pdf"')
         return respuesta
 
 
@@ -6645,9 +6648,10 @@ def _ordenes_facturables(cliente, factura=None):
         if linea is not None and (factura is None or linea.factura_id != factura.pk):
             continue    # ya facturada en otra
         recorridos = list(orden.recorridos.all())
-        firmada = any(getattr(r, 'manifiesto', None) is not None
-                      and r.manifiesto.estado_firma == 'FIRMADO'
-                      for r in recorridos if hasattr(r, 'manifiesto'))
+        con_acta = [r for r in recorridos
+                    if getattr(r, 'manifiesto', None) is not None
+                    and r.manifiesto.estado_firma == 'FIRMADO']
+        firmada = bool(con_acta)
         programacion = getattr(orden, 'programacion_origen', None)
         peso = (programacion.transporte_cantidad if programacion else '') or ''
         filas.append({
@@ -6662,6 +6666,9 @@ def _ordenes_facturables(cliente, factura=None):
             'peso': peso,
             'sin_peso': orden.estado_conciliacion == 'PENDIENTE' or not peso,
             'sin_acta': not firmada,
+            # Para verla desde el popup de envío antes de mandarla.
+            'acta_url': (reverse('gestion:acta_pdf', args=[con_acta[0].pk]) + '?ver=1'
+                         if firmada else ''),
             'precio': precios.get(orden.pk),
             'observaciones': observaciones.get(orden.pk, ''),
             'en_esta': orden.pk in precios,

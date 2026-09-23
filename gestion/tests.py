@@ -3377,10 +3377,23 @@ class FacturacionTests(BaseCRM):
 
     def test_cada_orden_dice_si_trae_tiquete_y_acta_para_el_popup(self):
         self.una.bascula_adjunto.save('tiquete.pdf', SimpleUploadedFile('t.pdf', b'%PDF'), save=True)
+        recorrido = self.una.recorridos.get()
+        Manifiesto.objects.create(recorrido=recorrido, estado_firma='FIRMADO')
         respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
         contenido = respuesta.content.decode()
         self.assertContains(respuesta, 'elegir cuáles')
-        self.assertIn('data-acta="0"', contenido, "ninguna tiene acta firmada todavía")
+        # Las actas se VEN desde el popup antes de mandarlas: cada orden trae el enlace.
+        self.assertContains(respuesta, 'id="fe-abrir-actas"')
+        self.assertContains(respuesta, 'ver cuáles')
+        acta_url = reverse('gestion:acta_pdf', args=[recorrido.pk]) + '?ver=1'
+        self.assertIn(f'data-acta="1"\n                                data-acta-url="{acta_url}"', contenido)
+        self.assertIn('data-acta="0"\n                                data-acta-url=""', contenido,
+                      "la otra no tiene acta firmada")
+        vista = self.client.get(acta_url)
+        self.assertEqual(vista.status_code, 200)
+        self.assertTrue(vista['Content-Disposition'].startswith('inline'), "?ver=1 la muestra, no la descarga")
+        self.assertTrue(self.client.get(reverse('gestion:acta_pdf', args=[recorrido.pk]))
+                        ['Content-Disposition'].startswith('attachment'))
         # Cada orden dice si trae tiquete: con eso el popup se arma sin ir al servidor.
         filas = {f['orden'].pk: f for f in respuesta.context['filas']}
         self.assertTrue(filas[self.una.pk]['bascula'])

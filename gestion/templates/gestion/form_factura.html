@@ -93,6 +93,14 @@ tr.ff-marcada td{ background:var(--brand-tint); }
 .fe-tq .archivo{ color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .fe-tq .meta{ font-family:var(--mono); font-size:.72rem; color:var(--ink-3); white-space:nowrap; }
 .fe-tq-falta{ padding:.45rem .6rem; font-size:.78rem; color:var(--warn); background:var(--warn-tint); }
+.fe-ac{ display:grid; grid-template-columns:5rem 1fr auto; align-items:center; gap:.6rem; min-height:40px;
+    padding:.35rem .6rem; border-bottom:1px solid var(--line-2); font-size:.82rem; }
+.fe-ac:last-child{ border-bottom:0; }
+.fe-ac .num{ font-family:var(--mono); font-weight:600; }
+.fe-ac .meta{ font-family:var(--mono); font-size:.72rem; color:var(--ink-3); white-space:nowrap; }
+.fe-ac.falta{ background:var(--warn-tint); }
+.fe-ac.falta .que{ color:var(--warn); }
+.fe-ac .ver{ white-space:nowrap; }
 .fe-tq-todas{ display:flex; justify-content:flex-end; padding:.3rem .6rem; border-bottom:1px solid var(--line-2); }
 .fe-resumen{ font-size:.8rem; color:var(--ink-2); }
 .fe-resumen b{ color:var(--ink); }
@@ -175,6 +183,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
                             <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
                                 data-acta="{% if f.sin_acta %}0{% else %}1{% endif %}"
+                                data-acta-url="{{ f.acta_url }}"
                                 data-bascula-nombre="{{ f.bascula_nombre }}"
                                 data-bascula-url="{% if f.bascula %}{{ f.bascula.url }}{% endif %}"
                                 data-fecha="{{ f.servicio|date:'d/m/Y'|default:'—' }}"
@@ -349,7 +358,9 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     </li>
                     <li class="fe-item" data-clave="actas">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_actas" value="1" form="form-factura" {% if datos.copiar_actas %}checked{% endif %}><span>Órdenes de servicio</span></label>
-                        <div class="fe-est" id="fe-est-actas">las actas firmadas de las órdenes marcadas</div>
+                        <div class="fe-est"><span id="fe-est-actas">las actas firmadas de las órdenes marcadas</span> · <button type="button" class="fe-link" id="fe-abrir-actas" aria-expanded="false" aria-controls="fe-actas">ver cuáles</button></div>
+                        {# Cuáles actas van, con su enlace para verlas antes de mandarlas. #}
+                        <div class="fe-tiquetes" id="fe-actas" hidden><div id="fe-ac-lista"></div></div>
                     </li>
                     <li class="fe-item" data-clave="basculas">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_basculas" value="1" form="form-factura" {% if datos.copiar_basculas %}checked{% endif %}><span>Básculas</span></label>
@@ -546,7 +557,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             var celda = c.closest('tr').querySelector('.num');
             return { pk: c.value, orden: celda.querySelector('a').textContent.trim(),
                      fecha: celda.dataset.fecha || '', sede: celda.dataset.sede || '',
-                     acta: celda.dataset.acta === '1', bascula: celda.dataset.bascula === '1',
+                     acta: celda.dataset.acta === '1', actaUrl: celda.dataset.actaUrl || '',
+                     bascula: celda.dataset.bascula === '1',
                      nombre: celda.dataset.basculaNombre || '', url: celda.dataset.basculaUrl || '' };
         });
     }
@@ -638,6 +650,37 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         botonTodas.textContent = todas ? 'Desmarcar todas' : 'Marcar todas';
         botonTodas.parentNode.hidden = !casillas.length;
     }
+    // Las actas de servicio, desplegadas dentro de su punto: se ven, no se eligen.
+    function pintarActas() {
+        var lista = document.getElementById('fe-ac-lista');
+        lista.innerHTML = '';
+        ordenesMarcadas().forEach(function (o) {
+            var fila = document.createElement('div');
+            fila.className = 'fe-ac' + (o.acta ? '' : ' falta');
+            fila.innerHTML = '<span class="num"></span><span class="que"></span><span class="meta"></span>';
+            fila.querySelector('.num').textContent = o.orden;
+            var que = fila.querySelector('.que');
+            if (o.acta && o.actaUrl) {
+                que.textContent = 'Acta de servicio firmada · ';
+                var enlace = document.createElement('a');
+                enlace.href = o.actaUrl; enlace.target = '_blank'; enlace.rel = 'noopener'; enlace.className = 'ver';
+                enlace.innerHTML = '<i class="bi bi-file-earmark-pdf me-1"></i>ver el PDF';
+                que.appendChild(enlace);
+            } else {
+                que.textContent = 'sin acta firmada todavía: no se adjunta';
+            }
+            fila.querySelector('.meta').textContent = [o.fecha, o.sede].filter(Boolean).join(' · ');
+            lista.appendChild(fila);
+        });
+        if (!lista.children.length) lista.innerHTML = '<div class="fe-tq-falta">Marca primero las órdenes de la factura.</div>';
+    }
+    document.getElementById('fe-abrir-actas').addEventListener('click', function () {
+        var caja = document.getElementById('fe-actas');
+        caja.hidden = !caja.hidden;
+        this.setAttribute('aria-expanded', String(!caja.hidden));
+        this.textContent = caja.hidden ? 'ver cuáles' : 'ocultar';
+        if (!caja.hidden) pintarActas();
+    });
     document.getElementById('fe-abrir-tiquetes').addEventListener('click', function () {
         var caja = document.getElementById('fe-tiquetes');
         caja.hidden = !caja.hidden;
@@ -661,6 +704,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
     });
     feModal.addEventListener('show.bs.modal', function () {
         if (!document.getElementById('fe-tiquetes').hidden) pintarTiquetes();
+        if (!document.getElementById('fe-actas').hidden) pintarActas();
         pintarEstados();
     });
     feEnviar.addEventListener('click', function () {
