@@ -3087,6 +3087,58 @@ class FacturacionTests(BaseCRM):
         self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {'submit_eliminar': '1'})
         self.assertEqual(ConceptoFactura.objects.count(), 0)
 
+    # ---- Trazabilidad entre las partes de la empresa ----
+
+    def test_la_trazabilidad_dice_quien_registro_y_quien_hizo_la_electronica(self):
+        self._crear(ordenes=[self.una])
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        detalle = self.client.get(url)
+        cuando = timezone.localtime(factura.creada_en).strftime('%d/%m/%Y %H:%M')
+        self.assertContains(detalle, f'registrada por Admin el {cuando}')
+        self.assertContains(detalle, 'Trazabilidad')
+        self.assertContains(detalle, 'Realizada factura electrónica', msg_prefix="el botón, aún sin marcar")
+        self.assertContains(detalle, 'name="submit_realizada"')
+        self.assertContains(detalle, 'SMS-</span>', msg_prefix="el número de la electrónica lleva su SMS")
+
+        # Marcarla exige el número.
+        respuesta = self.client.post(url, {'submit_realizada': '1', 'numero_externo': ''}, follow=True)
+        self.assertContains(respuesta, 'pon el número SMS')
+        factura.refresh_from_db()
+        self.assertIsNone(factura.fe_realizada_en)
+
+        # «Solo guardar» no la marca.
+        self.client.post(url, {'submit_electronica': '1', 'numero_externo': '1245'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.numero_externo, 'SMS-1245')
+        self.assertIsNone(factura.fe_realizada_en)
+
+        # Marcarla deja usuario, fecha y hora; el SMS escrito no se dobla.
+        self.entrar(self.persona('contadora', 'Administradores', 'Rosa', 'Díaz'))
+        antes = timezone.now()
+        self.client.post(url, {'submit_realizada': '1', 'numero_externo': 'SMS-1245'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.numero_externo, 'SMS-1245')
+        self.assertEqual(factura.fe_realizada_por.username, 'contadora')
+        self.assertGreaterEqual(factura.fe_realizada_en, antes)
+        detalle = self.client.get(url)
+        self.assertContains(detalle, 'Realizada</b> por Rosa Díaz el '
+                            + timezone.localtime(factura.fe_realizada_en).strftime('%d/%m/%Y %H:%M'))
+        self.assertNotContains(detalle, 'name="submit_realizada"', msg_prefix="ya marcada: solo guardar cambios")
+        self.assertContains(detalle, 'Guardar cambios')
+        # Volver a guardar no cambia quién la marcó.
+        self.entrar(self.admin)
+        self.client.post(url, {'submit_electronica': '1', 'numero_externo': '1246'})
+        factura.refresh_from_db()
+        self.assertEqual((factura.numero_externo, factura.fe_realizada_por.username), ('SMS-1246', 'contadora'))
+        # La lista dice cuáles ya tienen la electrónica hecha y cuáles no.
+        self._crear(ordenes=[self.otra])
+        lista = self.client.get(reverse('gestion:lista_facturas'))
+        self.assertContains(lista, 'Realizada <span class="num">SMS-1246</span>')
+        self.assertContains(lista, 'Pendiente')
+        self.assertEqual((lista.context['n_electronica'], lista.context['n_sin_electronica']), (1, 1))
+        self.assertContains(lista, 'Realizada por Rosa Díaz el')
+
     def test_el_excel_trae_la_factura_con_el_formato_del_pdf(self):
         """El Excel es la misma factura: logo, cabecera, secciones y las órdenes."""
         from io import BytesIO
@@ -3593,11 +3645,11 @@ class FacturacionTests(BaseCRM):
         self._crear()
         factura = Factura.objects.get()
         url = reverse('gestion:detalle_factura', args=[factura.pk])
-        self.client.post(url, {'submit_electronica': '1', 'numero_externo': 'FE-1245',
+        self.client.post(url, {'submit_electronica': '1', 'numero_externo': '1245',
                                'xml': SimpleUploadedFile('f.xml', b'<Invoice/>', 'application/xml'),
                                'pdf_oficial': SimpleUploadedFile('f.pdf', b'%PDF-1.4 x', 'application/pdf')})
         factura.refresh_from_db()
-        self.assertEqual(factura.numero_externo, 'FE-1245')
+        self.assertEqual(factura.numero_externo, 'SMS-1245')
         self.assertTrue(factura.xml and factura.pdf_oficial)
         self.client.post(url, {'submit_adjunto': '1', 'nombre': 'Remisión 45',
                                'archivo': SimpleUploadedFile('rem.pdf', b'%PDF-1.4 r', 'application/pdf')})

@@ -11,6 +11,11 @@
 .fc-cod{ font-family:var(--mono); font-weight:600; }
 .fc-total{ font-family:var(--mono); white-space:nowrap; }
 .fc-ext{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); }
+/* Si la factura electrónica ya se hizo, o sigue pendiente */
+.fc-fe{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; font-weight:500; white-space:nowrap; }
+.fc-fe.ok{ color:var(--ok); }
+.fc-fe.falta{ color:var(--warn); }
+.fc-fe .num{ font-family:var(--mono); color:var(--ink-2); font-weight:400; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -23,6 +28,8 @@
 
 <div class="fc-tiles mb-4">
     <div class="fc-tile"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></div>
+    <div class="fc-tile"><div class="v">{{ n_electronica }}</div><div class="k">Con factura electrónica</div></div>
+    <div class="fc-tile"><div class="v">{{ n_sin_electronica }}</div><div class="k">Sin factura electrónica</div></div>
     <div class="fc-tile"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></div>
 </div>
 
@@ -58,7 +65,13 @@
                         <td>{{ f.fecha_emision|date:"d/m/Y" }}</td>
                         <td>{{ f.lineas.all|length }}</td>
                         <td class="text-end fc-total">${{ f.total|floatformat:0|intcomma }}</td>
-                        <td class="fc-ext">{{ f.numero_externo|default:"—" }}</td>
+                        <td>
+                            {% if f.fe_realizada_en %}
+                            <span class="fc-fe ok" title="Realizada por {{ f.fe_realizada_por.get_full_name|default:f.fe_realizada_por.username }} el {{ f.fe_realizada_en|date:'d/m/Y H:i' }}"><i class="bi bi-check-circle-fill"></i>Realizada{% if f.numero_externo %} <span class="num">{{ f.numero_externo }}</span>{% endif %}</span>
+                            {% else %}
+                            <span class="fc-fe falta"><i class="bi bi-hourglass-split"></i>Pendiente{% if f.numero_externo %} <span class="num">{{ f.numero_externo }}</span>{% endif %}</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if f.estado == 'ENVIADA' %}<span class="badge bg-success">Enviada</span>
                             {% else %}<span class="badge bg-secondary">Emitida</span>{% endif %}

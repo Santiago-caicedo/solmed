@@ -6729,6 +6729,24 @@ def _lugar_y_servicios(orden):
     }
 
 
+def _sin_prefijo_sms(texto):
+    """«SMS-1245» → «1245» (también «SMS 1245» o «sms1245»); lo demás, tal cual."""
+    texto = (texto or '').strip()
+    if texto[:3].upper() == 'SMS':
+        return texto[3:].lstrip('- ').strip()
+    return texto
+
+
+def _numero_sms(texto):
+    """
+    El número de la factura electrónica lleva su propio SMS (sep-2026): se
+    guarda como «SMS-<lo escrito>», quitando antes un SMS que ya venga escrito
+    para no doblarlo. Vacío se queda vacío.
+    """
+    resto = _sin_prefijo_sms(texto)[:45]
+    return f"SMS-{resto}" if resto else ''
+
+
 def _correos_de_facturacion(request, errores):
     """
     Los correos de facturación que vengan del formulario: un campo por correo,
@@ -6768,7 +6786,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'facturas'
 
     def get_queryset(self):
-        qs = Factura.objects.select_related('cliente').prefetch_related('lineas')
+        qs = Factura.objects.select_related('cliente', 'fe_realizada_por').prefetch_related('lineas')
         q = self.request.GET.get('q', '').strip()
         if q:
             numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('F-', '').lstrip('0')
@@ -6783,6 +6801,9 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         context['q'] = self.request.GET.get('q', '').strip()
         context['n_total'] = Factura.objects.count()
         context['n_enviadas'] = Factura.objects.filter(estado='ENVIADA').count()
+        # Cuántas ya tienen hecha la factura electrónica (marcada como realizada).
+        context['n_electronica'] = Factura.objects.filter(fe_realizada_en__isnull=False).count()
+        context['n_sin_electronica'] = context['n_total'] - context['n_electronica']
         return context
 
 
@@ -7010,6 +7031,10 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             'adjuntos': list(factura.adjuntos.all()),
             'copiar': copiar,
             'algo_marcado': any(a['marcado'] for a in copiar),
+            'numero_externo_sin_prefijo': _sin_prefijo_sms(factura.numero_externo),
+            'ultimo_envio': EnvioCorreo.objects.filter(
+                cliente=factura.cliente, asunto__contains=factura.codigo, estado='ENVIADO')
+                .select_related('enviado_por').order_by('-fecha').first(),
             'envios': EnvioCorreo.objects.filter(
                 cliente=factura.cliente, asunto__startswith=f"Factura {factura.codigo}")
                 .select_related('enviado_por')[:10],
@@ -7019,14 +7044,26 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         factura = get_object_or_404(Factura.objects.select_related('cliente'), pk=pk)
         volver = redirect('gestion:detalle_factura', pk=pk)
 
-        if 'submit_electronica' in request.POST:
-            factura.numero_externo = (request.POST.get('numero_externo') or '').strip()[:50]
+        if 'submit_electronica' in request.POST or 'submit_realizada' in request.POST:
+            marcar = 'submit_realizada' in request.POST
+            numero = _numero_sms(request.POST.get('numero_externo'))
+            if marcar and not numero:
+                messages.error(request, "Para marcarla como realizada, pon el número SMS de la "
+                                        "factura electrónica.")
+                return volver
+            factura.numero_externo = numero
             if request.FILES.get('xml'):
                 factura.xml = request.FILES['xml']
             if request.FILES.get('pdf_oficial'):
                 factura.pdf_oficial = request.FILES['pdf_oficial']
+            # Trazabilidad: quién dijo que ya está hecha, y cuándo. Se marca una vez.
+            if marcar and factura.fe_realizada_en is None:
+                factura.fe_realizada_por = request.user
+                factura.fe_realizada_en = timezone.now()
+                messages.success(request, f"Factura electrónica {numero} marcada como realizada.")
+            else:
+                messages.success(request, "Datos de la factura electrónica guardados.")
             factura.save()
-            messages.success(request, "Datos de la factura electrónica guardados.")
             return volver
 
         if 'submit_copiar' in request.POST:

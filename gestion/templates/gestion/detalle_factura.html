@@ -59,6 +59,18 @@
 .fd-adj .est .falta{ color:var(--warn); }
 .fd-adj .subir{ grid-area:sub; margin-top:.3rem; }
 .fd-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
+.fd-hecha{ padding:.55rem .75rem; border-radius:var(--r-sm); background:var(--ok-tint); color:var(--ok); font-size:.86rem; margin-bottom:.6rem; }
+.fd-hecha .mono{ font-family:var(--mono); }
+/* La trazabilidad: tres pasos, hechos o pendientes */
+.fd-traza{ list-style:none; margin:0; padding:0; }
+.fd-traza li{ position:relative; padding:.35rem 0 .55rem 1.5rem; border-left:2px solid var(--line-2); margin-left:.45rem; }
+.fd-traza li:last-child{ padding-bottom:0; }
+.fd-traza li::before{ content:""; position:absolute; left:-7px; top:.55rem; width:12px; height:12px; border-radius:50%; background:var(--line-2); border:2px solid var(--panel); }
+.fd-traza li.hecho::before{ background:var(--ok); }
+.fd-traza .que{ font-size:.88rem; font-weight:500; }
+.fd-traza .que .mono{ font-family:var(--mono); font-weight:600; }
+.fd-traza .quien{ font-size:.78rem; color:var(--ink-3); font-family:var(--mono); }
+.fd-traza li.pendiente .que{ color:var(--ink-3); font-weight:400; }
 .fd-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; }
 </style>
 
@@ -66,7 +78,7 @@
     <div>
         <h2 class="mb-0"><span class="fd-cod">{{ factura.codigo }}</span> · {{ factura.cliente.nombre }}</h2>
         <div class="fd-meta">
-            NIT {{ factura.cliente.identificacion }} · emitida el {{ factura.fecha_emision|date:"d/m/Y" }}{% if factura.creada_por %} · registrada por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }}{% endif %}
+            NIT {{ factura.cliente.identificacion }} · emitida el {{ factura.fecha_emision|date:"d/m/Y" }}{% if factura.creada_por %} · registrada por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }} el {{ factura.creada_en|date:"d/m/Y H:i" }}{% endif %}
             {% if factura.estado == 'ENVIADA' %}<span class="badge bg-success ms-1">Enviada{% if factura.enviada_en %} el {{ factura.enviada_en|date:"d/m/Y" }}{% endif %}</span>
             {% else %}<span class="badge bg-secondary ms-1">Emitida</span>{% endif %}
             {% if factura.numero_externo %}<span class="badge bg-dark ms-1">Electrónica {{ factura.numero_externo }}</span>{% endif %}
@@ -161,20 +173,56 @@
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>Factura electrónica</h5></div>
             <div class="card-body">
-                <p class="text-muted small">Cuando la pases al software de facturación, registra aquí su número y sube el XML y el PDF oficial.</p>
+                {% if factura.fe_realizada_en %}
+                <div class="fd-hecha"><i class="bi bi-check-circle-fill me-1"></i><b>Realizada</b> por {{ factura.fe_realizada_por.get_full_name|default:factura.fe_realizada_por.username }} el {{ factura.fe_realizada_en|date:"d/m/Y H:i" }}{% if factura.numero_externo %} · <span class="mono">{{ factura.numero_externo }}</span>{% endif %}</div>
+                <p class="text-muted small">Corrige el número o sube el XML y el PDF oficial si hace falta.</p>
+                {% else %}
+                <p class="text-muted small">Cuando la pases al software de facturación, pon su número SMS y márcala como realizada: queda quién y cuándo.</p>
+                {% endif %}
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
-                    <label class="fd-etq" for="numero_externo">Número</label>
-                    <input type="text" name="numero_externo" id="numero_externo" class="form-control form-control-sm" maxlength="50"
-                           value="{{ factura.numero_externo }}" placeholder="Ej: FE-1245">
+                    <label class="fd-etq" for="numero_externo">Número SMS de la factura electrónica</label>
+                    {# Es OTRO consecutivo: el de la factura electrónica, no el de esta preliquidación. #}
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">SMS-</span>
+                        <input type="text" name="numero_externo" id="numero_externo" class="form-control" maxlength="45"
+                               value="{{ numero_externo_sin_prefijo }}" placeholder="1245" autocomplete="off">
+                    </div>
+                    <div class="form-text">Distinto al {{ factura.codigo }} de esta preliquidación.</div>
                     <label class="fd-etq" for="xml">XML</label>
                     {% if factura.xml %}<div class="fd-archivo mb-1"><i class="bi bi-filetype-xml"></i><a href="{{ factura.xml.url }}" target="_blank" rel="noopener">Ver el XML cargado</a></div>{% endif %}
                     <input type="file" name="xml" id="xml" class="form-control form-control-sm" accept=".xml,text/xml,application/xml">
                     <label class="fd-etq" for="pdf_oficial">PDF oficial</label>
                     {% if factura.pdf_oficial %}<div class="fd-archivo mb-1"><i class="bi bi-file-earmark-pdf"></i><a href="{{ factura.pdf_oficial.url }}" target="_blank" rel="noopener">Ver el PDF cargado</a></div>{% endif %}
                     <input type="file" name="pdf_oficial" id="pdf_oficial" class="form-control form-control-sm" accept=".pdf,application/pdf">
-                    <button name="submit_electronica" value="1" class="btn btn-outline-primary btn-sm mt-3 w-100">Guardar</button>
+                    {% if factura.fe_realizada_en %}
+                    <button name="submit_electronica" value="1" class="btn btn-outline-primary btn-sm mt-3 w-100">Guardar cambios</button>
+                    {% else %}
+                    <button name="submit_realizada" value="1" class="btn btn-primary btn-sm mt-3 w-100"><i class="bi bi-check2-circle me-1"></i>Realizada factura electrónica</button>
+                    <button name="submit_electronica" value="1" class="btn btn-link btn-sm w-100 mt-1">Solo guardar, sin marcarla</button>
+                    {% endif %}
                 </form>
+            </div>
+        </div>
+
+        {# ---- Trazabilidad: quién hizo cada paso, y cuándo ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-clock-history me-1"></i>Trazabilidad</h5></div>
+            <div class="card-body">
+                <ol class="fd-traza">
+                    <li class="hecho">
+                        <div class="que">Preliquidación {{ factura.codigo }} registrada</div>
+                        <div class="quien">{% if factura.creada_por %}{{ factura.creada_por.get_full_name|default:factura.creada_por.username }} · {% endif %}{{ factura.creada_en|date:"d/m/Y H:i" }}</div>
+                    </li>
+                    <li class="{% if factura.fe_realizada_en %}hecho{% else %}pendiente{% endif %}">
+                        <div class="que">Factura electrónica realizada{% if factura.numero_externo %} · <span class="mono">{{ factura.numero_externo }}</span>{% endif %}</div>
+                        <div class="quien">{% if factura.fe_realizada_en %}{{ factura.fe_realizada_por.get_full_name|default:factura.fe_realizada_por.username }} · {{ factura.fe_realizada_en|date:"d/m/Y H:i" }}{% else %}pendiente{% endif %}</div>
+                    </li>
+                    <li class="{% if factura.enviada_en %}hecho{% else %}pendiente{% endif %}">
+                        <div class="que">Enviada al cliente</div>
+                        <div class="quien">{% if factura.enviada_en %}{% if ultimo_envio and ultimo_envio.enviado_por %}{{ ultimo_envio.enviado_por.get_full_name|default:ultimo_envio.enviado_por.username }} · {% endif %}{{ factura.enviada_en|date:"d/m/Y H:i" }}{% else %}pendiente{% endif %}</div>
+                    </li>
+                </ol>
             </div>
         </div>
 

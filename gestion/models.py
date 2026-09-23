@@ -2251,6 +2251,15 @@ class Factura(models.Model):
         related_name='facturas_creadas')
     creada_en = models.DateTimeField(auto_now_add=True)
     enviada_en = models.DateTimeField(null=True, blank=True)
+    # Trazabilidad entre las partes de la empresa (sep-2026): quién marcó que
+    # la factura electrónica ya se hizo en el software externo, y cuándo. El
+    # número de esa factura va en `numero_externo` (con su propio SMS).
+    fe_realizada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='facturas_electronicas_realizadas',
+        verbose_name="Factura electrónica realizada por")
+    fe_realizada_en = models.DateTimeField(null=True, blank=True,
+                                           verbose_name="Factura electrónica realizada el")
 
     class Meta:
         ordering = ['-numero']
