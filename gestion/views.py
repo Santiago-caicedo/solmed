@@ -6687,6 +6687,21 @@ def _ordenes_facturables(cliente, factura=None):
     return filas
 
 
+def _sedes_de_las_filas(filas):
+    """
+    Las sedes distintas de esas órdenes, con cuántas hay en cada una, para
+    poder filtrar la tabla al armar la preliquidación (sep-2026). Las que no
+    traen sede ni tercero van juntas bajo «Sin sede».
+    """
+    cuenta = {}
+    for f in filas:
+        nombre = f['sede'] or 'Sin sede'
+        cuenta[nombre] = cuenta.get(nombre, 0) + 1
+    # Alfabéticas, y «Sin sede» de última.
+    return [{'nombre': nombre, 'n': cuenta[nombre]}
+            for nombre in sorted(cuenta, key=lambda x: (x == 'Sin sede', x.lower()))]
+
+
 def _conceptos_del_post(request, numero):
     """
     Los conceptos adicionales de la orden #numero tal como vienen del
@@ -6862,6 +6877,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'cliente': cliente,
             'clientes': Cliente.objects.order_by('nombre'),
             'prefijo': Factura.PREFIJO,
+            'sedes': _sedes_de_las_filas(filas),
             'filas': filas,
             'datos': datos,
             'errores': errores,

@@ -10,6 +10,12 @@
 .ff-tabla .num{ font-family:var(--mono); font-weight:600; }
 .ff-tabla .fec, .ff-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
 .ff-tabla .sede{ font-size:.84rem; max-width:9rem; }
+/* Filtrar la tabla por sede (solo esconde filas; lo marcado no se pierde) */
+.ff-sede-filtro{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
+.ff-sede-filtro label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:0; }
+.ff-sede-filtro select{ width:auto; max-width:20rem; }
+.ff-sede-filtro .aviso{ font-size:.78rem; color:var(--warn); }
+tr.ff-oculta{ display:none; }
 .ff-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ff-tabla tr.ff-srv td{ border-top:0; padding-top:0; font-size:.74rem; color:var(--ink-2); }
 .ff-tabla tr.ff-srv .k{ color:var(--brand-700); font-weight:600; }
@@ -178,6 +184,17 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
             {# También cuando solo quedan órdenes «ajenas»: entran por conceptos adicionales. #}
             {% if filas %}
             <p class="text-muted small mb-2">Marca las que van en esta factura y escribe su precio. El peso es la cantidad conciliada; si a una orden le falta el acta firmada o la conciliación, se avisa pero se puede facturar.</p>
+            {% if sedes|length > 1 %}
+            {# Filtrar por sede solo esconde filas: lo que ya está marcado sigue en la factura. #}
+            <div class="ff-sede-filtro">
+                <label for="ff-sede">Ver solo la sede</label>
+                <select id="ff-sede" class="form-select form-select-sm">
+                    <option value="">Todas ({{ filas|length }})</option>
+                    {% for s in sedes %}<option value="{{ s.nombre }}">{{ s.nombre }} ({{ s.n }})</option>{% endfor %}
+                </select>
+                <span class="aviso" id="ff-sede-aviso"></span>
+            </div>
+            {% endif %}
             <div class="table-responsive">
                 <table class="table align-middle mb-0 ff-tabla">
                     <thead>
@@ -188,7 +205,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                     </thead>
                     <tbody>
                     {% for f in filas %}
-                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
+                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}" data-sede="{{ f.sede|default:'Sin sede' }}">
                             <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
                                        {% if f.orden.pk in datos.marcadas %}checked{% endif %}
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
@@ -212,7 +229,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
                             </td>
                         </tr>
-                        <tr class="ff-srv"><td></td><td colspan="4">
+                        <tr class="ff-srv" data-sede="{{ f.sede|default:'Sin sede' }}"><td></td><td colspan="4">
                             <span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}
                             {# Va aquí, a lo ancho, para no añadirle otra columna a la tabla. #}
                             <input type="text" name="observaciones_{{ f.orden.pk }}" class="form-control form-control-sm ff-obs"
@@ -549,6 +566,23 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         if (precios[i + 1]) precios[i + 1].focus();
     });
     pintar();
+
+    // --- Filtro por sede: esconde filas, nunca desmarca ---
+    var filtroSede = document.getElementById('ff-sede');
+    if (filtroSede) filtroSede.addEventListener('change', function () {
+        var sede = filtroSede.value, escondidas = 0;
+        form.querySelectorAll('tr.ff-orden').forEach(function (fila) {
+            var fuera = sede && fila.dataset.sede !== sede;
+            fila.classList.toggle('ff-oculta', fuera);
+            var abajo = fila.nextElementSibling;
+            if (abajo && abajo.classList.contains('ff-srv')) abajo.classList.toggle('ff-oculta', fuera);
+            if (fuera && fila.querySelector('.ff-check').checked) escondidas += 1;
+        });
+        document.getElementById('ff-sede-aviso').textContent = escondidas
+            ? escondidas + (escondidas === 1 ? ' orden marcada de otra sede sigue en la factura'
+                                             : ' órdenes marcadas de otras sedes siguen en la factura')
+            : '';
+    });
 
     // --- Vista previa en vivo: la misma plantilla del PDF, pedida al servidor
     // cada vez que cambia algo (con una espera corta para no pedirla por tecla).

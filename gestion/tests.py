@@ -2977,6 +2977,40 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(factura.estado, 'ENVIADA', "se mandó la factura de verdad")
         self.assertIsNotNone(factura.enviada_en)
 
+    def test_las_ordenes_se_pueden_filtrar_por_sede_al_armar_la_preliquidacion(self):
+        """El filtro solo esconde filas: lo que ya está marcado sigue en la factura."""
+        otra_sede = Sede.objects.create(cliente=self.cli, nombre='Zona Franca', direccion='Cra 7 # 1-10')
+        tercera = self._orden('WNO623', sede_cliente=otra_sede)
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
+        # Una entrada por sede distinta, alfabéticas y «Sin sede» de última.
+        # Alfabéticas y «Sin sede» de ÚLTIMA (por eso una empieza por Z).
+        self.assertEqual(respuesta.context['sedes'],
+                         [{'nombre': 'Sede Norte', 'n': 1}, {'nombre': 'Zona Franca', 'n': 1},
+                          {'nombre': 'Sin sede', 'n': 1}])
+        contenido = respuesta.content.decode()
+        self.assertIn('id="ff-sede"', contenido)
+        self.assertIn('<option value="">Todas (3)</option>', contenido)
+        self.assertIn('Zona Franca (1)', contenido)
+        # Las DOS filas de cada orden (la suya y la de servicios) dicen su sede:
+        # con eso el filtro las esconde juntas. (La celda del número también la
+        # lleva, para el popup de básculas: por eso se miran solo los <tr>.)
+        import re
+        filas_de = lambda sede: len(re.findall(rf'<tr[^>]*data-sede="{sede}"', contenido))
+        self.assertEqual(filas_de('Sede Norte'), 2)
+        self.assertEqual(filas_de('Zona Franca'), 2)
+        self.assertEqual(filas_de('Sin sede'), 2, "la que no tiene sede ni tercero")
+        # Filtrar no cambia nada del servidor: se marcan órdenes de dos sedes y entran ambas.
+        self._crear(ordenes=[self.una, tercera])
+        factura = Factura.objects.get()
+        self.assertEqual({l.orden_id for l in factura.lineas.all()}, {self.una.pk, tercera.pk})
+        # Con una sola sede distinta el filtro no aparece: sería ruido.
+        otro = self.cliente(nombre='Un solo sitio', identificacion='900999')
+        self._orden('OBC727', cliente=otro, sede_cliente=Sede.objects.create(
+            cliente=otro, nombre='Única', direccion='Cll 1'))
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={otro.pk}')
+        self.assertEqual(len(respuesta.context['sedes']), 1)
+        self.assertNotContains(respuesta, 'id="ff-sede"')
+
     # ---- Conceptos adicionales: servicios de la orden que se cobran aparte del global ----
 
     def _con_conceptos(self, orden, *conceptos, **extra):
