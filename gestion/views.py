@@ -7066,14 +7066,14 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
     def get(self, request, pk):
         factura = get_object_or_404(Factura.objects.select_related('cliente', 'creada_por'), pk=pk)
         lineas = _lineas_con_detalle(factura)
-        copiar = _copiar_al_cliente(factura)
+        copiar = _documentos_para_reenviar(factura)
         return render(request, self.template_name, {
             'factura': factura,
             'lineas': lineas,
             'actas': list(factura.actas_firmadas()),
             'adjuntos': list(factura.adjuntos.all()),
             'copiar': copiar,
-            'algo_marcado': any(a['marcado'] for a in copiar),
+            'tiquetes': _tiquetes_de_la_factura(factura),
             'numero_externo_sin_prefijo': _sin_prefijo_sms(factura.numero_externo),
             'apartes': list(factura.apartes.order_by('numero').prefetch_related('lineas__conceptos')),
             'ultimo_envio': EnvioCorreo.objects.filter(
@@ -7110,22 +7110,24 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             factura.save()
             return volver
 
-        if 'submit_copiar' in request.POST:
-            for campo in COPIAR_FACTURA:
-                setattr(factura, campo, bool(request.POST.get(campo)))
-            campos = list(COPIAR_FACTURA)
-            # Los documentos del cliente que no estén en el sistema se suben
-            # desde el computador, en la misma lista.
+        if 'submit_subir' in request.POST:
+            # Las marcas del expediente NO se guardan (son de cada envío): aquí
+            # solo se suben los archivos que falten.
+            campos = []
             for campo in ('archivo_orden_compra', 'archivo_orden_pedido'):
                 archivo = request.FILES.get(campo)
                 if archivo:
                     setattr(factura, campo, archivo)
                     campos.append(campo)
-            factura.save(update_fields=campos)
-            for archivo in request.FILES.getlist('otros_archivos'):
+            if campos:
+                factura.save(update_fields=campos)
+            otros = request.FILES.getlist('otros_archivos')
+            for archivo in otros:
                 AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
                                               archivo=archivo)
-            messages.success(request, "Se guardó qué se le copia al cliente.")
+            n = len(campos) + len(otros)
+            messages.success(request, f"{n} archivo(s) subido(s)." if n
+                             else "No elegiste ningún archivo para subir.")
             return volver
 
         if 'submit_adjunto' in request.POST:
@@ -7168,19 +7170,38 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         return volver
 
     def _enviar(self, request, factura):
-        """Manda al correo de facturación lo marcado en «Copiar al cliente»."""
+        """
+        Manda lo que se acabe de marcar en «Copiar al cliente». La selección
+        es de ESE envío: no se guarda (sep-2026, el expediente es para
+        reenviar a la carta). Sin la factura electrónica marcada va como
+        adelanto: asunto «Preliquidación» y el estado no cambia.
+        """
         if not request.POST.get('revisado'):
             messages.error(request, "Antes de enviar, revisa la vista previa del PDF y marca "
                                     "«Revisé el PDF y está correcto».")
             return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
-        _enviar_factura(request, factura,
-                        incluir={clave: getattr(factura, f'copiar_{clave}')
-                                 for clave, _ in ADJUNTOS_FACTURA},
-                        basculas=_basculas_elegidas(factura))
+        incluir = {clave: bool(request.POST.get(f'enviar_{clave}'))
+                   for clave, _ in ADJUNTOS_FACTURA}
+        incluir['preliquidacion'] = bool(request.POST.get('enviar_preliquidacion'))
+        incluir['excel'] = bool(request.POST.get('enviar_excel'))
+        hijos = {h.pk: h for h in factura.apartes.all()}
+        apartes = [h for pk, h in sorted(hijos.items())
+                   if request.POST.get(f'enviar_aparte_{pk}')]
+        # Los tiquetes se eligen aquí mismo y esa elección SÍ se guarda: es la
+        # misma del formulario («añadir o quitar», pedido de Santiago).
+        if incluir['basculas']:
+            elegidas = {int(x) for x in request.POST.getlist('bascula_orden') if str(x).isdigit()}
+            for linea in factura.lineas.select_related('orden'):
+                if linea.orden.bascula_adjunto and linea.copiar_bascula != (linea.orden_id in elegidas):
+                    linea.copiar_bascula = linea.orden_id in elegidas
+                    linea.save(update_fields=['copiar_bascula'])
+        _enviar_factura(request, factura, incluir=incluir,
+                        prefactura=not incluir['factura'],
+                        basculas=_basculas_elegidas(factura), apartes=apartes)
         return redirect('gestion:detalle_factura', pk=factura.pk)
 
 
-def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
+def _enviar_factura(request, factura, incluir, prefactura=False, basculas=(), apartes=()):
     """
     Envía al correo de facturación lo que pida `incluir` y lo registra en el
     Centro de correos. Devuelve True si el correo salió.
@@ -7196,7 +7217,9 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
 
     `basculas` son las ÓRDENES cuyo tiquete se adjunta; cuando es lo único
     que se manda, el correo va como «Soportes de báscula» y tampoco toca el
-    estado de la factura.
+    estado de la factura. `apartes` son las preliquidaciones hijas cuyo PDF
+    se adjunta; con `incluir['preliquidacion']`/`['excel']` va la propia, en
+    PDF y en hoja de cálculo (reenvío a la carta desde el expediente).
     """
     from django.core.mail import EmailMultiAlternatives
     from django.template.loader import render_to_string
@@ -7223,6 +7246,17 @@ def _enviar_factura(request, factura, incluir, prefactura=False, basculas=()):
         with campo.open('rb') as fh:
             adjuntos.append((f"{nombre}{extension}", fh.read(),
                              mimetypes.guess_type(campo.name)[0] or 'application/octet-stream'))
+
+    # La preliquidación misma y la de cada concepto aparte (reenvío a la carta).
+    if incluir.get('preliquidacion'):
+        adjuntos.append((f"Preliquidacion_{factura.codigo}.pdf", _pdf_factura(factura, request),
+                         'application/pdf'))
+    if incluir.get('excel'):
+        adjuntos.append((f"Preliquidacion_{factura.codigo}.xlsx", _excel_factura(factura),
+                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+    for hijo in apartes:
+        adjuntos.append((f"Preliquidacion_{hijo.codigo}.pdf", _pdf_factura(hijo, request),
+                         'application/pdf'))
 
     # 1 · Orden de compra   2 · Orden de pedido   (documentos del cliente)
     if incluir.get('orden_compra'):
@@ -7415,6 +7449,48 @@ def _copiar_al_cliente(factura):
              'listo': estado[clave][1], 'detalle': estado[clave][2],
              'falta': estado[clave][3], 'enlaces': enlaces[clave]}
             for clave, etiqueta in ADJUNTOS_FACTURA]
+
+
+def _documentos_para_reenviar(factura):
+    """
+    Lo que el EXPEDIENTE deja reenviar, en orden: la preliquidación en PDF y
+    en Excel, el PDF de cada concepto aparte, y después los siete adjuntos de
+    siempre. Nada nace marcado (sep-2026): el expediente es para reenviar a la
+    carta lo que se quiera, no para repetir lo que se marcó al crearla.
+    """
+    pdf = reverse('gestion:factura_pdf', args=[factura.pk])
+    filas = [
+        {'clave': 'preliquidacion', 'marcado': False,
+         'etiqueta': f'Preliquidación {factura.codigo} · PDF',
+         'listo': True, 'detalle': 'el PDF que genera el sistema', 'falta': '',
+         'enlaces': [(f'Preliquidacion_{factura.codigo}.pdf', pdf + '?ver=1')]},
+        {'clave': 'excel', 'marcado': False,
+         'etiqueta': f'Preliquidación {factura.codigo} · Excel',
+         'listo': True, 'detalle': 'la misma preliquidación en hoja de cálculo', 'falta': '',
+         'enlaces': [(f'Preliquidacion_{factura.codigo}.xlsx',
+                      reverse('gestion:factura_excel', args=[factura.pk]))]},
+    ]
+    for hijo in factura.apartes.order_by('numero').prefetch_related('lineas__conceptos'):
+        que = ' · '.join(c.descripcion for l in hijo.lineas.all() for c in l.conceptos.all())
+        filas.append({
+            'clave': f'aparte_{hijo.pk}', 'marcado': False,
+            'etiqueta': f'PDF aparte {hijo.codigo}',
+            'listo': True, 'detalle': que or 'concepto adicional', 'falta': '',
+            'enlaces': [(f'Preliquidacion_{hijo.codigo}.pdf',
+                         reverse('gestion:factura_pdf', args=[hijo.pk]) + '?ver=1')]})
+    for fila in _copiar_al_cliente(factura):
+        # En el expediente ninguna nace marcada.
+        filas.append(dict(fila, marcado=False))
+    return filas
+
+
+def _tiquetes_de_la_factura(factura):
+    """Los tiquetes de báscula de sus órdenes, con si están elegidos para enviar."""
+    return [{'pk': l.orden_id, 'numero': l.orden.numero_orden, 'marcado': l.copiar_bascula,
+             'nombre': _nombre_archivo(l.orden.bascula_adjunto),
+             'url': l.orden.bascula_adjunto.url}
+            for l in factura.lineas.select_related('orden').order_by('orden__numero_orden')
+            if l.orden.bascula_adjunto]
 
 
 def _nombre_archivo(campo):

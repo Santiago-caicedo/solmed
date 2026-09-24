@@ -44,9 +44,11 @@
 .fd-previa{ border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:var(--panel-2); }
 .fd-previa iframe{ display:block; width:100%; height:72vh; border:0; background:#fff; }
 /* Los siete adjuntos al cliente, en el orden que pidió la clienta */
+/* Lo que se le puede reenviar al cliente: una fila por documento */
 .fd-adj{ list-style:none; counter-reset:adj; margin:0; padding:0; }
-.fd-adj li{ counter-increment:adj; display:grid; grid-template-columns:1.6rem 1fr; gap:.15rem .55rem;
-    grid-template-areas:"n chk" ". est" ". sub"; padding:.5rem 0; border-bottom:1px solid var(--line-2); }
+.fd-adj li{ counter-increment:adj; display:grid; grid-template-columns:1.6rem minmax(0, 1fr);
+    gap:.15rem .55rem; grid-template-areas:"n chk" ". est" ". arch" ". tq" ". sub";
+    padding:.5rem 0; border-bottom:1px solid var(--line-2); }
 .fd-adj li:last-child{ border-bottom:0; }
 .fd-adj li::before{ content:counter(adj); grid-area:n; font-family:var(--mono); font-size:.74rem;
     font-weight:600; color:var(--ink-3); text-align:center; line-height:1.55rem; }
@@ -57,13 +59,17 @@
 .fd-adj .est{ grid-area:est; font-size:.76rem; color:var(--ink-3); }
 .fd-adj .est .ok{ color:var(--ok); }
 .fd-adj .est .falta{ color:var(--warn); }
-.fd-adj .subir{ grid-area:sub; margin-top:.3rem; }
-.fd-adj-archivos{ grid-area:sub; display:flex; flex-direction:column; gap:.15rem; margin-top:.15rem; }
+/* Los archivos que ya están: se abren en otra pestaña (y desde ahí se vuelven a bajar) */
+.fd-adj-archivos{ grid-area:arch; display:flex; flex-direction:column; gap:.15rem; margin-top:.15rem; }
 .fd-adj-archivos a{ font-size:.78rem; display:inline-flex; align-items:center; gap:.3rem; text-decoration:none; }
 .fd-adj-archivos a:hover{ text-decoration:underline; }
 .fd-adj-archivos a i{ font-size:.7rem; }
-.fd-adj li{ grid-template-areas:"n chk" ". est" ". sub" ". sub2"; }
-.fd-adj .subir{ grid-area:sub2; }
+/* Los tiquetes de báscula, para añadir o quitar sin salir de aquí */
+.fd-tiquetes{ grid-area:tq; display:flex; flex-direction:column; gap:.1rem; margin-top:.25rem;
+    border-left:2px solid var(--line-2); padding-left:.6rem; }
+.fd-tiquetes label{ display:flex; align-items:center; gap:.45rem; font-size:.8rem; margin:0; cursor:pointer; }
+.fd-tiquetes .num{ font-family:var(--mono); font-weight:600; }
+.fd-adj .subir{ grid-area:sub; margin-top:.3rem; }
 .fd-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
 .fd-hecha{ padding:.55rem .75rem; border-radius:var(--r-sm); background:var(--ok-tint); color:var(--ok); font-size:.86rem; margin-bottom:.6rem; }
 .fd-hecha .mono{ font-family:var(--mono); }
@@ -305,14 +311,16 @@
         <div class="card shadow mb-4">
             <div class="card-header"><span class="fd-paso">2 · Enviar</span><h5 class="mb-0"><i class="bi bi-send me-1"></i>Copiar al cliente</h5></div>
             <div class="card-body">
-                {# El orden lo pidió la clienta: OC, pedido, factura electrónica, XML, órdenes de servicio, básculas y otros. #}
-                <form method="post" class="mb-3" enctype="multipart/form-data">
+                {# Nada nace marcado: esto es para REENVIAR a la carta (sep-2026). #}
+                {# Primero la preliquidación (PDF y Excel) y cada PDF aparte; luego los siete. #}
+                <p class="text-muted small">Marca lo que le quieras mandar. La selección es solo de este envío.</p>
+                <form method="post" enctype="multipart/form-data" id="form-enviar">
                     {% csrf_token %}
                     <ol class="fd-adj">
                     {% for a in copiar %}
                         <li>
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="copiar_{{ a.clave }}" id="c-{{ a.clave }}" value="1" {% if a.marcado %}checked{% endif %}>
+                                <input class="form-check-input fd-marca" type="checkbox" name="enviar_{{ a.clave }}" id="c-{{ a.clave }}" value="1">
                                 <label class="form-check-label" for="c-{{ a.clave }}">{{ a.etiqueta }}</label>
                             </div>
                             <div class="est">{% if a.listo %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ a.detalle }}</span>{% else %}<span class="falta">{{ a.falta }}</span>{% endif %}</div>
@@ -320,6 +328,16 @@
                             {# Los archivos que ya están: se abren en otra pestaña (y desde ahí se vuelven a bajar). #}
                             <div class="fd-adj-archivos">
                                 {% for nombre, url in a.enlaces %}<a href="{{ url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i>{{ nombre }}</a>{% endfor %}
+                            </div>
+                            {% endif %}
+                            {% if a.clave == 'basculas' and tiquetes %}
+                            {# Los tiquetes vienen como quedaron al crear la factura; aquí se añaden o se quitan. #}
+                            <div class="fd-tiquetes">
+                                {% for t in tiquetes %}
+                                <label><input type="checkbox" name="bascula_orden" value="{{ t.pk }}" {% if t.marcado %}checked{% endif %}>
+                                    <span class="num">#{{ t.numero }}</span>
+                                    <a href="{{ t.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ t.nombre }}</a></label>
+                                {% endfor %}
                             </div>
                             {% endif %}
                             {% if a.clave == 'orden_compra' or a.clave == 'orden_pedido' %}
@@ -330,18 +348,10 @@
                         </li>
                     {% endfor %}
                     </ol>
-                    <button name="submit_copiar" value="1" class="btn btn-primary btn-sm mt-2"><i class="bi bi-check2 me-1"></i>Guardar selección y subir archivos</button>
-                </form>
-                <div class="fd-envio">
-                    <div><strong>Se enviará a:</strong> {{ factura.correo_facturacion|default:"<span class='falta'>sin correo de facturación — edítala y ponlo</span>" }}</div>
-                    <ul class="que mb-0">
-                        {% for a in copiar %}{% if a.marcado %}
-                        <li>{{ a.etiqueta }}: {% if a.listo %}{{ a.detalle }}{% else %}<span class="falta">{{ a.falta }}, no se adjuntará</span>{% endif %}</li>
-                        {% endif %}{% endfor %}
-                        {% if not algo_marcado %}<li class="falta">Nada marcado.</li>{% endif %}
-                    </ul>
-                    <form method="post" id="form-enviar">
-                        {% csrf_token %}
+                    <button name="submit_subir" value="1" class="btn btn-link btn-sm px-0 mt-1" formnovalidate>Solo subir los archivos elegidos, sin enviar</button>
+                    <div class="fd-envio mt-2">
+                        <div><strong>Se enviará a:</strong> {{ factura.correo_facturacion|default:"<span class='falta'>sin correo de facturación — edítala y ponlo</span>" }}</div>
+                        <div class="que" id="fd-resumen">Nada marcado.</div>
                         <div class="form-check mb-2">
                             <input class="form-check-input" type="checkbox" name="revisado" value="1" id="revisado">
                             <label class="form-check-label" for="revisado">Revisé el PDF y está correcto</label>
@@ -349,8 +359,8 @@
                         <button name="submit_enviar" value="1" class="btn btn-success w-100" id="btn-enviar" disabled>
                             <i class="bi bi-send-fill me-1"></i>{% if factura.estado == 'ENVIADA' %}Enviar de nuevo{% else %}Enviar al cliente{% endif %}
                         </button>
-                    </form>
-                </div>
+                    </div>
+                </form>
                 {% if envios %}
                 <div class="fd-etq mt-3">Envíos</div>
                 <ul class="list-unstyled fd-hist mb-0">
@@ -366,11 +376,19 @@
 
         <script>
         (function () {
-            // El envío se habilita solo cuando se marca que el PDF se revisó (y hay correo).
+            // El envío se abre con: algo marcado + PDF revisado + correo.
             var casilla = document.getElementById('revisado'), boton = document.getElementById('btn-enviar');
             if (!casilla || !boton) return;
             var hayCorreo = {% if factura.correo_facturacion %}true{% else %}false{% endif %};
-            casilla.addEventListener('change', function () { boton.disabled = !(casilla.checked && hayCorreo); });
+            var form = document.getElementById('form-enviar'), resumen = document.getElementById('fd-resumen');
+            function pintar() {
+                var marcadas = Array.prototype.slice.call(form.querySelectorAll('.fd-marca:checked'))
+                    .map(function (c) { return document.querySelector('label[for="' + c.id + '"]').textContent.trim(); });
+                resumen.textContent = marcadas.length ? 'Va: ' + marcadas.join(' · ') : 'Nada marcado.';
+                boton.disabled = !(marcadas.length && casilla.checked && hayCorreo);
+            }
+            form.addEventListener('change', pintar);
+            pintar();
         })();
         </script>
         {% if not factura.principal %}
