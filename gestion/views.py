@@ -6627,9 +6627,9 @@ def _ordenes_facturables(cliente, factura=None):
     para avisarlo, no para frenar.
 
     El GLOBAL de una orden se factura una sola vez: si ya está en otra
-    preliquidación, la fila trae `global_en` con ese código y la orden solo
-    puede entrar aquí por conceptos adicionales (sep-2026). Al editar, las
-    que ya están en ESTA vienen con su precio, sus conceptos y `en_esta`.
+    preliquidación, la orden no se ofrece. Al editar, las que ya están en
+    ESTA vienen con su precio, sus conceptos (los de aquí y los que salieron
+    en PDF aparte, marcados) y `en_esta`.
     """
     from django.db.models import Min
     qs = (OrdenServicio.objects.filter(cliente=cliente)
@@ -6639,12 +6639,22 @@ def _ordenes_facturables(cliente, factura=None):
                             'lineas_factura__factura', 'lineas_factura__conceptos')
           .annotate(servicio=Min('recorridos__fecha_recorrido'))
           .order_by('numero_orden'))
+    # Los conceptos que salieron en PDF aparte, por orden: vuelven al
+    # formulario del global con su casilla marcada y su número.
+    apartes_por_orden = {}
+    if factura is not None:
+        for hijo in factura.apartes.prefetch_related('lineas__conceptos').order_by('numero'):
+            for l in hijo.lineas.all():
+                for c in l.conceptos.all():
+                    apartes_por_orden.setdefault(l.orden_id, []).append(
+                        {'descripcion': c.descripcion, 'precio': c.precio, 'aparte': True,
+                         'aparte_pk': hijo.pk, 'codigo': hijo.codigo})
     filas = []
     for orden in qs:
         lineas = list(orden.lineas_factura.all())
         linea = next((l for l in lineas if factura is not None and l.factura_id == factura.pk), None)
-        global_en = next((l.factura for l in lineas
-                          if l.lleva_global and (factura is None or l.factura_id != factura.pk)), None)
+        if any(l.lleva_global and (factura is None or l.factura_id != factura.pk) for l in lineas):
+            continue    # su global ya está en otra preliquidación
         recorridos = list(orden.recorridos.all())
         con_acta = [r for r in recorridos
                     if getattr(r, 'manifiesto', None) is not None
@@ -6667,15 +6677,12 @@ def _ordenes_facturables(cliente, factura=None):
             # Para verla desde el popup de envío antes de mandarla.
             'acta_url': (reverse('gestion:acta_pdf', args=[con_acta[0].pk]) + '?ver=1'
                          if firmada else ''),
-            'precio': linea.precio if linea is not None and linea.lleva_global else None,
+            'precio': linea.precio if linea is not None else None,
             'observaciones': linea.observaciones if linea is not None else '',
             'en_esta': linea is not None,
-            # Va (o irá) solo por conceptos adicionales: su global no cuenta aquí.
-            'sin_global': linea is not None and not linea.lleva_global,
-            'conceptos': ([(c.descripcion, c.precio) for c in linea.conceptos.all()]
-                          if linea is not None else []),
-            # '' = el global está libre; si no, el código de la preliquidación que lo tiene.
-            'global_en': global_en.codigo if global_en is not None else '',
+            'conceptos': ([{'descripcion': c.descripcion, 'precio': c.precio, 'aparte': False,
+                            'aparte_pk': '', 'codigo': ''} for c in linea.conceptos.all()]
+                          if linea is not None else []) + apartes_por_orden.get(orden.pk, []),
         })
     return filas
 
@@ -6689,11 +6696,15 @@ def _conceptos_del_post(request, numero):
     from decimal import InvalidOperation
     descripciones = request.POST.getlist(f'concepto_desc_{numero}')
     precios = request.POST.getlist(f'concepto_precio_{numero}')
+    apartes = request.POST.getlist(f'concepto_aparte_{numero}')
+    aparte_pks = request.POST.getlist(f'concepto_aparte_pk_{numero}')
     conceptos, errores = [], []
     for i, descripcion in enumerate(descripciones):
         descripcion = descripcion.strip()[:255]
         crudo = (precios[i] if i < len(precios) else '').strip()
         crudo = crudo.replace('$', '').replace('.', '').replace(',', '.')
+        aparte = (apartes[i] if i < len(apartes) else '') == '1'
+        aparte_pk = (aparte_pks[i] if i < len(aparte_pks) else '').strip()
         if not descripcion and not crudo:
             continue
         try:
@@ -6704,8 +6715,31 @@ def _conceptos_del_post(request, numero):
             errores.append(f"El concepto adicional {i + 1} de la orden #{numero} "
                            f"necesita descripción y precio.")
             continue
-        conceptos.append((descripcion, precio))
+        conceptos.append({'descripcion': descripcion, 'precio': precio, 'aparte': aparte,
+                          'aparte_pk': int(aparte_pk) if aparte_pk.isdigit() else None})
     return conceptos, errores
+
+
+def _sincronizar_aparte(factura, linea_principal, concepto, hijo, usuario):
+    """
+    El PDF aparte de un concepto: una preliquidación hija de `factura`, con
+    la misma orden sin global y solo ese concepto. Si `hijo` viene, se
+    actualiza (conserva su número); si no, nace con el siguiente número.
+    """
+    if hijo is None:
+        hijo = Factura(principal=factura, cliente=factura.cliente, creada_por=usuario)
+    for campo in ('fecha_emision', 'correo_facturacion', 'corte_facturacion') + COPIAR_FACTURA:
+        setattr(hijo, campo, getattr(factura, campo))
+    hijo.save()
+    linea, _ = LineaFactura.objects.update_or_create(
+        factura=hijo, orden=linea_principal.orden,
+        defaults={'lleva_global': False, 'precio': Decimal('0'), 'observaciones': '',
+                  'copiar_bascula': linea_principal.copiar_bascula})
+    hijo.lineas.exclude(pk=linea.pk).delete()
+    linea.conceptos.all().delete()
+    ConceptoFactura.objects.create(linea=linea, descripcion=concepto['descripcion'],
+                                   precio=concepto['precio'])
+    return hijo
 
 
 def _lugar_y_servicios(orden):
@@ -6786,7 +6820,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'facturas'
 
     def get_queryset(self):
-        qs = Factura.objects.select_related('cliente', 'fe_realizada_por').prefetch_related('lineas')
+        qs = Factura.objects.select_related('cliente', 'fe_realizada_por', 'principal').prefetch_related('lineas')
         q = self.request.GET.get('q', '').strip()
         if q:
             numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('F-', '').lstrip('0')
@@ -6828,15 +6862,17 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'cliente': cliente,
             'clientes': Cliente.objects.order_by('nombre'),
             'prefijo': Factura.PREFIJO,
-            # Las que tienen el global en otra preliquidación van aparte: solo conceptos.
-            'filas': [f for f in filas if not f['global_en']],
-            'filas_ajenas': [f for f in filas if f['global_en']],
+            'filas': filas,
             'datos': datos,
             'errores': errores,
         })
 
     def get(self, request, pk=None):
         factura = self._factura(pk)
+        if factura is not None and factura.es_aparte:
+            messages.info(request, f"{factura.codigo} es un PDF aparte: se edita desde su global, "
+                                   f"{factura.principal.codigo}.")
+            return redirect('gestion:editar_factura', pk=factura.principal_id)
         cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.GET.get('cliente') or 0).first()
         datos = {}
         if factura:
@@ -6922,44 +6958,36 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         for numero in sorted(datos['marcadas']):
             fila = facturables.get(numero)
             if fila is None:
-                errores.append(f"La orden #{numero} no es de este cliente.")
+                errores.append(f"La orden #{numero} no es de este cliente o ya está facturada.")
                 continue
-            # «Sin global aquí»: la orden va solo por conceptos adicionales.
-            sin_global = bool(request.POST.get(f'sin_global_{numero}'))
-            if fila['global_en'] and not sin_global:
-                errores.append(f"La orden #{numero} ya está facturada (global en {fila['global_en']}): "
-                               f"aquí solo puede llevar conceptos adicionales.")
+            crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
+            try:
+                precio = Decimal(crudo)
+            except (InvalidOperation, ValueError):
+                precio = None
+            if precio is None or precio < 0:
+                errores.append(f"Escribe el precio de la orden #{numero}.")
                 continue
-            precio = Decimal('0')
-            if not sin_global:
-                crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
-                try:
-                    precio = Decimal(crudo)
-                except (InvalidOperation, ValueError):
-                    precio = None
-                if precio is None or precio < 0:
-                    errores.append(f"Escribe el precio de la orden #{numero}.")
-                    continue
             conceptos, malos = _conceptos_del_post(request, numero)
             errores += malos
-            if sin_global and not conceptos and not malos:
-                errores.append(f"La orden #{numero} va sin global: agrégale al menos un concepto adicional.")
-                continue
             observaciones = (request.POST.get(f'observaciones_{numero}') or '').strip()[:255]
-            lineas.append({'numero': numero, 'precio': precio, 'sin_global': sin_global,
+            lineas.append({'numero': numero, 'precio': precio,
                            'observaciones': observaciones, 'conceptos': conceptos})
-            fila.update(precio=None if sin_global else precio, observaciones=observaciones,
-                        sin_global=sin_global, conceptos=conceptos)
+            fila.update(precio=precio, observaciones=observaciones, conceptos=[
+                dict(c, codigo='') for c in conceptos])
         if not lineas and not errores:
             errores.append("Marca al menos una orden para facturar.")
-        # Reglas de la clienta (sep-2026): una preliquidación sin ningún global es
-        # de UNA sola orden, y una orden cuyo global está en otra va sola.
-        if len(lineas) > 1 and all(l['sin_global'] for l in lineas):
-            errores.append("Una preliquidación solo de conceptos adicionales es de una sola orden: "
-                           "deja una, o ponle el global a alguna.")
-        elif len(lineas) > 1 and any(facturables[l['numero']]['global_en'] for l in lineas):
-            errores.append("Una orden cuyo global ya está en otra preliquidación va sola aquí, "
-                           "solo con sus conceptos adicionales.")
+        # Los PDFs aparte que ya existen y que este guardado dejaría por fuera
+        # (se desmarcó la casilla o se quitó el concepto): solo si no han
+        # avanzado. Con la electrónica realizada o ya enviados, no se tocan.
+        hijos = {h.pk: h for h in factura.apartes.all()} if factura is not None else {}
+        usados = {c['aparte_pk'] for l in lineas for c in l['conceptos']
+                  if c['aparte'] and c['aparte_pk'] in hijos}
+        sobran = [h for pk, h in hijos.items() if pk not in usados]
+        for h in sobran:
+            if h.fe_realizada_en is not None or h.estado == 'ENVIADA':
+                errores.append(f"El PDF aparte {h.codigo} ya tiene la factura electrónica realizada "
+                               f"o ya se envió: no se puede quitar ni volver a meter en el global.")
         if errores:
             return self._render(request, factura, cliente, datos, errores, filas=filas_todas)
 
@@ -6979,16 +7007,28 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                     setattr(factura, campo, request.FILES[campo])
             factura.save()
             factura.lineas.exclude(orden_id__in=[l['numero'] for l in lineas]).delete()
+            apartes = []
             for l in lineas:
                 linea, _ = LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=l['numero'],
-                    defaults={'precio': l['precio'], 'lleva_global': not l['sin_global'],
+                    defaults={'precio': l['precio'], 'lleva_global': True,
                               'observaciones': l['observaciones'],
                               'copiar_bascula': l['numero'] not in excluidas})
-                # Los conceptos viven solo en esta preliquidación: se reescriben con lo que venga.
+                # Los conceptos viven solo en esta preliquidación: se reescriben
+                # con lo que venga. Los marcados «PDF aparte» van a su propia
+                # preliquidación hija, en el orden en que se escribieron.
                 linea.conceptos.all().delete()
-                ConceptoFactura.objects.bulk_create(
-                    [ConceptoFactura(linea=linea, descripcion=d, precio=p) for d, p in l['conceptos']])
+                for c in l['conceptos']:
+                    if c['aparte']:
+                        hijo = hijos.get(c['aparte_pk'])
+                        if hijo is not None and not hijo.lineas.filter(orden_id=l['numero']).exists():
+                            hijo = None      # era de otra orden: nace uno nuevo
+                        apartes.append(_sincronizar_aparte(factura, linea, c, hijo, request.user))
+                    else:
+                        ConceptoFactura.objects.create(linea=linea, descripcion=c['descripcion'],
+                                                       precio=c['precio'])
+            for h in sobran:
+                h.delete()
             # «Otros»: lo que no está en el sistema se sube aquí mismo.
             for archivo in request.FILES.getlist('otros_archivos'):
                 AdjuntoFactura.objects.create(factura=factura, nombre=archivo.name[:150],
@@ -7006,9 +7046,12 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                             basculas=_basculas_elegidas(factura))
             return redirect('gestion:detalle_factura', pk=factura.pk)
 
-        messages.success(request, f"Factura {factura.codigo} guardada con "
-                                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}. "
-                                  f"Revisa el PDF y, cuando esté bien, envíala.")
+        texto = (f"Factura {factura.codigo} guardada con "
+                 f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}")
+        if apartes:
+            texto += (f" y {len(apartes)} PDF{'s' if len(apartes) != 1 else ''} aparte "
+                      f"({', '.join(h.codigo for h in apartes)})")
+        messages.success(request, texto + ". Revisa el PDF y, cuando esté bien, envíala.")
         return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
 
 
@@ -7032,6 +7075,7 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             'copiar': copiar,
             'algo_marcado': any(a['marcado'] for a in copiar),
             'numero_externo_sin_prefijo': _sin_prefijo_sms(factura.numero_externo),
+            'apartes': list(factura.apartes.order_by('numero').prefetch_related('lineas__conceptos')),
             'ultimo_envio': EnvioCorreo.objects.filter(
                 cliente=factura.cliente, asunto__contains=factura.codigo, estado='ENVIADO')
                 .select_related('enviado_por').order_by('-fecha').first(),
@@ -7106,11 +7150,18 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             return self._enviar(request, factura)
 
         if 'submit_eliminar' in request.POST:
+            if factura.es_aparte:
+                messages.error(request, f"{factura.codigo} es un PDF aparte: se quita desde su global "
+                                        f"{factura.principal.codigo}, desmarcando «facturar en PDF aparte».")
+                return volver
             codigo, n = factura.codigo, factura.lineas.count()
             for adjunto in factura.adjuntos.all():
                 adjunto.archivo.delete(save=False)
+            n_apartes = factura.apartes.count()
             factura.delete()
-            messages.warning(request, f"Factura {codigo} eliminada: sus {n} orden(es) vuelven a poder facturarse.")
+            messages.warning(request, f"Factura {codigo} eliminada"
+                                      + (f" con sus {n_apartes} PDF(s) aparte" if n_apartes else "")
+                                      + f": sus {n} orden(es) vuelven a poder facturarse.")
             return redirect('gestion:lista_facturas')
 
         messages.error(request, "No se reconoció la acción enviada.")
@@ -7425,26 +7476,54 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
 
         marcadas = {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()}
         facturables = {f['orden'].pk: f for f in _ordenes_facturables(cliente, factura)}
+        # ¿La vista previa de UN PDF aparte? Viene la orden, cuál de sus
+        # conceptos, y su posición entre los aparte (para el número provisional).
+        aparte_orden = request.POST.get('aparte_orden')
+        if aparte_orden:
+            numero = int(aparte_orden) if aparte_orden.isdigit() else 0
+            fila = facturables.get(numero)
+            conceptos, _ = _conceptos_del_post(request, numero) if fila else ([], [])
+            idx = int(request.POST.get('aparte_idx') or -1)
+            if fila is None or not (0 <= idx < len(conceptos)):
+                return HttpResponse('<p style="font-family:Helvetica,Arial;color:#51606E;padding:2rem;'
+                                    'text-align:center">Este PDF aparte ya no existe.</p>')
+            concepto = conceptos[idx]
+            hijo = (Factura.objects.filter(pk=concepto['aparte_pk'], principal=factura).first()
+                    if factura is not None and concepto['aparte_pk'] else None)
+            aparte = Factura(cliente=cliente, principal=factura or borrador,
+                             fecha_emision=borrador.fecha_emision,
+                             correo_facturacion=borrador.correo_facturacion)
+            n = int(request.POST.get('aparte_n') or 1)
+            aparte.numero = hijo.numero if hijo is not None else (
+                (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + n + (1 if factura is None else 0))
+            linea = LineaFactura(orden=fila['orden'], precio=Decimal('0'), lleva_global=False)
+            linea.placa, linea.servicio = fila['placa'], fila['servicio']
+            linea.sede, linea.direccion, linea.servicios = fila['sede'], fila['direccion'], fila['servicios']
+            linea.conceptos_lista = [ConceptoFactura(descripcion=concepto['descripcion'],
+                                                     precio=concepto['precio'])]
+            return HttpResponse(_html_factura(aparte, [linea], concepto['precio'],
+                                              provisional=hijo is None))
         lineas, total = [], Decimal('0')
         for numero in sorted(marcadas):
             fila = facturables.get(numero)
             if fila is None:
                 continue
-            sin_global = bool(request.POST.get(f'sin_global_{numero}')) or bool(fila['global_en'])
             crudo = (request.POST.get(f'precio_{numero}') or '').strip()
             crudo = crudo.replace('$', '').replace('.', '').replace(',', '.')
             try:
-                precio = Decimal(crudo) if crudo and not sin_global else Decimal('0')
+                precio = Decimal(crudo) if crudo else Decimal('0')
             except InvalidOperation:
                 precio = Decimal('0')
-            linea = LineaFactura(orden=fila['orden'], precio=precio, lleva_global=not sin_global,
+            linea = LineaFactura(orden=fila['orden'], precio=precio,
                                  observaciones=(request.POST.get(f'observaciones_{numero}') or '').strip()[:255])
             linea.placa, linea.servicio = fila['placa'], fila['servicio']
             linea.sede, linea.direccion, linea.servicios = fila['sede'], fila['direccion'], fila['servicios']
-            conceptos, _ = _conceptos_del_post(request, numero)
-            linea.conceptos_lista = [ConceptoFactura(descripcion=d, precio=p) for d, p in conceptos]
+            # Los marcados «PDF aparte» no van en este PDF: tienen el suyo.
+            conceptos = [c for c in _conceptos_del_post(request, numero)[0] if not c['aparte']]
+            linea.conceptos_lista = [ConceptoFactura(descripcion=c['descripcion'], precio=c['precio'])
+                                     for c in conceptos]
             lineas.append(linea)
-            total += precio + sum((p for _, p in conceptos), Decimal('0'))
+            total += precio + sum((c['precio'] for c in conceptos), Decimal('0'))
         return HttpResponse(_html_factura(borrador, lineas, total, provisional=factura is None))
 
 

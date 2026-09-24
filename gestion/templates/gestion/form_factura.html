@@ -23,13 +23,14 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-ok{ color:var(--ok); }
 .ff-precio{ font-family:var(--mono); text-align:right; width:7.5rem; }
 .ff-precio:disabled{ background:var(--panel-2); color:var(--ink-3); }
-/* «Sin global aquí»: la orden va solo por conceptos adicionales */
-.ff-sin-global{ display:flex; align-items:center; justify-content:flex-end; gap:.35rem; margin:.3rem 0 0; font-size:.72rem; color:var(--ink-3); white-space:nowrap; cursor:pointer; }
-.ff-sin-global input{ margin:0; }
-.ff-global-en{ display:block; font-family:var(--mono); font-size:.74rem; color:var(--ink-3); text-align:right; }
 /* Los conceptos adicionales de la orden, bajo sus observaciones */
 .ff-conceptos{ display:flex; flex-direction:column; gap:.3rem; margin-top:.35rem; }
-.ff-concepto{ display:grid; grid-template-columns:auto 1fr 7.5rem 28px; align-items:center; gap:.4rem; }
+.ff-concepto{ display:grid; grid-template-columns:auto 1fr 7.5rem auto 28px; align-items:center; gap:.4rem; }
+.ff-concepto.aparte{ background:var(--brand-tint); border-radius:var(--r-sm); padding:.2rem .3rem; margin:0 -.3rem; }
+.ff-aparte{ display:flex; align-items:center; gap:.3rem; margin:0; font-size:.74rem; color:var(--ink-2); white-space:nowrap; cursor:pointer; }
+.ff-aparte input{ margin:0; }
+.ff-aparte .cod{ font-family:var(--mono); font-weight:600; color:var(--brand-700); }
+.ff-concepto.aparte .ff-aparte{ color:var(--brand-700); font-weight:500; }
 .ff-concepto .k{ font-size:.72rem; color:var(--brand-700); font-weight:600; white-space:nowrap; }
 .ff-concepto input{ font-size:.8rem; }
 .ff-precio-concepto{ font-family:var(--mono); text-align:right; }
@@ -37,23 +38,14 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-concepto .ff-quitar:hover{ border-color:var(--err); color:var(--err); }
 .ff-mas-concepto{ background:none; border:0; padding:0; margin-top:.35rem; font-size:.76rem; color:var(--brand-700); text-decoration:underline dotted; }
 .ff-mas-concepto:disabled{ color:var(--ink-3); text-decoration:none; cursor:default; }
-.ff-tabla tr.ff-ajena-cab td{ background:var(--panel-2); font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); padding:.6rem .5rem .35rem; border-top:2px solid var(--line); }
-.ff-tabla tr.ff-apagada td{ opacity:.45; }
-tr.ff-marcada td{ background:var(--brand-tint); }
-.ff-total{ display:flex; justify-content:flex-end; align-items:baseline; gap:.75rem; padding:.75rem .5rem 0; }
-.ff-total .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
-.ff-total .v{ font-family:var(--mono); font-size:1.35rem; font-weight:600; }
-.ff-total .n{ font-size:.8rem; color:var(--ink-2); }
-.ff-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
-.ff-etq:first-child{ margin-top:0; }
-.ff-internas{ background:var(--warn-tint); border-color:var(--warn-line); }
-.ff-internas:focus{ background:var(--panel); }
-.ff-guardar{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 1rem;
-    display:flex; flex-direction:column; align-items:stretch; gap:.5rem; z-index:2; }
-/* Las acciones a la derecha; si no caben, se parten ordenadas hacia la derecha. */
-.ff-guardar .acciones{ display:flex; justify-content:flex-end; gap:.5rem; flex-wrap:wrap; }
-.ff-tabla .sub{ display:block; font-family:var(--mono); font-size:.72rem; color:var(--ink-3); font-weight:400; }
-.ff-tabla .sub .ff-falta, .ff-tabla .sub .ff-ok{ display:inline-block; margin-top:.15rem; }
+/* Los PDFs aparte, previsualizados debajo del principal */
+.ff-apartes{ display:flex; flex-direction:column; gap:1rem; margin-top:1rem; }
+.ff-aparte-card .card-header{ display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
+.ff-aparte-card .card-header .t{ font-size:.86rem; font-weight:600; }
+.ff-aparte-card .card-header .t .cod{ font-family:var(--mono); color:var(--brand-700); }
+.ff-aparte-card .card-header .t small{ display:block; font-weight:400; color:var(--ink-3); font-size:.74rem; }
+.ff-aparte-card .hoja{ overflow:hidden; background:var(--panel-2); }
+.ff-aparte-card iframe{ width:816px; height:1056px; border:0; background:#fff; transform-origin:top left; display:block; }
 /* La vista previa del PDF, en vivo, al lado del formulario */
 .ff-previa{ position:sticky; top:1rem; }
 .ff-previa .card-header{ display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
@@ -182,7 +174,7 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         <div class="card-body">
             <div class="ff-paso">2 · Órdenes</div>
             {# También cuando solo quedan órdenes «ajenas»: entran por conceptos adicionales. #}
-            {% if filas or filas_ajenas %}
+            {% if filas %}
             <p class="text-muted small mb-2">Marca las que van en esta factura y escribe su precio. El peso es la cantidad conciliada; si a una orden le falta el acta firmada o la conciliación, se avisa pero se puede facturar.</p>
             <div class="table-responsive">
                 <table class="table align-middle mb-0 ff-tabla">
@@ -196,7 +188,6 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                     {% for f in filas %}
                         <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
                             <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
-                                       {% if f.global_en %}data-ajena="1"{% endif %}
                                        {% if f.orden.pk in datos.marcadas %}checked{% endif %}
                                        aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
                             <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
@@ -212,22 +203,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                             <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
                             <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
                             <td class="text-end">
-                                {% if f.global_en %}
-                                {# Su global ya está en otra preliquidación: aquí va solo por conceptos. #}
-                                <span class="ff-global-en">Global en {{ f.global_en }}</span>
-                                <input type="hidden" name="sin_global_{{ f.orden.pk }}" value="1">
-                                {% else %}
                                 <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
                                        inputmode="decimal" placeholder="$500.000" autocomplete="off"
                                        value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
-                                       {% if f.orden.pk not in datos.marcadas or f.sin_global %}disabled{% endif %}
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
-                                <label class="ff-sin-global" title="El global de esta orden va (o irá) en otra preliquidación; aquí solo sus conceptos adicionales">
-                                    <input type="checkbox" name="sin_global_{{ f.orden.pk }}" value="1" class="ff-sin-global-chk"
-                                           {% if f.sin_global %}checked{% endif %} {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    sin global aquí
-                                </label>
-                                {% endif %}
                             </td>
                         </tr>
                         <tr class="ff-srv"><td></td><td colspan="4">
@@ -240,13 +220,20 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                                    aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
                             {# Conceptos adicionales: servicios de esta orden que se cobran aparte del global. #}
                             <div class="ff-conceptos" data-orden="{{ f.orden.pk }}">
-                                {% for d, pr in f.conceptos %}
-                                <div class="ff-concepto">
+                                {% for c in f.conceptos %}
+                                <div class="ff-concepto{% if c.aparte %} aparte{% endif %}">
                                     <span class="k">Concepto adicional</span>
                                     <input type="text" name="concepto_desc_{{ f.orden.pk }}" class="form-control form-control-sm" maxlength="255"
-                                           value="{{ d }}" placeholder="Ej: Transporte adicional de lodos" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                           value="{{ c.descripcion }}" placeholder="Ej: Transporte adicional de lodos" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
                                     <input type="text" name="concepto_precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio-concepto"
-                                           inputmode="decimal" value="{{ pr|floatformat:0 }}" placeholder="$0" autocomplete="off" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                           inputmode="decimal" value="{{ c.precio|floatformat:0 }}" placeholder="$0" autocomplete="off" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    {# «Facturar en PDF aparte»: sale en su propia preliquidación, con número y factura electrónica propios. #}
+                                    <label class="ff-aparte" title="Sale en su propio PDF, con su número y su factura electrónica">
+                                        <input type="checkbox" class="ff-aparte-chk" {% if c.aparte %}checked{% endif %} {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                        PDF aparte{% if c.codigo %} <span class="cod">{{ c.codigo }}</span>{% endif %}
+                                    </label>
+                                    <input type="hidden" name="concepto_aparte_{{ f.orden.pk }}" value="{% if c.aparte %}1{% else %}0{% endif %}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    <input type="hidden" name="concepto_aparte_pk_{{ f.orden.pk }}" value="{{ c.aparte_pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
                                     <button type="button" class="ff-quitar" aria-label="Quitar este concepto" title="Quitar">&times;</button>
                                 </div>
                                 {% endfor %}
@@ -256,77 +243,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
                             </button>
                         </td></tr>
                     {% endfor %}
-                    {% if filas_ajenas %}
-                    <tr class="ff-ajena-cab"><td colspan="5">Órdenes ya facturadas · solo para conceptos adicionales <span class="text-lowercase fw-normal">(una preliquidación de estas es de una sola orden)</span></td></tr>
-                    {% for f in filas_ajenas %}
-                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}">
-                            <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
-                                       {% if f.global_en %}data-ajena="1"{% endif %}
-                                       {% if f.orden.pk in datos.marcadas %}checked{% endif %}
-                                       aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
-                            <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
-                                data-acta="{% if f.sin_acta %}0{% else %}1{% endif %}"
-                                data-acta-url="{{ f.acta_url }}"
-                                data-bascula-nombre="{{ f.bascula_nombre }}"
-                                data-bascula-url="{% if f.bascula %}{{ f.bascula.url }}{% endif %}"
-                                data-fecha="{{ f.servicio|date:'d/m/Y'|default:'—' }}"
-                                data-sede="{{ f.sede|default:'' }}">
-                                <a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
-                                <span class="sub">{{ f.servicio|date:"d/m/Y"|default:"—" }}{% if f.placa %} · {{ f.placa }}{% endif %}
-                                    {% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</span></td>
-                            <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
-                            <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
-                            <td class="text-end">
-                                {% if f.global_en %}
-                                {# Su global ya está en otra preliquidación: aquí va solo por conceptos. #}
-                                <span class="ff-global-en">Global en {{ f.global_en }}</span>
-                                <input type="hidden" name="sin_global_{{ f.orden.pk }}" value="1">
-                                {% else %}
-                                <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
-                                       inputmode="decimal" placeholder="$500.000" autocomplete="off"
-                                       value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
-                                       {% if f.orden.pk not in datos.marcadas or f.sin_global %}disabled{% endif %}
-                                       aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
-                                <label class="ff-sin-global" title="El global de esta orden va (o irá) en otra preliquidación; aquí solo sus conceptos adicionales">
-                                    <input type="checkbox" name="sin_global_{{ f.orden.pk }}" value="1" class="ff-sin-global-chk"
-                                           {% if f.sin_global %}checked{% endif %} {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    sin global aquí
-                                </label>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        <tr class="ff-srv"><td></td><td colspan="4">
-                            <span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}
-                            {# Va aquí, a lo ancho, para no añadirle otra columna a la tabla. #}
-                            <input type="text" name="observaciones_{{ f.orden.pk }}" class="form-control form-control-sm ff-obs"
-                                   maxlength="255" autocomplete="off" value="{{ f.observaciones|default:'' }}"
-                                   placeholder="Observaciones adicionales de esta orden (opcional)"
-                                   {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
-                                   aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
-                            {# Conceptos adicionales: servicios de esta orden que se cobran aparte del global. #}
-                            <div class="ff-conceptos" data-orden="{{ f.orden.pk }}">
-                                {% for d, pr in f.conceptos %}
-                                <div class="ff-concepto">
-                                    <span class="k">Concepto adicional</span>
-                                    <input type="text" name="concepto_desc_{{ f.orden.pk }}" class="form-control form-control-sm" maxlength="255"
-                                           value="{{ d }}" placeholder="Ej: Transporte adicional de lodos" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    <input type="text" name="concepto_precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio-concepto"
-                                           inputmode="decimal" value="{{ pr|floatformat:0 }}" placeholder="$0" autocomplete="off" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    <button type="button" class="ff-quitar" aria-label="Quitar este concepto" title="Quitar">&times;</button>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            <button type="button" class="ff-mas-concepto" data-orden="{{ f.orden.pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                <i class="bi bi-plus-lg me-1"></i>Concepto adicional
-                            </button>
-                        </td></tr>
-                    {% endfor %}
-                    {% endif %}
                     </tbody>
                 </table>
             </div>
             <div class="ff-total">
-                <span class="n"><span id="ff-n">0</span> orden(es)</span>
+                <span class="n"><span id="ff-n">0</span> orden(es) <span id="ff-apartes-n"></span></span>
                 <span class="k">Total</span>
                 <span class="v">$<span id="ff-total">0</span></span>
             </div>
@@ -401,6 +322,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             <span class="k">Concepto adicional</span>
             <input type="text" class="form-control form-control-sm" maxlength="255" placeholder="Ej: Transporte adicional de lodos">
             <input type="text" class="form-control form-control-sm ff-precio-concepto" inputmode="decimal" placeholder="$0" autocomplete="off">
+            <label class="ff-aparte" title="Sale en su propio PDF, con su número y su factura electrónica"><input type="checkbox" class="ff-aparte-chk"> PDF aparte</label>
+            <input type="hidden" value="0"><input type="hidden" value="">
             <button type="button" class="ff-quitar" aria-label="Quitar este concepto" title="Quitar">&times;</button>
         </div>
     </template>
@@ -436,6 +359,8 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             <div class="hoja" id="ff-hoja"><iframe id="ff-previa" title="Vista previa del PDF de la factura"></iframe></div>
         </div>
     </div>
+    {# Cada concepto marcado «PDF aparte» tiene aquí su propia vista previa. #}
+    <div class="ff-apartes" id="ff-apartes"></div>
 </div>
 </div>
 
@@ -544,34 +469,30 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         return partes.length > 1 ? entero + ',' + partes.slice(1).join('').slice(0, 2) : entero;
     }
     function pintar() {
-        var total = 0, n = 0;
-        // Una orden «ajena» (su global ya está en otra preliquidación) va sola: al marcarla se apagan las demás.
-        var ajena = form.querySelector('.ff-check[data-ajena]:checked');
+        var total = 0, n = 0, apartes = 0;
         form.querySelectorAll('.ff-check').forEach(function (c) {
             var fila = c.closest('tr');
             var precio = fila.querySelector('.ff-precio');
-            var sinGlobal = fila.querySelector('.ff-sin-global-chk');
-            var apagada = !!ajena && c !== ajena;
-            c.disabled = apagada;
-            if (apagada) c.checked = false;
             fila.classList.toggle('ff-marcada', c.checked);
-            fila.classList.toggle('ff-apagada', apagada);
             var abajo = fila.nextElementSibling;
             if (abajo && abajo.classList.contains('ff-srv')) {
                 abajo.classList.toggle('ff-marcada', c.checked);
-                abajo.classList.toggle('ff-apagada', apagada);
                 var obs = abajo.querySelector('.ff-obs');
                 if (obs) obs.disabled = !c.checked;
                 abajo.querySelectorAll('.ff-concepto input, .ff-mas-concepto').forEach(function (el) { el.disabled = !c.checked; });
-                if (c.checked) abajo.querySelectorAll('.ff-precio-concepto').forEach(function (p) { total += numero(p.value); });
+                // Los conceptos en PDF aparte no suman aquí: tienen su propio total.
+                if (c.checked) abajo.querySelectorAll('.ff-concepto').forEach(function (con) {
+                    var aparte = con.querySelector('.ff-aparte-chk').checked;
+                    con.classList.toggle('aparte', aparte);
+                    if (aparte) { apartes += 1; return; }
+                    total += numero(con.querySelector('.ff-precio-concepto').value);
+                });
             }
-            if (sinGlobal) sinGlobal.disabled = !c.checked;
-            if (precio) {
-                precio.disabled = !c.checked || !!(sinGlobal && sinGlobal.checked);
-                if (c.checked && !(sinGlobal && sinGlobal.checked)) total += numero(precio.value);
-            }
-            if (c.checked) n += 1;
+            precio.disabled = !c.checked;
+            if (c.checked) { n += 1; total += numero(precio.value); }
         });
+        document.getElementById('ff-apartes-n').textContent = apartes
+            ? '· ' + apartes + ' en PDF aparte' : '';
         document.getElementById('ff-n').textContent = n;
         pintarEstados();
         document.getElementById('ff-total').textContent = Math.round(total).toLocaleString('es-CO');
@@ -589,8 +510,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         if (mas) {
             var caja = form.querySelector('.ff-conceptos[data-orden="' + mas.dataset.orden + '"]');
             var fila = document.getElementById('ff-concepto-plantilla').content.firstElementChild.cloneNode(true);
-            fila.querySelectorAll('input')[0].name = 'concepto_desc_' + mas.dataset.orden;
-            fila.querySelectorAll('input')[1].name = 'concepto_precio_' + mas.dataset.orden;
+            var campos = fila.querySelectorAll('input');
+            campos[0].name = 'concepto_desc_' + mas.dataset.orden;
+            campos[1].name = 'concepto_precio_' + mas.dataset.orden;
+            campos[3].name = 'concepto_aparte_' + mas.dataset.orden;     // [2] es la casilla visible
+            campos[4].name = 'concepto_aparte_pk_' + mas.dataset.orden;
             caja.appendChild(fila);
             fila.querySelector('input').focus();
             pintar(); programarPrevia();
@@ -600,8 +524,11 @@ tr.ff-marcada td{ background:var(--brand-tint); }
             pintar(); programarPrevia();
         }
     });
+    // La casilla «PDF aparte» escribe su valor en el campo oculto que viaja con el formulario.
     form.addEventListener('change', function (e) {
-        if (e.target.classList.contains('ff-sin-global-chk')) pintar();
+        if (!e.target.classList.contains('ff-aparte-chk')) return;
+        e.target.closest('.ff-concepto').querySelectorAll('input[type=hidden]')[0].value = e.target.checked ? '1' : '0';
+        pintar();
     });
     form.addEventListener('input', function (e) {
         if (!e.target.classList.contains('ff-precio') && !e.target.classList.contains('ff-precio-concepto')) return;
@@ -649,7 +576,57 @@ tr.ff-marcada td{ background:var(--brand-tint); }
         }).then(function (r) { return r.text(); })
           .then(function (html) { marco.srcdoc = html; estado.textContent = 'al día'; })
           .catch(function (e) { if (e.name !== 'AbortError') estado.textContent = 'no se pudo actualizar'; });
+        pedirApartes();
     }
+    // --- Los PDFs aparte: una vista previa por cada concepto marcado, debajo del principal ---
+    var cajaApartes = document.getElementById('ff-apartes');
+    var pendientesApartes = [];
+    function escalarHoja(hoja, iframe) {
+        var k = Math.min(hoja.clientWidth / 816, 1);
+        iframe.style.transform = 'scale(' + k + ')';
+        hoja.style.height = Math.round(1056 * k) + 'px';
+    }
+    function pedirApartes() {
+        pendientesApartes.forEach(function (p) { p.abort(); });
+        pendientesApartes = [];
+        cajaApartes.innerHTML = '';
+        var n = 0;
+        form.querySelectorAll('.ff-check:checked').forEach(function (c) {
+            var abajo = c.closest('tr').nextElementSibling;
+            if (!abajo) return;
+            var orden = c.closest('tr').querySelector('.num a').textContent.trim();
+            abajo.querySelectorAll('.ff-concepto').forEach(function (con, idx) {
+                if (!con.querySelector('.ff-aparte-chk').checked) return;
+                n += 1;
+                var cod = con.querySelector('.ff-aparte .cod');
+                var card = document.createElement('div');
+                card.className = 'card shadow ff-aparte-card';
+                card.innerHTML = '<div class="card-header"><div class="t">PDF aparte '
+                    + (cod ? '<span class="cod">' + cod.textContent + '</span>' : '<span class="text-muted">(número al guardar)</span>')
+                    + '<small></small></div><span class="estado text-muted small">actualizando…</span></div>'
+                    + '<div class="card-body p-2"><div class="hoja"><iframe title="Vista previa del PDF aparte"></iframe></div></div>';
+                card.querySelector('small').textContent = orden + ' · ' + (con.querySelector('input').value || 'concepto sin descripción');
+                cajaApartes.appendChild(card);
+                var datos = datosPrevia();
+                datos.append('aparte_orden', c.value); datos.append('aparte_idx', idx); datos.append('aparte_n', n);
+                var ctrl = new AbortController(); pendientesApartes.push(ctrl);
+                fetch(form.dataset.previa, { method: 'POST', body: datos, credentials: 'same-origin',
+                                             headers: { 'X-Requested-With': 'fetch' }, signal: ctrl.signal })
+                    .then(function (r) { return r.text(); })
+                    .then(function (html) {
+                        var iframe = card.querySelector('iframe');
+                        iframe.srcdoc = html; card.querySelector('.estado').textContent = 'al día';
+                        escalarHoja(card.querySelector('.hoja'), iframe);
+                    })
+                    .catch(function (e) { if (e.name !== 'AbortError') card.querySelector('.estado').textContent = 'no se pudo actualizar'; });
+            });
+        });
+    }
+    window.addEventListener('resize', function () {
+        cajaApartes.querySelectorAll('.ff-aparte-card').forEach(function (card) {
+            escalarHoja(card.querySelector('.hoja'), card.querySelector('iframe'));
+        });
+    });
     function programarPrevia() { clearTimeout(temporizador); temporizador = setTimeout(pedirPrevia, 400); }
     form.addEventListener('input', programarPrevia);
     form.addEventListener('change', programarPrevia);

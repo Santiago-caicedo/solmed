@@ -11,6 +11,7 @@
 .fc-cod{ font-family:var(--mono); font-weight:600; }
 .fc-total{ font-family:var(--mono); white-space:nowrap; }
 .fc-ext{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); }
+.fc-aparte{ display:block; font-family:var(--mono); font-weight:400; font-size:.7rem; color:var(--ink-3); }
 /* Si la factura electrónica ya se hizo, o sigue pendiente */
 .fc-fe{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; font-weight:500; white-space:nowrap; }
 .fc-fe.ok{ color:var(--ok); }
@@ -60,7 +61,7 @@
                 <tbody>
                 {% for f in facturas %}
                     <tr>
-                        <td class="fc-cod"><a href="{% url 'gestion:detalle_factura' f.pk %}">{{ f.codigo }}</a></td>
+                        <td class="fc-cod"><a href="{% url 'gestion:detalle_factura' f.pk %}">{{ f.codigo }}</a>{% if f.principal_id %}<small class="fc-aparte">aparte de {{ f.principal.codigo }}</small>{% endif %}</td>
                         <td>{{ f.cliente.nombre|truncatechars:36 }}</td>
                         <td>{{ f.fecha_emision|date:"d/m/Y" }}</td>
                         <td>{{ f.lineas.all|length }}</td>

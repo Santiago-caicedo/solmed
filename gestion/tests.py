@@ -2968,10 +2968,24 @@ class FacturacionTests(BaseCRM):
     # ---- Conceptos adicionales: servicios de la orden que se cobran aparte del global ----
 
     def _con_conceptos(self, orden, *conceptos, **extra):
-        """Un POST de crear con esos conceptos (descripción, precio) en la orden."""
+        """
+        Un POST de crear con esos conceptos en la orden: (descripción, precio)
+        o (descripción, precio, aparte) o (descripción, precio, aparte, pk del
+        PDF aparte que ya existe). Con `url=` se manda a esa URL (editar).
+        """
         extra.setdefault('ordenes', [orden])
-        extra[f'concepto_desc_{orden.pk}'] = [d for d, _ in conceptos]
-        extra[f'concepto_precio_{orden.pk}'] = [p for _, p in conceptos]
+        extra[f'concepto_desc_{orden.pk}'] = [c[0] for c in conceptos]
+        extra[f'concepto_precio_{orden.pk}'] = [c[1] for c in conceptos]
+        extra[f'concepto_aparte_{orden.pk}'] = ['1' if len(c) > 2 and c[2] else '0' for c in conceptos]
+        extra[f'concepto_aparte_pk_{orden.pk}'] = [str(c[3]) if len(c) > 3 else '' for c in conceptos]
+        url = extra.pop('url', None)
+        if url:
+            datos = {'cliente': self.cli.pk, 'correo_facturacion': 'facturacion@cliente.co'}
+            for o in extra['ordenes']:
+                datos[f'precio_{o.pk}'] = '500.000'
+            datos.update(extra)
+            datos['ordenes'] = [o.pk for o in extra['ordenes']]
+            return self.client.post(url, datos)
         return self._crear(**extra)
 
     def test_los_conceptos_adicionales_van_bajo_su_orden_en_la_misma_preliquidacion(self):
@@ -3002,8 +3016,9 @@ class FacturacionTests(BaseCRM):
         # Vuelven al formulario para corregirlos, y la vista previa los pinta.
         editar = self.client.get(reverse('gestion:editar_factura', args=[factura.pk]))
         fila = {f['orden'].pk: f for f in editar.context['filas']}[self.una.pk]
-        self.assertEqual(fila['conceptos'], [('Transporte adicional de lodos', Decimal('150000')),
-                                             ('Hora extra', Decimal('80000'))])
+        self.assertEqual([(c['descripcion'], c['precio'], c['aparte']) for c in fila['conceptos']],
+                         [('Transporte adicional de lodos', Decimal('150000'), False),
+                          ('Hora extra', Decimal('80000'), False)])
         self.assertContains(editar, 'Concepto adicional')
         # (Se dice qué factura se edita: si no, el global de esta orden ya está «en otra».)
         previa = self.client.post(reverse('gestion:previa_factura'), {
@@ -3013,79 +3028,111 @@ class FacturacionTests(BaseCRM):
         self.assertIn('Viaje extra', previa)
         self.assertIn('$520.000', previa)
 
-    def test_un_concepto_aparte_va_en_otra_preliquidacion_de_la_misma_orden(self):
-        """El global ya se facturó en SMS-0001; el concepto se cobra en SMS-0002, de esa orden sola."""
+    def test_un_servicio_marcado_pdf_aparte_sale_en_su_propia_preliquidacion(self):
+        """El global sigue en la suya; el servicio aparte nace como hija, con número propio."""
         from .views import _html_factura, _lineas_con_detalle
-        self._crear(ordenes=[self.una])
-        primera = Factura.objects.get()
-        # El formulario la ofrece aparte: «ya facturada, solo para conceptos».
-        nuevo = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
-        self.assertEqual([f['orden'].pk for f in nuevo.context['filas']], [self.otra.pk])
-        ajenas = nuevo.context['filas_ajenas']
-        self.assertEqual([(f['orden'].pk, f['global_en']) for f in ajenas], [(self.una.pk, 'SMS-0001')])
-        self.assertContains(nuevo, 'Órdenes ya facturadas · solo para conceptos adicionales')
-        self.assertContains(nuevo, 'Global en SMS-0001')
-
-        respuesta = self._con_conceptos(self.una, ('Transporte adicional de lodos', '150.000'),
-                                        **{f'sin_global_{self.una.pk}': '1'})
-        segunda = Factura.objects.exclude(pk=primera.pk).get()
-        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[segunda.pk]) + '#revisar')
-        linea = segunda.lineas.get()
-        self.assertFalse(linea.lleva_global)
-        self.assertEqual(segunda.total, Decimal('150000'), "solo el concepto; el global no cuenta aquí")
-        self.assertEqual(primera.total, Decimal('500000'), "la primera no se toca")
-        # En el PDF la orden queda de referencia (precio «—») y debajo su concepto.
-        html = _html_factura(segunda, _lineas_con_detalle(segunda), segunda.total)
-        self.assertIn(str(self.una.numero_orden), html)
-        self.assertIn('<td class="der mono">—</td>', html)
+        respuesta = self._con_conceptos(self.una, ('Transporte adicional de lodos', '150.000', True),
+                                        ('Hora extra', '80.000'))
+        principal = Factura.objects.get(principal__isnull=True)
+        aparte = Factura.objects.get(principal=principal)
+        self.assertEqual((principal.codigo, aparte.codigo), ('SMS-0001', 'SMS-0002'))
+        self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[principal.pk]) + '#revisar')
+        # La principal: su global y el concepto que NO va aparte.
+        self.assertEqual(principal.total, Decimal('580000'))
+        self.assertEqual([c.descripcion for c in principal.lineas.get().conceptos.all()], ['Hora extra'])
+        # La hija: la misma orden sin global, solo con ese concepto, y todo lo demás copiado.
+        linea = aparte.lineas.get()
+        self.assertEqual((linea.orden, linea.lleva_global), (self.una, False))
+        self.assertEqual([c.descripcion for c in linea.conceptos.all()], ['Transporte adicional de lodos'])
+        self.assertEqual(aparte.total, Decimal('150000'))
+        self.assertEqual((aparte.cliente, aparte.correo_facturacion, aparte.creada_por),
+                         (self.cli, 'facturacion@cliente.co', self.admin))
+        # Cada PDF trae lo suyo.
+        html = _html_factura(principal, _lineas_con_detalle(principal), principal.total)
+        self.assertIn('Hora extra', html)
+        self.assertNotIn('Transporte adicional de lodos', html)
+        html = _html_factura(aparte, _lineas_con_detalle(aparte), aparte.total)
         self.assertIn('Transporte adicional de lodos', html)
-        # El expediente de la orden dice dónde está cada cosa.
+        self.assertIn('<td class="der mono">—</td>', html, "la orden va de referencia, sin global")
+        self.assertIn('SMS-0002', html)
+        # El expediente del global la lista; el de la hija remite al global y no se borra sola.
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[principal.pk]))
+        self.assertContains(detalle, 'PDFs aparte')
+        self.assertContains(detalle, 'SMS-0002')
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[aparte.pk]))
+        self.assertContains(detalle, 'PDF aparte</b> de')
+        self.assertContains(detalle, 'Editar desde SMS-0001')
+        self.assertNotContains(detalle, 'name="submit_eliminar"')
+        self.assertContains(detalle, 'Realizada factura electrónica', msg_prefix="tiene su propia electrónica")
+        respuesta = self.client.post(reverse('gestion:detalle_factura', args=[aparte.pk]),
+                                     {'submit_eliminar': '1'}, follow=True)
+        self.assertContains(respuesta, 'se quita desde su global')
+        self.assertTrue(Factura.objects.filter(pk=aparte.pk).exists())
+        # Editar la hija manda al formulario del global.
+        self.assertRedirects(self.client.get(reverse('gestion:editar_factura', args=[aparte.pk])),
+                             reverse('gestion:editar_factura', args=[principal.pk]))
+        # La lista y la orden lo dicen.
+        lista = self.client.get(reverse('gestion:lista_facturas'))
+        self.assertContains(lista, 'aparte de SMS-0001')
         orden = self.client.get(reverse('gestion:detalle_orden', args=[self.una.pk]))
         self.assertContains(orden, 'Facturada en SMS-0001')
         self.assertContains(orden, 'Conceptos adicionales en SMS-0002')
-        # Con TODAS las órdenes ya facturadas, la sección de «ya facturadas» sigue
-        # saliendo (antes se escondía la tabla entera y no había cómo cobrar conceptos).
-        self._crear(ordenes=[self.otra])
-        nuevo = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
-        self.assertEqual(nuevo.context['filas'], [])
-        self.assertEqual(len(nuevo.context['filas_ajenas']), 2)
-        self.assertContains(nuevo, 'Órdenes ya facturadas · solo para conceptos adicionales')
-        self.assertNotContains(nuevo, 'no tiene órdenes por facturar')
+        # Su factura electrónica es la suya, no la del global.
+        self.client.post(reverse('gestion:detalle_factura', args=[aparte.pk]),
+                         {'submit_realizada': '1', 'numero_externo': '77'})
+        aparte.refresh_from_db(); principal.refresh_from_db()
+        self.assertEqual(aparte.numero_externo, 'SMS-77')
+        self.assertIsNotNone(aparte.fe_realizada_en)
+        self.assertIsNone(principal.fe_realizada_en)
 
-    def test_las_reglas_de_los_conceptos_adicionales(self):
-        # Sin global y sin conceptos no hay nada que cobrar.
-        respuesta = self._crear(ordenes=[self.una], **{f'sin_global_{self.una.pk}': '1'})
-        self.assertContains(respuesta, 'agrégale al menos un concepto adicional')
-        # Un concepto a medias se reclama.
-        respuesta = self._con_conceptos(self.una, ('Solo descripción', ''))
-        self.assertContains(respuesta, 'necesita descripción y precio')
-        # Sin ningún global, la preliquidación es de UNA sola orden.
-        respuesta = self._crear(**{f'sin_global_{self.una.pk}': '1', f'sin_global_{self.otra.pk}': '1',
-                                   f'concepto_desc_{self.una.pk}': ['A'], f'concepto_precio_{self.una.pk}': ['1'],
-                                   f'concepto_desc_{self.otra.pk}': ['B'], f'concepto_precio_{self.otra.pk}': ['1']})
-        self.assertContains(respuesta, 'es de una sola orden')
+    def test_editar_el_global_conserva_el_pdf_aparte_y_lo_quita_si_se_desmarca(self):
+        self._con_conceptos(self.una, ('Transporte adicional', '150.000', True))
+        principal = Factura.objects.get(principal__isnull=True)
+        aparte = Factura.objects.get(principal=principal)
+        editar = reverse('gestion:editar_factura', args=[principal.pk])
+        # El formulario lo trae marcado, con su número y su pk.
+        fila = {f['orden'].pk: f for f in self.client.get(editar).context['filas']}[self.una.pk]
+        self.assertEqual(fila['conceptos'], [{'descripcion': 'Transporte adicional', 'precio': Decimal('150000'),
+                                              'aparte': True, 'aparte_pk': aparte.pk, 'codigo': 'SMS-0002'}])
+        # Guardar de nuevo (precio corregido) conserva la hija y su número.
+        self._con_conceptos(self.una, ('Transporte adicional', '160.000', True, aparte.pk), url=editar)
+        aparte.refresh_from_db()
+        self.assertEqual((aparte.total, Factura.objects.count()), (Decimal('160000'), 2))
+        # Desmarcar «PDF aparte» la devuelve al global y borra la hija.
+        self._con_conceptos(self.una, ('Transporte adicional', '160.000', False, aparte.pk), url=editar)
+        self.assertFalse(Factura.objects.filter(pk=aparte.pk).exists())
+        principal.refresh_from_db()
+        self.assertEqual(principal.total, Decimal('660000'))
+        # Marcarla otra vez crea una hija nueva (el número liberado se reutiliza,
+        # como con cualquier preliquidación borrada).
+        self._con_conceptos(self.una, ('Transporte adicional', '160.000', True), url=editar)
+        nueva = Factura.objects.get(principal=principal)
+        self.assertNotEqual(nueva.pk, aparte.pk)
+        self.assertEqual(nueva.codigo, 'SMS-0002')
+        # Con la electrónica realizada, ya no se puede quitar ni desmarcar.
+        self.client.post(reverse('gestion:detalle_factura', args=[nueva.pk]),
+                         {'submit_realizada': '1', 'numero_externo': '9'})
+        respuesta = self._con_conceptos(self.una, ('Transporte adicional', '160.000', False, nueva.pk), url=editar)
+        self.assertContains(respuesta, 'ya tiene la factura electrónica realizada')
+        self.assertTrue(Factura.objects.filter(pk=nueva.pk).exists())
+
+    def test_dos_servicios_aparte_son_dos_pdfs_y_la_vista_previa_los_pinta(self):
+        respuesta = self.client.post(reverse('gestion:previa_factura'), {
+            'cliente': self.cli.pk, 'ordenes': [self.una.pk], f'precio_{self.una.pk}': '500.000',
+            f'concepto_desc_{self.una.pk}': ['A', 'B'], f'concepto_precio_{self.una.pk}': ['10.000', '20.000'],
+            f'concepto_aparte_{self.una.pk}': ['1', '1'], f'concepto_aparte_pk_{self.una.pk}': ['', ''],
+            'aparte_orden': self.una.pk, 'aparte_idx': '1', 'aparte_n': '2'}, HTTP_X_REQUESTED_WITH='fetch')
+        html = respuesta.content.decode()
+        self.assertIn('SMS-0003', html, "provisional: el global sería SMS-0001 y este el segundo aparte")
+        self.assertIn('Concepto adicional:</span> B', html)
+        self.assertNotIn('Concepto adicional:</span> A', html)
+        self._con_conceptos(self.una, ('A', '10.000', True), ('B', '20.000', True))
+        self.assertEqual(list(Factura.objects.order_by('numero').values_list('numero', 'principal__numero')),
+                         [(1, None), (2, 1), (3, 1)])
+        # Borrar el global se lleva sus PDFs aparte.
+        self.client.post(reverse('gestion:detalle_factura', args=[Factura.objects.get(numero=1).pk]),
+                         {'submit_eliminar': '1'})
         self.assertFalse(Factura.objects.exists())
-        # Con el global ya en otra, sin «sin global» no entra; y con él, va sola.
-        self._crear(ordenes=[self.una])
-        respuesta = self._crear(ordenes=[self.una])
-        self.assertContains(respuesta, 'ya está facturada (global en SMS-0001)')
-        respuesta = self._crear(**{f'sin_global_{self.una.pk}': '1',
-                                   f'concepto_desc_{self.una.pk}': ['A'], f'concepto_precio_{self.una.pk}': ['1']})
-        self.assertContains(respuesta, 'va sola aquí')
-        self.assertEqual(Factura.objects.count(), 1)
-
-    def test_los_conceptos_se_borran_con_su_preliquidacion_y_el_global_sigue_libre(self):
-        from .models import ConceptoFactura
-        self._con_conceptos(self.una, ('Transporte adicional', '150.000'),
-                            **{f'sin_global_{self.una.pk}': '1'})
-        factura = Factura.objects.get()
-        self.assertEqual(ConceptoFactura.objects.count(), 1)
-        # El global sigue libre: la orden se ofrece normal, no como «ya facturada».
-        nuevo = self.client.get(reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}')
-        self.assertIn(self.una.pk, [f['orden'].pk for f in nuevo.context['filas']])
-        self.assertEqual(nuevo.context['filas_ajenas'], [])
-        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]), {'submit_eliminar': '1'})
-        self.assertEqual(ConceptoFactura.objects.count(), 0)
 
     # ---- Trazabilidad entre las partes de la empresa ----
 

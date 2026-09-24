@@ -2198,6 +2198,13 @@ class Factura(models.Model):
     # El prefijo lo pidió la clienta (23-sep-2026: «SMS»; antes era «F»).
     PREFIJO = 'SMS'
     numero = models.PositiveIntegerField(unique=True)
+    # PDF APARTE (sep-2026, decisión de la clienta): un servicio adicional de
+    # una orden que se cobra en su propia preliquidación —número, envío y
+    # factura electrónica propios— pero que nace y se edita desde el
+    # formulario del global de esa orden. `principal` es ese global.
+    principal = models.ForeignKey(
+        'self', on_delete=models.CASCADE, null=True, blank=True, related_name='apartes',
+        verbose_name="Preliquidación principal")
     # La fecha que lleva la factura. Se separa de `creada_en` (cuándo se
     # registró en el sistema, auditoría) porque la oficina la ajusta.
     fecha_emision = models.DateField(default=timezone.localdate,
@@ -2276,6 +2283,10 @@ class Factura(models.Model):
         super().save(*args, **kwargs)
 
     @property
+    def es_aparte(self):
+        return self.principal_id is not None
+
+    @property
     def codigo(self):
         return f"{self.PREFIJO}-{self.numero:04d}"
 
@@ -2298,13 +2309,12 @@ class Factura(models.Model):
 
 class LineaFactura(models.Model):
     """
-    Una orden DENTRO de una preliquidación. Lleva su global (el precio que se
-    escribe) o va solo por conceptos adicionales (sep-2026: servicios de esa
-    orden que se cobran aparte, en esta misma preliquidación o en otra).
+    Una orden DENTRO de una preliquidación. En la principal lleva su global
+    (el precio que se escribe) más sus conceptos adicionales; en un PDF
+    aparte (Factura.principal) va sin global, solo con el concepto que se
+    marcó «facturar en PDF aparte» (sep-2026).
 
-    El GLOBAL de una orden va en una sola preliquidación (restricción abajo);
-    por conceptos la orden puede aparecer en otra. Una preliquidación sin
-    ningún global es de una sola orden (lo valida el formulario).
+    El GLOBAL de una orden va en una sola preliquidación (restricción abajo).
     """
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='lineas')
     orden = models.ForeignKey(

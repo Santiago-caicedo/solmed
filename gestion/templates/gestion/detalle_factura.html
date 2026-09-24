@@ -71,9 +71,23 @@
 .fd-traza .que .mono{ font-family:var(--mono); font-weight:600; }
 .fd-traza .quien{ font-size:.78rem; color:var(--ink-3); font-family:var(--mono); }
 .fd-traza li.pendiente .que{ color:var(--ink-3); font-weight:400; }
+.fd-aparte-aviso{ margin-bottom:1rem; padding:.6rem .9rem; border:1px solid var(--brand-line, var(--line)); border-left:3px solid var(--brand-600); border-radius:var(--r-sm); background:var(--brand-tint); font-size:.88rem; }
+.fd-apartes{ list-style:none; margin:0; padding:0; }
+.fd-apartes li{ display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; padding:.5rem 0; border-bottom:1px solid var(--line-2); font-size:.88rem; }
+.fd-apartes li:last-child{ border-bottom:0; }
+.fd-apartes .cod{ font-family:var(--mono); font-weight:600; }
+.fd-apartes .orden{ font-family:var(--mono); color:var(--ink-2); }
+.fd-apartes .que{ flex:1 1 12rem; }
+.fd-apartes .total{ font-family:var(--mono); font-weight:600; white-space:nowrap; }
+.fc-fe{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; font-weight:500; white-space:nowrap; }
+.fc-fe.ok{ color:var(--ok); } .fc-fe.falta{ color:var(--warn); }
 .fd-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; }
 </style>
 
+{% if factura.principal %}
+{# Un PDF aparte: nace y se edita desde el global de su orden. #}
+<div class="fd-aparte-aviso"><i class="bi bi-diagram-2 me-1"></i><b>PDF aparte</b> de <a href="{% url 'gestion:detalle_factura' factura.principal_id %}">{{ factura.principal.codigo }}</a>: su concepto se edita desde allá. Aquí tiene su propio envío, su factura electrónica y su rastro.</div>
+{% endif %}
 <div class="fd-cab">
     <div>
         <h2 class="mb-0"><span class="fd-cod">{{ factura.codigo }}</span> · {{ factura.cliente.nombre }}</h2>
@@ -88,7 +102,11 @@
         <a href="#revisar" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>Ver PDF</a>
         <a href="{% url 'gestion:factura_pdf' factura.pk %}" class="btn btn-outline-secondary"><i class="bi bi-download me-1"></i>Descargar PDF</a>
         <a href="{% url 'gestion:factura_excel' factura.pk %}" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Descargar Excel</a>
+        {% if factura.principal %}
+        <a href="{% url 'gestion:editar_factura' factura.principal_id %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar desde {{ factura.principal.codigo }}</a>
+        {% else %}
         <a href="{% url 'gestion:editar_factura' factura.pk %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar</a>
+        {% endif %}
         <a href="{% url 'gestion:lista_facturas' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Facturas</a>
     </div>
 </div>
@@ -141,6 +159,26 @@
                 <div class="text-muted small mt-1">Sin impuestos: los pone el software de facturación electrónica.</div>
             </div>
         </div>
+
+        {% if apartes %}
+        {# ---- Los PDFs aparte: servicios de estas órdenes que salieron en su propia preliquidación ---- #}
+        <div class="card shadow mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-diagram-2 me-1"></i>PDFs aparte</h5></div>
+            <div class="card-body">
+                <p class="text-muted small">Servicios de estas órdenes que se cobran en su propia preliquidación: cada uno tiene su número, su envío y su factura electrónica.</p>
+                <ul class="fd-apartes">
+                    {% for a in apartes %}
+                    <li>
+                        <a class="cod" href="{% url 'gestion:detalle_factura' a.pk %}">{{ a.codigo }}</a>
+                        {% for l in a.lineas.all %}<span class="orden">#{{ l.orden.numero_orden }}</span>{% for c in l.conceptos.all %}<span class="que">{{ c.descripcion }}</span>{% endfor %}{% endfor %}
+                        <span class="total">${{ a.total|floatformat:0|intcomma }}</span>
+                        {% if a.fe_realizada_en %}<span class="fc-fe ok"><i class="bi bi-check-circle-fill"></i>Electrónica {{ a.numero_externo }}</span>{% else %}<span class="fc-fe falta"><i class="bi bi-hourglass-split"></i>Electrónica pendiente</span>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
 
         {# ---- Datos ---- #}
         <div class="card shadow mb-4">
@@ -323,10 +361,12 @@
             casilla.addEventListener('change', function () { boton.disabled = !(casilla.checked && hayCorreo); });
         })();
         </script>
-        <form method="post" onsubmit="return confirm('¿Eliminar la factura {{ factura.codigo }}? Sus órdenes vuelven a poder facturarse.');" class="text-end">
+        {% if not factura.principal %}
+        <form method="post" onsubmit="return confirm('¿Eliminar la factura {{ factura.codigo }}{% if apartes %} y sus {{ apartes|length }} PDF(s) aparte{% endif %}? Sus órdenes vuelven a poder facturarse.');" class="text-end">
             {% csrf_token %}
             <button name="submit_eliminar" value="1" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>Eliminar factura</button>
         </form>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
