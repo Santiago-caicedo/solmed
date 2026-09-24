@@ -7397,9 +7397,23 @@ def _copiar_al_cliente(factura):
                   f"{len(otros)} archivo{'s' if len(otros) != 1 else ''}",
                   "no hay archivos cargados"),
     }
+    # Cada archivo que ya está, con su enlace: se ve en otra pestaña o se vuelve a bajar.
+    def enlace(campo):
+        return [(_nombre_archivo(campo), campo.url)] if campo else []
+    enlaces = {
+        'orden_compra': enlace(factura.archivo_orden_compra),
+        'orden_pedido': enlace(factura.archivo_orden_pedido),
+        'factura': enlace(factura.pdf_oficial),
+        'xml': enlace(factura.xml),
+        'actas': [(f"Acta de servicio · orden #{a.recorrido.orden_id}",
+                   reverse('gestion:acta_pdf', args=[a.recorrido_id]) + '?ver=1') for a in actas],
+        'basculas': [(f"Tiquete · orden #{l.orden_id} · {_nombre_archivo(l.orden.bascula_adjunto)}",
+                      l.orden.bascula_adjunto.url) for l in elegidas],
+        'otros': [(o.nombre, o.archivo.url) for o in otros],
+    }
     return [{'clave': clave, 'etiqueta': etiqueta, 'marcado': estado[clave][0],
              'listo': estado[clave][1], 'detalle': estado[clave][2],
-             'falta': estado[clave][3]}
+             'falta': estado[clave][3], 'enlaces': enlaces[clave]}
             for clave, etiqueta in ADJUNTOS_FACTURA]
 
 

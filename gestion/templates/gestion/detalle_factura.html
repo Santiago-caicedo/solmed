@@ -58,6 +58,12 @@
 .fd-adj .est .ok{ color:var(--ok); }
 .fd-adj .est .falta{ color:var(--warn); }
 .fd-adj .subir{ grid-area:sub; margin-top:.3rem; }
+.fd-adj-archivos{ grid-area:sub; display:flex; flex-direction:column; gap:.15rem; margin-top:.15rem; }
+.fd-adj-archivos a{ font-size:.78rem; display:inline-flex; align-items:center; gap:.3rem; text-decoration:none; }
+.fd-adj-archivos a:hover{ text-decoration:underline; }
+.fd-adj-archivos a i{ font-size:.7rem; }
+.fd-adj li{ grid-template-areas:"n chk" ". est" ". sub" ". sub2"; }
+.fd-adj .subir{ grid-area:sub2; }
 .fd-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
 .fd-hecha{ padding:.55rem .75rem; border-radius:var(--r-sm); background:var(--ok-tint); color:var(--ok); font-size:.86rem; margin-bottom:.6rem; }
 .fd-hecha .mono{ font-family:var(--mono); }
@@ -310,6 +316,12 @@
                                 <label class="form-check-label" for="c-{{ a.clave }}">{{ a.etiqueta }}</label>
                             </div>
                             <div class="est">{% if a.listo %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ a.detalle }}</span>{% else %}<span class="falta">{{ a.falta }}</span>{% endif %}</div>
+                            {% if a.enlaces %}
+                            {# Los archivos que ya están: se abren en otra pestaña (y desde ahí se vuelven a bajar). #}
+                            <div class="fd-adj-archivos">
+                                {% for nombre, url in a.enlaces %}<a href="{{ url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i>{{ nombre }}</a>{% endfor %}
+                            </div>
+                            {% endif %}
                             {% if a.clave == 'orden_compra' or a.clave == 'orden_pedido' %}
                             <div class="subir"><input type="file" name="archivo_{{ a.clave }}" class="form-control form-control-sm"></div>
                             {% elif a.clave == 'otros' %}

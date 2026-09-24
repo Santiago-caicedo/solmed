@@ -2852,6 +2852,13 @@ class FacturacionTests(BaseCRM):
         self.assertFalse(factura.copiar_factura, "lo que no se marcó queda apagado")
         self.assertTrue(factura.archivo_orden_compra)
         self.assertEqual([a.nombre for a in factura.adjuntos.all()], ['extra.pdf'])
+        # Cada archivo cargado sale como enlace (otra pestaña / volver a bajarlo).
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        enlaces = {a['clave']: a['enlaces'] for a in detalle.context['copiar']}
+        self.assertEqual(enlaces['orden_compra'][0][1], factura.archivo_orden_compra.url)
+        self.assertEqual(enlaces['otros'], [('extra.pdf', factura.adjuntos.get().archivo.url)])
+        self.assertContains(detalle, f'href="{factura.archivo_orden_compra.url}" target="_blank"')
+        self.assertContains(detalle, f'href="{factura.adjuntos.get().archivo.url}" target="_blank"')
 
     def test_la_factura_admite_varios_correos_de_facturacion(self):
         """Un campo por correo (y se aceptan pegados con coma); van todos."""

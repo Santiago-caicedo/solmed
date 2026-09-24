@@ -81,6 +81,8 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .fe-est .ok{ color:var(--ok); }
 .fe-est .falta{ color:var(--warn); }
 .fe-est b{ color:var(--ink-2); }
+.fe-est a{ color:inherit; text-decoration:underline dotted; }
+.fe-est a:hover{ color:var(--brand-700); }
 .fe-ctl{ grid-area:ctl; justify-self:end; }
 /* El botón de subir: un botón de verdad, con el <input type=file> escondido dentro */
 .fe-subir{ display:inline-flex; align-items:center; gap:.35rem; font-size:.78rem; padding:.3rem .65rem; border:1px solid var(--line);
@@ -381,23 +383,23 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                 <ol class="fe-lista">
                     <li class="fe-item" data-clave="orden_compra">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_compra" value="1" form="form-factura" {% if datos.copiar_orden_compra %}checked{% endif %}><span>Orden de compra</span></label>
-                        <div class="fe-est" id="fe-est-orden_compra">{% if factura.archivo_orden_compra %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.archivo_orden_compra.name|cut:"facturas/orden_compra/" }}</span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
+                        <div class="fe-est" id="fe-est-orden_compra">{% if factura.archivo_orden_compra %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_compra.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_compra.name|cut:"facturas/orden_compra/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_compra %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_compra" form="form-factura" data-para="orden_compra"></label></div>
                     </li>
                     <li class="fe-item" data-clave="orden_pedido">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_pedido" value="1" form="form-factura" {% if datos.copiar_orden_pedido %}checked{% endif %}><span>Orden de pedido</span></label>
-                        <div class="fe-est" id="fe-est-orden_pedido">{% if factura.archivo_orden_pedido %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.archivo_orden_pedido.name|cut:"facturas/orden_pedido/" }}</span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
+                        <div class="fe-est" id="fe-est-orden_pedido">{% if factura.archivo_orden_pedido %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_pedido.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_pedido.name|cut:"facturas/orden_pedido/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_pedido %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_pedido" form="form-factura" data-para="orden_pedido"></label></div>
                     </li>
                     <li class="fe-item" data-clave="factura">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_factura" value="1" form="form-factura" {% if datos.copiar_factura %}checked{% endif %}><span>Factura electrónica de venta</span></label>
                         {# Con la electrónica cargada se manda esa; sin ella, la PRELIQUIDACIÓN interna (el PDF de este sistema). #}
-                        <div class="fe-est" id="fe-est-factura" data-cargada="{% if factura.pdf_oficial %}1{% else %}0{% endif %}">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.pdf_oficial.name|cut:"facturas/pdf/" }}</span> · se manda la electrónica{% else %}<span class="falta">aún no está cargada</span> · si no la subes, se manda la <b>preliquidación interna</b>, el PDF de esta factura{% endif %}</div>
+                        <div class="fe-est" id="fe-est-factura" data-cargada="{% if factura.pdf_oficial %}1{% else %}0{% endif %}">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.pdf_oficial.url }}" target="_blank" rel="noopener">{{ factura.pdf_oficial.name|cut:"facturas/pdf/" }}</a></span> · se manda la electrónica{% else %}<span class="falta">aún no está cargada</span> · si no la subes, se manda la <b>preliquidación interna</b>, el PDF de esta factura{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.pdf_oficial %}Cambiar archivo{% else %}Subir la electrónica{% endif %}</span><input type="file" name="pdf_oficial" form="form-factura" accept="application/pdf,.pdf" data-para="factura"></label></div>
                     </li>
                     <li class="fe-item" data-clave="xml">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_xml" value="1" form="form-factura" {% if datos.copiar_xml %}checked{% endif %}><span>XML</span></label>
-                        <div class="fe-est" id="fe-est-xml">{% if factura.xml %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.xml.name|cut:"facturas/xml/" }}</span>{% else %}<span class="falta">aún no está cargado</span>{% endif %}</div>
+                        <div class="fe-est" id="fe-est-xml">{% if factura.xml %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.xml.url }}" target="_blank" rel="noopener">{{ factura.xml.name|cut:"facturas/xml/" }}</a></span>{% else %}<span class="falta">aún no está cargado</span>{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.xml %}Cambiar archivo{% else %}Subir el XML{% endif %}</span><input type="file" name="xml" form="form-factura" accept=".xml,text/xml,application/xml" data-para="xml"></label></div>
                     </li>
                     <li class="fe-item" data-clave="actas">
@@ -417,7 +419,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                     </li>
                     <li class="fe-item" data-clave="otros">
                         <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_otros" value="1" form="form-factura" {% if datos.copiar_otros %}checked{% endif %}><span>Otros</span></label>
-                        <div class="fe-est" id="fe-est-otros" data-guardados="{{ factura.adjuntos.all|length|default:0 }}">{% if factura.adjuntos.all %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.adjuntos.all|length }} archivo{{ factura.adjuntos.all|length|pluralize }}</span>{% else %}lo que no esté en el sistema, súbelo desde tu computador{% endif %}</div>
+                        <div class="fe-est" id="fe-est-otros" data-guardados="{{ factura.adjuntos.all|length|default:0 }}">{% if factura.adjuntos.all %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.adjuntos.all|length }} archivo{{ factura.adjuntos.all|length|pluralize }}</span>: {% for o in factura.adjuntos.all %}<a href="{{ o.archivo.url }}" target="_blank" rel="noopener">{{ o.nombre }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}lo que no esté en el sistema, súbelo desde tu computador{% endif %}</div>
                         <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>Subir archivos</span><input type="file" name="otros_archivos" form="form-factura" multiple data-para="otros"></label></div>
                     </li>
                 </ol>
