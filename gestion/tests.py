@@ -3181,7 +3181,8 @@ class FacturacionTests(BaseCRM):
         # La lista dice cuáles ya tienen la electrónica hecha y cuáles no.
         self._crear(ordenes=[self.otra])
         lista = self.client.get(reverse('gestion:lista_facturas'))
-        self.assertContains(lista, 'Realizada <span class="num">SMS-1246</span>')
+        self.assertContains(lista, '<i class="bi bi-check-circle-fill"></i><span class="num">SMS-1246</span>',
+                            msg_prefix="el chulito y el SMS en verde, sin la palabra Pendiente")
         self.assertContains(lista, 'Pendiente')
         self.assertEqual((lista.context['n_electronica'], lista.context['n_sin_electronica']), (1, 1))
         self.assertContains(lista, 'Realizada por Rosa Díaz el')
