@@ -10,6 +10,16 @@
 .ff-tabla .num{ font-family:var(--mono); font-weight:600; }
 .ff-tabla .fec, .ff-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
 .ff-tabla .sede{ font-size:.84rem; max-width:9rem; }
+/* El desglose que exige un cliente puntual (pesos, unitarios, flete, destrucción) */
+.ff-d1{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:.4rem .6rem; margin-top:.4rem;
+    padding:.5rem .6rem; border:1px solid var(--steel-tint, var(--line)); border-left:3px solid var(--steel, var(--brand-600));
+    border-radius:var(--r-sm); background:var(--panel-2); }
+.ff-d1 .k{ flex:0 0 100%; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.ff-d1 label{ display:flex; flex-direction:column; gap:.15rem; font-size:.7rem; color:var(--ink-2); margin:0; }
+.ff-d1 .ff-num{ width:7rem; font-family:var(--mono); text-align:right; }
+.ff-d1 .total{ margin-left:auto; font-size:.78rem; color:var(--ink-2); }
+.ff-d1 .total b{ font-family:var(--mono); font-size:.95rem; color:var(--ink); }
+.ff-d1-nota{ font-size:.72rem; color:var(--ink-3); font-style:italic; }
 /* Filtrar la tabla por sede (solo esconde filas; lo marcado no se pierde) */
 .ff-sede-filtro{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
 .ff-sede-filtro label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:0; }
@@ -222,11 +232,15 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                             <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
                             <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
                             <td class="text-end">
+                                {% if f.detalle_d1 %}
+                                <span class="ff-d1-nota" title="Esta sede se cobra con el desglose que pide el cliente">del desglose</span>
+                                {% else %}
                                 <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
                                        inputmode="decimal" placeholder="$500.000" autocomplete="off"
                                        value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
                                        {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
+                                {% endif %}
                             </td>
                         </tr>
                         <tr class="ff-srv" data-sede="{{ f.sede|default:'Sin sede' }}"><td></td><td colspan="4">
@@ -237,6 +251,31 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                                    placeholder="Observaciones adicionales de esta orden (opcional)"
                                    {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
                                    aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
+                            {% if f.detalle_d1 %}
+                            {# Formato propio del cliente: los dos residuos por separado, el flete y la destrucción. #}
+                            <div class="ff-d1">
+                                <span class="k">Desglose del cliente</span>
+                                <label>Peso orgánicos<input type="text" name="peso_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_organicos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>V. unitario<input type="text" name="unitario_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_organicos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Peso peligrosos<input type="text" name="peso_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_peligrosos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>V. unitario<input type="text" name="unitario_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_peligrosos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Flete<input type="text" name="flete_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.flete|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Destrucción<input type="text" name="destruccion_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.destruccion|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <span class="total">Total <b class="ff-d1-total">$0</b></span>
+                            </div>
+                            {% endif %}
                             {# Conceptos adicionales: servicios de esta orden que se cobran aparte del global. #}
                             <div class="ff-conceptos" data-orden="{{ f.orden.pk }}">
                                 {% for c in f.conceptos %}
@@ -507,6 +546,15 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                     total += numero(con.querySelector('.ff-precio-concepto').value);
                 });
             }
+            var d1 = abajo && abajo.querySelector('.ff-d1');
+            if (d1) {
+                d1.querySelectorAll('.ff-num').forEach(function (i) { i.disabled = !c.checked; });
+                var v = Array.prototype.map.call(d1.querySelectorAll('.ff-num'), function (i) { return numero(i.value); });
+                var suma = v[0] * v[1] + v[2] * v[3] + v[4] + v[5];
+                d1.querySelector('.ff-d1-total').textContent = '$' + Math.round(suma).toLocaleString('es-CO');
+                if (c.checked) { n += 1; total += suma; }
+                return;                       // esta orden no lleva precio global
+            }
             precio.disabled = !c.checked;
             if (c.checked) { n += 1; total += numero(precio.value); }
         });
@@ -550,13 +598,14 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         pintar();
     });
     form.addEventListener('input', function (e) {
+        if (e.target.classList.contains('ff-num')) { pintar(); return; }
         if (!e.target.classList.contains('ff-precio') && !e.target.classList.contains('ff-precio-concepto')) return;
         var nuevo = formatear(e.target.value);
         if (nuevo !== e.target.value) { e.target.value = nuevo; }
         pintar();
     });
     // Los precios ya guardados (al editar) salen formateados desde el inicio.
-    form.querySelectorAll('.ff-precio, .ff-precio-concepto').forEach(function (p) { if (p.value) p.value = formatear(p.value); });
+    form.querySelectorAll('.ff-precio, .ff-precio-concepto, .ff-num').forEach(function (p) { if (p.value) p.value = formatear(p.value); });
     // Enter en un precio no envía: pasa al siguiente precio habilitado.
     form.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' || !e.target.classList.contains('ff-precio')) return;

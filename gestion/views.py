@@ -34,6 +34,7 @@ from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, es_de
+from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
@@ -6680,11 +6681,20 @@ def _ordenes_facturables(cliente, factura=None):
             'precio': linea.precio if linea is not None else None,
             'observaciones': linea.observaciones if linea is not None else '',
             'en_esta': linea is not None,
+            # El desglose de D1 solo se pide en las sedes con formato propio.
+            'detalle_d1': pide_detalle_d1(cliente, orden.sede_nombre),
+            'd1': ({campo: getattr(linea, campo) for campo in CAMPOS_D1}
+                   if linea is not None else {campo: None for campo in CAMPOS_D1}),
             'conceptos': ([{'descripcion': c.descripcion, 'precio': c.precio, 'aparte': False,
                             'aparte_pk': '', 'codigo': ''} for c in linea.conceptos.all()]
                           if linea is not None else []) + apartes_por_orden.get(orden.pk, []),
         })
     return filas
+
+
+# Los seis datos del formato de D1, en el orden en que se piden y se muestran.
+CAMPOS_D1 = ('peso_organicos', 'unitario_organicos', 'peso_peligrosos',
+             'unitario_peligrosos', 'flete', 'destruccion')
 
 
 def _sedes_de_las_filas(filas):
@@ -6765,12 +6775,12 @@ def _lugar_y_servicios(orden):
     Es lo que la factura muestra por cada orden.
     """
     programacion = getattr(orden, 'programacion_origen', None)
-    sede, direccion = '', orden.direccion_servicio or ''
+    sede, direccion = orden.sede_nombre, orden.direccion_servicio or ''
     if programacion is not None:
         if programacion.tercero_id:
-            sede, direccion = programacion.tercero.nombre, programacion.tercero.direccion or direccion
+            direccion = programacion.tercero.direccion or direccion
         elif programacion.sede_cliente_id:
-            sede, direccion = programacion.sede_cliente.nombre, programacion.sede_cliente.direccion or direccion
+            direccion = programacion.sede_cliente.direccion or direccion
     return {
         'sede': sede,
         'direccion': direccion,
@@ -6976,21 +6986,25 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             if fila is None:
                 errores.append(f"La orden #{numero} no es de este cliente o ya está facturada.")
                 continue
-            crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
-            try:
-                precio = Decimal(crudo)
-            except (InvalidOperation, ValueError):
-                precio = None
-            if precio is None or precio < 0:
-                errores.append(f"Escribe el precio de la orden #{numero}.")
-                continue
+            # Con el desglose del cliente no hay precio global que escribir.
+            precio = Decimal('0')
+            if not fila['detalle_d1']:
+                crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
+                try:
+                    precio = Decimal(crudo)
+                except (InvalidOperation, ValueError):
+                    precio = None
+                if precio is None or precio < 0:
+                    errores.append(f"Escribe el precio de la orden #{numero}.")
+                    continue
             conceptos, malos = _conceptos_del_post(request, numero)
             errores += malos
             observaciones = (request.POST.get(f'observaciones_{numero}') or '').strip()[:255]
-            lineas.append({'numero': numero, 'precio': precio,
+            d1 = _detalle_d1_del_post(request, numero) if fila['detalle_d1'] else {}
+            lineas.append({'numero': numero, 'precio': precio, 'd1': d1,
                            'observaciones': observaciones, 'conceptos': conceptos})
-            fila.update(precio=precio, observaciones=observaciones, conceptos=[
-                dict(c, codigo='') for c in conceptos])
+            fila.update(precio=precio, observaciones=observaciones,
+                        d1=d1 or fila['d1'], conceptos=[dict(c, codigo='') for c in conceptos])
         if not lineas and not errores:
             errores.append("Marca al menos una orden para facturar.")
         # Los PDFs aparte que ya existen y que este guardado dejaría por fuera
@@ -7029,7 +7043,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                     factura=factura, orden_id=l['numero'],
                     defaults={'precio': l['precio'], 'lleva_global': True,
                               'observaciones': l['observaciones'],
-                              'copiar_bascula': l['numero'] not in excluidas})
+                              'copiar_bascula': l['numero'] not in excluidas,
+                              **l['d1']})
                 # Los conceptos viven solo en esta preliquidación: se reescriben
                 # con lo que venga. Los marcados «PDF aparte» van a su propia
                 # preliquidación hija, en el orden en que se escribieron.
@@ -7530,6 +7545,29 @@ def _lineas_con_detalle(factura):
     return lineas
 
 
+def _detalle_d1_del_post(request, numero):
+    """Los seis datos del formato de D1 que vengan del formulario para esa orden."""
+    from decimal import InvalidOperation
+    valores = {}
+    for campo in ('peso_organicos', 'unitario_organicos', 'peso_peligrosos',
+                  'unitario_peligrosos', 'flete', 'destruccion'):
+        crudo = (request.POST.get(f'{campo}_{numero}') or '').strip()
+        crudo = crudo.replace('$', '').replace('.', '').replace(',', '.')
+        try:
+            valores[campo] = Decimal(crudo) if crudo else Decimal('0')
+        except InvalidOperation:
+            valores[campo] = Decimal('0')
+    return valores
+
+
+def _formato_de(factura, lineas):
+    """
+    El formato de preliquidación de esa factura: el propio del cliente si le
+    toca y todas sus sedes aplican, o '' (el de siempre). Ver gestion/formatos.py.
+    """
+    return _formato_de_cliente(factura.cliente, [l.sede for l in lineas])
+
+
 def _html_factura(factura, lineas, total, provisional=False):
     """El HTML del PDF interno (misma plantilla para el PDF y para la vista previa en vivo)."""
     template = get_template('gestion/factura_pdf.html')
@@ -7538,6 +7576,7 @@ def _html_factura(factura, lineas, total, provisional=False):
         logo_b64 = 'data:image/png;base64,' + base64.b64encode(fh.read()).decode('utf-8')
     return template.render({'factura': factura, 'lineas': lineas, 'logo_b64': logo_b64,
                             'total': total, 'hoy': timezone.localdate(),
+                            'formato': _formato_de(factura, lineas),
                             'provisional': provisional})
 
 
@@ -7622,6 +7661,9 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
                 precio = Decimal('0')
             linea = LineaFactura(orden=fila['orden'], precio=precio,
                                  observaciones=(request.POST.get(f'observaciones_{numero}') or '').strip()[:255])
+            if fila['detalle_d1']:
+                for campo, valor in _detalle_d1_del_post(request, numero).items():
+                    setattr(linea, campo, valor)
             linea.placa, linea.servicio = fila['placa'], fila['servicio']
             linea.sede, linea.direccion, linea.servicios = fila['sede'], fila['direccion'], fila['servicios']
             # Los marcados «PDF aparte» no van en este PDF: tienen el suyo.
@@ -7629,7 +7671,10 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
             linea.conceptos_lista = [ConceptoFactura(descripcion=c['descripcion'], precio=c['precio'])
                                      for c in conceptos]
             lineas.append(linea)
-            total += precio + sum((c['precio'] for c in conceptos), Decimal('0'))
+            if fila['detalle_d1']:
+                total += linea.total_general
+            else:
+                total += precio + sum((c['precio'] for c in conceptos), Decimal('0'))
         return HttpResponse(_html_factura(borrador, lineas, total, provisional=factura is None))
 
 
@@ -7697,9 +7742,13 @@ def _excel_factura(factura):
                     c.border = marco
         return celda
 
+    formato = _formato_de(factura, lineas)
+    # La última columna depende del formato: D1 llega hasta la M.
+    fin_col = 'M' if formato == 'd1' else ('G' if formato == 'mecanicos' else 'F')
+
     def banda(fila, texto):
         escribir(f'A{fila}', texto, negrita=True, color=AZUL, tam=10, h='center',
-                 relleno=BANDA, borde=True, fusion=f'A{fila}:F{fila}')
+                 relleno=BANDA, borde=True, fusion=f'A{fila}:{fin_col}{fila}')
         hoja.row_dimensions[fila].height = 18
 
     def etiqueta(ref, texto, fusion=None):
@@ -7719,14 +7768,14 @@ def _excel_factura(factura):
     escribir('C1', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.\nSOLMED S.A.S.\nNIT 830.514.597-2',
              negrita=True, color=AZUL, tam=10, h='center', ajuste=True, fusion='C1:C5')
     escribir('D1', 'PRELIQUIDACIÓN', negrita=True, color=AZUL, tam=9, h='center',
-             relleno=BANDA, borde=True, fusion='D1:F1')
+             relleno=BANDA, borde=True, fusion=f'D1:{fin_col}1')
     escribir('D2', factura.codigo, negrita=True, color=ROJO, tam=18, h='center',
-             borde=True, fusion='D2:F2')
+             borde=True, fusion=f'D2:{fin_col}2')
     for i, (clave, valor) in enumerate((('Documento', 'Preliquidación interna'),
                                         ('Fecha', factura.fecha_emision),
                                         ('Electrónica', factura.numero_externo or '—')), start=3):
         etiqueta(f'D{i}', clave)
-        celda = escribir(f'E{i}', valor, tam=9, borde=True, fusion=f'E{i}:F{i}')
+        celda = escribir(f'E{i}', valor, tam=9, borde=True, fusion=f'E{i}:{fin_col}{i}')
         if clave == 'Fecha':
             celda.number_format = 'DD/MM/YYYY'
     for fila in range(1, 6):
@@ -7735,7 +7784,7 @@ def _excel_factura(factura):
 
     escribir('A6', 'Preliquidación interna para elaborar la factura electrónica · '
                    'No es una factura de venta',
-             color=AZUL, tam=8, h='center', fusion='A6:F6')
+             color=AZUL, tam=8, h='center', fusion=f'A6:{fin_col}6')
     hoja.row_dimensions[6].height = 16
 
     # ---------------- Cliente ----------------
@@ -7758,73 +7807,149 @@ def _excel_factura(factura):
             escribir(f'E{fila}', v2, tam=9, borde=True, ajuste=True, fusion=f'E{fila}:F{fila}')
         else:
             # Sin pareja a la derecha, el valor ocupa lo que queda de la fila.
-            escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True, fusion=f'C{fila}:F{fila}')
+            escribir(f'C{fila}', v1, tam=9, borde=True, ajuste=True, fusion=f'C{fila}:{fin_col}{fila}')
         hoja.row_dimensions[fila].height = 17
 
     # ---------------- Órdenes facturadas ----------------
+    # Dos clientes piden su propia tabla (ver gestion/formatos.py); el resto
+    # sigue con la de siempre.
     fila += 1
     banda(fila, 'ÓRDENES DE SERVICIO FACTURADAS')
     fila += 1
-    titulos = (('A', 'Orden', 'center'), ('B', 'Fecha', 'center'), ('C', 'Sede', 'left'),
-               ('D', 'Placa', 'center'), ('E', 'Peso', 'center'), ('F', 'Precio', 'right'))
-    for columna, titulo, donde in titulos:
-        escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=9,
-                 h=donde, relleno=BANDA, borde=True)
-    hoja.row_dimensions[fila].height = 17
-
-    for l in lineas:
+    if formato == 'd1':
+        # 13 columnas: se ensancha la hoja y se escriben dos pisos de cabecera.
+        for columna, ancho in zip('GHIJKLM', (12, 12, 12, 12, 12, 12, 14)):
+            hoja.column_dimensions[columna].width = ancho
+        grupos = (('E', 'G', 'Orgánicos'), ('H', 'J', 'Peligrosos'))
+        for desde, hasta, titulo in grupos:
+            escribir(f'{desde}{fila}', titulo, negrita=True, color=AZUL, tam=9, h='center',
+                     relleno=BANDA, borde=True, fusion=f'{desde}{fila}:{hasta}{fila}')
+        for columna, titulo in (('A', 'Sede'), ('B', 'OS'), ('C', 'Vehículo'), ('D', 'Fecha'),
+                                ('K', 'Flete'), ('L', 'Destrucción'), ('M', 'Total general')):
+            escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=9, h='center',
+                     relleno=BANDA, borde=True, fusion=f'{columna}{fila}:{columna}{fila + 1}')
         fila += 1
-        escribir(f'A{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
-                 formato='0', borde=True)
-        celda = escribir(f'B{fila}', l.servicio, tam=9, h='center', borde=True)
-        celda.number_format = 'DD/MM/YYYY'
-        sede = l.sede or '—'
-        escribir(f'C{fila}', f'{sede}\n{l.direccion}' if l.direccion else sede,
-                 tam=9, borde=True, ajuste=True)
-        escribir(f'D{fila}', l.placa or '—', tam=9, h='center', borde=True)
-        escribir(f'E{fila}', l.peso or '—', tam=9, h='center', borde=True)
-        if l.lleva_global:
-            escribir(f'F{fila}', l.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
-        else:
-            # Su global va en otra preliquidación: aquí la orden es referencia de sus conceptos.
-            escribir(f'F{fila}', '—', tam=10, h='right', borde=True)
-        hoja.row_dimensions[fila].height = 28 if l.direccion else 17
-        if l.observaciones:
+        for columna, titulo in (('E', 'Peso'), ('F', 'V. unitario'), ('G', 'Total'),
+                                ('H', 'Peso'), ('I', 'V. unitario'), ('J', 'Total')):
+            escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=8, h='center',
+                     relleno=BANDA, borde=True)
+        hoja.row_dimensions[fila].height = 15
+        for l in lineas:
             fila += 1
-            escribir(f'A{fila}', '', borde=True)
-            escribir(f'B{fila}', f'Observaciones: {l.observaciones}', tam=8, color=GRIS,
-                     borde=True, ajuste=True, fusion=f'B{fila}:F{fila}')
-        for c in l.conceptos_lista:
+            escribir(f'A{fila}', l.sede or '—', tam=9, borde=True, ajuste=True)
+            escribir(f'B{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
+                     formato='0', borde=True)
+            escribir(f'C{fila}', l.placa or '—', tam=9, h='center', borde=True)
+            celda = escribir(f'D{fila}', l.servicio, tam=9, h='center', borde=True)
+            celda.number_format = 'DD/MM/YYYY'
+            numeros = (('E', l.peso_organicos, '#,##0'), ('F', l.unitario_organicos, '"$"#,##0'),
+                       ('G', l.total_organicos, '"$"#,##0'), ('H', l.peso_peligrosos, '#,##0'),
+                       ('I', l.unitario_peligrosos, '"$"#,##0'), ('J', l.total_peligrosos, '"$"#,##0'),
+                       ('K', l.flete, '"$"#,##0'), ('L', l.destruccion, '"$"#,##0'))
+            for columna, valor, formato_numero in numeros:
+                escribir(f'{columna}{fila}', valor, tam=9, h='right', formato=formato_numero, borde=True)
+            escribir(f'M{fila}', l.total_general, negrita=True, tam=10, h='right',
+                     formato='"$"#,##0', borde=True)
+            if l.observaciones:
+                fila += 1
+                escribir(f'A{fila}', '', borde=True)
+                escribir(f'B{fila}', f'Observaciones: {l.observaciones}', tam=8, color=GRIS,
+                         borde=True, ajuste=True, fusion=f'B{fila}:M{fila}')
+    elif formato == 'mecanicos':
+        titulos = (('A', 'Cliente', 'left'), ('B', 'Solicitud de servicio', 'center'),
+                   ('C', 'Vehículo', 'center'), ('D', 'Remisión SOLMED', 'center'),
+                   ('E', 'Fecha', 'center'), ('F', 'Descripción', 'left'), ('G', 'Total', 'right'))
+        hoja.column_dimensions['F'].width = 34
+        hoja.column_dimensions['G'].width = 16
+        for columna, titulo, donde in titulos:
+            escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=9,
+                     h=donde, relleno=BANDA, borde=True, ajuste=True)
+        hoja.row_dimensions[fila].height = 26
+        for l in lineas:
             fila += 1
-            escribir(f'A{fila}', '', borde=True)
-            escribir(f'B{fila}', f'Concepto adicional: {c.descripcion}', tam=9, borde=True,
-                     ajuste=True, fusion=f'B{fila}:E{fila}')
-            escribir(f'F{fila}', c.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
+            escribir(f'A{fila}', l.sede or factura.cliente.nombre, tam=9, borde=True, ajuste=True)
+            escribir(f'B{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
+                     formato='0', borde=True)
+            escribir(f'C{fila}', l.placa or '—', tam=9, h='center', borde=True)
+            escribir(f'D{fila}', factura.codigo, tam=9, h='center', borde=True)
+            celda = escribir(f'E{fila}', l.servicio, tam=9, h='center', borde=True)
+            celda.number_format = 'DD/MM/YYYY'
+            escribir(f'F{fila}', ' · '.join(l.servicios) or '—', tam=9, borde=True, ajuste=True)
+            if l.lleva_global:
+                escribir(f'G{fila}', l.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
+            else:
+                escribir(f'G{fila}', '—', tam=10, h='right', borde=True)
+            hoja.row_dimensions[fila].height = 26
+            for c in l.conceptos_lista:
+                fila += 1
+                escribir(f'A{fila}', '', borde=True)
+                escribir(f'B{fila}', f'Concepto adicional: {c.descripcion}', tam=9, borde=True,
+                         ajuste=True, fusion=f'B{fila}:F{fila}')
+                escribir(f'G{fila}', c.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
+    else:
+        titulos = (('A', 'Orden', 'center'), ('B', 'Fecha', 'center'), ('C', 'Sede', 'left'),
+                   ('D', 'Placa', 'center'), ('E', 'Peso', 'center'), ('F', 'Precio', 'right'))
+        for columna, titulo, donde in titulos:
+            escribir(f'{columna}{fila}', titulo, negrita=True, color=AZUL, tam=9,
+                     h=donde, relleno=BANDA, borde=True)
+        hoja.row_dimensions[fila].height = 17
+
+        for l in lineas:
+            fila += 1
+            escribir(f'A{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
+                     formato='0', borde=True)
+            celda = escribir(f'B{fila}', l.servicio, tam=9, h='center', borde=True)
+            celda.number_format = 'DD/MM/YYYY'
+            sede = l.sede or '—'
+            escribir(f'C{fila}', f'{sede}\n{l.direccion}' if l.direccion else sede,
+                     tam=9, borde=True, ajuste=True)
+            escribir(f'D{fila}', l.placa or '—', tam=9, h='center', borde=True)
+            escribir(f'E{fila}', l.peso or '—', tam=9, h='center', borde=True)
+            if l.lleva_global:
+                escribir(f'F{fila}', l.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
+            else:
+                # Su global va en otra preliquidación: aquí la orden es referencia de sus conceptos.
+                escribir(f'F{fila}', '—', tam=10, h='right', borde=True)
+            hoja.row_dimensions[fila].height = 28 if l.direccion else 17
+            if l.observaciones:
+                fila += 1
+                escribir(f'A{fila}', '', borde=True)
+                escribir(f'B{fila}', f'Observaciones: {l.observaciones}', tam=8, color=GRIS,
+                         borde=True, ajuste=True, fusion=f'B{fila}:F{fila}')
+            for c in l.conceptos_lista:
+                fila += 1
+                escribir(f'A{fila}', '', borde=True)
+                escribir(f'B{fila}', f'Concepto adicional: {c.descripcion}', tam=9, borde=True,
+                         ajuste=True, fusion=f'B{fila}:E{fila}')
+                escribir(f'F{fila}', c.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
     if not lineas:
         fila += 1
         escribir(f'A{fila}', 'Esta factura no tiene órdenes.', tam=9, color=GRIS,
-                 h='center', borde=True, fusion=f'A{fila}:F{fila}')
+                 h='center', borde=True, fusion=f'A{fila}:{fin_col}{fila}')
 
     # ---------------- Total ----------------
     fila += 1
     cuantas = len(lineas)
+    # El rótulo ocupa hasta dos columnas antes del final; el valor, las dos últimas.
+    ultima, penultima = fin_col, chr(ord(fin_col) - 1)
     escribir(f'A{fila}', f"Total {cuantas} {'órdenes' if cuantas != 1 else 'orden'}",
-             negrita=True, color=AZUL, tam=10, h='right', borde=True, fusion=f'A{fila}:D{fila}')
-    escribir(f'E{fila}', factura.total, negrita=True, tam=14, h='right',
-             formato='"$"#,##0', borde=True, fusion=f'E{fila}:F{fila}')
+             negrita=True, color=AZUL, tam=10, h='right', borde=True,
+             fusion=f'A{fila}:{chr(ord(penultima) - 1)}{fila}')
+    escribir(f'{penultima}{fila}', factura.total, negrita=True, tam=14, h='right',
+             formato='"$"#,##0', borde=True, fusion=f'{penultima}{fila}:{ultima}{fila}')
     hoja.row_dimensions[fila].height = 24
     fila += 1
     escribir(f'A{fila}', 'Valores sin impuestos: los liquida el software de facturación electrónica.',
-             color=AZUL, tam=8, h='right', borde=True, fusion=f'A{fila}:F{fila}')
+             color=AZUL, tam=8, h='right', borde=True, fusion=f'A{fila}:{ultima}{fila}')
 
     # (La descripción no va: es de la oficina, igual que en el PDF.)
 
     fila += 2
     escribir(f'A{fila}', f'SOLMED S.A.S. · Preliquidación interna {factura.codigo} · '
                          f'Generada el {timezone.localdate():%d-%m-%Y} por la plataforma SOLMED',
-             negrita=True, color=AZUL, tam=8, h='center', fusion=f'A{fila}:F{fila}')
+             negrita=True, color=AZUL, tam=8, h='center', fusion=f'A{fila}:{fin_col}{fila}')
 
-    hoja.print_area = f'A1:F{fila}'
+    hoja.print_area = f'A1:{fin_col}{fila}'
     flujo = BytesIO()
     libro.save(flujo)
     return flujo.getvalue()

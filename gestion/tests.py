@@ -3011,6 +3011,121 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(len(respuesta.context['sedes']), 1)
         self.assertNotContains(respuesta, 'id="ff-sede"')
 
+    # ---- Formatos propios de dos clientes puntuales (ver gestion/formatos.py) ----
+
+    def _cliente_con_formato(self, nombre, nit, sede):
+        """Un cliente de los que piden formato propio, con una orden en esa sede."""
+        cli = self.cliente(nombre=nombre, identificacion=nit,
+                           contab_correo_facturacion='facturacion@cliente.co')
+        suya = Sede.objects.create(cliente=cli, nombre=sede, direccion='Cra 1 # 2-3')
+        return cli, suya
+
+    def test_mecanicos_asociados_lleva_su_propia_tabla_en_todas_sus_sedes(self):
+        from .views import _html_factura, _lineas_con_detalle, _formato_de
+        cli, sede = self._cliente_con_formato('MECANICOS ASOCIADOS SAS', '891102723', 'Planta 1')
+        orden = self._orden('WNO623', cliente=cli, sede_cliente=sede,
+                            succ_canecas=True, succ_canecas_cant='3')
+        # Su formato NO lleva el desglose de D1: sigue con el precio global.
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={cli.pk}')
+        self.assertFalse(respuesta.context['filas'][0]['detalle_d1'])
+        self.assertContains(respuesta, f'name="precio_{orden.pk}"')
+        self.assertNotContains(respuesta, f'name="peso_organicos_{orden.pk}"')
+        self.client.post(reverse('gestion:crear_factura'), {
+            'cliente': cli.pk, 'ordenes': [orden.pk], f'precio_{orden.pk}': '500.000',
+            'correo_facturacion': 'facturacion@cliente.co'})
+        factura = Factura.objects.get()
+        self.assertEqual(factura.total, Decimal('500000'), "el precio global sí cuenta aquí")
+        lineas = _lineas_con_detalle(factura)
+        self.assertEqual(_formato_de(factura, lineas), 'mecanicos')
+        html = _html_factura(factura, lineas, factura.total)
+        for columna in ('Cliente', 'Solicitud de servicio', 'Vehículo', 'Remisión SOLMED',
+                        'Fecha', 'Descripción', 'Total'):
+            self.assertIn(f'>{columna}</th>', html, columna)
+        self.assertIn('Planta 1', html)
+        self.assertIn(factura.codigo, html, "la remisión SOLMED es el número de la preliquidación")
+        self.assertIn('Canecas (3)', html, "la descripción son los servicios de la programación")
+        self.assertNotIn('>Peso</th>', html, "no lleva las columnas del formato normal")
+        # El Excel también.
+        from io import BytesIO
+        from openpyxl import load_workbook
+        hoja = load_workbook(BytesIO(self.client.get(
+            reverse('gestion:factura_excel', args=[factura.pk])).content)).active
+        celdas = [c.value for f in hoja.iter_rows() for c in f]
+        self.assertIn('Remisión SOLMED', celdas)
+        self.assertIn('Solicitud de servicio', celdas)
+
+    def test_d1_lleva_su_desglose_solo_en_ibague_y_sibate(self):
+        from .views import _html_factura, _lineas_con_detalle, _formato_de
+        cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
+        sibate = Sede.objects.create(cliente=cli, nombre='SIBATE', direccion='Cll 4')
+        bogota = Sede.objects.create(cliente=cli, nombre='BOGOTA', direccion='Cra 5')
+        una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
+        otra = self._orden('OBC727', cliente=cli, sede_cliente=sibate)
+        tercera = self._orden('VCP886', cliente=cli, sede_cliente=bogota)
+
+        # El formulario pide los seis datos solo en las sedes que aplican.
+        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={cli.pk}')
+        filas = {f['orden'].pk: f for f in respuesta.context['filas']}
+        self.assertTrue(filas[una.pk]['detalle_d1'] and filas[otra.pk]['detalle_d1'])
+        self.assertFalse(filas[tercera.pk]['detalle_d1'], "Bogotá va con el formato normal")
+        self.assertContains(respuesta, f'name="peso_organicos_{una.pk}"')
+        self.assertNotContains(respuesta, f'name="peso_organicos_{tercera.pk}"')
+
+        datos = {'cliente': cli.pk, 'ordenes': [una.pk, otra.pk],
+                 'correo_facturacion': 'facturacion@cliente.co'}
+        for o in (una, otra):
+            datos.update({f'peso_organicos_{o.pk}': '880', f'unitario_organicos_{o.pk}': '319',
+                          f'peso_peligrosos_{o.pk}': '100', f'unitario_peligrosos_{o.pk}': '1.535',
+                          f'flete_{o.pk}': '663.390', f'destruccion_{o.pk}': '639.288'})
+        self.client.post(reverse('gestion:crear_factura'), datos)
+        factura = Factura.objects.get()
+        linea = factura.lineas.get(orden=una)
+        self.assertEqual((linea.peso_organicos, linea.unitario_organicos), (880, 319))
+        self.assertEqual(linea.total_organicos, Decimal('280720'))
+        self.assertEqual(linea.total_peligrosos, Decimal('153500'))
+        # Total general = orgánicos + peligrosos + flete + destrucción.
+        self.assertEqual(linea.total_general, Decimal('1736898'))
+        self.assertEqual(factura.total, Decimal('3473796'), "el precio global no cuenta aquí")
+
+        lineas = _lineas_con_detalle(factura)
+        self.assertEqual(_formato_de(factura, lineas), 'd1')
+        html = _html_factura(factura, lineas, factura.total)
+        for columna in ('Sede', 'OS', 'Vehículo', 'Flete', 'Destrucción', 'Total general'):
+            self.assertIn(f'>{columna}</th>', html, columna)
+        self.assertIn('Orgánicos', html)
+        self.assertIn('Peligrosos', html)
+        self.assertIn('landscape', html, "13 columnas no caben en vertical")
+        self.assertIn('$280.720', html)
+        self.assertIn('$1.736.898', html)
+
+    def test_si_d1_mezcla_una_sede_de_otra_sale_el_formato_de_siempre(self):
+        """La válvula de seguridad que pidió Santiago: mejor el formato normal."""
+        from .views import _html_factura, _lineas_con_detalle, _formato_de
+        cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
+        bogota = Sede.objects.create(cliente=cli, nombre='BOGOTA', direccion='Cra 5')
+        una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
+        otra = self._orden('OBC727', cliente=cli, sede_cliente=bogota)
+        self.client.post(reverse('gestion:crear_factura'), {
+            'cliente': cli.pk, 'ordenes': [una.pk, otra.pk], f'precio_{otra.pk}': '500.000',
+            f'peso_organicos_{una.pk}': '880', f'unitario_organicos_{una.pk}': '319',
+            'correo_facturacion': 'facturacion@cliente.co'})
+        factura = Factura.objects.get()
+        lineas = _lineas_con_detalle(factura)
+        self.assertEqual(_formato_de(factura, lineas), '', "mezcladas: el formato de siempre")
+        html = _html_factura(factura, lineas, factura.total)
+        self.assertIn('>Precio</th>', html)
+        self.assertNotIn('Total general', html)
+        self.assertNotIn('landscape', html)
+        # Lo escrito en la de Ibagué no se pierde y sigue contando en su total.
+        self.assertEqual(factura.lineas.get(orden=una).total_general, Decimal('280720'))
+        self.assertEqual(factura.total, Decimal('780720'))
+
+    def test_un_cliente_sin_formato_propio_no_cambia(self):
+        from .views import _lineas_con_detalle, _formato_de
+        self._crear(ordenes=[self.una])
+        factura = Factura.objects.get()
+        self.assertEqual(_formato_de(factura, _lineas_con_detalle(factura)), '')
+
     # ---- Conceptos adicionales: servicios de la orden que se cobran aparte del global ----
 
     def _con_conceptos(self, orden, *conceptos, **extra):

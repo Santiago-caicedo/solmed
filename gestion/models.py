@@ -530,6 +530,22 @@ class OrdenServicio(models.Model):
         self.save(update_fields=['estado_conciliacion', 'fecha_conciliacion'])
 
     @property
+    def sede_nombre(self):
+        """
+        Dónde se prestó: el tercero o la sede elegidos al programar ('' si no
+        se eligió ninguno). Lo usan la preliquidación y los formatos propios
+        de cliente (ver gestion/formatos.py).
+        """
+        programacion = getattr(self, 'programacion_origen', None)
+        if programacion is None:
+            return ''
+        if programacion.tercero_id:
+            return programacion.tercero.nombre
+        if programacion.sede_cliente_id:
+            return programacion.sede_cliente.nombre
+        return ''
+
+    @property
     def requiere_bascula(self):
         """
         Se planeó pesar (en báscula propia o del cliente), así que hay que
@@ -2292,13 +2308,8 @@ class Factura(models.Model):
 
     @property
     def total(self):
-        """Los globales de las órdenes más sus conceptos adicionales."""
-        total = Decimal('0')
-        for l in self.lineas.all():
-            if l.lleva_global:
-                total += l.precio
-            total += sum((c.precio for c in l.conceptos.all()), Decimal('0'))
-        return total
+        """Los globales de las órdenes más sus conceptos (o el desglose de D1)."""
+        return sum((l.subtotal for l in self.lineas.all()), Decimal('0'))
 
     def actas_firmadas(self):
         """Las actas firmadas de sus órdenes (lo que el formato llama O.T.S.)."""
@@ -2325,6 +2336,21 @@ class LineaFactura(models.Model):
     # Lo que haya que aclararle al cliente de ESA orden (sale bajo ella en el PDF).
     observaciones = models.CharField(max_length=255, blank=True,
                                      verbose_name="Observaciones adicionales")
+    # --- Los seis datos que exige el formato de D1 (sep-2026) ---
+    # Solo se llenan en las órdenes de ese cliente en sus sedes con formato
+    # propio; ahí el total de la línea sale de aquí y no de `precio`.
+    peso_organicos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
+                                         verbose_name="Peso orgánicos")
+    unitario_organicos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
+                                             verbose_name="Valor unitario orgánicos")
+    peso_peligrosos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
+                                          verbose_name="Peso peligrosos")
+    unitario_peligrosos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
+                                              verbose_name="Valor unitario peligrosos")
+    flete = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
+    destruccion = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
+                                      verbose_name="Destrucción")
+
     # Cuáles tiquetes de báscula van: se eligen en el popup y quedan guardados.
     # Nace marcado: lo normal es mandarlos todos.
     copiar_bascula = models.BooleanField(default=True, verbose_name="Enviar su tiquete de báscula")
@@ -2343,8 +2369,35 @@ class LineaFactura(models.Model):
         return f"{self.factura.codigo} · orden #{self.orden_id}"
 
     @property
+    def total_organicos(self):
+        return self.peso_organicos * self.unitario_organicos
+
+    @property
+    def total_peligrosos(self):
+        return self.peso_peligrosos * self.unitario_peligrosos
+
+    @property
+    def total_general(self):
+        """El total de la línea en el formato de D1: los dos residuos, el flete y la destrucción."""
+        return self.total_organicos + self.total_peligrosos + self.flete + self.destruccion
+
+    @property
+    def usa_detalle_d1(self):
+        """
+        ¿Esta orden se cobra con el desglose de D1 (pesos, unitarios, flete y
+        destrucción) en vez del precio global? Lo decide el cliente y la sede.
+        """
+        from .formatos import pide_detalle_d1
+        return pide_detalle_d1(self.factura.cliente, self.orden.sede_nombre)
+
+    @property
     def subtotal(self):
-        """Lo que esta orden aporta a la preliquidación: su global (si va) más sus conceptos."""
+        """
+        Lo que esta orden aporta: en el desglose de D1, su total general; si no,
+        su global (cuando va) más sus conceptos adicionales.
+        """
+        if self.usa_detalle_d1:
+            return self.total_general
         total = self.precio if self.lleva_global else Decimal('0')
         return total + sum((c.precio for c in self.conceptos.all()), Decimal('0'))
 
