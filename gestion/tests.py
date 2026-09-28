@@ -1232,6 +1232,53 @@ class PersonalYExpedienteTests(BaseCRM):
         self.asesor = self.persona('asesor', 'Asesores')
         self.conductor = self.persona('conductor', 'Conductores', 'Carlos', 'Pérez')
 
+    def _imagen(self, nombre='foto.png', lado=8):
+        """Una imagen PNG real y diminuta (ImageField la valida con Pillow)."""
+        from io import BytesIO
+        from PIL import Image
+        buf = BytesIO(); Image.new('RGB', (lado, lado), (94, 140, 27)).save(buf, 'PNG')
+        return SimpleUploadedFile(nombre, buf.getvalue(), content_type='image/png')
+
+    def test_la_foto_de_la_persona_se_adjunta_y_sale_en_su_expediente(self):
+        """Se sube al crear o editar (desde el celular abre la cámara) y encabeza el expediente."""
+        self.entrar(self.persona('admin', superusuario=True))
+        # Sin foto, el expediente muestra la inicial.
+        ficha = self.client.get(reverse('gestion:ficha_persona', args=[self.conductor.pk]))
+        self.assertContains(ficha, '<div class="fp-inicial" aria-hidden="true">C</div>')
+        self.assertNotContains(ficha, '<img class="fp-foto"')
+        # El formulario deja adjuntarla y viaja con archivos.
+        editar = self.client.get(reverse('gestion:editar_cuenta_persona', args=[self.conductor.pk]))
+        self.assertContains(editar, 'enctype="multipart/form-data"')
+        self.assertContains(editar, 'name="foto"')
+        self.assertContains(editar, 'accept="image/*"')
+        # Crear una persona con su foto: la vista pasa los archivos al perfil.
+        respuesta = self.client.post(reverse('gestion:crear_persona'), {
+            'username': 'nueva', 'first_name': 'Luz', 'last_name': 'Mora', 'email': 'luz@x.co',
+            'password1': CLAVE, 'password2': CLAVE, 'grupo': self.grupo('Asesores').pk,
+            'numero_documento': '123', 'telefono': '', 'cargo': '', 'direccion': '',
+            'foto': self._imagen('luz.png')})
+        nueva = User.objects.get(username='nueva')
+        self.assertEqual(respuesta.status_code, 302, respuesta.content[:300])
+        self.assertTrue(nueva.perfil.foto, "la foto quedó guardada con el perfil")
+        self.assertTrue(nueva.perfil.foto.name.startswith('personal/fotos/'))
+        ficha = self.client.get(reverse('gestion:ficha_persona', args=[nueva.pk]))
+        self.assertContains(ficha, f'<img class="fp-foto" src="{nueva.perfil.foto.url}"')
+        self.assertNotContains(ficha, 'class="fp-inicial"')
+
+    def test_la_foto_tiene_que_ser_una_imagen_y_pesar_poco(self):
+        from .forms import PerfilPersonaForm
+        datos = {'numero_documento': '', 'telefono': '', 'cargo': '', 'direccion': ''}
+        form = PerfilPersonaForm(datos, {'foto': SimpleUploadedFile('no.pdf', b'%PDF-1.4 x')})
+        self.assertFalse(form.is_valid())
+        self.assertIn('foto', form.errors, "un PDF no es una foto")
+        pesada = self._imagen('pesada.png')
+        pesada.size = PerfilPersonaForm.FOTO_MAX + 1
+        form = PerfilPersonaForm(datos, {'foto': pesada})
+        self.assertFalse(form.is_valid())
+        self.assertIn('más de 5 MB', str(form.errors['foto']))
+        form = PerfilPersonaForm(datos, {'foto': self._imagen()})
+        self.assertTrue(form.is_valid(), form.errors)
+
     def test_la_seguridad_social_exige_su_vigencia_al_cargarla(self):
         form = DocumentoPersonalForm(
             {'tipo': 'SEGURIDAD_SOCIAL', 'periodo': '', 'descripcion': '',

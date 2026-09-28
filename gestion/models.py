@@ -2063,6 +2063,10 @@ class PerfilPersona(models.Model):
     # no se puede asignar en programaciones, recorridos ni planificación.
     retirado = models.BooleanField(default=False, verbose_name="Retirado")
     fecha_retiro = models.DateField(null=True, blank=True, verbose_name="Fecha de retiro")
+    # La foto de la persona (sep-2026): se adjunta al crear o editar y sale en
+    # su expediente. ImageField la valida como imagen real (Pillow).
+    foto = models.ImageField(upload_to='personal/fotos/', null=True, blank=True,
+                             verbose_name="Foto")
 
     class Meta:
         verbose_name = "Perfil de persona"

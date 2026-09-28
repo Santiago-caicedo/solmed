@@ -596,13 +596,23 @@ class PerfilPersonaForm(forms.ModelForm):
     """Datos personales de la persona (complementan la cuenta de usuario)."""
     class Meta:
         model = PerfilPersona
-        fields = ['numero_documento', 'telefono', 'cargo', 'direccion']
+        fields = ['numero_documento', 'telefono', 'cargo', 'direccion', 'foto']
         widgets = {
             'numero_documento': forms.TextInput(attrs={'class': 'form-control'}),
             'telefono': forms.TextInput(attrs={'class': 'form-control'}),
             'cargo': forms.TextInput(attrs={'class': 'form-control'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            # Desde el celular abre la cámara; en el computador, el explorador.
+            'foto': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'image/*'}),
         }
+
+    FOTO_MAX = 5 * 1024 * 1024
+
+    def clean_foto(self):
+        foto = self.cleaned_data.get('foto')
+        if foto and getattr(foto, 'size', 0) > self.FOTO_MAX:
+            raise forms.ValidationError("La foto pesa más de 5 MB: elige una más liviana.")
+        return foto
 
 
 class ActualizarUsuarioForm(RolLimitadoMixin, forms.ModelForm):

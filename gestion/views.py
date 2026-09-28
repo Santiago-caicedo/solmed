@@ -5239,7 +5239,7 @@ class CrearPersonaView(PersonalRequiredMixin, View):
         FormClass = PersonaSinAccesoForm if sin_acceso else CrearUsuarioForm
 
         form = FormClass(request.POST, autor=request.user)
-        perfil_form = PerfilPersonaForm(request.POST)
+        perfil_form = PerfilPersonaForm(request.POST, request.FILES)
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
             usuario.groups.add(form.cleaned_data['grupo'])
@@ -6025,7 +6025,7 @@ class EditarCuentaPersonaView(PersonalRequiredMixin, View):
             datos['is_active'] = 'on'
 
         form = FormClass(datos, instance=persona, autor=request.user)
-        perfil_form = PerfilPersonaForm(request.POST, instance=_perfil_de(persona))
+        perfil_form = PerfilPersonaForm(request.POST, request.FILES, instance=_perfil_de(persona))
         if form.is_valid() and perfil_form.is_valid():
             usuario = form.save()
             usuario.groups.clear()

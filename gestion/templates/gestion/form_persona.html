@@ -8,7 +8,7 @@
     </a>
 </div>
 
-<form method="post" novalidate id="form-persona">
+<form method="post" novalidate id="form-persona" enctype="multipart/form-data">
     {% csrf_token %}
 
     {% if form.non_field_errors or perfil_form.non_field_errors %}
