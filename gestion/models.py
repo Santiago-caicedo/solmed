@@ -2067,6 +2067,11 @@ class PerfilPersona(models.Model):
     # su expediente. ImageField la valida como imagen real (Pillow).
     foto = models.ImageField(upload_to='personal/fotos/', null=True, blank=True,
                              verbose_name="Foto")
+    # Sep-2026: cuándo entró a la empresa y a qué ARL está afiliada (el nombre
+    # de la administradora; el documento de afiliación sigue en el expediente).
+    fecha_ingreso = models.DateField(null=True, blank=True, verbose_name="Fecha de ingreso")
+    arl = models.CharField(max_length=100, blank=True, verbose_name="ARL",
+                           help_text="Administradora de riesgos laborales a la que está afiliada")
 
     class Meta:
         verbose_name = "Perfil de persona"

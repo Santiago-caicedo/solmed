@@ -596,12 +596,14 @@ class PerfilPersonaForm(forms.ModelForm):
     """Datos personales de la persona (complementan la cuenta de usuario)."""
     class Meta:
         model = PerfilPersona
-        fields = ['numero_documento', 'telefono', 'cargo', 'direccion', 'foto']
+        fields = ['numero_documento', 'telefono', 'cargo', 'direccion', 'fecha_ingreso', 'arl', 'foto']
         widgets = {
             'numero_documento': forms.TextInput(attrs={'class': 'form-control'}),
             'telefono': forms.TextInput(attrs={'class': 'form-control'}),
             'cargo': forms.TextInput(attrs={'class': 'form-control'}),
             'direccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'fecha_ingreso': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
+            'arl': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: Positiva, Sura, Colmena'}),
             # Desde el celular abre la cámara; en el computador, el explorador.
             'foto': forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': 'image/*'}),
         }

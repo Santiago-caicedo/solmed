@@ -1265,6 +1265,24 @@ class PersonalYExpedienteTests(BaseCRM):
         self.assertContains(ficha, f'<img class="fp-foto" src="{nueva.perfil.foto.url}"')
         self.assertNotContains(ficha, 'class="fp-inicial"')
 
+    def test_la_fecha_de_ingreso_y_la_arl_se_guardan_y_se_ven(self):
+        self.entrar(self.persona('admin', superusuario=True))
+        self.client.post(reverse('gestion:crear_persona'), {
+            'username': 'nueva', 'first_name': 'Luz', 'last_name': 'Mora', 'email': 'luz@x.co',
+            'password1': CLAVE, 'password2': CLAVE, 'grupo': self.grupo('Asesores').pk,
+            'numero_documento': '123', 'telefono': '', 'cargo': '', 'direccion': '',
+            'fecha_ingreso': '2026-03-15', 'arl': 'Positiva'})
+        perfil = User.objects.get(username='nueva').perfil
+        self.assertEqual((str(perfil.fecha_ingreso), perfil.arl), ('2026-03-15', 'Positiva'))
+        ficha = self.client.get(reverse('gestion:ficha_persona', args=[perfil.usuario_id]))
+        self.assertContains(ficha, '<strong>Fecha de ingreso:</strong> 15/03/2026')
+        self.assertContains(ficha, '<strong>ARL:</strong> Positiva')
+        # Ambos son opcionales y el formulario los trae puestos al editar.
+        editar = self.client.get(reverse('gestion:editar_cuenta_persona', args=[perfil.usuario_id]))
+        self.assertContains(editar, 'value="2026-03-15"')
+        self.assertContains(editar, 'value="Positiva"')
+        self.assertContains(editar, 'type="date"')
+
     def test_la_foto_tiene_que_ser_una_imagen_y_pesar_poco(self):
         from .forms import PerfilPersonaForm
         datos = {'numero_documento': '', 'telefono': '', 'cargo': '', 'direccion': ''}
