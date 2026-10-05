@@ -2319,29 +2319,23 @@ class Factura(models.Model):
         """
         El formato propio de cliente de esta preliquidación ('' = el de
         siempre), según las sedes de sus órdenes (ver gestion/formatos.py).
-        Decide TODA la preliquidación: si se mezcla una sede de D1 con otra,
-        todas sus órdenes van con el precio global, también las de Ibagué y
-        Sibaté (decisión de Santiago, oct-2026).
+        Solo cambia CÓMO se presenta: el valor de cada orden es siempre el
+        precio que se escribe (decisión de Santiago, oct-2026).
         """
         from .formatos import formato_de
         if sedes is None:
             sedes = [l.orden.sede_nombre for l in self.lineas.select_related(
                 'orden__programacion_origen__sede_cliente', 'orden__programacion_origen__tercero')]
         clave = formato_de(self.cliente, sedes)
-        # Un PDF aparte lleva solo su concepto: el desglose de D1 no le aplica.
+        # Un PDF aparte lleva solo su concepto: la tabla de D1 no le aplica.
         if clave == 'd1' and (self.principal_id is not None or self.principal is not None):
             return ''
         return clave
 
     @property
     def total(self):
-        """Los globales de las órdenes más sus conceptos (o el desglose de D1)."""
-        lineas = list(self.lineas
-                      .select_related('orden__programacion_origen__sede_cliente',
-                                      'orden__programacion_origen__tercero')
-                      .prefetch_related('conceptos'))
-        desglose = self.formato([l.orden.sede_nombre for l in lineas]) == 'd1'
-        return sum((l.subtotal_con(desglose) for l in lineas), Decimal('0'))
+        """Los globales de las órdenes más sus conceptos (en todos los formatos)."""
+        return sum((l.subtotal for l in self.lineas.prefetch_related('conceptos')), Decimal('0'))
 
     def actas_firmadas(self):
         """Las actas firmadas de sus órdenes (lo que el formato llama O.T.S.)."""
@@ -2370,7 +2364,7 @@ class LineaFactura(models.Model):
                                      verbose_name="Observaciones adicionales")
     # --- Los seis datos que exige el formato de D1 (sep-2026) ---
     # Solo se llenan en las órdenes de ese cliente en sus sedes con formato
-    # propio; ahí el total de la línea sale de aquí y no de `precio`.
+    # propio. Solo se muestran: el «Total general» es el `precio` escrito.
     peso_organicos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
                                          verbose_name="Peso orgánicos")
     unitario_organicos = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'),
@@ -2409,30 +2403,17 @@ class LineaFactura(models.Model):
         return self.peso_peligrosos * self.unitario_peligrosos
 
     @property
-    def total_general(self):
-        """El total de la línea en el formato de D1: los dos residuos, el flete y la destrucción."""
+    def suma_desglose(self):
+        """
+        Lo que suman los datos de D1. NO es el valor de la orden (ese es el
+        precio que se escribe, oct-2026): solo sirve para rescatar las que se
+        guardaron entre el 24-sep y el 05-oct con el precio en cero.
+        """
         return self.total_organicos + self.total_peligrosos + self.flete + self.destruccion
 
     @property
-    def usa_detalle_d1(self):
-        """
-        ¿Esta orden se cobra con el desglose de D1 (pesos, unitarios, flete y
-        destrucción) en vez del precio global? Lo decide la preliquidación
-        entera, no la orden sola: ver Factura.formato.
-        """
-        return self.factura.formato() == 'd1'
-
-    @property
     def subtotal(self):
-        return self.subtotal_con(self.usa_detalle_d1)
-
-    def subtotal_con(self, desglose):
-        """
-        Lo que esta orden aporta: con el desglose de D1, su total general; si
-        no, su global (cuando va) más sus conceptos adicionales.
-        """
-        if desglose:
-            return self.total_general
+        """Lo que esta orden aporta: su global (cuando va) más sus conceptos adicionales."""
         total = self.precio if self.lleva_global else Decimal('0')
         return total + sum((c.precio for c in self.conceptos.all()), Decimal('0'))
 

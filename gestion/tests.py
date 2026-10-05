@@ -3119,7 +3119,13 @@ class FacturacionTests(BaseCRM):
         self.assertIn('Remisión SOLMED', celdas)
         self.assertIn('Solicitud de servicio', celdas)
 
-    def test_d1_lleva_su_desglose_solo_en_ibague_y_sibate(self):
+    def test_d1_lleva_su_tabla_solo_en_ibague_y_sibate(self):
+        """
+        La tabla de D1 cambia cómo se PRESENTA; el valor de cada orden es el
+        precio que se escribe, nada se calcula (Santiago, oct-2026).
+        """
+        from io import BytesIO
+        from openpyxl import load_workbook
         from .views import _html_factura, _lineas_con_detalle, _formato_de
         cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
         sibate = Sede.objects.create(cliente=cli, nombre='SIBATE', direccion='Cll 4')
@@ -3128,13 +3134,15 @@ class FacturacionTests(BaseCRM):
         otra = self._orden('OBC727', cliente=cli, sede_cliente=sibate)
         tercera = self._orden('VCP886', cliente=cli, sede_cliente=bogota)
 
-        # El formulario pide los seis datos solo en las sedes que aplican.
+        # El formulario trae los seis datos solo en las sedes que aplican, y el precio en todas.
         respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={cli.pk}')
         filas = {f['orden'].pk: f for f in respuesta.context['filas']}
         self.assertTrue(filas[una.pk]['detalle_d1'] and filas[otra.pk]['detalle_d1'])
         self.assertFalse(filas[tercera.pk]['detalle_d1'], "Bogotá va con el formato normal")
         self.assertContains(respuesta, f'name="peso_organicos_{una.pk}"')
         self.assertNotContains(respuesta, f'name="peso_organicos_{tercera.pk}"')
+        for o in (una, otra, tercera):
+            self.assertContains(respuesta, f'name="precio_{o.pk}"')
 
         datos = {'cliente': cli.pk, 'ordenes': [una.pk, otra.pk],
                  'correo_facturacion': 'facturacion@cliente.co'}
@@ -3142,15 +3150,17 @@ class FacturacionTests(BaseCRM):
             datos.update({f'peso_organicos_{o.pk}': '880', f'unitario_organicos_{o.pk}': '319',
                           f'peso_peligrosos_{o.pk}': '100', f'unitario_peligrosos_{o.pk}': '1.535',
                           f'flete_{o.pk}': '663.390', f'destruccion_{o.pk}': '639.288'})
+        # Sin precio no se guarda, aunque estén los seis datos.
+        respuesta = self.client.post(reverse('gestion:crear_factura'), datos)
+        self.assertFalse(Factura.objects.exists())
+        self.assertContains(respuesta, f"Escribe el precio de la orden #{una.pk}.")
+        datos.update({f'precio_{una.pk}': '1.411.138', f'precio_{otra.pk}': '1.583.398'})
         self.client.post(reverse('gestion:crear_factura'), datos)
         factura = Factura.objects.get()
         linea = factura.lineas.get(orden=una)
         self.assertEqual((linea.peso_organicos, linea.unitario_organicos), (880, 319))
-        self.assertEqual(linea.total_organicos, Decimal('280720'))
-        self.assertEqual(linea.total_peligrosos, Decimal('153500'))
-        # Total general = orgánicos + peligrosos + flete + destrucción.
-        self.assertEqual(linea.total_general, Decimal('1736898'))
-        self.assertEqual(factura.total, Decimal('3473796'), "el precio global no cuenta aquí")
+        self.assertEqual(linea.precio, Decimal('1411138'))
+        self.assertEqual(factura.total, Decimal('2994536'), "la suma de los precios, sin cálculos")
 
         lineas = _lineas_con_detalle(factura)
         self.assertEqual(_formato_de(factura, lineas), 'd1')
@@ -3160,55 +3170,59 @@ class FacturacionTests(BaseCRM):
         self.assertIn('Orgánicos', html)
         self.assertIn('Peligrosos', html)
         self.assertIn('landscape', html, "13 columnas no caben en vertical")
-        self.assertIn('$280.720', html)
-        self.assertIn('$1.736.898', html)
+        self.assertIn('$663.390', html, "los seis datos se muestran")
+        self.assertIn('$1.411.138', html, "el total general de la orden es su precio")
+        self.assertIn('$2.994.536', html)
+        self.assertNotIn('$1.736.898', html, "lo que sumarían los seis datos no sale")
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(detalle, '<td class="precio">$1.411.138</td>')
+        hoja = load_workbook(BytesIO(self.client.get(
+            reverse('gestion:factura_excel', args=[factura.pk])).content)).active
+        celdas = [c.value for f in hoja.iter_rows() for c in f]
+        self.assertIn('Total general', celdas)
+        self.assertIn(Decimal('1411138.00'), celdas)
+        self.assertNotIn(Decimal('1736898.00'), celdas)
 
-    def test_si_d1_mezcla_una_sede_de_otra_todo_va_con_precio_normal(self):
-        """
-        La válvula de seguridad que pidió Santiago (mejor el formato normal),
-        para TODA la preliquidación: si se mezcla otra sede, la de Ibagué
-        también se cobra con su precio global, y ese precio sale en el PDF,
-        el expediente, el Excel y el total (oct-2026: salía en $0).
-        """
-        from io import BytesIO
-        from openpyxl import load_workbook
+    def test_d1_armada_con_precio_y_sin_los_seis_datos_vale_su_precio(self):
+        """El caso real de SMS-0002, 0010, 0011 y 0012: salían en $0 en todo."""
+        from .views import _html_factura, _lineas_con_detalle
+        cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'IBAGUE')
+        una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
+        otra = self._orden('OBC727', cliente=cli, sede_cliente=ibague)
+        factura = Factura.objects.create(cliente=cli)
+        LineaFactura.objects.create(factura=factura, orden=una, precio=Decimal('2259678'))
+        LineaFactura.objects.create(factura=factura, orden=otra, precio=Decimal('2100178'))
+        self.assertEqual(factura.total, Decimal('4359856'))
+        html = _html_factura(factura, _lineas_con_detalle(factura), factura.total)
+        self.assertIn('Total general', html)
+        self.assertIn('$2.259.678', html)
+        self.assertIn('$4.359.856', html)
+        lista = self.client.get(reverse('gestion:lista_facturas'))
+        self.assertContains(lista, '$4.359.856')
+
+    def test_si_d1_mezcla_una_sede_de_otra_sale_el_formato_de_siempre(self):
+        """La válvula de seguridad que pidió Santiago: mejor el formato normal."""
         from .views import _html_factura, _lineas_con_detalle, _formato_de
         cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
         bogota = Sede.objects.create(cliente=cli, nombre='BOGOTA', direccion='Cra 5')
         una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
         otra = self._orden('OBC727', cliente=cli, sede_cliente=bogota)
-        # La fila de Ibagué trae las dos cosas: el JS muestra una u otra según lo marcado.
-        respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={cli.pk}')
-        self.assertContains(respuesta, f'name="precio_{una.pk}"')
-        self.assertContains(respuesta, f'name="peso_organicos_{una.pk}"')
-        # Mezcladas, la de Ibagué también exige su precio.
-        datos = {'cliente': cli.pk, 'ordenes': [una.pk, otra.pk], f'precio_{otra.pk}': '500.000',
-                 f'peso_organicos_{una.pk}': '880', f'unitario_organicos_{una.pk}': '319',
-                 'correo_facturacion': 'facturacion@cliente.co'}
-        respuesta = self.client.post(reverse('gestion:crear_factura'), datos)
-        self.assertFalse(Factura.objects.exists())
-        self.assertContains(respuesta, f"Escribe el precio de la orden #{una.pk}.")
-        datos[f'precio_{una.pk}'] = '300.000'
-        self.client.post(reverse('gestion:crear_factura'), datos)
+        self.client.post(reverse('gestion:crear_factura'), {
+            'cliente': cli.pk, 'ordenes': [una.pk, otra.pk],
+            f'precio_{una.pk}': '300.000', f'precio_{otra.pk}': '500.000',
+            f'peso_organicos_{una.pk}': '880', f'unitario_organicos_{una.pk}': '319',
+            'correo_facturacion': 'facturacion@cliente.co'})
         factura = Factura.objects.get()
         lineas = _lineas_con_detalle(factura)
         self.assertEqual(_formato_de(factura, lineas), '', "mezcladas: el formato de siempre")
-        self.assertEqual(factura.total, Decimal('800000'), "los dos precios, sin el desglose")
+        self.assertEqual(factura.total, Decimal('800000'))
         html = _html_factura(factura, lineas, factura.total)
         self.assertIn('>Precio</th>', html)
         self.assertNotIn('Total general', html)
         self.assertNotIn('landscape', html)
         self.assertIn('$300.000', html)
         self.assertIn('$800.000', html)
-        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
-        self.assertContains(detalle, '$300.000')
-        self.assertContains(detalle, '$800.000')
-        hoja = load_workbook(BytesIO(self.client.get(
-            reverse('gestion:factura_excel', args=[factura.pk])).content)).active
-        celdas = [c.value for f in hoja.iter_rows() for c in f]
-        self.assertIn(Decimal('300000.00'), celdas)
-        self.assertIn(Decimal('800000.00'), celdas)
-        # La vista previa sigue la misma regla.
+        # La vista previa, igual.
         previa = self.client.post(reverse('gestion:previa_factura'), {
             'factura': factura.pk, 'ordenes': [una.pk, otra.pk],
             f'precio_{una.pk}': '300.000', f'precio_{otra.pk}': '500.000',
@@ -3216,58 +3230,40 @@ class FacturacionTests(BaseCRM):
         self.assertIn('$800.000', previa)
         self.assertNotIn('999.999', previa)
 
-    def test_preliquidacion_mezclada_de_antes_vuelve_con_el_desglose_como_precio(self):
-        """Las que quedaron con el precio en 0 y el desglose lleno: se recuperan al editar."""
+    def test_d1_con_precio_en_cero_se_rescata_al_editar(self):
+        """Las que se armaron del 24-sep al 05-oct sin precio, solo con los seis datos."""
         from io import StringIO
         from django.core.management import call_command
         cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
-        bogota = Sede.objects.create(cliente=cli, nombre='BOGOTA', direccion='Cra 5')
         una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
-        otra = self._orden('OBC727', cliente=cli, sede_cliente=bogota)
-        # Así quedaban guardadas antes de oct-2026.
         factura = Factura.objects.create(cliente=cli)
         LineaFactura.objects.create(factura=factura, orden=una, precio=0,
                                     peso_organicos=880, unitario_organicos=319, flete=100000)
-        LineaFactura.objects.create(factura=factura, orden=otra, precio=500000)
-        self.assertEqual(factura.total, Decimal('500000'), "la regla nueva lee el precio")
+        self.assertEqual(factura.total, Decimal('0'), "nada se calcula")
         salida = StringIO()
         call_command('revisar_preliquidaciones_d1', stdout=salida)
         self.assertIn(factura.codigo, salida.getvalue())
-        self.assertIn('MEZCLADA', salida.getvalue())
         self.assertIn('$380.720', salida.getvalue())
         editar = self.client.get(reverse('gestion:editar_factura', args=[factura.pk]))
-        filas = {f['orden'].pk: f for f in editar.context['filas']}
-        self.assertEqual(filas[una.pk]['precio'], Decimal('380720'), "se sugiere el total del desglose")
-        self.assertEqual(filas[otra.pk]['precio'], Decimal('500000'))
-        # Guardada con ese precio, ya no aparece en la revisión.
+        fila = {f['orden'].pk: f for f in editar.context['filas']}[una.pk]
+        self.assertEqual(fila['precio'], Decimal('380720'), "se sugiere lo que suman sus datos")
         self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), {
-            'cliente': cli.pk, 'ordenes': [una.pk, otra.pk], 'correo_facturacion': 'facturacion@cliente.co',
-            f'precio_{una.pk}': '380.720', f'precio_{otra.pk}': '500.000'})
-        self.assertEqual(Factura.objects.get().total, Decimal('880720'))
+            'cliente': cli.pk, 'ordenes': [una.pk], 'correo_facturacion': 'facturacion@cliente.co',
+            f'precio_{una.pk}': '380.720', f'peso_organicos_{una.pk}': '880',
+            f'unitario_organicos_{una.pk}': '319', f'flete_{una.pk}': '100.000'})
+        self.assertEqual(Factura.objects.get().total, Decimal('380720'))
         salida = StringIO()
         call_command('revisar_preliquidaciones_d1', stdout=salida)
         self.assertIn('Ninguna', salida.getvalue())
 
-    def test_solo_d1_el_expediente_muestra_el_total_del_desglose(self):
-        cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
-        una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
-        self.client.post(reverse('gestion:crear_factura'), {
-            'cliente': cli.pk, 'ordenes': [una.pk], 'correo_facturacion': 'facturacion@cliente.co',
-            f'peso_organicos_{una.pk}': '880', f'unitario_organicos_{una.pk}': '319'})
-        factura = Factura.objects.get()
-        self.assertEqual(factura.total, Decimal('280720'))
-        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
-        self.assertNotContains(detalle, '<td class="precio">$0</td>')
-        self.assertContains(detalle, '<td class="precio">$280.720</td>')
-
     def test_un_pdf_aparte_de_una_orden_de_ibague_vale_su_concepto(self):
-        """El aparte lleva solo su concepto: el desglose de D1 no le aplica."""
+        """El aparte lleva solo su concepto: la tabla de D1 no le aplica."""
         from .views import _html_factura, _lineas_con_detalle
         cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'D1 Ibagué')
         una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
         self.client.post(reverse('gestion:crear_factura'), {
             'cliente': cli.pk, 'ordenes': [una.pk], 'correo_facturacion': 'facturacion@cliente.co',
-            f'peso_organicos_{una.pk}': '880', f'unitario_organicos_{una.pk}': '319',
+            f'precio_{una.pk}': '1.411.138',
             f'concepto_desc_{una.pk}': ['Lavado de tanque'], f'concepto_precio_{una.pk}': ['150.000'],
             f'concepto_aparte_{una.pk}': ['1'], f'concepto_aparte_pk_{una.pk}': ['']})
         hijo = Factura.objects.get(principal__isnull=False)
@@ -3275,7 +3271,7 @@ class FacturacionTests(BaseCRM):
         html = _html_factura(hijo, _lineas_con_detalle(hijo), hijo.total)
         self.assertIn('Lavado de tanque', html)
         self.assertNotIn('Total general', html)
-        self.assertEqual(Factura.objects.get(principal__isnull=True).total, Decimal('280720'))
+        self.assertEqual(Factura.objects.get(principal__isnull=True).total, Decimal('1411138'))
 
     def test_un_cliente_sin_formato_propio_no_cambia(self):
         from .views import _lineas_con_detalle, _formato_de

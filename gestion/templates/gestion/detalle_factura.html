@@ -155,7 +155,7 @@
                                 <td class="sede">{{ l.sede|default:"—" }}{% if l.direccion %}<small>{{ l.direccion }}</small>{% endif %}</td>
                                 <td class="pla">{{ l.placa|default:"—" }}</td>
                                 <td class="peso">{{ l.peso|default:"—" }}</td>
-                                <td class="precio">{% if formato == 'd1' %}${{ l.total_general|floatformat:0|intcomma }}{% elif l.lleva_global %}${{ l.precio|floatformat:0|intcomma }}{% else %}<span class="fd-sin-global" title="El global de esta orden va en otra preliquidación">— <small>sin global aquí</small></span>{% endif %}</td>
+                                <td class="precio">{% if l.lleva_global %}${{ l.precio|floatformat:0|intcomma }}{% else %}<span class="fd-sin-global" title="El global de esta orden va en otra preliquidación">— <small>sin global aquí</small></span>{% endif %}</td>
                             </tr>
                             <tr class="fd-srv"><td colspan="6"><span class="k">Servicios:</span> {% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}
                                 {% if l.observaciones %}<br><span class="k">Observaciones:</span> {{ l.observaciones }}{% endif %}</td></tr>

@@ -1,18 +1,13 @@
 """
-Revisa las preliquidaciones de los clientes con formato propio (D1) en busca
-de órdenes cuyo valor está guardado en el lugar que su formato NO lee, y que
-por eso salen en $0 en el PDF, el Excel y el total.
+Lista las órdenes de preliquidaciones de D1 que quedaron con el precio en
+cero y los seis datos de D1 llenos.
 
-Nació en oct-2026: una preliquidación de D1 que mezclaba Ibagué/Sibaté con
-otra sede guardaba lo escrito en el desglose, pero salía con el formato de
-siempre, que lee el precio (en cero). Ahora la preliquidación entera decide
-(ver Factura.formato) y esto encuentra las que quedaron así de antes:
-
-- MEZCLADA: formato de siempre, precio en 0 y desglose lleno. Al abrirla con
-  «Editar», el precio viene sugerido con el total del desglose: se revisa y
-  se guarda.
-- SOLO D1: formato de D1, desglose vacío y precio lleno (se registraron antes
-  de que existiera el desglose, 24-sep-2026). Hay que llenar el desglose.
+El valor de cada orden es SIEMPRE el precio que se escribe; el formato de
+D1 solo cambia cómo se presenta (decisión de Santiago, oct-2026). Entre el
+24-sep y el 05-oct-2026 el sistema no pedía precio en Ibagué y Sibaté, y lo
+calculaba con los seis datos: las que se armaron así salen ahora en $0.
+Al abrirlas con «Editar», el precio viene sugerido con lo que suman esos
+datos: se revisa y se guarda.
 
 Solo lee: no cambia nada.
 """
@@ -28,7 +23,7 @@ def pesos(valor):
 
 
 class Command(BaseCommand):
-    help = "Lista las preliquidaciones de D1 con órdenes que salen en $0 por el formato (solo lee)."
+    help = "Lista las órdenes de D1 con el precio en $0 y sus datos de D1 llenos (solo lee)."
 
     def handle(self, *args, **opciones):
         facturas = (Factura.objects.select_related('cliente')
@@ -41,26 +36,18 @@ class Command(BaseCommand):
             ficha = _formato_del_cliente(factura.cliente)
             if ficha is None or ficha['clave'] != 'd1':
                 continue
-            lineas = list(factura.lineas.all())
-            formato = factura.formato([l.orden.sede_nombre for l in lineas])
-            malas = []
-            for l in lineas:
-                if not l.lleva_global:
-                    continue
-                if formato == 'd1' and not l.total_general and l.precio:
-                    malas.append((l, 'SOLO D1', f"precio {pesos(l.precio)} guardado, desglose vacío"))
-                elif formato != 'd1' and not l.precio and l.total_general:
-                    malas.append((l, 'MEZCLADA', f"desglose {pesos(l.total_general)} guardado, precio en 0"))
+            malas = [l for l in factura.lineas.all()
+                     if l.lleva_global and not l.precio and l.suma_desglose]
             if not malas:
                 continue
             problemas += 1
             self.stdout.write(f"{factura.codigo}  ({factura.fecha_emision:%d/%m/%Y})  "
                               f"total actual {pesos(factura.total)}")
-            for l, tipo, detalle in malas:
+            for l in malas:
                 self.stdout.write(f"    orden #{l.orden.numero_orden:<7} {l.orden.sede_nombre or '—':<25} "
-                                  f"{tipo:<9} {detalle}")
+                                  f"precio en $0; sus datos de D1 suman {pesos(l.suma_desglose)}")
         if problemas:
-            self.stdout.write(f"\n{problemas} preliquidación(es) por revisar. MEZCLADA: abrir «Editar», "
-                              f"revisar el precio sugerido y guardar. SOLO D1: llenar el desglose.")
+            self.stdout.write(f"\n{problemas} preliquidación(es) por revisar: abrir «Editar», "
+                              f"revisar el precio sugerido y guardar.")
         else:
-            self.stdout.write("Ninguna preliquidación de D1 con valores en el lugar equivocado.")
+            self.stdout.write("Ninguna orden de D1 con el precio en $0.")
