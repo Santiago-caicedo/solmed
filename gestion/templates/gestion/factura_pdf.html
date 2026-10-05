@@ -204,17 +204,16 @@
             <tbody>
             {% for l in lineas %}
                 <tr class="orden">
-                    <td>{{ l.sede|default:factura.cliente.nombre }}</td>
-                    <td class="num mono">{{ l.orden.numero_orden }}</td>
+                    {# Siempre la empresa, no la sede (lo pidió Santiago, oct-2026). #}
+                    <td>{{ factura.cliente.nombre }}</td>
+                    {# Solicitud = las observaciones de la orden; remisión = nuestro número de orden; descripción = la dirección de la sede (Santiago, oct-2026). #}
+                    <td class="mono">{{ l.observaciones|default:"—" }}</td>
                     <td class="mono">{{ l.placa|default:"—" }}</td>
-                    <td class="mono">{{ factura.codigo }}</td>
+                    <td class="num mono">{{ l.orden.numero_orden }}</td>
                     <td>{{ l.servicio|date:"d-m-Y"|default:"—" }}</td>
-                    <td>{% if l.servicios %}{{ l.servicios|join:" · " }}{% else %}—{% endif %}</td>
+                    <td>{{ l.direccion|default:"—" }}</td>
                     <td class="der mono">{% if l.lleva_global %}${{ l.precio|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
                 </tr>
-                {% if l.observaciones %}
-                <tr class="servicios"><td></td><td colspan="6"><span class="srv-lbl">Observaciones:</span> {{ l.observaciones }}</td></tr>
-                {% endif %}
                 {% for c in l.conceptos_lista %}
                 <tr class="servicios concepto">
                     <td></td>

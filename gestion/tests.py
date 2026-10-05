@@ -3097,7 +3097,7 @@ class FacturacionTests(BaseCRM):
         self.assertNotContains(respuesta, f'name="peso_organicos_{orden.pk}"')
         self.client.post(reverse('gestion:crear_factura'), {
             'cliente': cli.pk, 'ordenes': [orden.pk], f'precio_{orden.pk}': '500.000',
-            'correo_facturacion': 'facturacion@cliente.co'})
+            f'observaciones_{orden.pk}': 'SOL-4587', 'correo_facturacion': 'facturacion@cliente.co'})
         factura = Factura.objects.get()
         self.assertEqual(factura.total, Decimal('500000'), "el precio global sí cuenta aquí")
         lineas = _lineas_con_detalle(factura)
@@ -3106,9 +3106,18 @@ class FacturacionTests(BaseCRM):
         for columna in ('Cliente', 'Solicitud de servicio', 'Vehículo', 'Remisión SOLMED',
                         'Fecha', 'Descripción', 'Total'):
             self.assertIn(f'>{columna}</th>', html, columna)
-        self.assertIn('Planta 1', html)
-        self.assertIn(factura.codigo, html, "la remisión SOLMED es el número de la preliquidación")
-        self.assertIn('Canecas (3)', html, "la descripción son los servicios de la programación")
+        # La columna «Cliente» es siempre la empresa, nunca la sede.
+        self.assertIn('<td>MECANICOS ASOCIADOS SAS</td>', html)
+        self.assertNotIn('<td>Planta 1</td>', html)
+        # Cliente · Solicitud (= observaciones) · Vehículo · Remisión (= nº de orden) ·
+        # Fecha · Descripción (= dirección de la sede) · Total, en ese orden.
+        import re
+        fila = re.search(r'<tr class="orden">(.*?)</tr>', html, re.S).group(1)
+        celdas_pdf = [re.sub(r'<[^>]+>', '', c).strip() for c in re.findall(r'<td[^>]*>(.*?)</td>', fila, re.S)]
+        self.assertEqual(celdas_pdf[:4], ['MECANICOS ASOCIADOS SAS', 'SOL-4587', 'WNO623', str(orden.numero_orden)])
+        self.assertEqual(celdas_pdf[5:], ['Cra 1 # 2-3', '$500.000'])
+        self.assertNotIn('Observaciones:', html, "ya van en su columna, no en fila aparte")
+        self.assertNotIn('Canecas (3)', html, "la descripción es la dirección, no los servicios")
         self.assertNotIn('>Peso</th>', html, "no lleva las columnas del formato normal")
         # El Excel también.
         from io import BytesIO
@@ -3118,6 +3127,10 @@ class FacturacionTests(BaseCRM):
         celdas = [c.value for f in hoja.iter_rows() for c in f]
         self.assertIn('Remisión SOLMED', celdas)
         self.assertIn('Solicitud de servicio', celdas)
+        self.assertNotIn('Planta 1', celdas)
+        fila_excel = next(list(f) for f in hoja.iter_rows(values_only=True) if 'SOL-4587' in f)
+        self.assertEqual(fila_excel[:4], ['MECANICOS ASOCIADOS SAS', 'SOL-4587', 'WNO623', orden.numero_orden])
+        self.assertEqual(fila_excel[5], 'Cra 1 # 2-3')
 
     def test_d1_lleva_su_tabla_solo_en_ibague_y_sibate(self):
         """

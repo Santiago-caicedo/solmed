@@ -7887,14 +7887,17 @@ def _excel_factura(factura):
         hoja.row_dimensions[fila].height = 26
         for l in lineas:
             fila += 1
-            escribir(f'A{fila}', l.sede or factura.cliente.nombre, tam=9, borde=True, ajuste=True)
-            escribir(f'B{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
-                     formato='0', borde=True)
+            # Siempre la empresa, no la sede (lo pidió Santiago, oct-2026).
+            escribir(f'A{fila}', factura.cliente.nombre, tam=9, borde=True, ajuste=True)
+            # Solicitud = las observaciones de la orden; remisión = nuestro número
+            # de orden; descripción = la dirección de la sede (Santiago, oct-2026).
+            escribir(f'B{fila}', l.observaciones or '—', tam=9, h='center', borde=True, ajuste=True)
             escribir(f'C{fila}', l.placa or '—', tam=9, h='center', borde=True)
-            escribir(f'D{fila}', factura.codigo, tam=9, h='center', borde=True)
+            escribir(f'D{fila}', l.orden.numero_orden, negrita=True, tam=10, h='center',
+                     formato='0', borde=True)
             celda = escribir(f'E{fila}', l.servicio, tam=9, h='center', borde=True)
             celda.number_format = 'DD/MM/YYYY'
-            escribir(f'F{fila}', ' · '.join(l.servicios) or '—', tam=9, borde=True, ajuste=True)
+            escribir(f'F{fila}', l.direccion or '—', tam=9, borde=True, ajuste=True)
             if l.lleva_global:
                 escribir(f'G{fila}', l.precio, tam=10, h='right', formato='"$"#,##0', borde=True)
             else:
