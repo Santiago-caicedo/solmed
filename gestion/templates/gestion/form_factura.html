@@ -20,6 +20,8 @@
 .ff-d1 .total{ margin-left:auto; font-size:.78rem; color:var(--ink-2); }
 .ff-d1 .total b{ font-family:var(--mono); font-size:.95rem; color:var(--ink); }
 .ff-d1-nota{ font-size:.72rem; color:var(--ink-3); font-style:italic; }
+/* El JS alterna precio ↔ desglose; sin esto el display de arriba le gana a [hidden]. */
+.ff-d1[hidden], .ff-d1-nota[hidden], .ff-precio[hidden]{ display:none !important; }
 /* Filtrar la tabla por sede (solo esconde filas; lo marcado no se pierde) */
 .ff-sede-filtro{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
 .ff-sede-filtro label{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:0; }
@@ -232,15 +234,15 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                             <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
                             <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
                             <td class="text-end">
+                                {# Ibagué/Sibaté: el desglose solo si TODO lo marcado es de esas sedes; si se mezcla otra, precio normal (el JS elige). #}
                                 {% if f.detalle_d1 %}
                                 <span class="ff-d1-nota" title="Esta sede se cobra con el desglose que pide el cliente">del desglose</span>
-                                {% else %}
+                                {% endif %}
                                 <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
                                        inputmode="decimal" placeholder="$500.000" autocomplete="off"
                                        value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
                                        {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
                                        aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
-                                {% endif %}
                             </td>
                         </tr>
                         <tr class="ff-srv" data-sede="{{ f.sede|default:'Sin sede' }}"><td></td><td colspan="4">
@@ -528,6 +530,13 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
     }
     function pintar() {
         var total = 0, n = 0, apartes = 0;
+        // El desglose de D1 va solo si TODAS las marcadas son de sus sedes
+        // (mismo criterio que el servidor: Factura.formato).
+        var marcadas = form.querySelectorAll('.ff-check:checked');
+        var desglose = marcadas.length > 0 && Array.prototype.every.call(marcadas, function (c) {
+            var abajo = c.closest('tr').nextElementSibling;
+            return !!(abajo && abajo.querySelector('.ff-d1'));
+        });
         form.querySelectorAll('.ff-check').forEach(function (c) {
             var fila = c.closest('tr');
             var precio = fila.querySelector('.ff-precio');
@@ -548,6 +557,13 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
             }
             var d1 = abajo && abajo.querySelector('.ff-d1');
             if (d1) {
+                // Con otra sede marcada, la de Ibagué/Sibaté va con precio normal.
+                d1.hidden = !desglose;
+                fila.querySelector('.ff-d1-nota').hidden = !desglose;
+                precio.hidden = desglose;
+            }
+            if (d1 && desglose) {
+                precio.disabled = true;
                 d1.querySelectorAll('.ff-num').forEach(function (i) { i.disabled = !c.checked; });
                 var v = Array.prototype.map.call(d1.querySelectorAll('.ff-num'), function (i) { return numero(i.value); });
                 var suma = v[0] * v[1] + v[2] * v[3] + v[4] + v[5];

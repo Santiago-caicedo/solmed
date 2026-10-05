@@ -2315,10 +2315,33 @@ class Factura(models.Model):
     def codigo(self):
         return f"{self.PREFIJO}-{self.numero:04d}"
 
+    def formato(self, sedes=None):
+        """
+        El formato propio de cliente de esta preliquidación ('' = el de
+        siempre), según las sedes de sus órdenes (ver gestion/formatos.py).
+        Decide TODA la preliquidación: si se mezcla una sede de D1 con otra,
+        todas sus órdenes van con el precio global, también las de Ibagué y
+        Sibaté (decisión de Santiago, oct-2026).
+        """
+        from .formatos import formato_de
+        if sedes is None:
+            sedes = [l.orden.sede_nombre for l in self.lineas.select_related(
+                'orden__programacion_origen__sede_cliente', 'orden__programacion_origen__tercero')]
+        clave = formato_de(self.cliente, sedes)
+        # Un PDF aparte lleva solo su concepto: el desglose de D1 no le aplica.
+        if clave == 'd1' and (self.principal_id is not None or self.principal is not None):
+            return ''
+        return clave
+
     @property
     def total(self):
         """Los globales de las órdenes más sus conceptos (o el desglose de D1)."""
-        return sum((l.subtotal for l in self.lineas.all()), Decimal('0'))
+        lineas = list(self.lineas
+                      .select_related('orden__programacion_origen__sede_cliente',
+                                      'orden__programacion_origen__tercero')
+                      .prefetch_related('conceptos'))
+        desglose = self.formato([l.orden.sede_nombre for l in lineas]) == 'd1'
+        return sum((l.subtotal_con(desglose) for l in lineas), Decimal('0'))
 
     def actas_firmadas(self):
         """Las actas firmadas de sus órdenes (lo que el formato llama O.T.S.)."""
@@ -2394,18 +2417,21 @@ class LineaFactura(models.Model):
     def usa_detalle_d1(self):
         """
         ¿Esta orden se cobra con el desglose de D1 (pesos, unitarios, flete y
-        destrucción) en vez del precio global? Lo decide el cliente y la sede.
+        destrucción) en vez del precio global? Lo decide la preliquidación
+        entera, no la orden sola: ver Factura.formato.
         """
-        from .formatos import pide_detalle_d1
-        return pide_detalle_d1(self.factura.cliente, self.orden.sede_nombre)
+        return self.factura.formato() == 'd1'
 
     @property
     def subtotal(self):
+        return self.subtotal_con(self.usa_detalle_d1)
+
+    def subtotal_con(self, desglose):
         """
-        Lo que esta orden aporta: en el desglose de D1, su total general; si no,
-        su global (cuando va) más sus conceptos adicionales.
+        Lo que esta orden aporta: con el desglose de D1, su total general; si
+        no, su global (cuando va) más sus conceptos adicionales.
         """
-        if self.usa_detalle_d1:
+        if desglose:
             return self.total_general
         total = self.precio if self.lleva_global else Decimal('0')
         return total + sum((c.precio for c in self.conceptos.all()), Decimal('0'))

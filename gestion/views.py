@@ -6678,7 +6678,7 @@ def _ordenes_facturables(cliente, factura=None):
             # Para verla desde el popup de envío antes de mandarla.
             'acta_url': (reverse('gestion:acta_pdf', args=[con_acta[0].pk]) + '?ver=1'
                          if firmada else ''),
-            'precio': linea.precio if linea is not None else None,
+            'precio': _precio_sugerido(linea),
             'observaciones': linea.observaciones if linea is not None else '',
             'en_esta': linea is not None,
             # El desglose de D1 solo se pide en las sedes con formato propio.
@@ -6690,6 +6690,19 @@ def _ordenes_facturables(cliente, factura=None):
                           if linea is not None else []) + apartes_por_orden.get(orden.pk, []),
         })
     return filas
+
+
+def _precio_sugerido(linea):
+    """
+    El precio con que vuelve una orden al formulario. Si quedó en cero pero
+    tiene el desglose de D1 lleno (una preliquidación que mezcló sedes antes
+    de oct-2026), se sugiere el total del desglose: es lo que se cobró.
+    """
+    if linea is None:
+        return None
+    if not linea.precio and linea.total_general:
+        return linea.total_general
+    return linea.precio
 
 
 # Los seis datos del formato de D1, en el orden en que se piden y se muestran.
@@ -6980,6 +6993,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
 
         filas_todas = _ordenes_facturables(cliente, factura)
         facturables = {f['orden'].pk: f for f in filas_todas}
+        desglose = _lleva_desglose(cliente, facturables, datos['marcadas'])
         lineas = []
         for numero in sorted(datos['marcadas']):
             fila = facturables.get(numero)
@@ -6987,8 +7001,8 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 errores.append(f"La orden #{numero} no es de este cliente o ya está facturada.")
                 continue
             # Con el desglose del cliente no hay precio global que escribir.
-            precio = Decimal('0')
-            if not fila['detalle_d1']:
+            precio = None
+            if not desglose:
                 crudo = (request.POST.get(f'precio_{numero}') or '').strip().replace('$', '').replace('.', '').replace(',', '.')
                 try:
                     precio = Decimal(crudo)
@@ -7000,10 +7014,10 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             conceptos, malos = _conceptos_del_post(request, numero)
             errores += malos
             observaciones = (request.POST.get(f'observaciones_{numero}') or '').strip()[:255]
-            d1 = _detalle_d1_del_post(request, numero) if fila['detalle_d1'] else {}
+            d1 = _detalle_d1_del_post(request, numero) if desglose else {}
             lineas.append({'numero': numero, 'precio': precio, 'd1': d1,
                            'observaciones': observaciones, 'conceptos': conceptos})
-            fila.update(precio=precio, observaciones=observaciones,
+            fila.update(precio=fila['precio'] if precio is None else precio, observaciones=observaciones,
                         d1=d1 or fila['d1'], conceptos=[dict(c, codigo='') for c in conceptos])
         if not lineas and not errores:
             errores.append("Marca al menos una orden para facturar.")
@@ -7039,9 +7053,12 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             factura.lineas.exclude(orden_id__in=[l['numero'] for l in lineas]).delete()
             apartes = []
             for l in lineas:
+                # Con el desglose, el precio que ya tuviera la orden se deja
+                # quieto (no cuenta); sin él, lo que ya tuviera el desglose.
+                precio = {} if l['precio'] is None else {'precio': l['precio']}
                 linea, _ = LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=l['numero'],
-                    defaults={'precio': l['precio'], 'lleva_global': True,
+                    defaults={**precio, 'lleva_global': True,
                               'observaciones': l['observaciones'],
                               'copiar_bascula': l['numero'] not in excluidas,
                               **l['d1']})
@@ -7101,6 +7118,7 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         return render(request, self.template_name, {
             'factura': factura,
             'lineas': lineas,
+            'formato': _formato_de(factura, lineas),
             'actas': list(factura.actas_firmadas()),
             'adjuntos': list(factura.adjuntos.all()),
             'copiar': copiar,
@@ -7545,6 +7563,16 @@ def _lineas_con_detalle(factura):
     return lineas
 
 
+def _lleva_desglose(cliente, facturables, marcadas):
+    """
+    ¿Las órdenes marcadas se cobran con el desglose de D1? Solo si TODAS son
+    de sus sedes con formato propio; si se mezcla otra, todas van con el
+    precio global (oct-2026). Es la misma regla de Factura.formato.
+    """
+    sedes = [facturables[n]['sede'] for n in marcadas if n in facturables]
+    return _formato_de_cliente(cliente, sedes) == 'd1'
+
+
 def _detalle_d1_del_post(request, numero):
     """Los seis datos del formato de D1 que vengan del formulario para esa orden."""
     from decimal import InvalidOperation
@@ -7565,7 +7593,7 @@ def _formato_de(factura, lineas):
     El formato de preliquidación de esa factura: el propio del cliente si le
     toca y todas sus sedes aplican, o '' (el de siempre). Ver gestion/formatos.py.
     """
-    return _formato_de_cliente(factura.cliente, [l.sede for l in lineas])
+    return factura.formato([l.sede for l in lineas])
 
 
 def _html_factura(factura, lineas, total, provisional=False):
@@ -7649,6 +7677,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
             return HttpResponse(_html_factura(aparte, [linea], concepto['precio'],
                                               provisional=hijo is None))
         lineas, total = [], Decimal('0')
+        desglose = _lleva_desglose(cliente, facturables, marcadas)
         for numero in sorted(marcadas):
             fila = facturables.get(numero)
             if fila is None:
@@ -7661,7 +7690,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
                 precio = Decimal('0')
             linea = LineaFactura(orden=fila['orden'], precio=precio,
                                  observaciones=(request.POST.get(f'observaciones_{numero}') or '').strip()[:255])
-            if fila['detalle_d1']:
+            if desglose:
                 for campo, valor in _detalle_d1_del_post(request, numero).items():
                     setattr(linea, campo, valor)
             linea.placa, linea.servicio = fila['placa'], fila['servicio']
@@ -7671,7 +7700,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
             linea.conceptos_lista = [ConceptoFactura(descripcion=c['descripcion'], precio=c['precio'])
                                      for c in conceptos]
             lineas.append(linea)
-            if fila['detalle_d1']:
+            if desglose:
                 total += linea.total_general
             else:
                 total += precio + sum((c['precio'] for c in conceptos), Decimal('0'))
