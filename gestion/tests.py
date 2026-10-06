@@ -2791,7 +2791,8 @@ class FacturacionTests(BaseCRM):
                 reverse('gestion:detalle_factura', args=[f.pk]),
                 reverse('gestion:editar_factura', args=[f.pk]),
                 reverse('gestion:factura_pdf', args=[f.pk]),
-                reverse('gestion:factura_excel', args=[f.pk])]
+                reverse('gestion:factura_excel', args=[f.pk]),
+                reverse('gestion:ordenes_por_preliquidar')]
         self.entrar(self.asesor)
         for url in urls:
             with self.subTest(url=url):
@@ -3075,6 +3076,78 @@ class FacturacionTests(BaseCRM):
         respuesta = self.client.get(reverse('gestion:crear_factura') + f'?cliente={otro.pk}')
         self.assertEqual(len(respuesta.context['sedes']), 1)
         self.assertNotContains(respuesta, 'id="ff-sede"')
+
+    # ---- Órdenes por preliquidar: la alerta y su tabla (oct-2026) ----
+
+    def test_la_alerta_cuenta_las_ordenes_sin_preliquidar_de_todo_el_historial(self):
+        from .views import _ordenes_facturables
+        url = reverse('gestion:lista_facturas')
+        vieja = self._orden('VCP886', fecha=datetime.date(2025, 3, 4))           # de hace mucho: también cuenta
+        cancelada = self._orden('WNO623')
+        OrdenServicio.objects.filter(pk=cancelada.pk).update(estado_orden='CANCELADA')
+        respuesta = self.client.get(url)
+        self.assertContains(respuesta, 'Tienes 3 órdenes por preliquidar')
+        self.assertContains(respuesta, 'De 1 cliente')
+        self.assertContains(respuesta, 'datetime="2025-03-04"', msg_prefix="la más antigua")
+        self.assertContains(respuesta, f'href="{reverse("gestion:ordenes_por_preliquidar")}"')
+        # Cuadra con lo que el formulario ofrece para preliquidar.
+        tabla = self.client.get(reverse('gestion:ordenes_por_preliquidar'))
+        self.assertEqual({f['orden'].pk for f in tabla.context['filas']},
+                         {f['orden'].pk for f in _ordenes_facturables(self.cli)})
+        # Preliquidar una la saca de la cuenta.
+        self._crear(ordenes=[self.una])
+        self.assertContains(self.client.get(url), 'Tienes 2 órdenes por preliquidar')
+        self._crear(ordenes=[self.otra, vieja])
+        respuesta = self.client.get(url)
+        self.assertNotContains(respuesta, 'por preliquidar</strong>')
+        self.assertContains(respuesta, 'Todas las órdenes están preliquidadas.')
+
+    def test_la_tabla_de_ordenes_por_preliquidar_y_sus_filtros(self):
+        url = reverse('gestion:ordenes_por_preliquidar')
+        otro = self.cliente(nombre='Clínica del Sur SAS', identificacion='800111222')
+        vieja = self._orden('VCP886', cliente=otro, fecha=datetime.date(2026, 7, 1))
+        nueva = self._orden('WNO623', cliente=otro, fecha=timezone.localdate() - datetime.timedelta(days=20))
+        respuesta = self.client.get(url)
+        numeros = [f['orden'].pk for f in respuesta.context['filas']]
+        self.assertEqual(numeros[0], vieja.pk, "la que más lleva esperando, arriba")
+        self.assertEqual(set(numeros), {self.una.pk, self.otra.pk, vieja.pk, nueva.pk})
+        self.assertEqual(respuesta.context['n_total'], 4)
+        self.assertEqual(respuesta.context['n_clientes'], 2)
+        # El selector ofrece solo los clientes que deben algo, con su cuenta.
+        self.assertEqual({(c.pk, c.n) for c in respuesta.context['clientes']}, {(self.cli.pk, 2), (otro.pk, 2)})
+        filas = {f['orden'].pk: f for f in respuesta.context['filas']}
+        self.assertEqual(filas[nueva.pk]['dias'], 20)
+        self.assertEqual(filas[nueva.pk]['espera'], 'media')
+        self.assertEqual(filas[vieja.pk]['espera'], 'larga')
+        self.assertTrue(filas[self.otra.pk]['sin_peso'])
+        def pks(consulta):
+            return {f['orden'].pk for f in self.client.get(url + consulta).context['filas']}
+        self.assertEqual(pks(f'?cliente={otro.pk}'), {vieja.pk, nueva.pk})
+        self.assertEqual(pks('?desde=2026-07-01&hasta=2026-07-31'), {vieja.pk})
+        self.assertEqual(pks('?q=VCP886'), {vieja.pk}, "por placa")
+        self.assertEqual(pks(f'?q=%23{self.una.numero_orden}'), {self.una.pk}, "por número de orden")
+        self.assertEqual(pks('?q=Norte'), {self.una.pk}, "por sede")
+        self.assertEqual(pks('?acta=firmada'), set(), "ninguna tiene el acta firmada")
+        self.assertEqual(len(pks('?acta=sin_firmar')), 4)
+        self.assertEqual(pks('?desde=basura'), pks(''), "una fecha mala no filtra ni revienta")
+        self.assertContains(self.client.get(url + '?q=nada'), 'Ninguna orden por preliquidar con ese filtro.')
+
+    def test_preliquidar_desde_la_tabla_abre_el_formulario_con_las_ordenes_marcadas(self):
+        url = reverse('gestion:ordenes_por_preliquidar')
+        # Una fila: el formulario de ese cliente con esa orden marcada.
+        respuesta = self.client.get(url)
+        enlace = f'{reverse("gestion:crear_factura")}?cliente={self.cli.pk}&orden={self.una.pk}"'
+        self.assertContains(respuesta, enlace)
+        formulario = self.client.get(reverse('gestion:crear_factura'),
+                                     {'cliente': self.cli.pk, 'orden': [self.una.pk]})
+        self.assertEqual(formulario.context['datos']['marcadas'], {self.una.pk})
+        self.assertContains(formulario, 'class="ff-orden ff-marcada"', count=1)
+        # Con el cliente filtrado, un botón las marca todas.
+        respuesta = self.client.get(url + f'?cliente={self.cli.pk}')
+        self.assertContains(respuesta, 'Preliquidar estas 2')
+        self.assertEqual(sorted(respuesta.context['ids_del_cliente']), sorted([self.una.pk, self.otra.pk]))
+        # Sin cliente elegido, no hay botón de «todas».
+        self.assertNotContains(self.client.get(url), 'Preliquidar estas')
 
     # ---- Formatos propios de dos clientes puntuales (ver gestion/formatos.py) ----
 

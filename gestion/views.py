@@ -6884,7 +6884,124 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         # Cuántas ya tienen hecha la factura electrónica (marcada como realizada).
         context['n_electronica'] = Factura.objects.filter(fe_realizada_en__isnull=False).count()
         context['n_sin_electronica'] = context['n_total'] - context['n_electronica']
+        # La alerta de arriba: cuántas órdenes faltan por preliquidar (oct-2026).
+        pendientes = _ordenes_por_preliquidar()
+        resumen = pendientes.aggregate(n=Count('pk', distinct=True), mas_vieja=Min('servicio'))
+        context['por_preliquidar'] = {
+            'n': resumen['n'],
+            'clientes': pendientes.values('cliente').distinct().count(),
+            'mas_vieja': resumen['mas_vieja'],
+        }
         return context
+
+
+def _ordenes_por_preliquidar():
+    """
+    Las órdenes que faltan por preliquidar (oct-2026, criterio de Santiago):
+    TODAS las no canceladas, de todo el historial, cuyo global aún no está en
+    ninguna preliquidación. Es el mismo criterio con que el formulario las
+    ofrece (_ordenes_facturables), así que la alerta y la tabla cuadran con él.
+    `servicio` es la fecha del primer recorrido.
+    """
+    return (OrdenServicio.objects
+            .exclude(estado_orden='CANCELADA')
+            .exclude(lineas_factura__lleva_global=True)
+            .annotate(servicio=Min('recorridos__fecha_recorrido')))
+
+
+class OrdenesPorPreliquidarView(AdministradorRequiredMixin, View):
+    """
+    La tabla de las órdenes por preliquidar, la que más lleva esperando
+    arriba. Filtros: cliente, fechas del servicio, acta y buscar (orden,
+    placa o sede). Cada fila abre el formulario con esa orden ya marcada; con
+    un cliente filtrado, un botón las marca todas.
+    """
+    template_name = 'gestion/ordenes_por_preliquidar.html'
+    por_pagina = 50
+
+    def get(self, request):
+        from django.db.models import F
+        from django.utils.dateparse import parse_date
+
+        def fecha(campo):
+            try:
+                return parse_date((request.GET.get(campo) or '').strip())
+            except ValueError:
+                return None
+
+        cliente_pk = request.GET.get('cliente') or ''
+        cliente = Cliente.objects.filter(pk=cliente_pk).first() if cliente_pk.isdigit() else None
+        desde, hasta = fecha('desde'), fecha('hasta')
+        acta = request.GET.get('acta') or ''
+        q = (request.GET.get('q') or '').strip()
+
+        todas = _ordenes_por_preliquidar()
+        ordenes = todas.annotate(
+            firmadas=Count('recorridos__manifiesto', distinct=True,
+                           filter=Q(recorridos__manifiesto__estado_firma='FIRMADO')))
+        if cliente:
+            ordenes = ordenes.filter(cliente=cliente)
+        if desde:
+            ordenes = ordenes.filter(servicio__gte=desde)
+        if hasta:
+            ordenes = ordenes.filter(servicio__lte=hasta)
+        if acta == 'firmada':
+            ordenes = ordenes.filter(firmadas__gt=0)
+        elif acta == 'sin_firmar':
+            ordenes = ordenes.filter(firmadas=0)
+        if q:
+            filtro = (Q(recorridos__vehiculo__placa__icontains=q)
+                      | Q(programacion_origen__sede_cliente__nombre__icontains=q)
+                      | Q(programacion_origen__tercero__nombre__icontains=q))
+            if q.lstrip('#').isdigit():
+                filtro |= Q(numero_orden=int(q.lstrip('#')))
+            ordenes = ordenes.filter(filtro).distinct()
+        ordenes = (ordenes
+                   .select_related('cliente', 'programacion_origen__sede_cliente',
+                                   'programacion_origen__tercero')
+                   .prefetch_related('recorridos__vehiculo')
+                   .order_by(F('servicio').asc(nulls_last=True), 'numero_orden'))
+
+        pagina = Paginator(ordenes, self.por_pagina).get_page(request.GET.get('page'))
+        hoy = timezone.localdate()
+        filas = []
+        for orden in pagina.object_list:
+            programacion = getattr(orden, 'programacion_origen', None)
+            peso = (programacion.transporte_cantidad if programacion else '') or ''
+            dias = (hoy - orden.servicio).days if orden.servicio else None
+            filas.append({
+                'orden': orden,
+                'sede': orden.sede_nombre,
+                'placa': ', '.join(sorted({r.vehiculo.placa for r in orden.recorridos.all()
+                                           if r.vehiculo_id})),
+                'peso': peso,
+                'sin_peso': orden.estado_conciliacion == 'PENDIENTE' or not peso,
+                'firmada': orden.firmadas > 0,
+                'dias': dias,
+                # Cuánto lleva esperando: así se ve qué urge (umbrales de lectura, no reglas).
+                'espera': ('' if dias is None or dias <= 15 else 'media' if dias <= 30 else 'larga'),
+            })
+        # El selector de clientes ofrece solo los que deben algo, con su cuenta.
+        clientes = (Cliente.objects.filter(pk__in=todas.values('cliente'))
+                    .annotate(n=Count('ordenes', distinct=True,
+                                      filter=Q(ordenes__in=todas.values('pk'))))
+                    .order_by('nombre'))
+        filtrado = bool(cliente or desde or hasta or acta or q)
+        resumen = todas.aggregate(n=Count('pk', distinct=True), mas_vieja=Min('servicio'))
+        return render(request, self.template_name, {
+            'filas': filas,
+            'page_obj': pagina,
+            'pagina_rango': rango_de_paginas(pagina, 2),
+            'clientes': clientes,
+            'cliente': cliente,
+            'desde': desde, 'hasta': hasta, 'acta': acta, 'q': q, 'filtrado': filtrado,
+            'n_total': resumen['n'],
+            'n_clientes': clientes.count(),
+            'mas_vieja': resumen['mas_vieja'],
+            'n_filtradas': pagina.paginator.count,
+            # Con un cliente filtrado se pueden marcar todas sus órdenes de una vez.
+            'ids_del_cliente': (list(ordenes.values_list('pk', flat=True)) if cliente else []),
+        })
 
 
 class FacturaFormView(AdministradorRequiredMixin, View):
@@ -6943,7 +7060,9 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                      'correos': _lista_correos(_correo_facturacion_de(cliente)) or [''],
                      'numero': (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1,
                      'fecha_emision': timezone.localdate(),
-                     'marcadas': set(), 'basculas_excluidas': ''}
+                     # Desde «Órdenes por preliquidar» llegan ya marcadas.
+                     'marcadas': {int(x) for x in request.GET.getlist('orden') if x.isdigit()},
+                     'basculas_excluidas': ''}
             datos.update({c: Factura._meta.get_field(c).default for c in COPIAR_FACTURA})
         return self._render(request, factura, cliente, datos)
 

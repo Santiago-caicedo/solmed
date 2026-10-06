@@ -1,0 +1,145 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Órdenes por preliquidar{% endblock %}
+{% block content %}
+{# Las órdenes no canceladas cuyo global aún no está en ninguna preliquidación, la que más espera arriba. #}
+<style>
+.pp-migas{ font-size:.82rem; margin-bottom:.4rem; }
+.pp-migas a{ color:var(--ink-2); text-decoration:none; }
+.pp-migas a:hover{ color:var(--ink); text-decoration:underline; }
+.pp-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.pp-cab h2{ margin:0; }
+.pp-cab .sub{ color:var(--ink-2); font-size:.9rem; }
+.pp-cab .sub b{ font-family:var(--mono); color:var(--ink); }
+.pp-cab .sub time{ font-family:var(--mono); color:var(--ink); }
+
+.pp-filtros{ display:flex; gap:.6rem; flex-wrap:wrap; align-items:flex-end; }
+.pp-filtros .campo{ display:flex; flex-direction:column; gap:.2rem; min-width:0; }
+.pp-filtros label{ font-size:.72rem; color:var(--ink-2); margin:0; }
+.pp-filtros .cli{ flex:1 1 16rem; max-width:22rem; }
+.pp-filtros .bus{ flex:1 1 12rem; max-width:16rem; }
+.pp-filtros input[type=date]{ font-family:var(--mono); font-size:.82rem; }
+.pp-chips{ display:flex; gap:.35rem; flex-wrap:wrap; }
+.pp-chip{ font-size:.8rem; padding:.35rem .75rem; min-height:32px; display:inline-flex; align-items:center;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+.pp-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.pp-chip.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:500; }
+
+/* Cuando hay un cliente elegido: la franja para marcarlas todas */
+.pp-cliente{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+    padding:.7rem 1rem; margin-bottom:1rem; border:1px solid #cddcea; border-radius:var(--r-md); background:var(--steel-tint); }
+.pp-cliente strong{ font-weight:600; }
+.pp-cliente span{ color:var(--ink-2); font-size:.85rem; }
+
+.pp-tabla td{ vertical-align:middle; }
+.pp-tabla .num{ font-family:var(--mono); font-weight:600; white-space:nowrap; }
+.pp-tabla .fec, .pp-tabla .pla{ font-family:var(--mono); font-size:.8rem; color:var(--ink-2); white-space:nowrap; }
+.pp-tabla .cli small{ display:block; color:var(--ink-3); font-size:.74rem; }
+.pp-falta{ display:inline-block; font-size:.72rem; padding:.1rem .45rem; border-radius:99px;
+    background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
+.pp-ok{ color:var(--ok); font-size:.8rem; white-space:nowrap; }
+.pp-peso{ font-family:var(--mono); font-size:.8rem; white-space:nowrap; }
+/* Los días de espera: el dato que dice qué urge */
+.pp-dias{ font-family:var(--mono); font-size:.85rem; font-weight:600; white-space:nowrap; color:var(--ink-2); }
+.pp-dias.media{ color:var(--warn); }
+.pp-dias.larga{ color:var(--err); }
+.pp-dias small{ font-weight:400; font-size:.72rem; }
+.pp-tabla .btn{ min-height:34px; white-space:nowrap; }
+.pp-vacio{ text-align:center; padding:2.5rem 1rem; color:var(--ink-2); }
+.pp-vacio i{ font-size:2rem; display:block; margin-bottom:.4rem; color:var(--ok); }
+@media (max-width:600px){ .pp-filtros .campo{ flex:1 1 8.5rem; } .pp-filtros .cli, .pp-filtros .bus{ max-width:none; } }
+</style>
+
+<nav class="pp-migas" aria-label="Ruta"><a href="{% url 'gestion:lista_facturas' %}"><i class="bi bi-chevron-left"></i> Facturación</a></nav>
+<div class="pp-cab">
+    <div>
+        <h2>Órdenes por preliquidar</h2>
+        <div class="sub"><b>{{ n_total }}</b> {% if n_total == 1 %}orden{% else %}órdenes{% endif %} de <b>{{ n_clientes }}</b> cliente{{ n_clientes|pluralize }} sin preliquidación todavía{% if mas_vieja %} · la más antigua es del <time datetime="{{ mas_vieja|date:'Y-m-d' }}">{{ mas_vieja|date:"d/m/Y" }}</time>{% endif %}</div>
+    </div>
+</div>
+
+{% if cliente and ids_del_cliente %}
+<div class="pp-cliente">
+    <div><strong>{{ cliente.nombre }}</strong> <span>· {{ ids_del_cliente|length }} {% if ids_del_cliente|length == 1 %}orden{% else %}órdenes{% endif %} con este filtro</span></div>
+    <a class="btn btn-sm btn-success" href="{% url 'gestion:crear_factura' %}?cliente={{ cliente.pk }}{% for pk in ids_del_cliente %}&orden={{ pk }}{% endfor %}">
+        <i class="bi bi-receipt me-1"></i>Preliquidar estas {{ ids_del_cliente|length }}</a>
+</div>
+{% endif %}
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="pp-filtros" role="search" aria-label="Filtrar órdenes por preliquidar">
+            <div class="campo cli">
+                <label for="pp-cliente">Cliente</label>
+                <select name="cliente" id="pp-cliente" class="form-select form-select-sm">
+                    <option value="">Todos los clientes</option>
+                    {% for c in clientes %}<option value="{{ c.pk }}" {% if cliente and cliente.pk == c.pk %}selected{% endif %}>{{ c.nombre }} ({{ c.n }})</option>{% endfor %}
+                </select>
+            </div>
+            <div class="campo">
+                <label for="pp-desde">Servicio desde</label>
+                <input type="date" name="desde" id="pp-desde" value="{{ desde|date:'Y-m-d' }}" class="form-control form-control-sm">
+            </div>
+            <div class="campo">
+                <label for="pp-hasta">Hasta</label>
+                <input type="date" name="hasta" id="pp-hasta" value="{{ hasta|date:'Y-m-d' }}" class="form-control form-control-sm">
+            </div>
+            <div class="campo bus">
+                <label for="pp-q">Buscar</label>
+                <input type="search" name="q" id="pp-q" value="{{ q }}" class="form-control form-control-sm" placeholder="Orden, placa o sede">
+            </div>
+            <div class="campo">
+                <label for="pp-acta">Acta</label>
+                <select name="acta" id="pp-acta" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    <option value="firmada" {% if acta == 'firmada' %}selected{% endif %}>Firmada</option>
+                    <option value="sin_firmar" {% if acta == 'sin_firmar' %}selected{% endif %}>Sin firmar</option>
+                </select>
+            </div>
+            <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+            {% if filtrado %}<a href="{% url 'gestion:ordenes_por_preliquidar' %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+        </form>
+    </div>
+    <div class="card-body">
+        {% if filas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 pp-tabla">
+                <thead>
+                    <tr>
+                        <th>Orden</th><th>Servicio</th><th>Cliente</th><th>Placa</th>
+                        <th>Acta</th><th>Peso</th><th>Espera</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in filas %}
+                    <tr>
+                        <td class="num"><a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a></td>
+                        <td class="fec">{{ f.orden.servicio|date:"d/m/Y"|default:"—" }}</td>
+                        <td class="cli">{{ f.orden.cliente.nombre|truncatechars:36 }}{% if f.sede %}<small>{{ f.sede }}</small>{% endif %}</td>
+                        <td class="pla">{{ f.placa|default:"—" }}</td>
+                        <td>{% if f.firmada %}<span class="pp-ok"><i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>Firmada</span>{% else %}<span class="pp-falta">Sin firmar</span>{% endif %}</td>
+                        <td>{% if f.sin_peso %}<span class="pp-falta">Sin conciliar</span>{% else %}<span class="pp-peso">{{ f.peso }}</span>{% endif %}</td>
+                        <td>{% if f.dias is not None %}<span class="pp-dias {{ f.espera }}">{{ f.dias }} <small>día{{ f.dias|pluralize }}</small></span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-success" href="{% url 'gestion:crear_factura' %}?cliente={{ f.orden.cliente_id }}&orden={{ f.orden.pk }}"
+                               aria-label="Preliquidar la orden #{{ f.orden.numero_orden }}">Preliquidar</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="órdenes por preliquidar" %}
+        {% else %}
+        <div class="pp-vacio">
+            {% if filtrado %}
+            <p class="mb-2">Ninguna orden por preliquidar con ese filtro.</p>
+            <a href="{% url 'gestion:ordenes_por_preliquidar' %}" class="btn btn-sm btn-outline-secondary">Ver todas</a>
+            {% else %}
+            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+            <p class="mb-0">Todas las órdenes están preliquidadas.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

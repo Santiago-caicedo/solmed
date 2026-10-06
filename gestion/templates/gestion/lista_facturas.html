@@ -19,6 +19,17 @@
 .fc-fe .num{ font-family:var(--mono); font-weight:400; }
 .fc-fe.ok .num{ color:var(--ok); font-weight:600; }
 .fc-fe.falta .num{ color:var(--ink-2); }
+/* La alerta de órdenes por preliquidar (oct-2026) */
+.fc-alerta{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; padding:.85rem 1rem; margin-bottom:1rem;
+    border:1px solid var(--warn-line); border-left:4px solid var(--warn); border-radius:var(--r-md); background:var(--warn-tint); }
+.fc-alerta .n{ font-family:var(--mono); font-size:1.9rem; font-weight:600; line-height:1; color:var(--warn); }
+.fc-alerta .txt{ flex:1 1 18rem; color:var(--ink); }
+.fc-alerta .txt strong{ display:block; font-weight:600; }
+.fc-alerta .txt span{ font-size:.82rem; color:var(--ink-2); }
+.fc-alerta .txt time{ font-family:var(--mono); }
+.fc-alerta .btn{ min-height:38px; display:inline-flex; align-items:center; }
+.fc-al-dia{ display:flex; align-items:center; gap:.5rem; padding:.6rem 1rem; margin-bottom:1rem; font-size:.88rem;
+    border:1px solid var(--ok-line); border-radius:var(--r-md); background:var(--ok-tint); color:var(--ok); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -28,6 +39,19 @@
     </div>
     <a href="{% url 'gestion:crear_factura' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Nueva factura</a>
 </div>
+
+{% if por_preliquidar.n %}
+<div class="fc-alerta" role="status">
+    <span class="n" aria-hidden="true">{{ por_preliquidar.n }}</span>
+    <div class="txt">
+        <strong>Tienes {{ por_preliquidar.n }} {% if por_preliquidar.n == 1 %}orden{% else %}órdenes{% endif %} por preliquidar</strong>
+        <span>De {{ por_preliquidar.clientes }} cliente{{ por_preliquidar.clientes|pluralize }}{% if por_preliquidar.mas_vieja %} · la más antigua es del servicio del <time datetime="{{ por_preliquidar.mas_vieja|date:'Y-m-d' }}">{{ por_preliquidar.mas_vieja|date:"d/m/Y" }}</time>{% endif %}</span>
+    </div>
+    <a href="{% url 'gestion:ordenes_por_preliquidar' %}" class="btn btn-warning">Ver las órdenes<i class="bi bi-arrow-right ms-1"></i></a>
+</div>
+{% else %}
+<div class="fc-al-dia" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Todas las órdenes están preliquidadas.</div>
+{% endif %}
 
 <div class="fc-tiles mb-4">
     <div class="fc-tile"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></div>

@@ -111,6 +111,7 @@ urlpatterns = [
          name='eliminar_certificado_disposicion'),
     # Facturación interna (solo administradores).
     path('facturacion/', views.ListaFacturasView.as_view(), name='lista_facturas'),
+    path('facturacion/por-preliquidar/', views.OrdenesPorPreliquidarView.as_view(), name='ordenes_por_preliquidar'),
     path('facturacion/nueva/', views.FacturaFormView.as_view(), name='crear_factura'),
     path('facturacion/previa/', views.FacturaPreviaView.as_view(), name='previa_factura'),
     path('facturacion/<int:pk>/', views.DetalleFacturaView.as_view(), name='detalle_factura'),
