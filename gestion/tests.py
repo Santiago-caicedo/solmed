@@ -42,7 +42,7 @@ from .forms import (
 )
 from .models import (
     ADJUNTOS_FACTURA,
-    Bascula, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
+    Bascula, CertificadoDisposicion, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
     DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal,
     EncuestaConductor, EnvioCorreo, FotoAyudante, Manifiesto, MedidaACPM,
     DisposicionOrden, Factura, LineaFactura, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
@@ -7690,3 +7690,177 @@ class MigracionDisposicionesTests(TransactionTestCase):
         r = Disposicion.objects.get(orden_id=22239)
         self.assertEqual((r.via, r.deshecha), ('REPORTE', True), "el registro queda, marcado como deshecho")
         self.assertIn('Migración', r.deshecha_nota)
+
+
+class DisposicionesFinalesTests(BaseCRM):
+    """
+    Gestor documental de certificados de disposición final (oct-2026): una
+    carpeta por cliente, archivos con fecha, filtros. No toca las órdenes.
+    Entran gestión, asesores y los dos cargos de oficina; borrar, solo gestión.
+    """
+
+    def setUp(self):
+        self.admin = self.persona('admin', superusuario=True)
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.auxiliar = self.persona('auxi', 'Auxiliares Administrativas', 'Luz', 'Mora')
+        self.cli = self.cliente('Clínica del Sur SAS', identificacion='800111222')
+        self.otro = self.cliente('Mecánicos Asociados SAS', identificacion='891102723')
+        self.vacio = self.cliente('Hotel Andino', identificacion='900555666')
+        self.url = reverse('gestion:disposiciones_finales')
+
+    def _carpeta(self, cliente):
+        return reverse('gestion:carpeta_disposicion', args=[cliente.pk])
+
+    def _subir(self, cliente=None, fecha='2026-09-15', archivos=None, nombre='', desde_carpetas=False):
+        archivos = archivos if archivos is not None else [SimpleUploadedFile('cert.pdf', b'%PDF-1.4 cert')]
+        datos = {'fecha': fecha, 'nombre': nombre, 'archivos': archivos}
+        if desde_carpetas:
+            datos['cliente'] = cliente.pk if cliente else ''
+            return self.client.post(self.url, datos, follow=True)
+        return self.client.post(self._carpeta(cliente), datos, follow=True)
+
+    def _cert(self, cliente, fecha, nombre='', archivo_nombre='cert.pdf'):
+        return CertificadoDisposicion.objects.create(
+            cliente=cliente, fecha=fecha, nombre=nombre,
+            archivo=SimpleUploadedFile(archivo_nombre, b'%PDF-1.4 x'))
+
+    def test_quien_entra_y_quien_no(self):
+        for persona in (self.admin, self.asesor, self.auxiliar,
+                        self.persona('admvo', 'Administrativo', 'Juan', 'Gil')):
+            with self.subTest(quien=persona.username):
+                self.entrar(persona)
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+                self.assertEqual(self.client.get(self._carpeta(self.cli)).status_code, 200)
+        for rol in ('Conductores', 'Ayudantes', 'Talento Humano', 'SISO', 'Planificadores'):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'x{rol[:4].lower()}', rol))
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+                self.assertEqual(self.client.get(self._carpeta(self.cli)).status_code, 403)
+                self.assertEqual(self._subir(self.cli).status_code, 403)
+        self.assertFalse(CertificadoDisposicion.objects.exists())
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 302, "sin sesión, al login")
+
+    def test_el_enlace_sale_en_la_barra_solo_a_quien_entra(self):
+        for persona, ve in ((self.admin, True), (self.asesor, True), (self.auxiliar, True),
+                            (self.persona('th', 'Talento Humano'), False)):
+            with self.subTest(quien=persona.username):
+                self.entrar(persona)
+                inicio = self.client.get(reverse('gestion:dashboard_redirect'), follow=True)
+                (self.assertContains if ve else self.assertNotContains)(inicio, f'href="{self.url}"')
+
+    def test_una_carpeta_por_cliente_con_su_cuenta_y_su_ultimo(self):
+        self._cert(self.cli, datetime.date(2026, 8, 3))
+        self._cert(self.cli, datetime.date(2026, 9, 20))
+        self._cert(self.otro, datetime.date(2026, 7, 1))
+        self.entrar(self.asesor)
+        respuesta = self.client.get(self.url)
+        carpetas = respuesta.context['carpetas']
+        self.assertEqual([c.pk for c in carpetas][:2], [self.cli.pk, self.otro.pk],
+                         "las que tienen certificados primero, la más reciente arriba")
+        self.assertIn(self.vacio.pk, [c.pk for c in carpetas], "las vacías también se ven")
+        self.assertEqual({c.pk: c.n for c in carpetas}[self.cli.pk], 2)
+        self.assertContains(respuesta, 'data-n="2 certificados"')
+        self.assertContains(respuesta, 'data-n="0 certificados"')
+        self.assertContains(respuesta, 'datetime="2026-09-20"')
+        self.assertContains(respuesta, f'href="{self._carpeta(self.cli)}"')
+        # Solo con certificados, y búsqueda por nombre o NIT.
+        con = self.client.get(self.url + '?ver=con').context['carpetas']
+        self.assertEqual({c.pk for c in con}, {self.cli.pk, self.otro.pk})
+        self.assertEqual([c.pk for c in self.client.get(self.url + '?q=891102').context['carpetas']], [self.otro.pk])
+        # Con fechas, la cuenta es solo de ese rango.
+        rango = self.client.get(self.url + '?ver=con&desde=2026-09-01&hasta=2026-09-30').context['carpetas']
+        self.assertEqual([(c.pk, c.n) for c in rango], [(self.cli.pk, 1)])
+
+    def test_subir_varios_archivos_a_la_carpeta_con_la_misma_fecha(self):
+        self.entrar(self.auxiliar)
+        respuesta = self._subir(self.cli, fecha='2026-10-02', nombre='se ignora con varios', archivos=[
+            SimpleUploadedFile('energy_sep.pdf', b'%PDF-1.4 a'),
+            SimpleUploadedFile('foto_certificado.jpg', b'\xff\xd8\xff jpg')])
+        self.assertContains(respuesta, 'Se guardaron 2 certificados en la carpeta de Clínica del Sur SAS')
+        certificados = list(self.cli.certificados_disposicion.order_by('pk'))
+        self.assertEqual([c.fecha for c in certificados], [datetime.date(2026, 10, 2)] * 2)
+        self.assertEqual([c.titulo for c in certificados], ['energy_sep.pdf', 'foto_certificado.jpg'])
+        self.assertEqual({c.subido_por for c in certificados}, {self.auxiliar})
+        self.assertTrue(certificados[0].es_pdf and not certificados[1].es_pdf)
+        # Con un solo archivo, el nombre escrito sí vale.
+        self._subir(self.cli, nombre='Certificado ENERGY octubre')
+        self.assertTrue(self.cli.certificados_disposicion.filter(nombre='Certificado ENERGY octubre').exists())
+        # La carpeta los muestra agrupados por mes.
+        carpeta = self.client.get(self._carpeta(self.cli))
+        self.assertEqual([m['mes'] for m in carpeta.context['meses']],
+                         [datetime.date(2026, 10, 1), datetime.date(2026, 9, 1)])
+        self.assertContains(carpeta, 'Octubre 2026')
+        self.assertContains(carpeta, 'energy_sep.pdf')
+        self.assertContains(carpeta, 'Subido por Luz Mora')
+
+    def test_subir_desde_las_carpetas_eligiendo_el_cliente(self):
+        self.entrar(self.asesor)
+        respuesta = self._subir(self.otro, desde_carpetas=True)
+        self.assertEqual(respuesta.redirect_chain[-1][0], self._carpeta(self.otro), "termina dentro de su carpeta")
+        self.assertEqual(self.otro.certificados_disposicion.count(), 1)
+        respuesta = self._subir(None, desde_carpetas=True)
+        self.assertContains(respuesta, 'Elige el cliente de la carpeta.')
+        self.assertEqual(CertificadoDisposicion.objects.count(), 1)
+        # El popup ofrece todos los clientes, también los que aún no tienen carpeta llena.
+        self.assertContains(self.client.get(self.url), f'<option value="{self.vacio.pk}">Hotel Andino')
+
+    def test_lo_que_no_se_puede_subir(self):
+        self.entrar(self.asesor)
+        casos = [
+            ({'fecha': ''}, 'Escribe la fecha del certificado.'),
+            ({'fecha': '2026-13-45'}, 'Escribe la fecha del certificado.'),
+            ({'archivos': []}, 'Elige al menos un archivo.'),
+            ({'archivos': [SimpleUploadedFile('virus.exe', b'MZ')]}, 'solo PDF o imagen'),
+            ({'archivos': [SimpleUploadedFile('ok.pdf', b'%PDF'), SimpleUploadedFile('notas.docx', b'PK')]},
+             '«notas.docx» no se puede subir'),
+        ]
+        for extra, mensaje in casos:
+            with self.subTest(mensaje=mensaje):
+                self.assertContains(self._subir(self.cli, **extra), mensaje)
+        self.assertFalse(CertificadoDisposicion.objects.exists(), "o todos, o ninguno")
+        import gestion.views as vistas
+        with patch.object(vistas, 'TOPE_CERTIFICADO_MB', 0):
+            self.assertContains(self._subir(self.cli), 'pesa más de 0 MB')
+        self.assertFalse(CertificadoDisposicion.objects.exists())
+
+    def test_filtros_dentro_de_la_carpeta(self):
+        self._cert(self.cli, datetime.date(2025, 12, 10), nombre='Certificado APS diciembre')
+        self._cert(self.cli, datetime.date(2026, 3, 5), nombre='Certificado ENERGY marzo')
+        self._cert(self.cli, datetime.date(2026, 9, 1), archivo_nombre='veolia_sep.pdf')
+        self._cert(self.otro, datetime.date(2026, 9, 2), nombre='De otro cliente')
+        self.entrar(self.asesor)
+        def titulos(consulta=''):
+            r = self.client.get(self._carpeta(self.cli) + consulta)
+            return [c.titulo for m in r.context['meses'] for c in m['certificados']]
+        self.assertEqual(titulos(), ['veolia_sep.pdf', 'Certificado ENERGY marzo', 'Certificado APS diciembre'])
+        self.assertEqual(titulos('?q=energy'), ['Certificado ENERGY marzo'])
+        self.assertEqual(titulos('?q=veolia'), ['veolia_sep.pdf'], "también busca en el nombre del archivo")
+        self.assertEqual(titulos('?anio=2025'), ['Certificado APS diciembre'])
+        self.assertEqual(titulos('?desde=2026-01-01&hasta=2026-06-30'), ['Certificado ENERGY marzo'])
+        self.assertEqual(titulos('?desde=no-es-fecha'), titulos(), "una fecha mala no filtra ni revienta")
+        r = self.client.get(self._carpeta(self.cli) + '?q=nada')
+        self.assertContains(r, 'Ningún certificado con ese filtro.')
+        self.assertEqual(r.context['anios'], [2026, 2025])
+        self.assertContains(self.client.get(self._carpeta(self.vacio)), 'Esta carpeta está vacía.')
+
+    def test_quitar_un_certificado_solo_gestion(self):
+        cert = self._cert(self.cli, datetime.date(2026, 9, 1), nombre='Para quitar')
+        url = reverse('gestion:eliminar_certificado_disposicion', args=[cert.pk])
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(self._carpeta(self.cli)), url)
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.assertTrue(CertificadoDisposicion.objects.filter(pk=cert.pk).exists())
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(self._carpeta(self.cli)), url)
+        self.assertEqual(self.client.get(url).status_code, 405, "solo POST")
+        respuesta = self.client.post(url, follow=True)
+        self.assertContains(respuesta, 'Se quitó «Para quitar» de la carpeta.')
+        self.assertFalse(CertificadoDisposicion.objects.exists())
+
+    def test_un_cliente_con_certificados_no_se_puede_borrar_por_debajo(self):
+        """PROTECT: los certificados no se pierden en silencio al borrar el cliente."""
+        from django.db.models import ProtectedError
+        self._cert(self.cli, datetime.date(2026, 9, 1))
+        with self.assertRaises(ProtectedError):
+            self.cli.delete()

@@ -1,0 +1,175 @@
+{% extends 'gestion/base.html' %}
+{% block title %}{{ cliente.nombre }} · Disposiciones finales{% endblock %}
+{% block content %}
+{# La carpeta de un cliente: sus certificados de disposición final, agrupados por mes. #}
+<style>
+.dc-migas{ font-size:.82rem; margin-bottom:.4rem; }
+.dc-migas a{ color:var(--ink-2); text-decoration:none; }
+.dc-migas a:hover{ color:var(--ink); text-decoration:underline; }
+.dc-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.dc-cab h2{ margin:0; display:flex; align-items:center; gap:.55rem; }
+.dc-cab h2 i{ color:var(--steel); }
+.dc-cab .sub{ color:var(--ink-2); font-size:.88rem; }
+.dc-cab .sub .mono{ font-family:var(--mono); }
+
+.dc-filtros{ display:flex; gap:.6rem; flex-wrap:wrap; align-items:flex-end; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--r-md); padding:.8rem 1rem; margin-bottom:1.25rem; }
+.dc-filtros .campo{ display:flex; flex-direction:column; gap:.2rem; }
+.dc-filtros label{ font-size:.72rem; color:var(--ink-2); margin:0; }
+.dc-filtros .buscar{ flex:1 1 14rem; max-width:22rem; }
+.dc-filtros input[type=date]{ font-family:var(--mono); font-size:.82rem; }
+.dc-anios{ display:flex; gap:.35rem; flex-wrap:wrap; margin-left:auto; }
+.dc-anio{ font-family:var(--mono); font-size:.8rem; padding:.35rem .75rem; min-height:32px; display:inline-flex;
+    align-items:center; border:1px solid var(--line); border-radius:99px; background:var(--panel);
+    color:var(--ink-2); text-decoration:none; }
+.dc-anio:hover{ background:var(--panel-2); color:var(--ink); }
+.dc-anio.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:600; }
+.dc-conteo{ font-size:.82rem; color:var(--ink-2); margin:-.5rem 0 1rem; }
+
+/* ---- Los meses: separadores de archivador, el mes queda fijo a la izquierda ---- */
+.dc-mes{ display:grid; grid-template-columns:9.5rem minmax(0, 1fr); gap:1.25rem; padding:1.1rem 0; border-top:1px solid var(--line); }
+.dc-mes:first-of-type{ border-top:0; padding-top:0; }
+.dc-mes-nombre{ position:sticky; top:calc(var(--topbar-h) + .75rem); align-self:start; }
+.dc-mes-nombre h3{ font-size:1rem; font-weight:600; margin:0; text-transform:capitalize; }
+.dc-mes-nombre span{ font-family:var(--mono); font-size:.74rem; color:var(--ink-3); }
+.dc-docs{ display:flex; flex-direction:column; gap:.5rem; margin:0; padding:0; list-style:none; }
+.dc-doc{ display:grid; grid-template-columns:auto minmax(0, 1fr) auto; align-items:center; gap:.85rem;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:.65rem .8rem; }
+.dc-tipo{ width:42px; height:50px; border-radius:var(--r-sm); display:flex; align-items:flex-end; justify-content:center;
+    padding-bottom:6px; font-family:var(--mono); font-size:.62rem; font-weight:600; letter-spacing:.04em;
+    color:var(--steel); background:var(--steel-tint); border:1px solid #cddcea; position:relative; }
+.dc-tipo::before{ content:""; position:absolute; top:-1px; right:-1px; border-style:solid; border-width:0 11px 11px 0;
+    border-color:transparent var(--panel) transparent transparent; }
+.dc-tipo.pdf{ color:var(--err); background:var(--err-tint); border-color:var(--err-line); }
+.dc-info{ min-width:0; }
+.dc-info .tit{ font-weight:500; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; text-decoration:none; }
+.dc-info .tit:hover{ text-decoration:underline; }
+.dc-info .meta{ font-size:.76rem; color:var(--ink-3); display:flex; flex-wrap:wrap; gap:.15rem .7rem; }
+.dc-info .meta time{ font-family:var(--mono); color:var(--ink-2); }
+.dc-acc{ display:flex; gap:.35rem; align-items:center; }
+.dc-acc .btn{ min-height:36px; display:inline-flex; align-items:center; }
+.dc-acc form{ margin:0; }
+
+.dc-vacio{ text-align:center; padding:3rem 1rem; color:var(--ink-2); background:var(--panel);
+    border:1px dashed var(--line); border-radius:var(--r-lg); }
+.dc-vacio i{ font-size:2rem; color:var(--ink-3); display:block; margin-bottom:.5rem; }
+@media (max-width:720px){
+    .dc-mes{ grid-template-columns:minmax(0, 1fr); gap:.6rem; }
+    .dc-mes-nombre{ position:static; }
+    .dc-doc{ grid-template-columns:auto minmax(0, 1fr); }
+    .dc-filtros .campo{ flex:1 1 8.5rem; min-width:0; }
+    .dc-filtros .campo input{ width:100%; }
+    .dc-acc{ grid-column:1 / -1; justify-content:flex-end; }
+    .dc-anios{ margin-left:0; }
+}
+</style>
+
+<nav class="dc-migas" aria-label="Ruta"><a href="{% url 'gestion:disposiciones_finales' %}"><i class="bi bi-chevron-left"></i> Disposiciones finales</a></nav>
+<div class="dc-cab">
+    <div>
+        <h2><i class="bi bi-folder2-open" aria-hidden="true"></i>{{ cliente.nombre }}</h2>
+        <div class="sub">{% if cliente.identificacion %}NIT <span class="mono">{{ cliente.identificacion }}</span> · {% endif %}<span class="mono">{{ n_total }}</span> certificado{{ n_total|pluralize }} de disposición final</div>
+    </div>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
+        <i class="bi bi-cloud-arrow-up me-1"></i>Subir certificados
+    </button>
+</div>
+
+{% if n_total %}
+<form method="get" class="dc-filtros" role="search" aria-label="Filtrar certificados">
+    <div class="campo buscar">
+        <label for="dc-q">Buscar</label>
+        <input type="search" name="q" id="dc-q" value="{{ q }}" class="form-control form-control-sm" placeholder="Nombre del certificado o del archivo">
+    </div>
+    <div class="campo">
+        <label for="dc-desde">Desde</label>
+        <input type="date" name="desde" id="dc-desde" value="{{ desde|date:'Y-m-d' }}" class="form-control form-control-sm">
+    </div>
+    <div class="campo">
+        <label for="dc-hasta">Hasta</label>
+        <input type="date" name="hasta" id="dc-hasta" value="{{ hasta|date:'Y-m-d' }}" class="form-control form-control-sm">
+    </div>
+    {% if anio %}<input type="hidden" name="anio" value="{{ anio }}">{% endif %}
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+    {% if filtrado %}<a href="{% url 'gestion:carpeta_disposicion' cliente.pk %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+    {% if anios|length > 1 %}
+    <div class="dc-anios" aria-label="Año">
+        <a href="?{% if q %}q={{ q|urlencode }}{% endif %}" class="dc-anio {% if not anio %}act{% endif %}">Todos</a>
+        {% for a in anios %}
+        <a href="?anio={{ a }}{% if q %}&q={{ q|urlencode }}{% endif %}" class="dc-anio {% if anio == a|stringformat:'s' %}act{% endif %}"
+           {% if anio == a|stringformat:'s' %}aria-current="true"{% endif %}>{{ a }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</form>
+{% if filtrado %}<p class="dc-conteo">{{ n_filtrados }} de {{ n_total }} certificado{{ n_total|pluralize }} con ese filtro.</p>{% endif %}
+{% endif %}
+
+{% if meses %}
+    {% for m in meses %}
+    <section class="dc-mes" aria-labelledby="mes-{{ m.mes|date:'Y-m' }}">
+        <div class="dc-mes-nombre">
+            <h3 id="mes-{{ m.mes|date:'Y-m' }}">{{ m.mes|date:"F Y" }}</h3>
+            <span>{{ m.certificados|length }} certificado{{ m.certificados|length|pluralize }}</span>
+        </div>
+        <ul class="dc-docs">
+            {% for c in m.certificados %}
+            <li class="dc-doc" id="cert-{{ c.pk }}">
+                <span class="dc-tipo {% if c.es_pdf %}pdf{% endif %}" aria-hidden="true">{% if c.es_pdf %}PDF{% else %}IMG{% endif %}</span>
+                <div class="dc-info">
+                    <a class="tit" href="{{ c.archivo.url }}" target="_blank" rel="noopener" title="{{ c.titulo }}">{{ c.titulo }}</a>
+                    <div class="meta">
+                        <span><time datetime="{{ c.fecha|date:'Y-m-d' }}">{{ c.fecha|date:"d/m/Y" }}</time></span>
+                        <span>Subido{% if c.subido_por %} por {{ c.subido_por.get_full_name|default:c.subido_por.username }}{% endif %} el {{ c.subido_en|date:"d/m/Y" }}</span>
+                    </div>
+                </div>
+                <div class="dc-acc">
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ c.archivo.url }}" target="_blank" rel="noopener"
+                       aria-label="Ver {{ c.titulo }}"><i class="bi bi-eye me-1"></i>Ver</a>
+                    {% if es_administrador %}
+                    <form method="post" action="{% url 'gestion:eliminar_certificado_disposicion' c.pk %}"
+                          onsubmit="return confirm('¿Quitar «{{ c.titulo|escapejs }}» de la carpeta? No se puede deshacer.');">
+                        {% csrf_token %}
+                        <button class="btn btn-sm btn-outline-danger" aria-label="Quitar {{ c.titulo }}"><i class="bi bi-trash"></i></button>
+                    </form>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endfor %}
+{% else %}
+<div class="dc-vacio">
+    {% if filtrado %}
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <p class="mb-2">Ningún certificado con ese filtro.</p>
+    <a href="{% url 'gestion:carpeta_disposicion' cliente.pk %}" class="btn btn-sm btn-outline-secondary">Ver todos</a>
+    {% else %}
+    <i class="bi bi-folder2" aria-hidden="true"></i>
+    <p class="mb-2">Esta carpeta está vacía.</p>
+    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
+        <i class="bi bi-cloud-arrow-up me-1"></i>Subir el primero</button>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="modal fade" id="df-subir" tabindex="-1" aria-labelledby="df-subir-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" enctype="multipart/form-data" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title" id="df-subir-titulo">Subir a la carpeta de {{ cliente.nombre }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                {% include 'gestion/partials/_subir_certificados.html' %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-primary"><i class="bi bi-cloud-arrow-up me-1"></i>Guardar en la carpeta</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

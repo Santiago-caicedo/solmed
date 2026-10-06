@@ -1,5 +1,6 @@
 # gestion/models.py
 import datetime
+import os
 import uuid
 from django.db import models, transaction
 from django.conf import settings # Para relacionar con el usuario/asesor
@@ -2527,3 +2528,42 @@ class MedidaACPM(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()}: {self.medida or '—'}"
+
+
+class CertificadoDisposicion(models.Model):
+    """
+    Gestor documental de DISPOSICIONES FINALES (oct-2026, pedido de Santiago):
+    los certificados de disposición final que emiten los gestores, guardados
+    en una carpeta por cliente con su fecha. A propósito NO se relacionan con
+    las órdenes («ni lo relacionemos a las órdenes ni nada»): es un archivo.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT,
+                                related_name='certificados_disposicion')
+    fecha = models.DateField(verbose_name="Fecha del certificado")
+    # Opcional: si se deja vacío se muestra el nombre del archivo.
+    nombre = models.CharField(max_length=150, blank=True)
+    archivo = models.FileField(upload_to='disposiciones_finales/')
+    subido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='+')
+    subido_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha', '-subido_en']
+        verbose_name = "Certificado de disposición final"
+        verbose_name_plural = "Certificados de disposición final"
+
+    def __str__(self):
+        return f"{self.titulo} — {self.cliente}"
+
+    @property
+    def nombre_archivo(self):
+        return os.path.basename(self.archivo.name) if self.archivo else ''
+
+    @property
+    def titulo(self):
+        """Lo que se muestra: el nombre que se le puso o, si no, el del archivo."""
+        return self.nombre or self.nombre_archivo
+
+    @property
+    def es_pdf(self):
+        return self.nombre_archivo.lower().endswith('.pdf')

@@ -1,0 +1,141 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Disposiciones finales{% endblock %}
+{% block content %}
+{# Gestor documental de certificados de disposición final: una carpeta por cliente. #}
+<style>
+.df-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.df-cab h2{ margin:0; }
+.df-cab .sub{ color:var(--ink-2); }
+.df-cab .sub b{ font-family:var(--mono); font-weight:600; color:var(--ink); }
+
+.df-filtros{ display:flex; gap:.6rem; flex-wrap:wrap; align-items:flex-end; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--r-md); padding:.8rem 1rem; margin-bottom:1.25rem; }
+.df-filtros .campo{ display:flex; flex-direction:column; gap:.2rem; }
+.df-filtros label{ font-size:.72rem; color:var(--ink-2); margin:0; }
+.df-filtros .buscar{ flex:1 1 16rem; max-width:24rem; }
+.df-filtros input[type=date]{ font-family:var(--mono); font-size:.82rem; }
+.df-chips{ display:flex; gap:.35rem; flex-wrap:wrap; margin-left:auto; }
+.df-chip{ font-size:.8rem; padding:.35rem .75rem; min-height:32px; display:inline-flex; align-items:center;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel); color:var(--ink-2);
+    text-decoration:none; white-space:nowrap; }
+.df-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.df-chip.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:500; }
+
+/* ---- Las carpetas: la pestaña lleva el número de certificados ---- */
+.df-rejilla{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:1.6rem 1rem; }
+.df-carpeta{ position:relative; display:flex; flex-direction:column; gap:.35rem; min-height:118px;
+    padding:1rem 1rem .85rem; margin-top:14px; text-decoration:none; color:var(--ink);
+    background:var(--panel); border:1px solid var(--line); border-top:3px solid var(--steel);
+    border-radius:0 var(--r-lg) var(--r-lg) var(--r-lg); box-shadow:0 1px 2px rgba(14,23,35,.05);
+    transition:transform .15s ease, box-shadow .15s ease; }
+.df-carpeta::before{ content:attr(data-n); position:absolute; left:-1px; top:-17px; height:17px;
+    min-width:58px; padding:0 .7rem; display:flex; align-items:center; font-family:var(--mono);
+    font-size:.7rem; font-weight:600; letter-spacing:.02em; color:#fff; background:var(--steel);
+    border-radius:var(--r-md) var(--r-md) 0 0; }
+.df-carpeta:hover{ transform:translateY(-2px); box-shadow:0 8px 20px rgba(14,23,35,.10); color:var(--ink); }
+.df-carpeta:focus-visible{ outline:2px solid var(--brand-600); outline-offset:3px; }
+.df-carpeta .nom{ font-weight:600; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2;
+    -webkit-box-orient:vertical; overflow:hidden; }
+.df-carpeta .nit{ font-family:var(--mono); font-size:.74rem; color:var(--ink-3); }
+.df-carpeta .ult{ margin-top:auto; font-size:.76rem; color:var(--ink-2); display:flex; align-items:center; gap:.35rem; }
+.df-carpeta .ult time{ font-family:var(--mono); color:var(--ink); }
+/* Vacía: la misma carpeta, apagada */
+.df-carpeta.vacia{ border-top-color:var(--line); background:var(--panel-2); box-shadow:none; }
+.df-carpeta.vacia::before{ background:var(--line); color:var(--ink-2); }
+.df-carpeta.vacia .nom{ color:var(--ink-2); font-weight:500; }
+
+.df-vacio{ text-align:center; padding:3rem 1rem; color:var(--ink-2); background:var(--panel);
+    border:1px dashed var(--line); border-radius:var(--r-lg); }
+.df-vacio i{ font-size:2rem; color:var(--ink-3); display:block; margin-bottom:.5rem; }
+
+@media (max-width:600px){
+    .df-chips{ margin-left:0; }
+    .df-filtros .buscar{ max-width:none; }
+    .df-filtros .campo{ flex:1 1 8.5rem; min-width:0; }
+    .df-filtros .campo input{ width:100%; }
+}
+</style>
+
+<div class="df-cab">
+    <div>
+        <h2>Disposiciones finales</h2>
+        <div class="sub">Los certificados de disposición final, en una carpeta por cliente ·
+            <b>{{ n_certificados }}</b> certificado{{ n_certificados|pluralize }} en <b>{{ n_con }}</b> carpeta{{ n_con|pluralize }}</div>
+    </div>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
+        <i class="bi bi-cloud-arrow-up me-1"></i>Subir certificados
+    </button>
+</div>
+
+<form method="get" class="df-filtros" role="search" aria-label="Filtrar carpetas">
+    <div class="campo buscar">
+        <label for="df-q">Cliente</label>
+        <input type="search" name="q" id="df-q" value="{{ q }}" class="form-control form-control-sm"
+               placeholder="Nombre, sigla o NIT">
+    </div>
+    <div class="campo">
+        <label for="df-desde">Certificados desde</label>
+        <input type="date" name="desde" id="df-desde" value="{{ desde|date:'Y-m-d' }}" class="form-control form-control-sm">
+    </div>
+    <div class="campo">
+        <label for="df-hasta">Hasta</label>
+        <input type="date" name="hasta" id="df-hasta" value="{{ hasta|date:'Y-m-d' }}" class="form-control form-control-sm">
+    </div>
+    <input type="hidden" name="ver" value="{{ ver }}">
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+    {% if q or desde or hasta %}<a href="?ver={{ ver }}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+    <div class="df-chips">
+        <a href="?ver=todas{% if q %}&q={{ q|urlencode }}{% endif %}{% if desde %}&desde={{ desde|date:'Y-m-d' }}{% endif %}{% if hasta %}&hasta={{ hasta|date:'Y-m-d' }}{% endif %}"
+           class="df-chip {% if ver != 'con' %}act{% endif %}" {% if ver != 'con' %}aria-current="true"{% endif %}>Todas las carpetas</a>
+        <a href="?ver=con{% if q %}&q={{ q|urlencode }}{% endif %}{% if desde %}&desde={{ desde|date:'Y-m-d' }}{% endif %}{% if hasta %}&hasta={{ hasta|date:'Y-m-d' }}{% endif %}"
+           class="df-chip {% if ver == 'con' %}act{% endif %}" {% if ver == 'con' %}aria-current="true"{% endif %}>Con certificados</a>
+    </div>
+</form>
+
+{% if carpetas %}
+<div class="df-rejilla">
+    {% for c in carpetas %}
+    <a href="{% url 'gestion:carpeta_disposicion' c.pk %}{% if desde or hasta %}?{% if desde %}desde={{ desde|date:'Y-m-d' }}{% endif %}{% if hasta %}&hasta={{ hasta|date:'Y-m-d' }}{% endif %}{% endif %}"
+       class="df-carpeta {% if not c.n %}vacia{% endif %}" data-n="{{ c.n }} {% if c.n == 1 %}certificado{% else %}certificados{% endif %}"
+       aria-label="Carpeta de {{ c.nombre }}: {{ c.n }} certificado{{ c.n|pluralize }}">
+        <span class="nom">{{ c.nombre }}</span>
+        {% if c.identificacion %}<span class="nit">NIT {{ c.identificacion }}</span>{% endif %}
+        <span class="ult">
+            {% if c.ultima %}<i class="bi bi-clock-history" aria-hidden="true"></i>Último <time datetime="{{ c.ultima|date:'Y-m-d' }}">{{ c.ultima|date:"d M Y" }}</time>
+            {% else %}<i class="bi bi-folder2" aria-hidden="true"></i>{% if desde or hasta %}Nada en esas fechas{% else %}Vacía{% endif %}{% endif %}
+        </span>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="df-vacio">
+    <i class="bi bi-folder-x" aria-hidden="true"></i>
+    {% if q or desde or hasta or ver == 'con' %}
+    <p class="mb-2">Ninguna carpeta con ese filtro.</p>
+    <a href="?" class="btn btn-sm btn-outline-secondary">Ver todas las carpetas</a>
+    {% else %}
+    <p class="mb-0">Aún no hay clientes registrados.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ---- Subir certificados: se elige la carpeta (cliente) ---- #}
+<div class="modal fade" id="df-subir" tabindex="-1" aria-labelledby="df-subir-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" enctype="multipart/form-data" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title" id="df-subir-titulo">Subir certificados</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                {% include 'gestion/partials/_subir_certificados.html' with elegir_cliente=True %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-primary"><i class="bi bi-cloud-arrow-up me-1"></i>Guardar en la carpeta</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -22,6 +22,10 @@ GRUPOS_AYUDANTE = (AYUDANTES, CONDUCTOR_AYUDANTE)
 # estrena módulo: antes su cuenta solo existía por el expediente.
 GRUPOS_BASCULA = ('Asesores', 'Auxiliares Administrativas', 'Administrativo')
 
+# Quién entra al gestor documental de DISPOSICIONES FINALES (oct-2026): los
+# mismos cargos de oficina, decisión de Santiago. Borrar es solo de gestión.
+GRUPOS_DISPOSICION_FINAL = ('Asesores', 'Auxiliares Administrativas', 'Administrativo')
+
 
 def es_de(nombres_grupos, grupos):
     """True si alguno de los grupos de la persona está en `grupos`."""

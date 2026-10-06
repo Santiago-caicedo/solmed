@@ -442,6 +442,14 @@
             </a>
         </li>
         {% endif %}
+        {% if ve_disposiciones_finales %}
+        {# Gestor documental de certificados de disposición final (ver GRUPOS_DISPOSICION_FINAL). #}
+        <li>
+            <a href="{% url 'gestion:disposiciones_finales' %}" class="nav-link {% if '/disposiciones-finales/' in request.path %}active{% endif %}">
+                <i class="bi bi-folder2-open"></i>Disposiciones finales
+            </a>
+        </li>
+        {% endif %}
         {% if es_asesor %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">

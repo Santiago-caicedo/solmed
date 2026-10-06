@@ -33,7 +33,7 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, es_de
+from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, GRUPOS_DISPOSICION_FINAL, es_de
 from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from django.http import JsonResponse
@@ -135,6 +135,14 @@ class BasculaRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         user = self.request.user
         return (es_administrador(user)
                 or user.groups.filter(name__in=GRUPOS_BASCULA).exists())
+
+
+class DisposicionFinalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """El gestor de disposiciones finales: gestión y GRUPOS_DISPOSICION_FINAL."""
+    def test_func(self):
+        user = self.request.user
+        return (es_administrador(user)
+                or user.groups.filter(name__in=GRUPOS_DISPOSICION_FINAL).exists())
 
 
 class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -7989,3 +7997,176 @@ class FacturaExcelView(AdministradorRequiredMixin, View):
             f'attachment; filename="factura_{factura.codigo}.xlsx"')
         return respuesta
 
+
+
+# ============================================================
+#  DISPOSICIONES FINALES: gestor documental de los certificados de
+#  disposición final, una carpeta por cliente (oct-2026). No se relacionan
+#  con las órdenes: es un archivo con fecha (decisión de Santiago).
+# ============================================================
+
+from .models import CertificadoDisposicion
+
+# Lo que se acepta: los gestores mandan PDF; a veces una foto del certificado.
+EXTENSIONES_CERTIFICADO = ('.pdf', '.jpg', '.jpeg', '.png', '.webp')
+TOPE_CERTIFICADO_MB = 20
+
+
+def _rango_de_fechas(request):
+    """«Desde» y «hasta» del GET como fechas (None si faltan o no son fechas)."""
+    from django.utils.dateparse import parse_date
+
+    def leer(campo):
+        try:
+            return parse_date((request.GET.get(campo) or '').strip())
+        except ValueError:
+            return None
+    return leer('desde'), leer('hasta')
+
+
+def _guardar_certificados(request, cliente):
+    """
+    Guarda los archivos del formulario como certificados de ese cliente, todos
+    con la misma fecha. Devuelve cuántos guardó, o None si algo no sirve
+    (el mensaje de error ya va puesto). O todos, o ninguno.
+    """
+    from django.utils.dateparse import parse_date
+    try:
+        fecha = parse_date((request.POST.get('fecha') or '').strip())
+    except ValueError:
+        fecha = None
+    archivos = request.FILES.getlist('archivos')
+    if fecha is None:
+        messages.error(request, "Escribe la fecha del certificado.")
+        return None
+    if not archivos:
+        messages.error(request, "Elige al menos un archivo.")
+        return None
+    for archivo in archivos:
+        if os.path.splitext(archivo.name)[1].lower() not in EXTENSIONES_CERTIFICADO:
+            messages.error(request, f"«{archivo.name}» no se puede subir: solo PDF o imagen (JPG, PNG, WEBP).")
+            return None
+        if archivo.size > TOPE_CERTIFICADO_MB * 1024 * 1024:
+            messages.error(request, f"«{archivo.name}» pesa más de {TOPE_CERTIFICADO_MB} MB.")
+            return None
+    # El nombre escrito solo vale con un archivo; con varios, cada uno lleva el suyo.
+    nombre = (request.POST.get('nombre') or '').strip()[:150] if len(archivos) == 1 else ''
+    with transaction.atomic():
+        for archivo in archivos:
+            CertificadoDisposicion.objects.create(cliente=cliente, fecha=fecha, nombre=nombre,
+                                                  archivo=archivo, subido_por=request.user)
+    return len(archivos)
+
+
+def _aviso_guardados(request, cliente, n):
+    messages.success(request, f"{'Se guardó 1 certificado' if n == 1 else f'Se guardaron {n} certificados'} "
+                              f"en la carpeta de {cliente.nombre}.")
+
+
+class DisposicionesFinalesView(DisposicionFinalRequiredMixin, View):
+    """
+    Las carpetas: una por cliente, con cuántos certificados tiene y la fecha
+    del último. Con «desde/hasta» las cifras se cuentan solo en ese rango.
+    Desde aquí también se sube (eligiendo el cliente).
+    """
+    template_name = 'gestion/disposiciones_finales.html'
+
+    def get(self, request):
+        from django.db.models import Max
+        q = (request.GET.get('q') or '').strip()
+        ver = request.GET.get('ver') or 'todas'
+        desde, hasta = _rango_de_fechas(request)
+
+        en_rango = Q()
+        if desde:
+            en_rango &= Q(certificados_disposicion__fecha__gte=desde)
+        if hasta:
+            en_rango &= Q(certificados_disposicion__fecha__lte=hasta)
+        clientes = Cliente.objects.annotate(
+            n=Count('certificados_disposicion', filter=en_rango, distinct=True),
+            ultima=Max('certificados_disposicion__fecha', filter=en_rango))
+        if q:
+            clientes = clientes.filter(Q(nombre__icontains=q) | Q(sigla__icontains=q)
+                                       | Q(identificacion__icontains=q))
+        if ver == 'con':
+            clientes = clientes.filter(n__gt=0)
+        # Las que tienen certificados primero (la más reciente arriba); luego el resto, por nombre.
+        carpetas = sorted(clientes, key=lambda c: (c.n == 0, -(c.ultima.toordinal() if c.ultima else 0),
+                                                   c.nombre.lower()))
+        return render(request, self.template_name, {
+            'carpetas': carpetas,
+            'q': q, 'ver': ver, 'desde': desde, 'hasta': hasta,
+            'n_certificados': CertificadoDisposicion.objects.count(),
+            'n_con': Cliente.objects.filter(certificados_disposicion__isnull=False).distinct().count(),
+            'clientes_todos': Cliente.objects.order_by('nombre').only('pk', 'nombre', 'identificacion'),
+            'hoy': timezone.localdate(),
+        })
+
+    def post(self, request):
+        cliente = Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        if cliente is None:
+            messages.error(request, "Elige el cliente de la carpeta.")
+            return redirect('gestion:disposiciones_finales')
+        n = _guardar_certificados(request, cliente)
+        if n is None:
+            return redirect('gestion:disposiciones_finales')
+        _aviso_guardados(request, cliente, n)
+        return redirect('gestion:carpeta_disposicion', pk=cliente.pk)
+
+
+class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
+    """
+    La carpeta de UN cliente: sus certificados, del más reciente al más viejo,
+    agrupados por mes. Filtros: nombre, desde/hasta y el año (atajos).
+    """
+    template_name = 'gestion/carpeta_disposicion.html'
+
+    def get(self, request, pk):
+        cliente = get_object_or_404(Cliente, pk=pk)
+        q = (request.GET.get('q') or '').strip()
+        anio = request.GET.get('anio') or ''
+        desde, hasta = _rango_de_fechas(request)
+        todos = cliente.certificados_disposicion.all()
+        certificados = todos.select_related('subido_por')
+        if q:
+            certificados = certificados.filter(Q(nombre__icontains=q) | Q(archivo__icontains=q))
+        if anio.isdigit():
+            certificados = certificados.filter(fecha__year=int(anio))
+        if desde:
+            certificados = certificados.filter(fecha__gte=desde)
+        if hasta:
+            certificados = certificados.filter(fecha__lte=hasta)
+        # Agrupados por mes, en el orden del modelo (más reciente primero).
+        meses = []
+        for c in certificados:
+            mes = c.fecha.replace(day=1)
+            if not meses or meses[-1]['mes'] != mes:
+                meses.append({'mes': mes, 'certificados': []})
+            meses[-1]['certificados'].append(c)
+        filtrado = bool(q or anio or desde or hasta)
+        return render(request, self.template_name, {
+            'cliente': cliente,
+            'meses': meses,
+            'n_filtrados': sum(len(m['certificados']) for m in meses),
+            'n_total': todos.count(),
+            'anios': sorted({f.year for f in todos.values_list('fecha', flat=True)}, reverse=True),
+            'q': q, 'anio': anio, 'desde': desde, 'hasta': hasta, 'filtrado': filtrado,
+            'hoy': timezone.localdate(),
+        })
+
+    def post(self, request, pk):
+        cliente = get_object_or_404(Cliente, pk=pk)
+        n = _guardar_certificados(request, cliente)
+        if n is not None:
+            _aviso_guardados(request, cliente, n)
+        return redirect('gestion:carpeta_disposicion', pk=cliente.pk)
+
+
+class EliminarCertificadoDisposicionView(AdministradorRequiredMixin, View):
+    """Quita un certificado de la carpeta (solo gestión, solo POST)."""
+    def post(self, request, pk):
+        certificado = get_object_or_404(CertificadoDisposicion, pk=pk)
+        cliente_pk, titulo = certificado.cliente_id, certificado.titulo
+        certificado.delete()
+        messages.success(request, f"Se quitó «{titulo}» de la carpeta.")
+        return redirect('gestion:carpeta_disposicion', pk=cliente_pk)

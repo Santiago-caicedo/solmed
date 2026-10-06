@@ -18,6 +18,7 @@ def crear_roles(sender, **kwargs):
         # otorga. La app autoriza por nombre de grupo (ver es_administrador en
         # views.py); estos permisos quedan por consistencia.
         "Administradores": {
+            "certificadodisposicion": ["add", "change", "view", "delete"],
             "ordenservicio": ["add", "change", "view", "delete"],
             "cliente": ["add", "change", "view", "delete"],
             "vehiculo": ["add", "change", "view", "delete"],
@@ -37,6 +38,7 @@ def crear_roles(sender, **kwargs):
             "user": ["add", "change", "view"],
         },
         "Asesores": {
+            "certificadodisposicion": ["add", "view"],
             "ordenservicio": ["add", "change", "view", "delete"],
             "cliente": ["add", "change", "view", "delete"],
             "vehiculo": ["add", "change", "view", "delete"],
@@ -81,9 +83,11 @@ def crear_roles(sender, **kwargs):
         # Sep-2026: la clienta les dedicó el trabajo de subir los tiquetes de
         # báscula, así que estos dos sí estrenan módulo (ver GRUPOS_BASCULA).
         "Auxiliares Administrativas": {
+            "certificadodisposicion": ["add", "view"],
             "ordenservicio": ["view", "change"],
         },
         "Administrativo": {
+            "certificadodisposicion": ["add", "view"],
             "ordenservicio": ["view", "change"],
         },
 
