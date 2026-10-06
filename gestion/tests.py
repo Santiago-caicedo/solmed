@@ -7748,6 +7748,8 @@ class DisposicionesFinalesTests(BaseCRM):
                 self.entrar(persona)
                 inicio = self.client.get(reverse('gestion:dashboard_redirect'), follow=True)
                 (self.assertContains if ve else self.assertNotContains)(inicio, f'href="{self.url}"')
+                (self.assertContains if ve else self.assertNotContains)(inicio, 'Certificados de disposición')
+        self.assertEqual(self.url, '/app/certificados-disposicion/')
 
     def test_una_carpeta_por_cliente_con_su_cuenta_y_su_ultimo(self):
         self._cert(self.cli, datetime.date(2026, 8, 3))

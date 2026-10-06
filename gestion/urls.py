@@ -104,10 +104,10 @@ urlpatterns = [
     # Básculas: módulo propio para subir los tiquetes de pesaje (sep-2026).
     path('basculas/', views.BasculasView.as_view(), name='basculas'),
     path('basculas/<int:pk>/', views.SubirBasculaView.as_view(), name='subir_bascula'),
-    # Disposiciones finales: gestor documental, una carpeta por cliente (oct-2026).
-    path('disposiciones-finales/', views.DisposicionesFinalesView.as_view(), name='disposiciones_finales'),
-    path('disposiciones-finales/<int:pk>/', views.CarpetaDisposicionView.as_view(), name='carpeta_disposicion'),
-    path('disposiciones-finales/certificado/<int:pk>/eliminar/', views.EliminarCertificadoDisposicionView.as_view(),
+    # Certificados de disposición: gestor documental, una carpeta por cliente (oct-2026).
+    path('certificados-disposicion/', views.DisposicionesFinalesView.as_view(), name='disposiciones_finales'),
+    path('certificados-disposicion/<int:pk>/', views.CarpetaDisposicionView.as_view(), name='carpeta_disposicion'),
+    path('certificados-disposicion/certificado/<int:pk>/eliminar/', views.EliminarCertificadoDisposicionView.as_view(),
          name='eliminar_certificado_disposicion'),
     # Facturación interna (solo administradores).
     path('facturacion/', views.ListaFacturasView.as_view(), name='lista_facturas'),

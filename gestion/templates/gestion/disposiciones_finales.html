@@ -1,5 +1,5 @@
 {% extends 'gestion/base.html' %}
-{% block title %}Disposiciones finales{% endblock %}
+{% block title %}Certificados de disposición{% endblock %}
 {% block content %}
 {# Gestor documental de certificados de disposición final: una carpeta por cliente. #}
 <style>
@@ -58,8 +58,8 @@
 
 <div class="df-cab">
     <div>
-        <h2>Disposiciones finales</h2>
-        <div class="sub">Los certificados de disposición final, en una carpeta por cliente ·
+        <h2>Certificados de disposición</h2>
+        <div class="sub">Una carpeta por cliente ·
             <b>{{ n_certificados }}</b> certificado{{ n_certificados|pluralize }} en <b>{{ n_con }}</b> carpeta{{ n_con|pluralize }}</div>
     </div>
     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">

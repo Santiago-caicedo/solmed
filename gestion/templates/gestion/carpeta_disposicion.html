@@ -1,5 +1,5 @@
 {% extends 'gestion/base.html' %}
-{% block title %}{{ cliente.nombre }} · Disposiciones finales{% endblock %}
+{% block title %}{{ cliente.nombre }} · Certificados de disposición{% endblock %}
 {% block content %}
 {# La carpeta de un cliente: sus certificados de disposición final, agrupados por mes. #}
 <style>
@@ -64,7 +64,7 @@
 }
 </style>
 
-<nav class="dc-migas" aria-label="Ruta"><a href="{% url 'gestion:disposiciones_finales' %}"><i class="bi bi-chevron-left"></i> Disposiciones finales</a></nav>
+<nav class="dc-migas" aria-label="Ruta"><a href="{% url 'gestion:disposiciones_finales' %}"><i class="bi bi-chevron-left"></i> Certificados de disposición</a></nav>
 <div class="dc-cab">
     <div>
         <h2><i class="bi bi-folder2-open" aria-hidden="true"></i>{{ cliente.nombre }}</h2>
