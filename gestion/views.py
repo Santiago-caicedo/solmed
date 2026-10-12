@@ -3794,6 +3794,19 @@ def _resolver_adjunto_correo(token):
                 'linea': (f"- Acta de servicio firmada de la orden "
                           f"#{orden.numero_orden} ({fecha:%d/%m/%Y})")}
 
+    if tipo == 'certificado' and len(partes) == 2 and partes[1].isdigit():
+        # Certificado de disposición final (oct-2026): se manda desde su gestor
+        # documental y queda aquí, en el historial, para poder reenviarlo.
+        from .models import CertificadoDisposicion
+        cert = (CertificadoDisposicion.objects.select_related('cliente')
+                .filter(pk=partes[1]).first())
+        if not cert or not cert.archivo:
+            return None
+        return {'archivo': cert.archivo,
+                'nombre': _nombre(cert.archivo.name, f"{os.path.splitext(cert.titulo)[0]} - {cert.cliente.nombre}"),
+                'linea': (f"- Certificado de disposición final: {cert.titulo} "
+                          f"({cert.fecha:%d/%m/%Y})")}
+
     if tipo == 'cliente_correo' and len(partes) == 2 and partes[1].isdigit():
         doc = (DocumentoCorreoCliente.objects.select_related('cliente')
                .filter(pk=partes[1]).first())
@@ -8276,6 +8289,7 @@ class DisposicionesFinalesView(DisposicionFinalRequiredMixin, View):
             'n_con': Cliente.objects.filter(certificados_disposicion__isnull=False).distinct().count(),
             'clientes_todos': Cliente.objects.order_by('nombre').only('pk', 'nombre', 'identificacion'),
             'hoy': timezone.localdate(),
+            **_contexto_envio_certificados(request),
         })
 
     def post(self, request):
@@ -8328,6 +8342,7 @@ class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
             'anios': sorted({f.year for f in todos.values_list('fecha', flat=True)}, reverse=True),
             'q': q, 'anio': anio, 'desde': desde, 'hasta': hasta, 'filtrado': filtrado,
             'hoy': timezone.localdate(),
+            **_contexto_envio_certificados(request, cliente),
         })
 
     def post(self, request, pk):
@@ -8346,3 +8361,140 @@ class EliminarCertificadoDisposicionView(AdministradorRequiredMixin, View):
         certificado.delete()
         messages.success(request, f"Se quitó «{titulo}» de la carpeta.")
         return redirect('gestion:carpeta_disposicion', pk=cliente_pk)
+
+
+# --- Enviar certificados por correo (oct-2026, pedido de la clienta) ---
+# Un correo POR CLIENTE, solo con sus certificados, a sus correos (se sugiere
+# el general y se puede cambiar a mano). Solo administradores y asesores, como
+# el Centro de correos, en cuyo historial queda cada envío.
+
+ASUNTO_CERTIFICADOS = "Certificados de disposición final - {cliente}"
+MENSAJE_CERTIFICADOS = ("Buen día,\n\n"
+                        "Adjuntamos los certificados de disposición final de sus residuos.")
+
+
+def _contexto_envio_certificados(request, cliente=None):
+    """Lo que necesita el popup de envío; con `cliente`, ese ya viene elegido."""
+    return {
+        'envio_asunto': ASUNTO_CERTIFICADOS,
+        'envio_mensaje': MENSAJE_CERTIFICADOS,
+        'envio_reply_to': ', '.join(getattr(settings, 'EMAIL_REPLY_TO', []) or []),
+        'envio_cliente': cliente,
+        'envio_volver': request.get_full_path(),
+    }
+
+
+class DatosEnvioCertificadosView(AsesorRequiredMixin, View):
+    """
+    Lo que pide el popup de envío, bajo demanda (nunca la lista entera):
+      ?q=<texto>     clientes CON certificados que coinciden (máx. 8)
+      ?cliente=<id>  ese cliente con su correo sugerido y sus certificados
+    """
+    def get(self, request):
+        cliente_pk = request.GET.get('cliente') or ''
+        if cliente_pk.isdigit():
+            cliente = get_object_or_404(Cliente, pk=cliente_pk)
+            return JsonResponse({'cliente': {
+                'pk': cliente.pk, 'nombre': cliente.nombre,
+                'nit': cliente.identificacion or '',
+                'correo': cliente.email or '',
+                'certificados': [
+                    {'pk': c.pk, 'titulo': c.titulo, 'fecha': c.fecha.strftime('%d/%m/%Y'),
+                     'mes': c.fecha.strftime('%Y-%m'), 'pdf': c.es_pdf}
+                    for c in cliente.certificados_disposicion.all()],
+            }})
+        q = (request.GET.get('q') or '').strip()
+        if len(q) < 2:
+            return JsonResponse({'clientes': []})
+        clientes = (Cliente.objects
+                    .filter(Q(nombre__icontains=q) | Q(sigla__icontains=q) | Q(identificacion__icontains=q))
+                    .annotate(n=Count('certificados_disposicion'))
+                    .filter(n__gt=0).order_by('nombre')[:8])
+        return JsonResponse({'clientes': [
+            {'pk': c.pk, 'nombre': c.nombre, 'nit': c.identificacion or '', 'n': c.n} for c in clientes]})
+
+
+class EnviarCertificadosView(AsesorRequiredMixin, View):
+    """
+    Envía los certificados marcados: un correo por cliente. Primero se valida
+    TODO (correos, que cada certificado sea de su cliente, el peso); si algo
+    falla no sale ninguno. Cada envío queda en el historial del Centro de
+    correos, también los que el servidor rechace.
+    """
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+        volver = request.POST.get('volver') or reverse('gestion:disposiciones_finales')
+        if not volver.startswith('/'):
+            volver = reverse('gestion:disposiciones_finales')
+        asunto = (request.POST.get('asunto') or '').strip()[:200]
+        mensaje = (request.POST.get('mensaje') or '').strip()
+        responder_a = (request.POST.get('responder_a') or '').strip()
+        errores, envios = [], []
+        if not asunto:
+            errores.append("Escribe el asunto del correo.")
+        for c in _lista_correos(responder_a):
+            try:
+                validate_email(c)
+            except ValidationError:
+                errores.append(f"«{c}» no es un correo válido para las respuestas.")
+        pks = [int(x) for x in request.POST.getlist('cliente') if str(x).isdigit()]
+        if not pks:
+            errores.append("Elige al menos un cliente.")
+        for cliente in Cliente.objects.filter(pk__in=pks).order_by('nombre'):
+            correos = _lista_correos(request.POST.get(f'destinatarios_{cliente.pk}'))
+            if not correos:
+                errores.append(f"Escribe al menos un correo para {cliente.nombre}.")
+            for c in correos:
+                try:
+                    validate_email(c)
+                except ValidationError:
+                    errores.append(f"«{c}» ({cliente.nombre}) no es un correo válido.")
+            ids = [int(x) for x in request.POST.getlist(f'certificados_{cliente.pk}') if str(x).isdigit()]
+            # Solo los de ESTE cliente: nunca se cuela el certificado de otro.
+            certificados = list(cliente.certificados_disposicion.filter(pk__in=ids))
+            if not certificados:
+                errores.append(f"Marca al menos un certificado de {cliente.nombre}.")
+                continue
+            resueltos = [_resolver_adjunto_correo(f'certificado:{c.pk}') for c in certificados]
+            if any(r is None for r in resueltos):
+                errores.append(f"Un certificado de {cliente.nombre} ya no tiene su archivo.")
+                continue
+            peso = sum(_peso_adjunto(r) for r in resueltos)
+            if peso > PESO_MAX_ADJUNTOS:
+                errores.append(
+                    f"Los certificados de {cliente.nombre} pesan ≈ {peso / (1024 * 1024):.1f} MB "
+                    f"(límite práctico: {PESO_MAX_ADJUNTOS // (1024 * 1024)} MB). Envíalos en dos partes.")
+                continue
+            envios.append((cliente, correos, certificados, resueltos))
+        if errores:
+            for e in errores:
+                messages.error(request, e)
+            messages.info(request, "No se envió ningún correo.")
+            return redirect(volver)
+
+        enviados, fallidos = [], []
+        for cliente, correos, certificados, resueltos in envios:
+            asunto_cliente = asunto.replace('{cliente}', cliente.nombre)[:200]
+            registro = EnvioCorreo(
+                cliente=cliente, destinatarios=', '.join(correos), asunto=asunto_cliente,
+                mensaje=mensaje or MENSAJE_CERTIFICADOS,
+                adjuntos=[f'certificado:{c.pk}' for c in certificados],
+                adjuntos_detalle=[r['linea'][2:] for r in resueltos],
+                responder_a=responder_a, enviado_por=request.user)
+            try:
+                _armar_correo_envio(correos, asunto_cliente, mensaje or MENSAJE_CERTIFICADOS,
+                                    resueltos, cliente, responder_a).send(fail_silently=False)
+            except Exception as e:
+                registro.estado, registro.error = 'FALLIDO', str(e)
+                fallidos.append(cliente.nombre)
+            else:
+                enviados.append(cliente.nombre)
+            registro.save()
+        if enviados:
+            messages.success(request, (f"Se envió el correo a {enviados[0]}." if len(enviados) == 1 else
+                                       f"Se enviaron {len(enviados)} correos: {', '.join(enviados)}."))
+        if fallidos:
+            messages.error(request, f"El servidor de correo rechazó el envío a {', '.join(fallidos)}. "
+                                    f"Quedó registrado en el Centro de correos para reenviarlo.")
+        return redirect(volver)

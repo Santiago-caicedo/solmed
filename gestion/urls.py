@@ -107,6 +107,8 @@ urlpatterns = [
     # Certificados de disposición: gestor documental, una carpeta por cliente (oct-2026).
     path('certificados-disposicion/', views.DisposicionesFinalesView.as_view(), name='disposiciones_finales'),
     path('certificados-disposicion/<int:pk>/', views.CarpetaDisposicionView.as_view(), name='carpeta_disposicion'),
+    path('certificados-disposicion/enviar/', views.EnviarCertificadosView.as_view(), name='enviar_certificados'),
+    path('certificados-disposicion/enviar/datos/', views.DatosEnvioCertificadosView.as_view(), name='datos_envio_certificados'),
     path('certificados-disposicion/certificado/<int:pk>/eliminar/', views.EliminarCertificadoDisposicionView.as_view(),
          name='eliminar_certificado_disposicion'),
     # Facturación interna (solo administradores).

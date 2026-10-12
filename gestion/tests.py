@@ -8022,3 +8022,122 @@ class DisposicionesFinalesTests(BaseCRM):
         self._cert(self.cli, datetime.date(2026, 9, 1))
         with self.assertRaises(ProtectedError):
             self.cli.delete()
+
+
+class EnvioDeCertificadosTests(BaseCRM):
+    """
+    Enviar certificados de disposición por correo (oct-2026, pedido de la
+    clienta): un correo POR CLIENTE, solo con sus certificados, al correo que
+    se escriba (se sugiere el general). Solo administradores y asesores.
+    """
+
+    def setUp(self):
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.auxiliar = self.persona('auxi', 'Auxiliares Administrativas', 'Luz', 'Mora')
+        self.pollos = self.cliente('Pollos Savicol SAS', identificacion='800111', email='jorge@pollos.co')
+        self.olimpica = self.cliente('Olímpica SAS', identificacion='800222', email='')
+        self.sin_certs = self.cliente('Hotel Andino SAS', identificacion='800333')
+        self.p1 = self._cert(self.pollos, 'Certificado_Jun_2026.pdf', datetime.date(2026, 6, 30))
+        self.p2 = self._cert(self.pollos, 'Certificado_May_2026.pdf', datetime.date(2026, 5, 31))
+        self.o1 = self._cert(self.olimpica, 'Olimpica_Sep.pdf', datetime.date(2026, 9, 15))
+        self.url = reverse('gestion:enviar_certificados')
+        self.datos = reverse('gestion:datos_envio_certificados')
+
+    def _cert(self, cliente, nombre, fecha):
+        return CertificadoDisposicion.objects.create(
+            cliente=cliente, fecha=fecha, archivo=SimpleUploadedFile(nombre, b'%PDF-1.4 ' + nombre.encode()))
+
+    def _post(self, **extra):
+        datos = {'cliente': [self.pollos.pk, self.olimpica.pk],
+                 f'destinatarios_{self.pollos.pk}': 'jorge@pollos.co',
+                 f'certificados_{self.pollos.pk}': [self.p1.pk, self.p2.pk],
+                 f'destinatarios_{self.olimpica.pk}': 'ambiental@olimpica.co, otro@olimpica.co',
+                 f'certificados_{self.olimpica.pk}': [self.o1.pk],
+                 'asunto': 'Certificados de disposición final - {cliente}',
+                 'mensaje': 'Buen día, adjuntamos sus certificados.',
+                 'responder_a': '', 'volver': reverse('gestion:disposiciones_finales')}
+        datos.update(extra)
+        return self.client.post(self.url, datos, follow=True)
+
+    def test_solo_gestion_y_asesores_envian(self):
+        self.entrar(self.auxiliar)
+        self.assertEqual(self.client.post(self.url, {}).status_code, 403)
+        self.assertEqual(self.client.get(self.datos + '?q=pollos').status_code, 403)
+        pagina = self.client.get(reverse('gestion:disposiciones_finales'))
+        self.assertNotContains(pagina, 'Enviar por correo', msg_prefix="los auxiliares suben y consultan, no envían")
+        self.assertNotContains(pagina, 'id="ec-modal"')
+        self.entrar(self.asesor)
+        self.assertContains(self.client.get(reverse('gestion:disposiciones_finales')), 'Enviar por correo')
+        carpeta = self.client.get(reverse('gestion:carpeta_disposicion', args=[self.pollos.pk]))
+        self.assertContains(carpeta, f'data-cliente="{self.pollos.pk}"', msg_prefix="desde su carpeta, ya viene elegido")
+
+    def test_el_popup_trae_los_clientes_bajo_demanda(self):
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(self.datos + '?q=p').json()['clientes'], [], "mínimo 2 letras")
+        clientes = self.client.get(self.datos + '?q=SAS').json()['clientes']
+        self.assertEqual({c['pk'] for c in clientes}, {self.pollos.pk, self.olimpica.pk},
+                         "solo los que tienen certificados")
+        cliente = self.client.get(self.datos + f'?cliente={self.pollos.pk}').json()['cliente']
+        self.assertEqual(cliente['correo'], 'jorge@pollos.co', "se sugiere el correo general")
+        self.assertEqual([c['pk'] for c in cliente['certificados']], [self.p1.pk, self.p2.pk])
+
+    def test_sale_un_correo_por_cliente_solo_con_sus_certificados(self):
+        self.entrar(self.asesor)
+        respuesta = self._post()
+        self.assertContains(respuesta, 'Se enviaron 2 correos')
+        self.assertEqual(len(mail.outbox), 2)
+        por_asunto = {m.subject: m for m in mail.outbox}
+        pollos = por_asunto['Certificados de disposición final - Pollos Savicol SAS']
+        olimpica = por_asunto['Certificados de disposición final - Olímpica SAS']
+        self.assertEqual(pollos.to, ['jorge@pollos.co'])
+        self.assertEqual(olimpica.to, ['ambiental@olimpica.co', 'otro@olimpica.co'], "el correo se escribe a mano")
+        self.assertEqual(len(pollos.attachments), 2)
+        self.assertEqual(len(olimpica.attachments), 1)
+        self.assertTrue(all('Pollos' in a[0] for a in pollos.attachments))
+        self.assertIn('Olimpica_Sep', olimpica.attachments[0][0])
+        # Quedan en el historial del Centro de correos, uno por cliente.
+        registros = EnvioCorreo.objects.order_by('cliente__nombre')
+        self.assertEqual([r.cliente for r in registros], [self.olimpica, self.pollos])
+        self.assertEqual(registros[1].adjuntos, [f'certificado:{self.p1.pk}', f'certificado:{self.p2.pk}'])
+        self.assertEqual({r.enviado_por for r in registros}, {self.asesor})
+
+    def test_si_algo_no_sirve_no_sale_ningun_correo(self):
+        self.entrar(self.asesor)
+        casos = [
+            ({f'certificados_{self.pollos.pk}': [self.p1.pk, self.o1.pk],
+              f'certificados_{self.olimpica.pk}': []}, 'Marca al menos un certificado de Olímpica SAS.'),
+            ({f'destinatarios_{self.olimpica.pk}': ''}, 'Escribe al menos un correo para Olímpica SAS.'),
+            ({f'destinatarios_{self.pollos.pk}': 'no-es-correo'}, '«no-es-correo» (Pollos Savicol SAS) no es un correo válido.'),
+            ({'asunto': ''}, 'Escribe el asunto del correo.'),
+            ({'cliente': []}, 'Elige al menos un cliente.'),
+        ]
+        for extra, error in casos:
+            with self.subTest(error=error):
+                respuesta = self._post(**extra)
+                self.assertContains(respuesta, error)
+                self.assertContains(respuesta, 'No se envió ningún correo.')
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertFalse(EnvioCorreo.objects.exists())
+
+    def test_un_certificado_de_otro_cliente_no_se_cuela(self):
+        self.entrar(self.asesor)
+        self._post(**{'cliente': [self.pollos.pk], f'certificados_{self.pollos.pk}': [self.p1.pk, self.o1.pk]})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(len(mail.outbox[0].attachments), 1, "el de Olímpica se ignora")
+        self.assertEqual(EnvioCorreo.objects.get().adjuntos, [f'certificado:{self.p1.pk}'])
+
+    def test_si_el_servidor_rechaza_queda_registrado_como_fallido(self):
+        self.entrar(self.asesor)
+        with patch('django.core.mail.EmailMultiAlternatives.send', side_effect=OSError('SMTP caído')):
+            respuesta = self._post(**{'cliente': [self.pollos.pk]})
+        self.assertContains(respuesta, 'rechazó el envío a Pollos Savicol SAS')
+        registro = EnvioCorreo.objects.get()
+        self.assertEqual(registro.estado, 'FALLIDO')
+        self.assertIn('SMTP caído', registro.error)
+
+    def test_el_centro_de_correos_puede_reenviarlos(self):
+        from .views import _resolver_adjunto_correo
+        r = _resolver_adjunto_correo(f'certificado:{self.p1.pk}')
+        self.assertEqual(r['nombre'], 'Certificado_Jun_2026 - Pollos Savicol SAS.pdf')
+        self.assertIn('Certificado de disposición final', r['linea'])
+        self.assertIsNone(_resolver_adjunto_correo('certificado:999999'))

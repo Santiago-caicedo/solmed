@@ -62,9 +62,16 @@
         <div class="sub">Una carpeta por cliente ·
             <b>{{ n_certificados }}</b> certificado{{ n_certificados|pluralize }} en <b>{{ n_con }}</b> carpeta{{ n_con|pluralize }}</div>
     </div>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
-        <i class="bi bi-cloud-arrow-up me-1"></i>Subir certificados
-    </button>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if es_asesor %}
+        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#ec-modal">
+            <i class="bi bi-envelope-paper me-1"></i>Enviar por correo
+        </button>
+        {% endif %}
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
+            <i class="bi bi-cloud-arrow-up me-1"></i>Subir certificados
+        </button>
+    </div>
 </div>
 
 <form method="get" class="df-filtros" role="search" aria-label="Filtrar carpetas">
@@ -138,4 +145,5 @@
         </form>
     </div>
 </div>
+{% if es_asesor %}{% include 'gestion/partials/_enviar_certificados.html' %}{% endif %}
 {% endblock %}

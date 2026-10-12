@@ -1,0 +1,330 @@
+{# Popup para enviar certificados por correo (oct-2026): un correo POR CLIENTE, solo con sus certificados. Solo gestión y asesores. #}
+{# Pasos: 1 clientes (buscador bajo demanda) · 2 certificados · 3 correo · 4 revisar y enviar. Un solo <form>, se envía solo desde el paso 4. #}
+<style>
+.ec-pasos{ display:grid; grid-template-columns:repeat(4,1fr); gap:.35rem; margin:0; padding:0; list-style:none; }
+.ec-pasos li{ font-size:.78rem; font-weight:600; color:var(--ink-3); border-top:3px solid var(--line); padding-top:.4rem; }
+.ec-pasos li .n{ font-family:var(--mono); margin-right:.3rem; }
+.ec-pasos li[aria-current="step"]{ color:var(--steel); border-top-color:var(--steel); }
+.ec-pasos li.hecho{ color:var(--ok); border-top-color:var(--ok); }
+.ec-paso h6{ font-size:1.02rem; font-weight:700; margin:0 0 .25rem; }
+/* El foco va al título de cada paso (para lectores de pantalla), sin recuadro visible. */
+.ec-paso h6:focus{ outline:none; }
+.ec-paso .ayuda{ font-size:.85rem; color:var(--ink-2); margin:0 0 .9rem; }
+.ec-buscar{ position:relative; }
+.ec-resultados{ list-style:none; margin:.4rem 0 0; padding:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.ec-resultados:empty{ display:none; }
+.ec-resultados button{ display:flex; justify-content:space-between; align-items:center; gap:.6rem; width:100%; min-height:48px;
+    padding:.5rem .8rem; background:var(--panel); border:0; border-top:1px solid var(--line-2); text-align:left; }
+.ec-resultados li:first-child button{ border-top:0; }
+.ec-resultados button:hover, .ec-resultados button:focus-visible{ background:var(--steel-tint); }
+.ec-resultados .nit{ font-family:var(--mono); font-size:.75rem; color:var(--ink-3); }
+.ec-resultados .n{ font-family:var(--mono); font-size:.75rem; color:var(--steel); white-space:nowrap; }
+.ec-nada{ font-size:.85rem; color:var(--ink-3); margin-top:.5rem; }
+.ec-elegidos{ display:flex; flex-wrap:wrap; gap:.4rem; margin-top:1rem; }
+.ec-chip{ display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .4rem .35rem .75rem; border-radius:99px;
+    background:var(--steel-tint); border:1px solid #cddcea; font-size:.85rem; font-weight:600; }
+.ec-chip button{ width:28px; height:28px; border-radius:50%; border:0; background:transparent; color:var(--ink-2); }
+.ec-chip button:hover{ background:#fff; color:var(--err); }
+.ec-grupo{ border:1px solid var(--line); border-radius:12px; margin-bottom:.8rem; overflow:hidden; }
+.ec-grupo > .cab{ display:flex; justify-content:space-between; align-items:center; gap:.6rem; padding:.6rem .85rem;
+    background:var(--panel-2); border-bottom:1px solid var(--line-2); }
+.ec-grupo > .cab strong{ font-size:.92rem; }
+.ec-grupo > .cab .cuenta{ font-family:var(--mono); font-size:.75rem; color:var(--ink-3); }
+.ec-certs{ max-height:260px; overflow:auto; }
+.ec-cert{ display:flex; align-items:center; gap:.65rem; min-height:46px; padding:.35rem .85rem; margin:0; border-top:1px solid var(--line-2); cursor:pointer; }
+.ec-cert:first-child{ border-top:0; }
+.ec-cert:hover{ background:var(--panel-2); }
+.ec-cert input{ width:1.15rem; height:1.15rem; flex-shrink:0; }
+.ec-cert .t{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.9rem; }
+.ec-cert .f{ font-family:var(--mono); font-size:.75rem; color:var(--ink-3); }
+.ec-para{ display:grid; grid-template-columns:minmax(0,1fr); gap:.2rem; margin-bottom:.7rem; }
+.ec-para label{ font-size:.82rem; font-weight:600; color:var(--ink-2); margin:0; }
+.ec-para .sin{ font-size:.78rem; color:var(--warn); }
+.ec-resumen{ border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:1rem; }
+.ec-resumen .fila{ padding:.7rem .9rem; border-top:1px solid var(--line-2); }
+.ec-resumen .fila:first-child{ border-top:0; }
+.ec-resumen .fila strong{ display:block; }
+.ec-resumen .fila span{ display:block; font-size:.82rem; color:var(--ink-2); }
+.ec-previa{ border:1px dashed var(--line); border-radius:12px; padding:.9rem 1rem; background:var(--panel-2); font-size:.88rem; white-space:pre-line; }
+.ec-previa .asunto{ font-weight:700; white-space:normal; margin-bottom:.5rem; }
+</style>
+
+<div class="modal fade" id="ec-modal" tabindex="-1" aria-labelledby="ec-titulo" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-md-down">
+    <form method="post" action="{% url 'gestion:enviar_certificados' %}" class="modal-content" id="ec-form"
+          data-datos="{% url 'gestion:datos_envio_certificados' %}" {% if envio_cliente %}data-cliente="{{ envio_cliente.pk }}"{% endif %}>
+      {% csrf_token %}
+      <input type="hidden" name="volver" value="{{ envio_volver }}">
+      <div class="modal-header flex-column align-items-stretch gap-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <h5 class="modal-title" id="ec-titulo"><i class="bi bi-envelope-paper me-1" aria-hidden="true"></i>Enviar certificados por correo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <ol class="ec-pasos">
+          <li data-paso="1"><span class="n">1</span>Clientes</li>
+          <li data-paso="2"><span class="n">2</span>Certificados</li>
+          <li data-paso="3"><span class="n">3</span>Correo</li>
+          <li data-paso="4"><span class="n">4</span>Revisar</li>
+        </ol>
+      </div>
+      <div class="modal-body">
+        <section class="ec-paso" data-paso="1">
+          <h6 tabindex="-1">¿A qué clientes?</h6>
+          <p class="ayuda">Cada cliente recibe su propio correo, solo con sus certificados.</p>
+          <div class="ec-buscar">
+            <label class="visually-hidden" for="ec-q">Buscar cliente</label>
+            <input type="search" id="ec-q" class="form-control" placeholder="Nombre, sigla o NIT del cliente" autocomplete="off">
+            <ul class="ec-resultados" id="ec-resultados" aria-label="Resultados"></ul>
+            <div class="ec-nada" id="ec-nada" hidden>Ningún cliente con certificados coincide.</div>
+          </div>
+          <div class="ec-elegidos" id="ec-elegidos" aria-live="polite"></div>
+        </section>
+        <section class="ec-paso" data-paso="2" hidden>
+          <h6 tabindex="-1">¿Qué certificados?</h6>
+          <p class="ayuda">Marca los que se le envían a cada cliente.</p>
+          <div id="ec-grupos"></div>
+        </section>
+        <section class="ec-paso" data-paso="3" hidden>
+          <h6 tabindex="-1">El correo</h6>
+          <p class="ayuda">Se sugiere el correo del cliente; puedes cambiarlo o escribir otro (varios, separados por coma).</p>
+          <div id="ec-para"></div>
+          <div class="mb-3">
+            <label class="form-label" for="ec-asunto">Asunto</label>
+            <input type="text" name="asunto" id="ec-asunto" class="form-control" maxlength="200" value="{{ envio_asunto }}" required>
+            <div class="form-text"><code>{cliente}</code> se cambia por el nombre de cada cliente.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="ec-mensaje">Mensaje</label>
+            <textarea name="mensaje" id="ec-mensaje" class="form-control" rows="4">{{ envio_mensaje }}</textarea>
+          </div>
+          <div>
+            <label class="form-label" for="ec-responder">Responder a</label>
+            <input type="text" name="responder_a" id="ec-responder" class="form-control" value="{{ envio_reply_to }}">
+            <div class="form-text">A dónde llegan las respuestas del cliente.</div>
+          </div>
+        </section>
+        <section class="ec-paso" data-paso="4" hidden>
+          <h6 tabindex="-1">Revisa y envía</h6>
+          <p class="ayuda" id="ec-cuantos"></p>
+          <div class="ec-resumen" id="ec-resumen"></div>
+          <div class="small fw-semibold text-muted mb-1">Así se ve el primero:</div>
+          <div class="ec-previa" id="ec-previa"></div>
+        </section>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" id="ec-atras" hidden><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Atrás</button>
+        <span class="small text-muted ms-auto me-2" id="ec-falta"></span>
+        <button type="button" class="btn btn-primary" id="ec-siguiente">Siguiente<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i></button>
+        <button type="submit" class="btn btn-success" id="ec-enviar" hidden><i class="bi bi-send me-1" aria-hidden="true"></i>Enviar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('ec-form');
+  if (!form) return;
+  var urlDatos = form.dataset.datos;
+  var clientes = [];          // [{pk, nombre, nit, correo, certificados:[...]}] en el orden elegido
+  var paso = 1;
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, attrs, texto) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    if (texto !== undefined) e.textContent = texto;
+    return e;
+  }
+
+  // ---- Paso 1: buscar y elegir clientes (bajo demanda, nunca la lista entera) ----
+  var q = $('ec-q'), lista = $('ec-resultados'), nada = $('ec-nada'), espera, pedido;
+  q.addEventListener('input', function () {
+    clearTimeout(espera);
+    espera = setTimeout(buscar, 250);
+  });
+  q.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+  function buscar() {
+    var texto = q.value.trim();
+    lista.innerHTML = ''; nada.hidden = true;
+    if (texto.length < 2) return;
+    if (pedido) pedido.abort();
+    pedido = new AbortController();
+    fetch(urlDatos + '?q=' + encodeURIComponent(texto), { signal: pedido.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        lista.innerHTML = '';
+        nada.hidden = data.clientes.length > 0;
+        data.clientes.forEach(function (c) {
+          var li = el('li'), b = el('button', { type: 'button' });
+          var izq = el('span'); izq.appendChild(el('span', {}, c.nombre));
+          if (c.nit) { izq.appendChild(document.createTextNode(' ')); izq.appendChild(el('span', { 'class': 'nit' }, 'NIT ' + c.nit)); }
+          b.appendChild(izq);
+          var ya = clientes.some(function (x) { return x.pk === c.pk; });
+          b.appendChild(el('span', { 'class': 'n' }, ya ? '✓ elegido' : c.n + ' certificado' + (c.n === 1 ? '' : 's')));
+          b.addEventListener('click', function () { agregar(c.pk); q.value = ''; lista.innerHTML = ''; q.focus(); });
+          li.appendChild(b); lista.appendChild(li);
+        });
+      }).catch(function () {});
+  }
+  function agregar(pk) {
+    if (clientes.some(function (x) { return x.pk === pk; })) return;
+    return fetch(urlDatos + '?cliente=' + pk).then(function (r) { return r.json(); }).then(function (data) {
+      if (clientes.some(function (x) { return x.pk === pk; })) return;
+      clientes.push(data.cliente);
+      pintarElegidos(); pintarGrupos(); pintarPara(); actualizar();
+    });
+  }
+  function quitar(pk) {
+    clientes = clientes.filter(function (x) { return x.pk !== pk; });
+    pintarElegidos(); pintarGrupos(); pintarPara(); actualizar();
+  }
+  function pintarElegidos() {
+    var caja = $('ec-elegidos'); caja.innerHTML = '';
+    clientes.forEach(function (c) {
+      var chip = el('span', { 'class': 'ec-chip' }, c.nombre);
+      chip.appendChild(el('input', { type: 'hidden', name: 'cliente', value: c.pk }));
+      var x = el('button', { type: 'button', 'aria-label': 'Quitar a ' + c.nombre });
+      x.innerHTML = '<i class="bi bi-x-lg" aria-hidden="true"></i>';
+      x.addEventListener('click', function () { quitar(c.pk); });
+      chip.appendChild(x); caja.appendChild(chip);
+    });
+  }
+
+  // ---- Paso 2: los certificados de cada cliente ----
+  function pintarGrupos() {
+    var caja = $('ec-grupos');
+    var marcados = {};
+    caja.querySelectorAll('input[type=checkbox]:checked').forEach(function (i) { marcados[i.value] = true; });
+    caja.innerHTML = '';
+    clientes.forEach(function (c) {
+      var g = el('div', { 'class': 'ec-grupo' }), cab = el('div', { 'class': 'cab' });
+      var tit = el('div'); tit.appendChild(el('strong', {}, c.nombre)); tit.appendChild(document.createTextNode(' '));
+      var cuenta = el('span', { 'class': 'cuenta' }); tit.appendChild(cuenta);
+      var todos = el('button', { type: 'button', 'class': 'btn btn-sm btn-outline-secondary' }, 'Marcar todos');
+      cab.appendChild(tit); cab.appendChild(todos); g.appendChild(cab);
+      var certs = el('div', { 'class': 'ec-certs' });
+      c.certificados.forEach(function (ct) {
+        var lab = el('label', { 'class': 'ec-cert' });
+        var chk = el('input', { type: 'checkbox', name: 'certificados_' + c.pk, value: ct.pk, 'class': 'form-check-input' });
+        if (marcados[ct.pk]) chk.checked = true;
+        lab.appendChild(chk);
+        lab.appendChild(el('span', { 'class': 't' }, ct.titulo));
+        lab.appendChild(el('span', { 'class': 'f' }, ct.fecha));
+        certs.appendChild(lab);
+      });
+      g.appendChild(certs); caja.appendChild(g);
+      function contar() {
+        var n = certs.querySelectorAll('input:checked').length;
+        cuenta.textContent = n + ' de ' + c.certificados.length;
+        todos.textContent = n === c.certificados.length ? 'Desmarcar todos' : 'Marcar todos';
+      }
+      todos.addEventListener('click', function () {
+        var marcar = certs.querySelectorAll('input:checked').length !== c.certificados.length;
+        certs.querySelectorAll('input').forEach(function (i) { i.checked = marcar; });
+        contar(); actualizar();
+      });
+      certs.addEventListener('change', function () { contar(); actualizar(); });
+      contar();
+    });
+  }
+
+  // ---- Paso 3: a qué correo va cada uno (sugerido el del cliente, editable) ----
+  function pintarPara() {
+    var caja = $('ec-para');
+    var escritos = {};
+    caja.querySelectorAll('input').forEach(function (i) { escritos[i.name] = i.value; });
+    caja.innerHTML = '';
+    clientes.forEach(function (c) {
+      var nombre = 'destinatarios_' + c.pk, id = 'ec-para-' + c.pk;
+      var fila = el('div', { 'class': 'ec-para' });
+      fila.appendChild(el('label', { 'for': id }, 'Para ' + c.nombre));
+      var inp = el('input', { type: 'text', name: nombre, id: id, 'class': 'form-control', autocomplete: 'off',
+                              placeholder: 'correo@cliente.com' });
+      inp.value = nombre in escritos ? escritos[nombre] : (c.correo || '');
+      fila.appendChild(inp);
+      if (!c.correo) fila.appendChild(el('span', { 'class': 'sin' }, 'Este cliente no tiene correo registrado: escríbelo aquí.'));
+      inp.addEventListener('input', actualizar);
+      caja.appendChild(fila);
+    });
+  }
+
+  // ---- Paso 4: resumen y vista previa ----
+  function pintarResumen() {
+    var caja = $('ec-resumen'); caja.innerHTML = '';
+    clientes.forEach(function (c) {
+      var n = form.querySelectorAll('input[name="certificados_' + c.pk + '"]:checked').length;
+      var para = form.querySelector('input[name="destinatarios_' + c.pk + '"]').value;
+      var fila = el('div', { 'class': 'fila' });
+      fila.appendChild(el('strong', {}, c.nombre));
+      fila.appendChild(el('span', {}, n + ' certificado' + (n === 1 ? '' : 's') + ' · para ' + para));
+      caja.appendChild(fila);
+    });
+    var k = clientes.length;
+    $('ec-cuantos').textContent = 'Se enviará' + (k === 1 ? ' 1 correo' : 'n ' + k + ' correos') + ', uno por cliente.';
+    $('ec-enviar').innerHTML = '<i class="bi bi-send me-1" aria-hidden="true"></i>Enviar ' + (k === 1 ? '1 correo' : k + ' correos');
+    var previa = $('ec-previa'); previa.innerHTML = '';
+    if (!k) return;
+    var c = clientes[0];
+    previa.appendChild(el('div', { 'class': 'asunto' }, $('ec-asunto').value.split('{cliente}').join(c.nombre)));
+    var adj = [];
+    form.querySelectorAll('input[name="certificados_' + c.pk + '"]:checked').forEach(function (i) {
+      adj.push('• ' + i.parentNode.querySelector('.t').textContent);
+    });
+    previa.appendChild(document.createTextNode($('ec-mensaje').value + '\n\nDocumentos adjuntos:\n' + adj.join('\n') + '\n\nCordialmente,\nSOLMED SAS'));
+  }
+
+  // ---- Navegación: «Siguiente» solo con lo que pide cada paso ----
+  function falta() {
+    if (paso === 1 && !clientes.length) return 'Elige al menos un cliente.';
+    if (paso === 2) {
+      var sin = clientes.filter(function (c) { return !form.querySelector('input[name="certificados_' + c.pk + '"]:checked'); });
+      if (sin.length) return 'Marca al menos un certificado de ' + sin[0].nombre + '.';
+    }
+    if (paso === 3) {
+      var vacio = clientes.filter(function (c) { return !form.querySelector('input[name="destinatarios_' + c.pk + '"]').value.trim(); });
+      if (vacio.length) return 'Escribe el correo de ' + vacio[0].nombre + '.';
+      if (!$('ec-asunto').value.trim()) return 'Escribe el asunto.';
+    }
+    return '';
+  }
+  function actualizar() {
+    var msg = falta();
+    $('ec-falta').textContent = msg;
+    $('ec-siguiente').disabled = !!msg;
+  }
+  function ir(n) {
+    paso = n;
+    form.querySelectorAll('.ec-paso').forEach(function (s) { s.hidden = +s.dataset.paso !== n; });
+    form.querySelectorAll('.ec-pasos li').forEach(function (li) {
+      var p = +li.dataset.paso;
+      li.classList.toggle('hecho', p < n);
+      if (p === n) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
+    });
+    $('ec-atras').hidden = n === 1;
+    $('ec-siguiente').hidden = n === 4;
+    $('ec-enviar').hidden = n !== 4;
+    if (n === 4) pintarResumen();
+    actualizar();
+    var h = form.querySelector('.ec-paso[data-paso="' + n + '"] h6'); if (h) h.focus();
+  }
+  $('ec-siguiente').addEventListener('click', function () { if (!falta()) ir(paso + 1); });
+  $('ec-atras').addEventListener('click', function () { ir(paso - 1); });
+  $('ec-asunto').addEventListener('input', actualizar);
+  // Enter no envía desde los pasos 1-3: solo el botón del paso 4.
+  form.addEventListener('submit', function (e) {
+    if (paso !== 4 || falta()) { e.preventDefault(); return; }
+    $('ec-enviar').disabled = true;
+    $('ec-enviar').innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+  });
+
+  // Abierto desde la carpeta de un cliente: ese ya viene elegido y se arranca en sus certificados.
+  var modal = document.getElementById('ec-modal');
+  modal.addEventListener('shown.bs.modal', function () {
+    var pre = form.dataset.cliente;
+    if (pre && !clientes.length) {
+      agregar(+pre).then(function () { ir(2); });
+    } else { ir(paso); }
+  });
+  ir(1);
+})();
+</script>
