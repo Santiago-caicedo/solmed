@@ -844,6 +844,16 @@ class EncuestaDeCierreTests(BaseCRM):
         return Manifiesto.objects.create(
             recorrido=self.recorrido, estado_firma='FIRMADO')
 
+    def test_cada_pregunta_ofrece_solo_si_y_no(self):
+        """Sin la opción vacía «---------», que salía marcada como un tercer botón (oct-2026)."""
+        self.firmar()
+        self.entrar(self.conductor)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, 'type="radio" name="presento_fatiga" value=""')
+        form = respuesta.context['form']
+        self.assertEqual([v for v, _ in form.fields['presento_fatiga'].choices], ['SI', 'NO'])
+
     def test_sin_acta_firmada_no_se_puede_cerrar_el_servicio(self):
         Manifiesto.objects.create(recorrido=self.recorrido)
         self.entrar(self.conductor)

@@ -1256,6 +1256,9 @@ class EncuestaConductorForm(forms.ModelForm):
         # exige si se reportó una condición de riesgo (ver clean()).
         for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
             self.fields[campo].required = True
+            # Sin la opción vacía «---------»: salía como un tercer botón, y
+            # marcado, al lado de Sí y No (oct-2026). Solo quedan Sí y No.
+            self.fields[campo].choices = [c for c in self.fields[campo].choices if c[0] != '']
         self.fields['tipo_incidente'].required = False
         self.fields['descripcion_incidente'].required = False
 
