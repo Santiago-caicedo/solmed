@@ -364,6 +364,17 @@ class ManifiestoPaso4Form(forms.ModelForm):
         }
         labels = {'observaciones': 'Observaciones del día'}
 
+class ManifiestoHojaConductorForm(ManifiestoPaso4Form):
+    """
+    La hoja del CONDUCTOR en un solo paso (oct-2026): sin tiempos —los llena el
+    asesor— y con las observaciones aquí mismo. Como los tiempos ni siquiera
+    son campos de este formulario, guardar la hoja no los toca: lo que escribió
+    el asesor se conserva. Las novedades y el ACPM van aparte (ver la vista).
+    """
+    class Meta(ManifiestoPaso4Form.Meta):
+        labels = {'observaciones': 'Observaciones'}
+
+
 class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
     class Meta:
         model = Manifiesto

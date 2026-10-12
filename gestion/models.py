@@ -786,6 +786,10 @@ class Manifiesto(models.Model):
 
     # --- Cierre y Firma ---
     observaciones = models.TextField(blank=True)
+    # Cuándo se guardaron los datos del servicio desde la hoja (oct-2026). Es la
+    # señal de que el conductor ya hizo su parte: los tiempos dejaron de ser
+    # suyos (ahora los llena el asesor) y lo demás que llena es opcional.
+    datos_conductor_en = models.DateTimeField(null=True, blank=True, editable=False)
     
     # Datos del responsable de la EMPRESA (el que firma en la app)
     nombre_responsable_cliente = models.CharField(max_length=200, blank=True, verbose_name="Nombre Responsable Cliente")

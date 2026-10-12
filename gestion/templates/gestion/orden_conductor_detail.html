@@ -3,167 +3,93 @@
 {% block content %}
 {% include 'gestion/partials/_acta_estilos.html' %}
 
+{% include 'gestion/partials/_conductor_estilos.html' %}
 <style>
-/* ============ Orden del conductor (solo esta vista, prefijo oc-) ============ */
-/* La pantalla es una LISTA DE CHEQUEO: qué falta, qué está listo y un botón
-   grande por tarea. Pensada para gente no tecnológica, en el celular. */
+/* ============ Orden del conductor: una LISTA DE CHEQUEO (prefijo oc-) ============ */
+.oc-atajos{ display:grid; grid-template-columns:1fr 1fr; gap:.55rem; margin:.9rem 0 1.1rem; }
+.oc-avance{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1rem 1.1rem; margin-bottom:1rem; }
+.oc-avance .cab{ display:flex; justify-content:space-between; align-items:baseline; gap:.6rem; }
+.oc-avance .t{ font-weight:700; font-size:1.05rem; }
+.oc-avance .n{ font-family:var(--mono); font-weight:700; color:var(--ink-2); white-space:nowrap; }
+.oc-barra{ height:10px; background:#E4E9EF; border-radius:999px; overflow:hidden; margin-top:.6rem; }
+.oc-barra > div{ height:100%; background:var(--brand-600); border-radius:999px; }
+.oc-avance.completo{ background:var(--ok-tint); border-color:var(--ok-line); }
+.oc-avance.completo .t, .oc-avance.completo .n{ color:#1f5c33; }
+.oc-avance.completo .oc-barra > div{ background:var(--ok); }
+.oc-avance .libre{ font-size:.85rem; color:var(--ink-2); margin-top:.55rem; }
 
-/* Progreso */
-.oc-progreso{
-    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
-    box-shadow:0 1px 2px rgba(15,23,35,.05); padding:1rem 1.1rem; margin-bottom:1rem;
-}
-.oc-progreso .cab{ display:flex; justify-content:space-between; align-items:baseline; gap:.6rem; flex-wrap:wrap; }
-.oc-progreso .t{ font-weight:700; font-size:1rem; color:var(--ink); }
-.oc-progreso .n{ font-family:var(--mono); font-weight:700; color:var(--brand-700); }
-.oc-barra{ height:12px; background:#E4E9EF; border-radius:999px; overflow:hidden; margin:.55rem 0 .45rem; }
-.oc-barra > div{ height:100%; background:linear-gradient(90deg,var(--brand-600),var(--brand)); border-radius:999px; transition:width .3s ease; }
-.oc-progreso .falta{ font-size:.82rem; color:var(--ink-2); }
-.oc-progreso.completo{ background:var(--ok-tint); border-color:var(--ok-line); }
-.oc-progreso.completo .t, .oc-progreso.completo .n{ color:#1f5c33; }
-.oc-progreso.completo .oc-barra > div{ background:var(--ok); }
-
-/* Tarjetas de tarea */
-.oc-tarea{
-    display:flex; align-items:center; gap:.85rem; flex-wrap:wrap;
-    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
-    box-shadow:0 1px 2px rgba(15,23,35,.05); padding:.95rem 1rem; margin-bottom:.7rem;
-}
-.oc-tarea .num{
-    width:42px; height:42px; flex-shrink:0; border-radius:50%;
-    display:flex; align-items:center; justify-content:center;
-    font-size:1.15rem; font-weight:700; background:#E4E9EF; color:var(--ink-3);
-}
-.oc-tarea .tx{ flex:1 1 170px; min-width:0; }
-.oc-tarea .tx .t{ font-weight:700; font-size:.95rem; color:var(--ink); line-height:1.3; }
-.oc-tarea .tx .s{ font-size:.8rem; color:var(--ink-2); margin-top:.1rem; }
-.oc-tarea .btn{ padding:.55rem 1.1rem; font-weight:600; }
-
+.oc-tarea{ display:grid; grid-template-columns:auto 1fr; gap:.2rem .85rem; align-items:start;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1rem 1.1rem; margin-bottom:.75rem; }
+.oc-tarea .num{ grid-row:span 2; width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:1.15rem; font-weight:700; background:#E4E9EF; color:var(--ink-2); }
+.oc-tarea .t{ font-weight:700; font-size:1.05rem; line-height:1.3; color:var(--ink); padding-top:.15rem; }
+.oc-tarea .s{ font-size:.9rem; color:var(--ink-2); line-height:1.4; }
+.oc-tarea .abajo{ grid-column:1 / -1; margin-top:.75rem; display:flex; flex-direction:column; gap:.5rem; }
 .oc-tarea.hecha{ background:var(--ok-tint); border-color:var(--ok-line); }
 .oc-tarea.hecha .num{ background:var(--ok); color:#fff; }
-.oc-tarea.hecha .tx .t{ color:#1f5c33; }
-
+.oc-tarea.hecha .t{ color:#1f5c33; }
 .oc-tarea.bloqueada{ background:var(--panel-2); }
-.oc-tarea.bloqueada .tx .t{ color:var(--ink-3); }
-
-/* Formularios de foto dentro de la tarea (báscula / registro) */
-.oc-subir{ flex-basis:100%; display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-top:.2rem; }
-.oc-subir .btn{ width:100%; }
-.oc-fotos{ flex-basis:100%; display:flex; flex-wrap:wrap; gap:.4rem; }
-.oc-fotos a{
-    display:inline-flex; align-items:center; gap:.35rem;
-    font-size:.76rem; font-weight:600; color:var(--ink-2);
-    background:#fff; border:1px solid var(--line); border-radius:var(--r-xs);
-    padding:.28rem .55rem;
-}
-
-/* Caja de información de la orden (abre el documento en ventana emergente) */
-.oc-info-btn{
-    display:flex; align-items:center; gap:.85rem; width:100%; text-align:left;
-    background:var(--steel-tint); border:1px solid #cfe0ec; border-radius:var(--r-md);
-    box-shadow:0 1px 2px rgba(15,23,35,.05); padding:.95rem 1rem; margin-bottom:1rem;
-    cursor:pointer;
-}
-.oc-info-btn:hover{ border-color:var(--steel); }
-.oc-info-btn .ico{
-    width:42px; height:42px; flex-shrink:0; border-radius:50%;
-    display:flex; align-items:center; justify-content:center;
-    font-size:1.15rem; background:var(--steel); color:#fff;
-}
-.oc-info-btn .tx{ flex:1; min-width:0; }
-.oc-info-btn .tx .t{ font-weight:700; font-size:.95rem; color:var(--ink); }
-.oc-info-btn .tx .s{ font-size:.8rem; color:var(--ink-2); margin-top:.1rem; }
-.oc-info-btn > .bi-chevron-right{ color:var(--steel); font-size:1.1rem; }
-
-
-/* Móvil: botones a lo ancho, cómodos al dedo */
-@media (max-width:600px){
-    .oc-tarea .btn{ width:100%; }
-}
+.oc-tarea.bloqueada .t{ color:var(--ink-3); }
+.oc-tarea.bloqueada .num{ background:var(--line-2); color:var(--ink-3); }
+.oc-subir{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin:0; }
+.oc-fotos{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.oc-fotos a{ display:inline-flex; align-items:center; gap:.35rem; min-height:40px; font-size:.85rem; font-weight:600; color:var(--steel);
+    background:#fff; border:1px solid var(--line); border-radius:10px; padding:.35rem .7rem; text-decoration:none; }
+.oc-enlace{ align-self:flex-start; min-height:40px; display:inline-flex; align-items:center; gap:.35rem; font-weight:600; color:var(--steel); text-decoration:none; }
 </style>
 
-<div>
+<div class="cd">
+<a class="cd-volver" href="{% url 'gestion:dashboard_conductor' %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>Mi jornada</a>
 {% comment %}
 Encabezado sin el nombre del cliente (decisión de gerencia): al conductor le
 importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
 {% endcomment %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div>
-        <h1 class="mb-0">Tu servicio · {{ mis_recorridos.0.fecha_recorrido|date:"d/m/Y" }}</h1>
-        <span class="text-muted"><i class="bi bi-geo-alt-fill me-1"></i>{{ orden.direccion_servicio }}</span>
-    </div>
-    <a href="{% url 'gestion:dashboard_conductor' %}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i> Volver a mi jornada
-    </a>
+<header class="cd-cab" style="margin-bottom:0">
+    <div class="fecha">{{ mis_recorridos.0.fecha_recorrido|date:"l j \d\e F"|capfirst }} · Orden #{{ orden.numero_orden }}</div>
+    <h1>Tu servicio</h1>
+    <p class="cd-dir" style="font-size:1.1rem"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i>{{ orden.direccion_servicio|default:"Sin dirección" }}</p>
+</header>
+<div class="oc-atajos">
+    {% if mapa %}<a href="{{ mapa }}" target="_blank" rel="noopener" class="cd-btn sec"><i class="bi bi-sign-turn-right" aria-hidden="true"></i>Cómo llegar</a>{% endif %}
+    {% if actas_formato %}<button type="button" class="cd-btn sec" data-bs-toggle="modal" data-bs-target="#modal-info-orden"><i class="bi bi-info-circle" aria-hidden="true"></i>Ver la orden</button>{% endif %}
 </div>
 
 {% for r in mis_recorridos %}
 {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=r.vehiculo %}
 {% endfor %}
 
-{% comment %}
-De primero, la caja de información: dice explícitamente que al dar clic se
-abre TODA la información de la orden (el documento) en una ventana emergente.
-{% endcomment %}
-{% if actas_formato %}
-<button type="button" class="oc-info-btn" data-bs-toggle="modal" data-bs-target="#modal-info-orden">
-    <span class="ico"><i class="bi bi-info-lg"></i></span>
-    <span class="tx">
-        <span class="t d-block">Información de la orden</span>
-        <span class="s d-block">Da clic aquí para ver toda la información del servicio.</span>
-    </span>
-    <i class="bi bi-chevron-right"></i>
-</button>
-{% endif %}
-
-{% comment %}
-La barra de progreso: cuántas tareas van y qué falta, en palabras simples.
-Con todo listo, se celebra: el servicio quedó cerrado.
-{% endcomment %}
-<div class="oc-progreso {% if progreso.hechas == progreso.total %}completo{% endif %}">
+<div class="oc-avance {% if progreso.hechas == progreso.total %}completo{% endif %}" role="status">
     <div class="cab">
-        <span class="t">
-            {% if progreso.hechas == progreso.total %}
-                <i class="bi bi-check-circle-fill me-1"></i>¡Servicio completado! Buen trabajo.
-            {% else %}
-                Tu servicio, paso a paso
-            {% endif %}
-        </span>
+        <span class="t">{% if progreso.hechas == progreso.total %}<i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>¡Servicio completado!{% else %}Lo que tienes que hacer{% endif %}</span>
         <span class="n">{{ progreso.hechas }} de {{ progreso.total }}</span>
     </div>
-    <div class="oc-barra"><div style="width:{{ progreso.pct }}%;"></div></div>
-    {% if progreso.hechas != progreso.total %}
-    <div class="falta">
-        Puedes hacerlas en el orden que quieras. Te falta:
-        <strong>{{ progreso.faltan|join:", " }}</strong>.
-    </div>
-    {% endif %}
+    <div class="oc-barra" aria-hidden="true"><div style="width:{{ progreso.pct }}%;"></div></div>
+    {% if progreso.hechas != progreso.total %}<div class="libre">Hazlas en el orden que quieras.</div>{% endif %}
 </div>
 
-{# ================= LAS TAREAS ================= #}
 {% for tarea in tareas %}
-<div class="oc-tarea {% if tarea.hecha %}hecha{% elif not tarea.habilitada %}bloqueada{% endif %}">
-    <span class="num">
+<section class="oc-tarea {% if tarea.hecha %}hecha{% elif not tarea.habilitada %}bloqueada{% endif %}" aria-label="{{ tarea.titulo }}">
+    <span class="num" aria-hidden="true">
         {% if tarea.hecha %}<i class="bi bi-check-lg"></i>
-        {% elif not tarea.habilitada %}<i class="bi bi-lock-fill" style="font-size:.95rem;"></i>
+        {% elif not tarea.habilitada %}<i class="bi bi-lock-fill" style="font-size:1rem;"></i>
         {% else %}{{ forloop.counter }}{% endif %}
     </span>
-    <span class="tx">
-        <span class="t d-block"><i class="bi {{ tarea.icono }} me-1"></i>{{ tarea.titulo }}</span>
-        <span class="s d-block">{{ tarea.detalle }}</span>
-    </span>
+    <span class="t">{{ tarea.titulo }}</span>
+    <span class="s">{{ tarea.detalle }}</span>
 
+    {% if tarea.url and tarea.habilitada or tarea.formulario or tarea.pdf %}
+    <div class="abajo">
     {% if tarea.url and tarea.habilitada %}
-    <a href="{{ tarea.url }}" class="btn {% if tarea.hecha %}btn-outline-secondary btn-sm{% else %}btn-success{% endif %}">
-        {% if not tarea.hecha %}<i class="bi {{ tarea.icono }} me-1"></i>{% endif %}{{ tarea.boton }}
-    </a>
+        <a href="{{ tarea.url }}" class="cd-btn {% if tarea.hecha %}sec{% else %}ok{% endif %}">
+            <i class="bi {{ tarea.icono }}" aria-hidden="true"></i>{{ tarea.boton }}</a>
+    {% endif %}
+    {% if tarea.pdf %}
+        <a href="{{ tarea.pdf }}" class="oc-enlace"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>Ver tu encuesta (PDF)</a>
     {% endif %}
 
     {% if tarea.formulario == 'bascula' %}
         {% if orden.bascula_adjunto %}
-        <div class="oc-fotos">
-            <a href="{{ orden.bascula_adjunto.url }}" target="_blank"><i class="bi bi-file-earmark-image"></i>Ver tiquete cargado</a>
-        </div>
+        <div class="oc-fotos"><a href="{{ orden.bascula_adjunto.url }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image" aria-hidden="true"></i>Ver el tiquete</a></div>
         {% endif %}
         {% comment %}
         Dos entradas con el mismo name: la de cámara (capture) y la de
@@ -174,17 +100,17 @@ Con todo listo, se celebra: el servicio quedó cerrado.
             <input type="hidden" name="submit_bascula" value="1">
             <input type="file" name="bascula_adjunto" accept="image/*" capture="environment" hidden class="entrada-soporte">
             <input type="file" name="bascula_adjunto" accept="image/*,application/pdf" hidden class="entrada-soporte">
-            <button type="button" class="btn btn-success" data-abrir="0"><i class="bi bi-camera-fill me-1"></i>Tomar foto</button>
-            <button type="button" class="btn btn-outline-secondary" data-abrir="1"><i class="bi bi-images me-1"></i>Galería</button>
+            <button type="button" class="cd-btn {% if orden.bascula_adjunto %}sec{% else %}ok{% endif %}" data-abrir="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Tomar foto</button>
+            <button type="button" class="cd-btn sec" data-abrir="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
         </form>
     {% elif tarea.formulario == 'fotos' %}
         {% if orden.registro_fotografico_adjunto or fotos_registro %}
         <div class="oc-fotos">
             {% if orden.registro_fotografico_adjunto %}
-            <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank"><i class="bi bi-image"></i>Foto 1</a>
+            <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank" rel="noopener"><i class="bi bi-image" aria-hidden="true"></i>Foto 1</a>
             {% endif %}
             {% for doc in fotos_registro %}
-            <a href="{{ doc.archivo.url }}" target="_blank"><i class="bi bi-image"></i>Foto {{ forloop.counter|add:1 }}</a>
+            <a href="{{ doc.archivo.url }}" target="_blank" rel="noopener"><i class="bi bi-image" aria-hidden="true"></i>Foto {{ forloop.counter|add:1 }}</a>
             {% endfor %}
         </div>
         {% endif %}
@@ -193,13 +119,15 @@ Con todo listo, se celebra: el servicio quedó cerrado.
             <input type="hidden" name="submit_fotos" value="1">
             <input type="file" name="fotos" accept="image/*" capture="environment" multiple hidden class="entrada-soporte">
             <input type="file" name="fotos" accept="image/*" multiple hidden class="entrada-soporte">
-            <button type="button" class="btn btn-success" data-abrir="0"><i class="bi bi-camera-fill me-1"></i>Tomar foto</button>
-            <button type="button" class="btn btn-outline-secondary" data-abrir="1"><i class="bi bi-images me-1"></i>Galería</button>
+            <button type="button" class="cd-btn {% if orden.registro_fotografico_adjunto or fotos_registro %}sec{% else %}ok{% endif %}" data-abrir="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Tomar foto</button>
+            <button type="button" class="cd-btn sec" data-abrir="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
         </form>
     {% endif %}
-</div>
+    </div>
+    {% endif %}
+</section>
 {% empty %}
-<p class="text-muted">No tienes recorridos asignados en esta orden.</p>
+<div class="cd-vacio">No tienes servicios asignados en esta orden.</div>
 {% endfor %}
 
 {% comment %}

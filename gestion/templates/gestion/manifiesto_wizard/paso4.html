@@ -1,61 +1,40 @@
 {% extends "gestion/base.html" %}
-
+{% block title %}Observaciones del acta{% endblock %}
 {% block content %}
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{# Paso 2 del acta. Desde oct-2026 solo lo ve gestión: el conductor llena todo en una sola hoja (paso3). #}
 <style>
-    /* Estilos generales para el wizard (puedes moverlos a un CSS global más adelante) */
-    .wizard-container { background: white; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border: 1px solid #dee2e6; max-width: 900px; margin: auto; }
-    .wizard-header { text-align: center; margin-bottom: 2rem; }
-    .wizard-progress { display: flex; justify-content: space-around; margin-bottom: 2rem; border-bottom: 1px solid #dee2e6; padding-bottom: 1rem; }
-    .wizard-step { flex-grow: 1; text-align: center; padding: 0.5rem; border-bottom: 4px solid transparent; color: #adb5bd; font-weight: bold; }
-    .wizard-step.active { border-color: #007bff; color: #007bff; }
-    .wizard-step.completed { border-color: #28a745; color: #28a745; }
-    .form-section { border: 1px solid #dee2e6; margin-bottom: 1.5rem; }
-    .form-section-title { background-color: #f8f9fa; padding: 0.75rem; font-weight: bold; text-align: center; border-bottom: 1px solid #dee2e6; }
-    .form-section-content { padding: 1rem; }
+.hj-sec{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; padding:1rem; }
+.hj-sec h2{ font-size:1.02rem; font-weight:700; margin:0 0 .6rem; }
+.cd .form-control{ font-size:16px; padding:.65rem .75rem; border-radius:10px; }
+.hj-resp{ display:flex; align-items:center; gap:.6rem; }
+.hj-resp i{ font-size:1.4rem; color:var(--ink-3); }
+.hj-acciones{ display:grid; grid-template-columns:auto 1fr; gap:.55rem; margin-top:1rem; }
+@media (max-width:480px){ .hj-acciones{ grid-template-columns:1fr; } }
 </style>
-
-<div class="wizard-container">
-    <div class="wizard-header">
-        <h1>Acta de Servicio - Orden #{{ recorrido.orden.numero_orden }}</h1>
-        <p class="text-muted">Último paso del conductor (Paso 2 de 2)</p>
-    </div>
-
-    <div class="wizard-progress">
-        <div class="wizard-step completed">Paso 1: Datos del servicio</div>
-        <div class="wizard-step active">Paso 2: Cierre</div>
-    </div>
-
+<div class="cd">
+    <a class="cd-volver" href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>Datos del servicio</a>
+    <header class="cd-cab">
+        <div class="fecha">Orden #{{ recorrido.orden.numero_orden }} · Paso 2 de 2</div>
+        <h1>Observaciones</h1>
+    </header>
     <form method="post">
         {% csrf_token %}
-        
-        {# El responsable es el conductor asignado: se muestra, no se edita. #}
-        <div class="form-section">
-            <div class="form-section-title">RESPONSABLE EMPRESA</div>
-            <div class="form-section-content">
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <i class="bi bi-person-badge-fill text-secondary" style="font-size:1.4rem;"></i>
-                    <div>
-                        <div class="fw-bold" style="font-size:1.05rem;">{{ responsable_empresa|default:"—" }}</div>
-                        <div class="text-muted small">
-                            <i class="bi bi-lock-fill me-1"></i>Eres el conductor asignado a este servicio.
-                        </div>
-                    </div>
-                </div>
+        <div class="hj-sec">
+            <h2>Responsable de la empresa</h2>
+            {# El responsable es el conductor asignado: se muestra, no se edita. #}
+            <div class="hj-resp"><i class="bi bi-person-badge" aria-hidden="true"></i>
+                <div><strong>{{ responsable_empresa|default:"—" }}</strong><div class="form-text mt-0">El conductor asignado al servicio.</div></div>
             </div>
         </div>
-
-        <div class="form-section">
-            <div class="form-section-title">OBSERVACIONES</div>
-            <div class="form-section-content">
-                {{ form.observaciones.label_tag }}
-                {{ form.observaciones }}
-                <div class="form-text">Opcional. Queda impreso en el acta que firma el cliente.</div>
-            </div>
+        <div class="hj-sec">
+            <h2><label for="{{ form.observaciones.id_for_label }}">Observaciones del día</label></h2>
+            {{ form.observaciones }}
+            <div class="form-text">Opcional. Sale en el acta que firma el cliente.</div>
         </div>
-
-        <div class="d-flex justify-content-between mt-4">
-            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Anterior</a>
-            <button type="submit" class="btn btn-success"><i class="bi bi-check-circle me-1"></i>Guardar y volver a la orden</button>
+        <div class="hj-acciones">
+            <a href="{% url 'gestion:firmar_manifiesto_step' pk=recorrido.pk step='paso3' %}" class="cd-btn sec"><i class="bi bi-arrow-left" aria-hidden="true"></i>Anterior</a>
+            <button type="submit" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar y volver a la orden</button>
         </div>
     </form>
 </div>

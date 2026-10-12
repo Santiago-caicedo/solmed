@@ -1,190 +1,154 @@
 {% extends "gestion/base.html" %}
-
+{% block title %}Datos del servicio{% endblock %}
 {% block content %}
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{% comment %}
+La hoja del servicio. El CONDUCTOR la llena en un solo paso y SIN tiempos
+(oct-2026: los tiempos y las horas de las novedades los llena el asesor):
+novedades, ACPM y observaciones, con un solo botón «Guardar». Gestión ve la
+misma hoja con los tiempos y sigue al paso 2 (observaciones). `llena_tiempos`
+decide cuál de las dos.
+{% endcomment %}
 <style>
-/* ============ Hoja del conductor (paso 1) — móvil primero ============ */
-.hoja-wrap{ max-width:760px; margin:auto; }
-.hoja-head{ margin-bottom:1rem; }
-.hoja-head h1{ font-size:1.25rem; font-weight:700; margin:0; }
-.hoja-head .sub{ color:var(--ink-3); font-size:.85rem; }
-.hoja-pasos{ display:flex; gap:.35rem; margin:.6rem 0 1rem; }
-.hoja-paso{
-    flex:1 1 0; text-align:center; font-size:.72rem; font-weight:700;
-    color:var(--ink-3); border-top:3px solid var(--line); padding-top:.35rem;
-}
-.hoja-paso.activo{ color:var(--brand-700); border-top-color:var(--brand); }
+.hj-sec{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; overflow:hidden; }
+.hj-sec > .cab{ display:flex; align-items:center; gap:.6rem; padding:.85rem 1rem; border-bottom:1px solid var(--line-2); }
+.hj-sec > .cab i{ color:var(--steel); font-size:1.15rem; }
+.hj-sec > .cab .t{ font-weight:700; font-size:1.02rem; }
+.hj-sec > .cab .s{ margin-left:auto; font-size:.8rem; color:var(--ink-3); text-align:right; }
+.hj-sec > .cuerpo{ padding:1rem; }
+.hj-sec .ayuda{ font-size:.9rem; color:var(--ink-2); margin:0 0 .8rem; }
+.cd .form-control{ font-size:16px; padding:.65rem .75rem; min-height:48px; border-radius:10px; }
+.cd textarea.form-control{ min-height:110px; }
+.campo label{ display:block; font-size:.85rem; font-weight:600; color:var(--ink-2); margin-bottom:.3rem; }
+.grilla-2{ display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+.hj-pasos{ font-family:var(--mono); font-size:.75rem; color:var(--ink-3); }
 
-/* Secciones como tarjetas con encabezado de ícono */
-.seccion{
-    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md);
-    box-shadow:0 1px 2px rgba(15,23,35,.05); margin-bottom:1rem; overflow:hidden;
-}
-.seccion > .cab{
-    display:flex; align-items:center; gap:.6rem;
-    padding:.75rem .95rem; border-bottom:1px solid var(--line-2); background:var(--panel-2);
-}
-.seccion > .cab i{ color:var(--brand-600); font-size:1.05rem; }
-.seccion > .cab .t{ font-weight:700; font-size:.92rem; color:var(--ink); }
-.seccion > .cab .s{ font-size:.75rem; color:var(--ink-3); margin-left:auto; text-align:right; }
-.seccion > .cuerpo{ padding:.9rem .95rem; }
+/* Lo que definió el asesor: se consulta, plegado */
+.hj-asesor{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; }
+.hj-asesor summary{ display:flex; align-items:center; gap:.6rem; min-height:52px; padding:.6rem 1rem; cursor:pointer; font-weight:600; list-style:none; }
+.hj-asesor summary::-webkit-details-marker{ display:none; }
+.hj-asesor summary i.bi-clipboard-check{ color:var(--steel); font-size:1.15rem; }
+.hj-asesor summary .bi-chevron-down{ margin-left:auto; color:var(--ink-3); transition:transform .15s; }
+.hj-asesor[open] summary .bi-chevron-down{ transform:rotate(180deg); }
+.hj-checklist{ padding:0 1rem 1rem; display:grid; grid-template-columns:1fr; }
+.hj-checklist .fila{ display:flex; justify-content:space-between; gap:.6rem; padding:.45rem 0; border-top:1px solid var(--line-2); font-size:.92rem; }
+.hj-checklist .et{ color:var(--ink-2); }
+.hj-checklist .va{ font-weight:700; text-align:right; }
 
-/* Campos cómodos al dedo: 16px evita el zoom de iOS */
-.hoja-wrap .form-control{ font-size:16px; padding:.55rem .7rem; }
-.campo label{
-    display:block; font-size:.74rem; font-weight:700; text-transform:uppercase;
-    letter-spacing:.04em; color:var(--ink-2); margin-bottom:.25rem;
-}
-.grilla-2{ display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
-
-/* Checklist del asesor (solo lectura) */
-.checklist{ display:grid; grid-template-columns:1fr; gap:.1rem 1.4rem; }
-@media (min-width:576px){ .checklist{ grid-template-columns:1fr 1fr; } }
-.checklist .fila{ display:flex; gap:.6rem; padding:.22rem 0; font-size:.85rem; }
-.checklist .et{ flex:0 0 46%; color:var(--ink-3); text-transform:uppercase; font-size:.72rem; letter-spacing:.03em; padding-top:.15rem; }
-.checklist .va{ font-weight:700; }
-
-/* ---- Novedades: lista táctil con revelado progresivo ---- */
+/* Novedades: tarjetas táctiles; tocar marca y abre «¿Qué pasó?» */
+.nv-abrir{ width:100%; }
 .nv-lista{ display:grid; grid-template-columns:1fr; gap:.55rem; }
-@media (min-width:768px){ .nv-lista{ grid-template-columns:1fr 1fr; } }
-.nv-item{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); overflow:hidden; }
+.nv-item{ border:1px solid var(--line); border-radius:12px; background:var(--panel); overflow:hidden; }
 .nv-item .oculto{ display:none; }
-.nv-tile{
-    display:flex; align-items:center; gap:.7rem; width:100%;
-    background:none; border:0; text-align:left; cursor:pointer;
-    padding:.7rem .8rem; min-height:52px;
-}
-.nv-tile .ico{
-    width:38px; height:38px; flex-shrink:0; border-radius:10px;
-    display:flex; align-items:center; justify-content:center;
-    background:var(--panel-2); color:var(--ink-3); font-size:1.1rem;
-}
-.nv-tile .tx{ flex:1; min-width:0; font-weight:600; font-size:.92rem; color:var(--ink); line-height:1.25; }
-.nv-tile .estado{
-    width:26px; height:26px; flex-shrink:0; border-radius:50%;
-    border:2px solid var(--line); display:flex; align-items:center; justify-content:center;
-    color:transparent; font-size:.85rem;
-}
+.nv-tile{ display:flex; align-items:center; gap:.75rem; width:100%; background:none; border:0; text-align:left; cursor:pointer;
+    padding:.7rem .85rem; min-height:56px; }
+.nv-tile .ico{ width:40px; height:40px; flex-shrink:0; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    background:var(--panel-2); color:var(--ink-2); font-size:1.15rem; }
+.nv-tile .tx{ flex:1; min-width:0; font-weight:600; font-size:1rem; color:var(--ink); line-height:1.25; }
+.nv-tile .estado{ width:28px; height:28px; flex-shrink:0; border-radius:50%; border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center; color:transparent; }
 .nv-item.on{ border-color:var(--brand-600); box-shadow:0 0 0 1px var(--brand-600); }
 .nv-item.on .nv-tile{ background:var(--brand-tint); }
 .nv-item.on .nv-tile .ico{ background:var(--brand-600); color:#fff; }
 .nv-item.on .nv-tile .estado{ background:var(--brand-600); border-color:var(--brand-600); color:#fff; }
-.nv-det{ display:none; padding:.75rem .8rem .85rem; border-top:1px dashed var(--line); }
+.nv-det{ display:none; padding:.8rem .85rem .9rem; border-top:1px dashed var(--line); }
 .nv-item.on .nv-det{ display:block; }
-.nv-det .campo + .campo, .nv-det .grilla-2{ margin-top:.6rem; }
-.nv-resumen{
-    font-size:.8rem; color:var(--ink-2); background:var(--panel-2);
-    border:1px solid var(--line-2); border-radius:var(--r-sm);
-    padding:.5rem .7rem; margin-bottom:.7rem;
-}
-.nv-resumen b{ color:var(--brand-700); }
+.nv-det .grilla-2{ margin-top:.65rem; }
 
-/* ---- Control de ACPM ---- */
-.acpm{ display:grid; grid-template-columns:1fr; gap:.7rem; }
-@media (min-width:768px){ .acpm{ grid-template-columns:repeat(3,1fr); } }
-.acpm .casilla{ border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .8rem; background:var(--panel-2); }
-.acpm .casilla h6{ font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-2); font-weight:700; margin-bottom:.5rem; }
-.acpm .previa img{ width:100%; max-height:120px; object-fit:cover; border-radius:6px; margin-top:.45rem; border:1px solid var(--line); }
+/* ACPM: la medida y su foto con dos botones (cámara o galería) */
+.acpm{ display:grid; grid-template-columns:1fr; gap:.75rem; }
+.acpm .casilla{ border:1px solid var(--line); border-radius:12px; padding:.85rem; background:var(--panel-2); }
+.acpm .casilla h3{ font-size:.95rem; font-weight:700; margin:0 0 .55rem; }
+.acpm .fotos{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-top:.6rem; }
+.acpm .fotos .cd-btn{ min-height:46px; font-size:.95rem; }
+.acpm .elegida{ font-size:.82rem; color:var(--ok); font-weight:600; margin-top:.45rem; }
+.acpm .previa img{ width:100%; max-height:140px; object-fit:cover; border-radius:10px; margin-top:.55rem; border:1px solid var(--line); }
 
-/* Botonera: en móvil, Siguiente grande y a lo ancho */
-.hoja-acciones{ display:flex; gap:.6rem; justify-content:space-between; margin:1.1rem 0 2rem; }
-.hoja-acciones .btn{ padding:.65rem 1.3rem; font-weight:600; }
-@media (max-width:600px){
-    .hoja-acciones{ flex-direction:column-reverse; }
-    .hoja-acciones .btn{ width:100%; padding:.8rem; }
-}
+/* Botón principal fijo abajo, al alcance del pulgar */
+.hj-pie{ position:sticky; bottom:0; z-index:5; margin:1rem -1rem 0; padding:.75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, var(--canvas) 70%, rgba(237,240,244,0)); display:grid; gap:.4rem; }
+.hj-pie .volver{ text-align:center; min-height:44px; display:flex; align-items:center; justify-content:center; color:var(--ink-2); font-weight:600; text-decoration:none; }
+@media (min-width:768px){ .nv-lista{ grid-template-columns:1fr 1fr; } .acpm{ grid-template-columns:repeat(3,1fr); } }
 </style>
 
-<div class="hoja-wrap">
-    <div class="hoja-head">
+<div class="cd">
+    {% if llena_tiempos %}
+    <a class="cd-volver" href="{% url 'gestion:detalle_orden' recorrido.orden.pk %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>La orden</a>
+    {% else %}
+    <a class="cd-volver" href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>Tu servicio</a>
+    {% endif %}
+    <header class="cd-cab">
+        <div class="fecha">Orden #{{ recorrido.orden.numero_orden }} · {{ recorrido.fecha_recorrido|date:"j \d\e F"|capfirst }}</div>
         <h1>Datos del servicio</h1>
-        <div class="sub">Orden #{{ recorrido.orden.numero_orden }} · {{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
-        <div class="hoja-pasos">
-            <div class="hoja-paso activo">Paso 1 · Datos del servicio</div>
-            <div class="hoja-paso">Paso 2 · Cierre</div>
-        </div>
-    </div>
+        {% if llena_tiempos %}<div class="hj-pasos">Paso 1 de 2 · luego, las observaciones</div>
+        {% else %}<p>Todo es opcional: llena solo lo que aplique y toca <strong>Guardar</strong>.</p>{% endif %}
+    </header>
 
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
-        {% comment %}
-        Lo que definió el asesor en la programación: el conductor lo consulta,
-        no lo edita. Es el bloque superior del formato en papel.
-        {% endcomment %}
         {% if checklist_izq or checklist_der %}
-        <div class="seccion">
-            <div class="cab"><i class="bi bi-clipboard-check"></i><span class="t">Lo que definió el asesor</span></div>
-            <div class="cuerpo">
-                <div class="checklist">
-                    {% for etiqueta, valor in checklist_izq %}
-                    <div class="fila"><span class="et">{{ etiqueta }}</span><span class="va">{{ valor }}</span></div>
-                    {% endfor %}
-                    {% for etiqueta, valor in checklist_der %}
-                    <div class="fila"><span class="et">{{ etiqueta }}</span><span class="va">{{ valor }}</span></div>
-                    {% endfor %}
-                </div>
+        <details class="hj-asesor">
+            <summary><i class="bi bi-clipboard-check" aria-hidden="true"></i>Lo que definió el asesor<i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+            <div class="hj-checklist">
+                {% for etiqueta, valor in checklist_izq %}<div class="fila"><span class="et">{{ etiqueta|capfirst }}</span><span class="va">{{ valor }}</span></div>{% endfor %}
+                {% for etiqueta, valor in checklist_der %}<div class="fila"><span class="et">{{ etiqueta|capfirst }}</span><span class="va">{{ valor }}</span></div>{% endfor %}
             </div>
+        </details>
+        {% endif %}
+
+        {% if llena_tiempos %}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-clock" aria-hidden="true"></i><span class="t">Tiempos</span></div>
+            <div class="cuerpo"><div class="grilla-2">
+                <div class="campo"><label for="{{ form.tiempo_inicio_operativo.id_for_label }}">Inicio operativo</label>{{ form.tiempo_inicio_operativo }}</div>
+                <div class="campo"><label for="{{ form.tiempo_final_operativo.id_for_label }}">Final operativo</label>{{ form.tiempo_final_operativo }}</div>
+                <div class="campo"><label for="{{ form.tiempo_llegada_disposicion.id_for_label }}">Llegada a disposición</label>{{ form.tiempo_llegada_disposicion }}</div>
+                <div class="campo"><label for="{{ form.tiempo_salida_disposicion.id_for_label }}">Salida de disposición</label>{{ form.tiempo_salida_disposicion }}</div>
+            </div></div>
+        </div>
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-signpost-2" aria-hidden="true"></i><span class="t">Tiempos de recorrido</span><span class="s">la hora en cada punto</span></div>
+            <div class="cuerpo"><div class="grilla-2">
+                <div class="campo"><label for="{{ form.hora_salida_solmed.id_for_label }}">Salida de SolMed</label>{{ form.hora_salida_solmed }}</div>
+                <div class="campo"><label for="{{ form.hora_llegada_empresa.id_for_label }}">Llegada a la empresa</label>{{ form.hora_llegada_empresa }}</div>
+                <div class="campo"><label for="{{ form.hora_llegada_disposicion.id_for_label }}">Llegada a disposición</label>{{ form.hora_llegada_disposicion }}</div>
+                <div class="campo"><label for="{{ form.hora_llegada_solmed.id_for_label }}">Llegada a SolMed</label>{{ form.hora_llegada_solmed }}</div>
+            </div></div>
         </div>
         {% endif %}
 
-        <div class="seccion">
-            <div class="cab"><i class="bi bi-clock"></i><span class="t">Tiempos</span></div>
-            <div class="cuerpo">
-                <div class="grilla-2">
-                    <div class="campo"><label>Inicio operativo</label>{{ form.tiempo_inicio_operativo }}</div>
-                    <div class="campo"><label>Final operativo</label>{{ form.tiempo_final_operativo }}</div>
-                    <div class="campo"><label>Llegada a disposición</label>{{ form.tiempo_llegada_disposicion }}</div>
-                    <div class="campo"><label>Salida de disposición</label>{{ form.tiempo_salida_disposicion }}</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="seccion">
-            <div class="cab"><i class="bi bi-signpost-2"></i><span class="t">Tiempos de recorrido</span><span class="s">la hora en cada punto</span></div>
-            <div class="cuerpo">
-                <div class="grilla-2">
-                    <div class="campo"><label>Salida de SolMed</label>{{ form.hora_salida_solmed }}</div>
-                    <div class="campo"><label>Llegada a la empresa</label>{{ form.hora_llegada_empresa }}</div>
-                    <div class="campo"><label>Llegada a disposición</label>{{ form.hora_llegada_disposicion }}</div>
-                    <div class="campo"><label>Llegada a SolMed</label>{{ form.hora_llegada_solmed }}</div>
-                </div>
-            </div>
-        </div>
-
         {% comment %}
-        NOVEDADES OPERACIONALES: en vez de la tabla del formato (imposible en
-        el celular), una lista táctil. Cada novedad es una tarjeta grande:
-        tocarla la marca y despliega sus campos; destocarla la limpia. El
-        checkbox real del formulario queda oculto y el botón lo maneja.
+        NOVEDADES: al conductor se le pregunta primero si pasó algo; solo si
+        toca «Reportar una novedad» aparece la lista (o si ya hay alguna
+        guardada). Cada novedad es una tarjeta: tocarla la marca y abre
+        «¿Qué pasó?»; volver a tocarla la desmarca y limpia lo escrito.
         {% endcomment %}
-        <div class="seccion">
-            <div class="cab">
-                <i class="bi bi-flag"></i><span class="t">Novedades operacionales</span>
-                <span class="s" id="nv-contador"></span>
-            </div>
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-flag" aria-hidden="true"></i><span class="t">Novedades del día</span><span class="s" id="nv-contador"></span></div>
             <div class="cuerpo">
-                <div class="nv-resumen">
-                    ¿Pasó algo en la jornada? <b>Toca lo que aplique</b> y cuéntanos.
-                    Si no pasó nada, sigue de largo.
-                </div>
-                <div class="nv-lista">
+                <p class="ayuda">¿Pasó algo fuera de lo normal (varada, stand by, tanqueo…)? Si no, sigue de largo.</p>
+                {% if not llena_tiempos %}
+                <button type="button" class="cd-btn sec nv-abrir" id="nv-abrir" aria-expanded="false" aria-controls="nv-lista">
+                    <i class="bi bi-plus-circle" aria-hidden="true"></i>Reportar una novedad</button>
+                {% endif %}
+                <div class="nv-lista" id="nv-lista" {% if not llena_tiempos %}hidden{% endif %}>
                     {% for tipo, etiqueta, icono, f in filas_novedades %}
                     <div class="nv-item{% if f.marcada.value %} on{% endif %}">
                         <span class="oculto">{{ f.marcada }}</span>
-                        <button type="button" class="nv-tile">
-                            <span class="ico"><i class="bi {{ icono }}"></i></span>
+                        <button type="button" class="nv-tile" aria-pressed="{% if f.marcada.value %}true{% else %}false{% endif %}">
+                            <span class="ico" aria-hidden="true"><i class="bi {{ icono }}"></i></span>
                             <span class="tx">{{ etiqueta }}</span>
-                            <span class="estado"><i class="bi bi-check-lg"></i></span>
+                            <span class="estado" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
                         </button>
                         <div class="nv-det">
-                            <div class="campo">
-                                <label>¿Qué pasó?</label>
-                                {{ f.observacion }}
-                            </div>
+                            <div class="campo"><label for="{{ f.observacion.id_for_label }}">¿Qué pasó?</label>{{ f.observacion }}</div>
+                            {% if llena_tiempos %}
                             <div class="grilla-2">
-                                <div class="campo"><label>Hora inicio</label>{{ f.hora_inicio }}</div>
-                                <div class="campo"><label>Hora final</label>{{ f.hora_final }}</div>
+                                <div class="campo"><label for="{{ f.hora_inicio.id_for_label }}">Hora inicio</label>{{ f.hora_inicio }}</div>
+                                <div class="campo"><label for="{{ f.hora_final.id_for_label }}">Hora final</label>{{ f.hora_final }}</div>
                             </div>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}
@@ -192,22 +156,25 @@
             </div>
         </div>
 
-        <div class="seccion">
-            <div class="cab"><i class="bi bi-fuel-pump"></i><span class="t">Control de ACPM</span></div>
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-fuel-pump" aria-hidden="true"></i><span class="t">Control de ACPM</span></div>
             <div class="cuerpo">
+                <p class="ayuda">Lo que marca el medidor y, si puedes, una foto.</p>
                 <div class="acpm">
                     {% for tipo, etiqueta, previa, f in filas_acpm %}
-                    <div class="casilla">
-                        <h6>{{ etiqueta }}</h6>
+                    <div class="casilla" data-acpm>
+                        <h3><label for="{{ f.medida.id_for_label }}">{{ etiqueta }}</label></h3>
                         {{ f.medida }}
-                        <label class="form-label small text-muted mt-2 mb-1">Foto</label>
-                        {{ f.foto }}
-                        {% if previa.foto %}
-                        <div class="previa">
-                            <a href="{{ previa.foto.url }}" target="_blank">
-                                <img src="{{ previa.foto.url }}" alt="Foto de {{ etiqueta }}">
-                            </a>
+                        {# Dos entradas con el mismo name: cámara o galería; la que no se usa se apaga. #}
+                        <input type="file" name="{{ f.foto.html_name }}" accept="image/*" capture="environment" hidden class="acpm-foto">
+                        <input type="file" name="{{ f.foto.html_name }}" accept="image/*" hidden class="acpm-foto">
+                        <div class="fotos">
+                            <button type="button" class="cd-btn sec" data-foto="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Foto</button>
+                            <button type="button" class="cd-btn sec" data-foto="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
                         </div>
+                        <div class="elegida" hidden></div>
+                        {% if previa.foto %}
+                        <div class="previa"><a href="{{ previa.foto.url }}" target="_blank" rel="noopener"><img src="{{ previa.foto.url }}" alt="Foto guardada de {{ etiqueta }}"></a></div>
                         {% endif %}
                     </div>
                     {% endfor %}
@@ -215,26 +182,41 @@
             </div>
         </div>
 
-        <div class="hoja-acciones">
-            <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Volver a la orden</a>
-            <button type="submit" class="btn btn-success">Siguiente <i class="bi bi-arrow-right ms-1"></i></button>
+        {% if not llena_tiempos %}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-chat-left-text" aria-hidden="true"></i><span class="t">Observaciones</span></div>
+            <div class="cuerpo">
+                <label class="visually-hidden" for="{{ form.observaciones.id_for_label }}">Observaciones</label>
+                {{ form.observaciones }}
+                <div class="form-text">Sale en el acta que firma el cliente.</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="hj-pie">
+            {% if llena_tiempos %}
+            <button type="submit" class="cd-btn pri">Siguiente: observaciones<i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+            {% else %}
+            <button type="submit" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar</button>
+            <a class="volver" href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}">Cancelar</a>
+            {% endif %}
         </div>
     </form>
 </div>
 
 <script>
-// Cada novedad es una tarjeta: tocarla marca el checkbox oculto y despliega
-// sus campos; volver a tocarla la desmarca y LIMPIA lo escrito (así el
-// servidor la borra). El contador de la cabecera dice cuántas van marcadas.
 (function () {
+    // Novedades: tocar la tarjeta marca el checkbox oculto y abre «¿Qué pasó?»;
+    // volver a tocarla la desmarca y LIMPIA lo escrito (así el servidor la borra).
     var items = document.querySelectorAll('.nv-item');
     var contador = document.getElementById('nv-contador');
-
-    function actualizarContador() {
+    var lista = document.getElementById('nv-lista');
+    var abrir = document.getElementById('nv-abrir');
+    function contar() {
         var n = document.querySelectorAll('.nv-item.on').length;
-        contador.textContent = n ? n + ' marcada' + (n === 1 ? '' : 's') : 'ninguna marcada';
+        contador.textContent = n ? n + ' marcada' + (n === 1 ? '' : 's') : '';
+        return n;
     }
-
     items.forEach(function (item) {
         var chk = item.querySelector('input[type=checkbox]');
         var boton = item.querySelector('.nv-tile');
@@ -242,19 +224,40 @@
         boton.addEventListener('click', function () {
             chk.checked = !chk.checked;
             item.classList.toggle('on', chk.checked);
+            boton.setAttribute('aria-pressed', chk.checked ? 'true' : 'false');
             if (chk.checked) {
-                // Directo a contar qué pasó, sin un toque más.
                 var obs = item.querySelector('.nv-det input[type=text]');
                 if (obs) obs.focus();
             } else {
-                item.querySelectorAll('.nv-det input').forEach(function (campo) {
-                    campo.value = '';
-                });
+                item.querySelectorAll('.nv-det input').forEach(function (c) { c.value = ''; });
             }
-            actualizarContador();
+            contar();
         });
     });
-    actualizarContador();
+    // Con alguna novedad ya guardada, la lista arranca abierta.
+    if (abrir) {
+        var mostrar = function () { lista.hidden = false; abrir.hidden = true; abrir.setAttribute('aria-expanded', 'true'); };
+        abrir.addEventListener('click', function () { mostrar(); var p = lista.querySelector('.nv-tile'); if (p) p.focus(); });
+        if (contar()) mostrar();
+    } else { contar(); }
+
+    // ACPM: el botón abre su entrada; al elegir la foto se apaga la otra y se dice cuál quedó.
+    document.querySelectorAll('[data-acpm]').forEach(function (casilla) {
+        var entradas = casilla.querySelectorAll('.acpm-foto');
+        var aviso = casilla.querySelector('.elegida');
+        casilla.querySelectorAll('[data-foto]').forEach(function (b) {
+            b.addEventListener('click', function () { entradas[b.getAttribute('data-foto')].click(); });
+        });
+        entradas.forEach(function (entrada) {
+            entrada.addEventListener('change', function () {
+                if (!entrada.files.length) return;
+                entradas.forEach(function (otra) { if (otra !== entrada) { otra.value = ''; otra.disabled = true; } });
+                entrada.disabled = false;
+                aviso.hidden = false;
+                aviso.textContent = '✓ Foto lista: ' + entrada.files[0].name;
+            });
+        });
+    });
 })();
 </script>
 {% endblock %}

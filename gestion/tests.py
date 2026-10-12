@@ -569,22 +569,55 @@ class ActaDeServicioTests(BaseCRM):
         datos.update(extra)
         return datos
 
-    def test_la_hoja_del_conductor_persiste_el_acta_de_una_vez(self):
+    def test_la_hoja_del_conductor_es_un_solo_paso_y_sin_tiempos(self):
+        """Oct-2026: los tiempos los llena el asesor; el conductor guarda y vuelve."""
         self.entrar(self.conductor)
+        hoja = self.client.get(self.url_paso('paso3'))
+        for campo in ('tiempo_inicio_operativo', 'hora_salida_solmed', 'hora_llegada_solmed',
+                      'nov-VARADA-hora_inicio'):
+            self.assertNotContains(hoja, f'name="{campo}"', msg_prefix=campo)
+        self.assertNotContains(hoja, 'Tiempos de recorrido')
+        self.assertContains(hoja, 'name="observaciones"', msg_prefix="las observaciones van aquí mismo")
+        self.assertContains(hoja, 'name="nov-VARADA-observacion"')
+
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(observaciones='Todo normal'))
+        self.assertRedirects(respuesta, reverse('gestion:detalle_orden_conductor', args=[self.orden.pk]))
+        acta = Manifiesto.objects.get(recorrido=self.recorrido)
+        self.assertEqual(acta.observaciones, 'Todo normal')
+        self.assertIsNone(acta.tiempo_inicio_operativo, "aunque los mande, el conductor no escribe tiempos")
+        self.assertIsNotNone(acta.datos_conductor_en, "queda la marca de que guardó la hoja")
+        self.assertEqual(acta.estado_firma, 'PENDIENTE_FIRMA')
+        # Su paso 2 ya no existe: lo devuelve a la hoja.
+        self.assertRedirects(self.client.get(self.url_paso('paso4')), self.url_paso('paso3'))
+
+    def test_el_asesor_sigue_llenando_los_tiempos_en_dos_pasos(self):
+        self.entrar(self.asesor)
+        hoja = self.client.get(self.url_paso('paso3'))
+        self.assertContains(hoja, 'name="tiempo_inicio_operativo"')
+        self.assertContains(hoja, 'name="nov-VARADA-hora_inicio"')
         respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja())
         self.assertRedirects(respuesta, self.url_paso('paso4'))
-
         acta = Manifiesto.objects.get(recorrido=self.recorrido)
         self.assertEqual(acta.tiempo_inicio_operativo, datetime.time(7, 0))
         self.assertEqual(acta.hora_llegada_solmed, datetime.time(13, 0))
-        self.assertEqual(acta.estado_firma, 'PENDIENTE_FIRMA')
+        self.assertEqual(self.client.get(self.url_paso('paso4')).status_code, 200)
 
-    def test_las_dos_pantallas_del_asistente_abren(self):
+    def test_guardar_la_hoja_del_conductor_no_borra_lo_que_lleno_el_asesor(self):
+        acta = Manifiesto.objects.create(recorrido=self.recorrido, tiempo_inicio_operativo=datetime.time(7, 0),
+                                         hora_salida_solmed=datetime.time(6, 0))
+        NovedadOperacional.objects.create(manifiesto=acta, tipo='VARADA', observacion='Llanta',
+                                          hora_inicio=datetime.time(8, 0), hora_final=datetime.time(9, 0))
         self.entrar(self.conductor)
-        for paso in ('paso3', 'paso4'):
-            with self.subTest(paso=paso):
-                respuesta = self.client.get(self.url_paso(paso))
-                self.assertEqual(respuesta.status_code, 200)
+        self.client.post(self.url_paso('paso3'), {
+            'nov-VARADA-marcada': 'on', 'nov-VARADA-observacion': 'Se pinchó una llanta',
+            'observaciones': 'Listo'})
+        acta.refresh_from_db()
+        self.assertEqual(acta.tiempo_inicio_operativo, datetime.time(7, 0))
+        self.assertEqual(acta.hora_salida_solmed, datetime.time(6, 0))
+        novedad = acta.novedades_operacionales.get()
+        self.assertEqual(novedad.observacion, 'Se pinchó una llanta')
+        self.assertEqual((novedad.hora_inicio, novedad.hora_final), (datetime.time(8, 0), datetime.time(9, 0)),
+                         "las horas de la novedad son del asesor: no se pierden")
 
     def test_el_acta_copia_las_instrucciones_del_asesor_no_lo_que_mande_el_conductor(self):
         self.entrar(self.conductor)
@@ -601,13 +634,12 @@ class ActaDeServicioTests(BaseCRM):
         self.assertEqual(acta.auxiliar1, 'Luis Gómez')
         self.assertEqual(acta.nombre_responsable_empresa, 'Carlos Pérez')
 
-    def test_el_cierre_guarda_las_observaciones_y_devuelve_al_conductor_a_su_orden(self):
-        self.entrar(self.conductor)
+    def test_el_cierre_del_asesor_guarda_las_observaciones_sin_perder_los_tiempos(self):
+        self.entrar(self.asesor)
         self.client.post(self.url_paso('paso3'), self.datos_hoja())
-        respuesta = self.client.post(self.url_paso('paso4'),
-                                     {'observaciones': 'Todo normal'})
-        self.assertRedirects(respuesta, reverse('gestion:detalle_orden_conductor',
-                                                args=[self.orden.pk]))
+        respuesta = self.client.post(self.url_paso('paso4'), {'observaciones': 'Todo normal'})
+        self.assertRedirects(respuesta, reverse('gestion:detalle_orden', args=[self.orden.pk]),
+                             fetch_redirect_response=False)
         acta = Manifiesto.objects.get(recorrido=self.recorrido)
         self.assertEqual(acta.observaciones, 'Todo normal')
         self.assertEqual(acta.tiempo_inicio_operativo, datetime.time(7, 0),
@@ -625,7 +657,7 @@ class ActaDeServicioTests(BaseCRM):
         novedad = acta.novedades_operacionales.get()
         self.assertEqual(novedad.tipo, 'VARADA')
         self.assertEqual(novedad.observacion, 'Se pinchó una llanta')
-        self.assertEqual(novedad.hora_inicio, datetime.time(8, 0))
+        self.assertIsNone(novedad.hora_inicio, "las horas de la novedad no son del conductor")
 
         # Volver a guardar sin marcarla la elimina.
         self.client.post(self.url_paso('paso3'), self.datos_hoja())
@@ -679,7 +711,7 @@ class ActaDeServicioTests(BaseCRM):
         self.assertIn(str(acta.token_publico), respuesta.content.decode())
 
     def test_el_qr_no_duplica_ni_pisa_el_acta_existente(self):
-        self.entrar(self.conductor)
+        self.entrar(self.asesor)
         self.client.post(self.url_paso('paso3'), self.datos_hoja())
         acta = Manifiesto.objects.get(recorrido=self.recorrido)
 
@@ -689,12 +721,36 @@ class ActaDeServicioTests(BaseCRM):
         acta.refresh_from_db()
         self.assertEqual(acta.tiempo_inicio_operativo, datetime.time(7, 0))
 
-    def test_el_aviso_de_acta_incompleta_mira_los_tiempos_del_conductor(self):
+    def test_el_aviso_de_acta_incompleta_mira_si_se_guardo_la_hoja(self):
         acta = Manifiesto.objects.create(recorrido=self.recorrido)
-        self.assertFalse(_acta_lista_para_firmar(acta))
-        acta.tiempo_inicio_operativo = datetime.time(7, 0)
-        acta.save()
+        self.assertFalse(_acta_lista_para_firmar(acta), "abrir el QR crea el acta, pero vacía")
+        acta.datos_conductor_en = timezone.now()
         self.assertTrue(_acta_lista_para_firmar(acta))
+        vieja = Manifiesto(tiempo_inicio_operativo=datetime.time(7, 0))
+        self.assertTrue(_acta_lista_para_firmar(vieja), "las de antes cuentan si tienen tiempos")
+
+    def test_el_qr_avisa_segun_quien_lo_mira(self):
+        url = reverse('gestion:manifiesto_qr', args=[self.recorrido.pk])
+        self.entrar(self.conductor)
+        self.assertContains(self.client.get(url), 'Primero guarda los datos del servicio.')
+        self.client.post(self.url_paso('paso3'), {'observaciones': 'ok'})
+        self.assertNotContains(self.client.get(url), 'Primero guarda los datos del servicio.')
+        self.entrar(self.asesor)
+        respuesta = self.client.get(url)
+        self.assertContains(respuesta, 'El acta aún no tiene los tiempos.')
+        self.assertNotContains(respuesta, 'kilómetros')
+
+    def test_la_tarea_de_los_datos_se_cumple_al_guardar_la_hoja_no_al_abrir_el_qr(self):
+        url = reverse('gestion:detalle_orden_conductor', args=[self.orden.pk])
+        self.entrar(self.conductor)
+        self.client.get(reverse('gestion:manifiesto_qr', args=[self.recorrido.pk]))
+        datos = self.client.get(url).context['tareas'][0]
+        self.assertEqual(datos['titulo'], 'Llena los datos del servicio')
+        self.assertFalse(datos['hecha'])
+        self.client.post(self.url_paso('paso3'), {})
+        datos = self.client.get(url).context['tareas'][0]
+        self.assertTrue(datos['hecha'])
+        self.assertEqual(datos['boton'], 'Corregir')
 
     def test_el_sondeo_del_estado_del_acta_es_solo_de_quien_la_gestiona(self):
         intruso = self.persona('curioso', 'Conductores')
@@ -1116,7 +1172,8 @@ class AccesoPorRolTests(BaseCRM):
         self.assertEqual(self.estado(self.conductor, 'gestion:lista_proveedores'), 403)
 
     def test_mis_recorridos_es_solo_del_conductor(self):
-        self.assertEqual(self.estado(self.conductor, 'gestion:mis_recorridos'), 200)
+        # Desde oct-2026 vive dentro de «Mi jornada»: la dirección vieja redirige.
+        self.assertEqual(self.estado(self.conductor, 'gestion:mis_recorridos'), 302)
         self.assertEqual(self.estado(self.asesor, 'gestion:mis_recorridos'), 403)
 
     def test_la_planificacion_es_de_planificadores_y_administradores(self):
@@ -4416,18 +4473,33 @@ class ExperienciaDelConductorTests(BaseCRM):
                     if 'encuesta' in t['titulo'].lower()][0]
         self.assertTrue(encuesta['habilitada'])
 
-    def test_mis_recorridos_solo_trae_los_suyos_y_los_pendientes(self):
+    def test_mi_jornada_trae_solo_lo_suyo_hoy_lo_pendiente_y_lo_que_viene(self):
+        """«Mis recorridos» se fundió aquí (oct-2026)."""
+        hoy = timezone.localdate()
         otro_conductor = self.persona('conductor2', 'Conductores')
-        Recorrido.objects.create(
-            orden=self.orden, vehiculo=self.vehiculo('AJE111'),
-            conductor=otro_conductor, fecha_recorrido=timezone.localdate())
-        viejo = Recorrido.objects.create(
-            orden=self.orden, vehiculo=self.vehiculo('OLD111'),
-            conductor=self.conductor,
-            fecha_recorrido=timezone.localdate() - datetime.timedelta(days=3))
-
-        recorridos = self.client.get(reverse('gestion:mis_recorridos')).context['recorridos']
-        self.assertEqual([r.pk for r in recorridos], [self.recorrido.pk])
+        Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('AJE111'),
+                                 conductor=otro_conductor, fecha_recorrido=hoy)
+        viejo = Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('OLD111'),
+                                         conductor=self.conductor, fecha_recorrido=hoy - datetime.timedelta(days=3))
+        cerrado = Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('OLD222'), estado='COMPLETADO',
+                                           conductor=self.conductor, fecha_recorrido=hoy - datetime.timedelta(days=5))
+        manana = Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('NEW111'),
+                                          conductor=self.conductor, fecha_recorrido=hoy + datetime.timedelta(days=1))
+        respuesta = self.client.get(reverse('gestion:dashboard_conductor'))
+        pks = lambda clave: [t['recorrido'].pk for t in respuesta.context[clave]]
+        self.assertEqual(pks('tarjetas_hoy'), [self.recorrido.pk])
+        self.assertEqual(pks('tarjetas_atrasadas'), [viejo.pk], "el cerrado no; el de otro conductor tampoco")
+        self.assertEqual(pks('proximos'), [manana.pk])
+        self.assertNotIn(cerrado.pk, pks('tarjetas_atrasadas'))
+        self.assertContains(respuesta, 'Te quedó pendiente')
+        # Cada tarjeta dice qué falta, con las mismas tareas de la orden, y cómo llegar.
+        tarjeta = respuesta.context['tarjetas_hoy'][0]
+        self.assertIn('los datos del servicio', tarjeta['faltan'])
+        self.assertIn('la firma del cliente', tarjeta['faltan'])
+        self.assertContains(respuesta, 'https://www.google.com/maps/search/?api=1&amp;query=')
+        self.assertContains(respuesta, 'Abrir servicio')
+        self.assertRedirects(self.client.get(reverse('gestion:mis_recorridos')),
+                             reverse('gestion:dashboard_conductor'))
 
     def test_el_historial_si_trae_todos_sus_recorridos(self):
         Recorrido.objects.create(
@@ -6324,7 +6396,8 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
     def test_el_conductor_conserva_su_propio_servicio(self):
         self.entrar(self.conductor)
         for url in (reverse('gestion:detalle_orden_conductor', args=[self.orden.pk]),
-                    reverse('gestion:mis_recorridos'),
+                    reverse('gestion:dashboard_conductor'),
+                    reverse('gestion:historial_conductor'),
                     reverse('gestion:firmar_manifiesto_step',
                             args=[self.recorrido.pk, 'paso3']),
                     reverse('gestion:manifiesto_qr', args=[self.recorrido.pk])):

@@ -1,147 +1,43 @@
 {% extends "gestion/base.html" %}
-
+{% block title %}Mi jornada{% endblock %}
 {% block content %}
-<style>
-/* ============ Mi jornada (solo esta vista, prefijo jc-) ============ */
-.jc-head{ margin-bottom:1.1rem; }
-.jc-head .fecha{ font-family:var(--mono); font-size:.74rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); }
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{# La casa del conductor: lo de hoy, lo que quedó pendiente y lo que viene. Un botón por servicio. #}
+<div class="cd">
+    <header class="cd-cab">
+        <div class="fecha">{{ hoy|date:"l j \d\e F"|lower|capfirst }}</div>
+        <h1>Hola, {{ user.first_name|default:user.username }}</h1>
+        <p>{% with n=tarjetas_hoy|length %}{% if n %}Hoy tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }}.{% else %}Hoy no tienes servicios.{% endif %}{% endwith %}</p>
+    </header>
 
-/* Tarjeta de recorrido */
-.jc-card{
-    background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--steel);
-    border-radius:var(--r-md); box-shadow:0 1px 2px rgba(15,23,35,.05);
-    padding:1rem 1.1rem; margin-bottom:.9rem;
-}
-.jc-card.done{ border-left-color:var(--ok); }
-.jc-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:.6rem; flex-wrap:wrap; }
-.jc-cliente{ font-size:1.05rem; font-weight:700; color:var(--ink); margin:0; line-height:1.3; }
-.jc-dir{ color:var(--ink-2); font-size:.86rem; margin:.15rem 0 0; }
-.jc-chips{ display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.55rem; }
-.jc-chip{
-    display:inline-flex; align-items:center; gap:.35rem;
-    font-family:var(--mono); font-size:.72rem; font-weight:600; color:var(--ink-2);
-    background:var(--panel-2); border:1px solid var(--line-2); border-radius:var(--r-xs);
-    padding:.22rem .5rem;
-}
-.jc-chip i{ color:var(--ink-3); }
+    {% if tarjetas_atrasadas %}
+    <h2 class="cd-sec">Te quedó pendiente <span class="n">{{ tarjetas_atrasadas|length }}</span></h2>
+    {% for t in tarjetas_atrasadas %}{% include 'gestion/partials/_tarjeta_servicio_conductor.html' with atrasada=True %}{% endfor %}
+    {% endif %}
 
-/* Avance del servicio: acta -> firma -> encuesta */
-.jc-pasos{ display:flex; gap:.35rem; margin-top:.7rem; flex-wrap:wrap; }
-.jc-paso{
-    flex:1 1 0; min-width:96px; text-align:center;
-    font-size:.7rem; font-weight:600; color:var(--ink-3);
-    border-top:3px solid var(--line); padding-top:.35rem;
-}
-.jc-paso i{ display:block; font-size:.95rem; margin-bottom:.1rem; }
-.jc-paso.hecho{ color:var(--ok); border-top-color:var(--ok); }
-.jc-paso.actual{ color:var(--warn); border-top-color:var(--warn); }
+    <h2 class="cd-sec">Hoy</h2>
+    {% for t in tarjetas_hoy %}
+    {% include 'gestion/partials/_tarjeta_servicio_conductor.html' %}
+    {% empty %}
+    <div class="cd-vacio"><i class="bi bi-cup-hot" aria-hidden="true"></i>No tienes servicios para hoy.</div>
+    {% endfor %}
 
-.jc-accion{ margin-top:.85rem; }
-.jc-accion .btn{ padding:.55rem 1.2rem; }
-
-/* Próximos recorridos */
-.jc-prox{ display:flex; align-items:center; gap:.8rem; padding:.6rem .2rem; border-bottom:1px solid var(--line-2); }
-.jc-prox:last-child{ border-bottom:0; }
-.jc-prox .dia{
-    flex-shrink:0; width:52px; text-align:center;
-    background:var(--panel-2); border:1px solid var(--line-2); border-radius:var(--r-sm);
-    padding:.3rem 0; font-family:var(--mono); line-height:1.15;
-}
-.jc-prox .dia .d{ font-size:1rem; font-weight:700; color:var(--ink); display:block; }
-.jc-prox .dia .m{ font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
-.jc-prox .info{ min-width:0; }
-.jc-prox .info .cli{ font-weight:600; color:var(--ink); font-size:.88rem; }
-.jc-prox .info .det{ color:var(--ink-3); font-size:.76rem; }
-
-/* Móvil: botones a lo ancho y tarjetas cómodas al dedo */
-@media (max-width:600px){
-    .jc-accion .btn{ width:100%; }
-    .jc-card{ padding:.9rem; }
-}
-</style>
-
-<div class="jc-head">
-    <div class="fecha">{{ "now"|date:"l j \d\e F \d\e Y"|capfirst }}</div>
-    <h1 class="mb-0">Mi jornada</h1>
-    <p class="text-muted mb-0">
-        Hola, {{ user.get_full_name|default:user.username }}.
-        {% with n=recorridos_hoy|length %}
-            {% if n %}Tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }} para hoy.{% else %}Hoy no tienes servicios asignados.{% endif %}
-        {% endwith %}
-    </p>
-</div>
-
-{# ================= SERVICIOS DE HOY ================= #}
-{% for recorrido in recorridos_hoy %}
-{% with manifiesto=recorrido.manifiesto %}
-<div class="jc-card {% if recorrido.estado == 'COMPLETADO' %}done{% endif %}">
-    <div class="jc-top">
-        <div>
-            <h2 class="jc-cliente">{{ recorrido.orden.cliente.nombre }}</h2>
-            <p class="jc-dir"><i class="bi bi-geo-alt-fill me-1"></i>{{ recorrido.orden.direccion_servicio }}</p>
-        </div>
-        <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
-    </div>
-
-    <div class="jc-chips">
-        <span class="jc-chip"><i class="bi bi-clipboard-data"></i>Orden #{{ recorrido.orden.numero_orden }}</span>
-        {% if recorrido.vehiculo %}<span class="jc-chip"><i class="bi bi-truck"></i>{{ recorrido.vehiculo.placa }}</span>{% endif %}
-        {% if recorrido.ayudante %}<span class="jc-chip"><i class="bi bi-person"></i>{{ recorrido.ayudante.get_full_name|default:recorrido.ayudante.username }}</span>{% endif %}
-    </div>
-
-    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=recorrido.vehiculo %}
-
-    {# Avance: acta -> firma del cliente -> encuesta de cierre #}
-    <div class="jc-pasos">
-        <div class="jc-paso {% if manifiesto %}hecho{% else %}actual{% endif %}">
-            <i class="bi {% if manifiesto %}bi-check-circle-fill{% else %}bi-pen{% endif %}"></i>Acta
-        </div>
-        <div class="jc-paso {% if manifiesto.estado_firma == 'FIRMADO' %}hecho{% elif manifiesto %}actual{% endif %}">
-            <i class="bi {% if manifiesto.estado_firma == 'FIRMADO' %}bi-check-circle-fill{% else %}bi-qr-code{% endif %}"></i>Firma cliente
-        </div>
-        <div class="jc-paso {% if recorrido.encuesta_conductor %}hecho{% elif manifiesto.estado_firma == 'FIRMADO' %}actual{% endif %}">
-            <i class="bi {% if recorrido.encuesta_conductor %}bi-check-circle-fill{% else %}bi-clipboard-check{% endif %}"></i>Encuesta
-        </div>
-    </div>
-
-    <div class="jc-accion">
-        <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}" class="btn btn-primary">
-            <i class="bi bi-box-arrow-in-right me-1"></i> Ver orden
+    <h2 class="cd-sec">Próximos días {% if proximos %}<span class="n">{{ proximos|length }}</span>{% endif %}</h2>
+    {% if proximos %}
+    <div class="cd-lista">
+        {% for t in proximos %}
+        <a class="cd-fila" href="{% url 'gestion:detalle_orden_conductor' t.orden.pk %}">
+            <span class="cd-dia" aria-hidden="true"><span class="d">{{ t.recorrido.fecha_recorrido|date:"j" }}</span><span class="m">{{ t.recorrido.fecha_recorrido|date:"b" }}</span></span>
+            <span class="tx">
+                <span class="t">{{ t.orden.direccion_servicio|default:"Sin dirección" }}</span>
+                <span class="s">{{ t.recorrido.fecha_recorrido|date:"l"|capfirst }}{% if t.hora %} · {{ t.hora|time:"g:i a" }}{% endif %} · <span class="mono">Orden #{{ t.orden.numero_orden }}{% if t.recorrido.vehiculo %} · {{ t.recorrido.vehiculo.placa }}{% endif %}</span></span>
+            </span>
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
         </a>
-    </div>
-</div>
-{% endwith %}
-{% empty %}
-<div class="card shadow mb-4">
-    <div class="card-body text-center text-muted py-4">
-        <i class="bi bi-cup-hot d-block mb-2" style="font-size:1.6rem; color:var(--brand-600);"></i>
-        No tienes recorridos asignados para hoy.
-    </div>
-</div>
-{% endfor %}
-
-{# ================= PRÓXIMOS 7 DÍAS ================= #}
-<div class="card shadow mb-4">
-    <div class="card-header"><h5 class="mb-0">Próximos recorridos</h5></div>
-    <div class="card-body py-2">
-        {% for recorrido in recorridos_proximos %}
-        <div class="jc-prox">
-            <div class="dia">
-                <span class="d">{{ recorrido.fecha_recorrido|date:"j" }}</span>
-                <span class="m">{{ recorrido.fecha_recorrido|date:"b" }}</span>
-            </div>
-            <div class="info">
-                <div class="cli">{{ recorrido.orden.cliente.nombre }}</div>
-                <div class="det">
-                    Orden #{{ recorrido.orden.numero_orden }}
-                    {% if recorrido.vehiculo %} · {{ recorrido.vehiculo.placa }}{% endif %}
-                    · {{ recorrido.fecha_recorrido|date:"l"|capfirst }}
-                </div>
-            </div>
-        </div>
-        {% empty %}
-        <p class="text-muted text-center py-3 mb-0">No hay recorridos programados para los próximos 7 días.</p>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="cd-vacio">Todavía no tienes servicios programados.</div>
+    {% endif %}
 </div>
 {% endblock %}

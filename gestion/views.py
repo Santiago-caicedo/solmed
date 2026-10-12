@@ -42,6 +42,7 @@ from .renumeracion import reubicar_orden
 # El plan de trabajo alimenta el centro de control del empleado. planes
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
+from .forms import ManifiestoHojaConductorForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
@@ -445,6 +446,9 @@ def _pendientes_orden(orden):
 
     if not actas or not any(_acta_lista_para_firmar(a) for a in actas):
         faltan.append({'etiqueta': 'Datos del acta', 'icono': 'bi-pencil-square'})
+    elif not any(_acta_tiene_tiempos(a) for a in actas):
+        # El conductor ya no los llena (oct-2026): quedan para el asesor.
+        faltan.append({'etiqueta': 'Tiempos del acta', 'icono': 'bi-clock'})
 
     if orden.requiere_bascula and not orden.bascula_adjunto:
         faltan.append({'etiqueta': 'Tiquete de báscula', 'icono': 'bi-speedometer2'})
@@ -1691,22 +1695,21 @@ def _formularios_acpm(manifiesto, data=None, files=None):
     return filas
 
 
-def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm):
+def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas=True):
     """
     Escribe lo marcado en la hoja: las novedades sin datos se borran (el
     conductor pudo desmarcarlas) y las fotos de ACPM solo se reemplazan si
-    subió una nueva.
+    subió una nueva. Sin `con_horas` (la hoja del conductor, oct-2026) las
+    horas de cada novedad no se tocan: las llena el asesor.
     """
     for tipo, _etiqueta, _icono, form in filas_novedades:
         if form.tiene_datos():
+            datos = {'observacion': form.cleaned_data['observacion']}
+            if con_horas:
+                datos.update(hora_inicio=form.cleaned_data['hora_inicio'],
+                             hora_final=form.cleaned_data['hora_final'])
             NovedadOperacional.objects.update_or_create(
-                manifiesto=manifiesto, tipo=tipo,
-                defaults={
-                    'observacion': form.cleaned_data['observacion'],
-                    'hora_inicio': form.cleaned_data['hora_inicio'],
-                    'hora_final': form.cleaned_data['hora_final'],
-                },
-            )
+                manifiesto=manifiesto, tipo=tipo, defaults=datos)
         else:
             NovedadOperacional.objects.filter(manifiesto=manifiesto, tipo=tipo).delete()
 
@@ -1721,6 +1724,14 @@ def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm):
         if foto:
             registro.foto = foto
         registro.save()
+
+
+def _llena_tiempos(user):
+    """
+    Los tiempos del acta (y las horas de las novedades) los llena gestión, no
+    el conductor (oct-2026, pedido de Santiago): a él se le quitaron de la hoja.
+    """
+    return es_administrador(user) or user.groups.filter(name='Asesores').exists()
 
 
 # ============================================================
@@ -1750,8 +1761,14 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         "paso4": 'gestion/manifiesto_wizard/paso4.html',
     }
 
+    # El CONDUCTOR llena todo en una sola hoja, sin tiempos (oct-2026).
+    FORMS_CONDUCTOR = [("paso3", ManifiestoHojaConductorForm)]
+
+    def pasos(self):
+        return self.FORMS if _llena_tiempos(self.request.user) else self.FORMS_CONDUCTOR
+
     def get_form_step(self, step_name):
-        for name, form_class in self.FORMS:
+        for name, form_class in self.pasos():
             if name == step_name:
                 return form_class
         return None
@@ -1775,6 +1792,9 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
                     "cerrada. Si hay que corregir algo, avísale a la oficina."
                 )
                 return redirect('gestion:detalle_orden_conductor', pk=recorrido.orden_id)
+            # El conductor ya no tiene paso 2: todo va en su hoja.
+            if kwargs.get('step', 'paso3') != 'paso3' and not _llena_tiempos(request.user):
+                return redirect('gestion:firmar_manifiesto_step', pk=recorrido.pk, step='paso3')
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, pk, step='paso3'):
@@ -1813,6 +1833,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         return {
             'checklist_izq': izquierda,
             'checklist_der': derecha,
+            'llena_tiempos': _llena_tiempos(self.request.user),
             'filas_novedades': _formularios_novedades(manifiesto, data),
             'filas_acpm': _formularios_acpm(manifiesto, data, files),
         }
@@ -1871,7 +1892,8 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
                 setattr(manifiesto_instance, campo, valor)
             manifiesto_instance.save()
             _guardar_novedades_y_acpm(
-                manifiesto_instance, extra['filas_novedades'], extra['filas_acpm'])
+                manifiesto_instance, extra['filas_novedades'], extra['filas_acpm'],
+                con_horas=extra['llena_tiempos'])
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
         cleaned_data = form.cleaned_data
@@ -1881,9 +1903,10 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         manifiesto_data.update(cleaned_data)
         request.session[f'manifiesto_data_{pk}'] = manifiesto_data
 
-        current_index = [name for name, _ in self.FORMS].index(step)
-        if current_index + 1 < len(self.FORMS):
-            next_step_name = self.FORMS[current_index + 1][0]
+        pasos = self.pasos()
+        current_index = [name for name, _ in pasos].index(step)
+        if current_index + 1 < len(pasos):
+            next_step_name = pasos[current_index + 1][0]
             return redirect('gestion:firmar_manifiesto_step', pk=pk, step=next_step_name)
 
         # --- Último paso del conductor: persistir el manifiesto y pasar al QR ---
@@ -1905,6 +1928,8 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
                 'auxiliar1': auxiliar1, 'auxiliar2': auxiliar2,
                 # El responsable SOLMED es el conductor: tampoco lo escribe él.
                 'nombre_responsable_empresa': recorrido.responsable_empresa,
+                # La señal de que la hoja ya se guardó (ver _acta_lista_para_firmar).
+                'datos_conductor_en': timezone.now(),
             },
         )
         if f'manifiesto_data_{pk}' in request.session:
@@ -1917,15 +1942,22 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         return redirect('gestion:detalle_orden', pk=recorrido.orden_id)
 
 
-def _acta_lista_para_firmar(manifiesto):
-    """
-    ¿El conductor ya diligenció lo suyo? Se mira lo que él llena en el
-    asistente (tiempos y kilómetros): si está vacío y el cliente firma, el
-    acta queda sin esos datos. Sirve para advertirlo, no para bloquear.
-    """
+def _acta_tiene_tiempos(manifiesto):
+    """¿Ya tiene los tiempos? Desde oct-2026 los llena el asesor, no el conductor."""
     campos = ('tiempo_inicio_operativo', 'tiempo_final_operativo',
               'hora_salida_solmed', 'hora_llegada_solmed')
     return any(getattr(manifiesto, campo, None) not in (None, '') for campo in campos)
+
+
+def _acta_lista_para_firmar(manifiesto):
+    """
+    ¿Ya se guardó la hoja del servicio? Desde oct-2026 lo dice la marca
+    `datos_conductor_en` (los tiempos ya no son del conductor y lo demás que
+    llena es opcional); las actas de antes cuentan si tienen tiempos. Sirve
+    para advertirlo, no para bloquear.
+    """
+    return (getattr(manifiesto, 'datos_conductor_en', None) is not None
+            or _acta_tiene_tiempos(manifiesto))
 
 
 def _acta_para_firmar(recorrido):
@@ -1983,6 +2015,9 @@ class ManifiestoQRView(LoginRequiredMixin, View):
             'url_publica': url_publica,
             'qr_b64': _qr_data_uri(url_publica),
             'acta_diligenciada': _acta_lista_para_firmar(manifiesto),
+            'faltan_tiempos': not _acta_tiene_tiempos(manifiesto),
+            'url_hoja': reverse('gestion:firmar_manifiesto_step',
+                                kwargs={'pk': recorrido.pk, 'step': 'paso3'}),
             # El conductor cierra su flujo aquí; el asesor vuelve a la orden.
             'es_asesor_viendo': recorrido.conductor_id != request.user.id,
         })
@@ -2865,24 +2900,26 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
     template_name = 'gestion/dashboard_conductor.html'
 
     def get_context_data(self, **kwargs):
+        """
+        La casa del conductor (oct-2026, rediseño «muy sencillo»): lo de hoy en
+        tarjetas grandes, lo que le quedó pendiente de días anteriores, y lo
+        que viene. Reemplaza también a «Mis recorridos», que repetía lo mismo.
+        """
         context = super().get_context_data(**kwargs)
-        conductor = self.request.user
+        mios = (Recorrido.objects.filter(conductor=self.request.user)
+                .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
+                                'vehiculo', 'manifiesto', 'encuesta_conductor'))
+        abiertos = ('PROGRAMADO', 'EN_CURSO')
         hoy = timezone.localdate()
-
-        # Recorridos para el día de hoy
-        context['recorridos_hoy'] = Recorrido.objects.filter(
-            conductor=conductor,
-            fecha_recorrido=hoy
-        ).order_by('orden__fecha_creacion')
-
-        # Recorridos para los próximos 7 días
-        proxima_semana = hoy + datetime.timedelta(days=7)
-        context['recorridos_proximos'] = Recorrido.objects.filter(
-            conductor=conductor,
-            fecha_recorrido__gt=hoy,
-            fecha_recorrido__lte=proxima_semana
-        ).order_by('fecha_recorrido')
-        
+        context['hoy'] = hoy
+        context['tarjetas_hoy'] = [_tarjeta_conductor(r) for r in
+                                   mios.filter(fecha_recorrido=hoy).order_by('orden__fecha_creacion')]
+        context['tarjetas_atrasadas'] = [
+            _tarjeta_conductor(r) for r in
+            mios.filter(fecha_recorrido__lt=hoy, estado__in=abiertos).order_by('fecha_recorrido')[:20]]
+        context['proximos'] = [
+            _tarjeta_conductor(r, con_tareas=False) for r in
+            mios.filter(fecha_recorrido__gt=hoy, estado__in=abiertos).order_by('fecha_recorrido')[:30]]
         return context
     
 
@@ -2926,32 +2963,14 @@ def dashboard_redirect_view(request):
 
 
 # --- VISTA PRINCIPAL PARA CONDUCTORES ---
-class MisRecorridosView(ConductorRequiredMixin, PaginadoMixin, ListView):
-    model = Recorrido
-    template_name = 'gestion/mis_recorridos.html'
-    context_object_name = 'recorridos'
-    paginate_by = 10
-
-    def get_queryset(self):
-        # Solo los recorridos del conductor que siguen pendientes, por fecha.
-        # Se traen de una vez la orden, el cliente, la placa y el estado del
-        # acta: la tarjeta los muestra todos (si no, una consulta por fila).
-        hoy = timezone.localdate()
-        return (
-            Recorrido.objects.filter(
-                conductor=self.request.user,
-                fecha_recorrido__gte=hoy,
-                estado__in=['PROGRAMADO', 'EN_CURSO'],
-            )
-            .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
-                            'vehiculo', 'manifiesto', 'encuesta_conductor')
-            .order_by('fecha_recorrido')
-        )
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['hoy'] = timezone.localdate()   # para destacar los de hoy
-        return context
+class MisRecorridosView(ConductorRequiredMixin, View):
+    """
+    «Mis recorridos» repetía lo de «Mi jornada»: desde oct-2026 todo vive allí
+    (hoy, pendientes y próximos). La dirección se conserva por si alguien la
+    tiene guardada.
+    """
+    def get(self, request, *args, **kwargs):
+        return redirect('gestion:dashboard_conductor')
 
 
 # --- HISTORIAL DEL CONDUCTOR ---
@@ -2968,7 +2987,34 @@ class HistorialConductorView(ConductorRequiredMixin, PaginadoMixin, ListView):
     def get_queryset(self):
         return Recorrido.objects.filter(
             conductor=self.request.user
-        ).select_related('orden', 'orden__cliente', 'vehiculo').order_by('-fecha_recorrido')
+        ).select_related('orden', 'orden__cliente', 'vehiculo', 'manifiesto',
+                         'encuesta_conductor').order_by('-fecha_recorrido')
+
+
+def _tarjeta_conductor(recorrido, con_tareas=True):
+    """
+    Lo que muestra cada servicio en «Mi jornada»: a dónde va, qué le falta en
+    palabras (las mismas tareas de la orden) y el enlace para llegar en el mapa.
+    """
+    from urllib.parse import quote
+    orden = recorrido.orden
+    programacion = getattr(orden, 'programacion_origen', None)
+    tarjeta = {
+        'recorrido': recorrido,
+        'orden': orden,
+        'hora': programacion.hora_servicio if programacion else None,
+        'mapa': ('https://www.google.com/maps/search/?api=1&query=' + quote(orden.direccion_servicio)
+                 if orden.direccion_servicio else ''),
+        'faltan': [],
+    }
+    if con_tareas:
+        acta, estado = _acta_para_vista(recorrido)
+        fotos = orden.documentos.filter(descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO)
+        tareas = _tareas_servicio_conductor(
+            orden, [{'recorrido': recorrido, 'acta': acta, 'estado': estado}], fotos)
+        tarjeta['faltan'] = [t['titulo_corto'] for t in tareas if not t['hecha']]
+    tarjeta['cerrado'] = recorrido.estado == 'COMPLETADO' or (con_tareas and not tarjeta['faltan'])
+    return tarjeta
 
 
 # --- VISTA DE ORDEN PARA EL CONDUCTOR ---
@@ -2989,20 +3035,24 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
 
     for item in actas_formato:
         rec, estado = item['recorrido'], item['estado']
+        # Hecha cuando se GUARDÓ la hoja: abrir el QR crea el acta, pero eso no
+        # es haber llenado los datos (oct-2026).
+        guardada = estado == 'FIRMADA' or (estado == 'DILIGENCIADA'
+                                           and _acta_lista_para_firmar(item['acta']))
         tareas.append({
             'titulo': 'Llena los datos del servicio' + fecha_de(item),
             'titulo_corto': 'los datos del servicio',
-            'detalle': ('Datos registrados. Puedes corregirlos hasta que el cliente firme.'
-                        if estado == 'DILIGENCIADA' else
-                        'Datos registrados y firmados.' if estado == 'FIRMADA' else
-                        'Tiempos, kilómetros, novedades del día y ACPM.'),
+            'detalle': ('Datos guardados y firmados.' if estado == 'FIRMADA' else
+                        'Datos guardados. Puedes corregirlos hasta que el cliente firme.'
+                        if guardada else
+                        'Novedades del día, ACPM y observaciones.'),
             'icono': 'bi-pen-fill',
-            'hecha': estado != 'PENDIENTE',
+            'hecha': guardada,
             'habilitada': True,
             'url': (None if estado == 'FIRMADA' else
                     reverse('gestion:firmar_manifiesto_step',
                             kwargs={'pk': rec.pk, 'step': 'paso3'})),
-            'boton': 'Corregir' if estado == 'DILIGENCIADA' else 'Llenar',
+            'boton': 'Corregir' if guardada else 'Llenar',
             'formulario': None,
         })
 
@@ -3072,6 +3122,9 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
                     if estado == 'FIRMADA' and not con_encuesta else None),
             'boton': 'Responder',
             'formulario': None,
+            # Ya respondida, el conductor puede ver su PDF (antes estaba en el historial).
+            'pdf': (reverse('gestion:encuesta_conductor_pdf', kwargs={'pk': rec.pk})
+                    if con_encuesta else None),
         })
     return tareas
 
@@ -3122,6 +3175,10 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
             'pct': int(hechas * 100 / total) if total else 0,
             'faltan': [t['titulo_corto'] for t in context['tareas'] if not t['hecha']],
         }
+        from urllib.parse import quote
+        direccion = self.object.direccion_servicio
+        context['mapa'] = ('https://www.google.com/maps/search/?api=1&query=' + quote(direccion)
+                           if direccion else '')
         return context
 
     def _tareas_servicio(self, orden, actas_formato, fotos_registro):

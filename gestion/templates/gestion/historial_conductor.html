@@ -1,81 +1,31 @@
 {% extends "gestion/base.html" %}
-
+{% block title %}Historial{% endblock %}
 {% block content %}
-<div class="mb-4">
-    <h1 class="mb-0">Historial de Recorridos</h1>
-    <p class="lead text-muted">Todos tus servicios, del más reciente al más antiguo.</p>
-</div>
-
-{% if recorridos %}
-<div class="card shadow">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Orden / Cliente</th>
-                        <th>Vehículo</th>
-                        <th>Estado</th>
-                        <th>Acta de servicio</th>
-                        <th>Encuesta de cierre</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for recorrido in recorridos %}
-                    <tr>
-                        <td>{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
-                        <td>
-                            <a href="{% url 'gestion:detalle_orden_conductor' recorrido.orden.pk %}">
-                                Orden #{{ recorrido.orden.numero_orden }}
-                            </a>
-                            <small class="d-block text-muted">{{ recorrido.orden.cliente.nombre }}</small>
-                        </td>
-                        <td>{{ recorrido.vehiculo.placa }}</td>
-                        <td>
-                            <span class="badge {% if recorrido.estado == 'COMPLETADO' %}bg-success{% elif recorrido.estado == 'EN_CURSO' %}bg-info{% else %}bg-secondary{% endif %}">{{ recorrido.get_estado_display }}</span>
-                        </td>
-                        <td>
-                            {% if recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Acta firmada</span>
-                            {% elif recorrido.manifiesto %}
-                                <a href="{% url 'gestion:manifiesto_qr' recorrido.pk %}" class="btn btn-outline-primary btn-sm">
-                                    <i class="bi bi-qr-code"></i> QR
-                                </a>
-                            {% else %}
-                                <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso3' %}" class="btn btn-outline-success btn-sm">
-                                    <i class="bi bi-pen-fill"></i> Llenar
-                                </a>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if recorrido.encuesta_conductor %}
-                                {# El PDF se genera al momento de descargarlo (no se guarda) #}
-                                <a href="{% url 'gestion:encuesta_conductor_pdf' recorrido.pk %}" class="btn btn-outline-danger btn-sm">
-                                    <i class="bi bi-file-earmark-pdf-fill"></i> PDF encuesta
-                                </a>
-                            {% elif recorrido.manifiesto.estado_firma == 'FIRMADO' %}
-                                <a href="{% url 'gestion:encuesta_conductor' recorrido.pk %}" class="btn btn-warning btn-sm">
-                                    <i class="bi bi-clipboard-check"></i> Pendiente
-                                </a>
-                            {% else %}
-                                <span class="text-muted small">—</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{# Todos los servicios del conductor, del más reciente al más antiguo: una fila por servicio que abre su orden. #}
+<div class="cd">
+    <header class="cd-cab">
+        <h1>Historial</h1>
+        <p>Todos tus servicios, del más reciente al más antiguo.</p>
+    </header>
+    {% if recorridos %}
+    <div class="cd-lista">
+        {% for r in recorridos %}
+        <a class="cd-fila" href="{% url 'gestion:detalle_orden_conductor' r.orden.pk %}">
+            <span class="cd-dia" aria-hidden="true"><span class="d">{{ r.fecha_recorrido|date:"j" }}</span><span class="m">{{ r.fecha_recorrido|date:"b y" }}</span></span>
+            <span class="tx">
+                <span class="t">{{ r.orden.direccion_servicio|default:"Sin dirección" }}</span>
+                <span class="s"><span class="mono">Orden #{{ r.orden.numero_orden }}{% if r.vehiculo %} · {{ r.vehiculo.placa }}{% endif %}</span> · {{ r.orden.cliente.nombre }}</span>
+            </span>
+            {% if r.estado == 'COMPLETADO' %}<span class="cd-pill listo">Cerrado</span>
+            {% else %}<span class="cd-pill falta">Pendiente</span>{% endif %}
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </a>
+        {% endfor %}
     </div>
+    {% include 'gestion/partials/_paginacion.html' with etiqueta="servicios" %}
+    {% else %}
+    <div class="cd-vacio"><i class="bi bi-clock-history" aria-hidden="true"></i>Aún no tienes servicios registrados.</div>
+    {% endif %}
 </div>
-
-{% include 'gestion/partials/_paginacion.html' with etiqueta="recorridos" %}
-
-{% else %}
-<div class="alert alert-info text-center">
-    <h4 class="alert-heading">Sin historial todavía</h4>
-    <p class="mb-0">Aún no tienes recorridos registrados.</p>
-</div>
-{% endif %}
 {% endblock %}

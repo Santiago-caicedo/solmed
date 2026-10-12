@@ -1,0 +1,27 @@
+{# Un servicio en «Mi jornada»: a dónde va, qué le falta y un solo botón para abrirlo. Recibe `t` (ver _tarjeta_conductor). #}
+<article class="cd-card {% if t.cerrado %}cerrada{% elif atrasada %}atrasada{% endif %}" aria-label="Servicio de la orden {{ t.orden.numero_orden }}">
+    <p class="cd-dir"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i>{{ t.orden.direccion_servicio|default:"Sin dirección" }}</p>
+    <div class="cd-meta">
+        {% if atrasada %}<span>{{ t.recorrido.fecha_recorrido|date:"l j \d\e F"|lower|capfirst }}</span>{% endif %}
+        {% if t.hora %}<span><i class="bi bi-clock" aria-hidden="true"></i> {{ t.hora|time:"g:i a" }}</span>{% endif %}
+        <span>Orden #{{ t.orden.numero_orden }}</span>
+        {% if t.recorrido.vehiculo %}<span>{{ t.recorrido.vehiculo.placa }}</span>{% endif %}
+        <span class="cli">{{ t.orden.cliente.nombre }}</span>
+    </div>
+    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=t.recorrido.vehiculo %}
+    {% if t.cerrado %}
+    <div class="cd-estado listo"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Servicio cerrado. Buen trabajo.</div>
+    {% else %}
+    <div class="cd-estado falta"><i class="bi bi-circle-half" aria-hidden="true"></i>
+        <span>Te falta {% for f in t.faltan %}{% if not forloop.first %}{% if forloop.last %} y {% else %}, {% endif %}{% endif %}<strong>{{ f }}</strong>{% endfor %}.</span>
+    </div>
+    {% endif %}
+    <div class="cd-acciones">
+        <a href="{% url 'gestion:detalle_orden_conductor' t.orden.pk %}" class="cd-btn {% if t.cerrado %}sec{% else %}pri{% endif %}">
+            {% if t.cerrado %}Ver servicio{% else %}Abrir servicio{% endif %}<i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+        {% if t.mapa and not t.cerrado %}
+        <a href="{{ t.mapa }}" target="_blank" rel="noopener" class="cd-btn sec" aria-label="Cómo llegar a {{ t.orden.direccion_servicio }}">
+            <i class="bi bi-sign-turn-right" aria-hidden="true"></i>Cómo llegar</a>
+        {% endif %}
+    </div>
+</article>
