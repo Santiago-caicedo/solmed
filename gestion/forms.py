@@ -418,6 +418,9 @@ class ManifiestoPaso5Form(forms.ModelForm): # Satisfacción
         # La encuesta exige responder las 11 preguntas.
         for campo in self.fields.values():
             campo.required = True
+            # Sin la opción vacía «---------»: el cliente la veía como un botón
+            # más, y marcado, en cada calificación (oct-2026).
+            campo.choices = [c for c in campo.choices if c[0] not in ('', None)]
 
 
 # Roles que dan acceso más allá del módulo de Personal. Talento Humano no

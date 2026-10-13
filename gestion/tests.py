@@ -824,6 +824,12 @@ class FirmaDelClienteTests(BaseCRM):
     def test_la_pagina_publica_se_abre_sin_iniciar_sesion(self):
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
+    def test_cada_calificacion_ofrece_solo_sus_opciones(self):
+        """Sin la opción vacía «---------», que el cliente veía marcada (oct-2026)."""
+        respuesta = self.client.get(self.url)
+        self.assertNotContains(respuesta, 'name="eval_atencion" value=""')
+        self.assertNotIn('', [v for v, _ in respuesta.context['form'].fields['eval_atencion'].choices])
+
     def test_un_token_inventado_no_existe(self):
         import uuid
         self.assertEqual(self.client.get(reverse(
