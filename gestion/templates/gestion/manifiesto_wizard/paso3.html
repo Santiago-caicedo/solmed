@@ -3,11 +3,10 @@
 {% block content %}
 {% include 'gestion/partials/_conductor_estilos.html' %}
 {% comment %}
-La hoja del servicio. El CONDUCTOR la llena en un solo paso y SIN tiempos
-(oct-2026: los tiempos y las horas de las novedades los llena el asesor):
-novedades, ACPM y observaciones, con un solo botón «Guardar». Gestión ve la
-misma hoja con los tiempos y sigue al paso 2 (observaciones). `llena_tiempos`
-decide cuál de las dos.
+La hoja del servicio. El CONDUCTOR la llena en un solo paso: novedades y
+observaciones, con un solo botón «Guardar» (oct-2026: los tiempos, las horas
+de las novedades y el ACPM los llena la oficina). Gestión ve la misma hoja
+con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
 {% endcomment %}
 <style>
 .hj-sec{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; overflow:hidden; }
@@ -156,6 +155,8 @@ decide cuál de las dos.
             </div>
         </div>
 
+        {# El ACPM, como los tiempos, ya no es del conductor (oct-2026): lo llena la oficina. #}
+        {% if llena_tiempos %}
         <div class="hj-sec">
             <div class="cab"><i class="bi bi-fuel-pump" aria-hidden="true"></i><span class="t">Control de ACPM</span></div>
             <div class="cuerpo">
@@ -181,6 +182,7 @@ decide cuál de las dos.
                 </div>
             </div>
         </div>
+        {% endif %}
 
         {% if not llena_tiempos %}
         <div class="hj-sec">

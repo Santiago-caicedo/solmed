@@ -1695,12 +1695,13 @@ def _formularios_acpm(manifiesto, data=None, files=None):
     return filas
 
 
-def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas=True):
+def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas=True, con_acpm=True):
     """
     Escribe lo marcado en la hoja: las novedades sin datos se borran (el
     conductor pudo desmarcarlas) y las fotos de ACPM solo se reemplazan si
     subió una nueva. Sin `con_horas` (la hoja del conductor, oct-2026) las
-    horas de cada novedad no se tocan: las llena el asesor.
+    horas de cada novedad no se tocan: las llena el asesor. Sin `con_acpm`
+    el ACPM tampoco: desde oct-2026 también lo llena la oficina.
     """
     for tipo, _etiqueta, _icono, form in filas_novedades:
         if form.tiene_datos():
@@ -1713,7 +1714,7 @@ def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas
         else:
             NovedadOperacional.objects.filter(manifiesto=manifiesto, tipo=tipo).delete()
 
-    for tipo, _etiqueta, _previa, form in filas_acpm:
+    for tipo, _etiqueta, _previa, form in (filas_acpm if con_acpm else []):
         medida = form.cleaned_data['medida']
         foto = form.cleaned_data['foto']
         if not medida and not foto:
@@ -1893,7 +1894,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             manifiesto_instance.save()
             _guardar_novedades_y_acpm(
                 manifiesto_instance, extra['filas_novedades'], extra['filas_acpm'],
-                con_horas=extra['llena_tiempos'])
+                con_horas=extra['llena_tiempos'], con_acpm=extra['llena_tiempos'])
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
         cleaned_data = form.cleaned_data
@@ -3045,7 +3046,7 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
             'detalle': ('Datos guardados y firmados.' if estado == 'FIRMADA' else
                         'Datos guardados. Puedes corregirlos hasta que el cliente firme.'
                         if guardada else
-                        'Novedades del día, ACPM y observaciones.'),
+                        'Novedades del día y observaciones.'),
             'icono': 'bi-pen-fill',
             'hecha': guardada,
             'habilitada': True,
@@ -3056,20 +3057,8 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
             'formulario': None,
         })
 
-    if orden.requiere_bascula:
-        tareas.append({
-            'titulo': 'Sube el tiquete de báscula',
-            'titulo_corto': 'el tiquete de báscula',
-            'detalle': ('Tiquete cargado. Puedes reemplazarlo si quedó mal.'
-                        if orden.bascula_adjunto else
-                        'Tómale una foto al tiquete del pesaje.'),
-            'icono': 'bi-speedometer2',
-            'hecha': bool(orden.bascula_adjunto),
-            'habilitada': True,
-            'url': None,
-            'boton': '',
-            'formulario': 'bascula',
-        })
+    # El tiquete de báscula ya no es tarea del conductor (oct-2026, pedido de
+    # Santiago): lo sube la oficina desde el módulo de Básculas.
 
     if orden.requiere_registro_fotografico:
         con_fotos = bool(orden.registro_fotografico_adjunto) or bool(fotos_registro)
@@ -3186,8 +3175,12 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
 
 
     def post(self, request, *args, **kwargs):
-        """Carga de soportes: tiquete de báscula y fotos del registro fotográfico."""
+        """Carga de soportes: las fotos del registro fotográfico."""
         self.object = self.get_object()   # 404 si la orden no es suya
+        if 'submit_bascula' in request.POST:
+            # El tiquete lo sube la oficina desde Básculas (oct-2026).
+            messages.error(request, "El tiquete de báscula lo sube la oficina.")
+            return redirect('gestion:detalle_orden_conductor', pk=self.object.pk)
         if not _cargar_soporte_orden(request, self.object):
             messages.error(request, "Esta orden no tiene ese soporte habilitado.")
         return redirect('gestion:detalle_orden_conductor', pk=self.object.pk)

@@ -1535,7 +1535,9 @@ class Programacion(models.Model):
 
         bascula = 'NO'
         if self.bascula == 'PESAN':
-            bascula = 'SÍ — SUBIR FOTO'
+            # La foto del tiquete ya no la sube el conductor (oct-2026): la
+            # sube la oficina desde Básculas.
+            bascula = 'SÍ'
             if self.bascula_sitio_id:
                 bascula += f' ({self.bascula_sitio.nombre})'
         elif self.bascula == 'PESO_CLIENTE':

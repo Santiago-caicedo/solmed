@@ -663,14 +663,25 @@ class ActaDeServicioTests(BaseCRM):
         self.client.post(self.url_paso('paso3'), self.datos_hoja())
         self.assertFalse(NovedadOperacional.objects.exists())
 
-    def test_el_control_de_acpm_guarda_la_medida(self):
+    def test_el_control_de_acpm_lo_llena_la_oficina(self):
+        """Oct-2026: el conductor ya no ve ni guarda el ACPM; el asesor sí."""
         self.entrar(self.conductor)
-        self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'acpm-INICIAL-medida': '1/2 tanque',
-        }))
+        hoja = self.client.get(self.url_paso('paso3'))
+        self.assertNotContains(hoja, 'Control de ACPM')
+        self.assertNotContains(hoja, 'name="acpm-INICIAL-medida"')
+        self.client.post(self.url_paso('paso3'), {'acpm-INICIAL-medida': 'lo que mande a mano'})
+        self.assertFalse(MedidaACPM.objects.exists(), "aunque lo mande, el conductor no escribe el ACPM")
+
+        self.entrar(self.asesor)
+        self.assertContains(self.client.get(self.url_paso('paso3')), 'Control de ACPM')
+        self.client.post(self.url_paso('paso3'), self.datos_hoja(**{'acpm-INICIAL-medida': '1/2 tanque'}))
         medida = MedidaACPM.objects.get()
         self.assertEqual(medida.tipo, 'INICIAL')
         self.assertEqual(medida.medida, '1/2 tanque')
+        # Y si después el conductor guarda su hoja, lo del asesor se conserva.
+        self.entrar(self.conductor)
+        self.client.post(self.url_paso('paso3'), {'observaciones': 'ok'})
+        self.assertEqual(MedidaACPM.objects.get().medida, '1/2 tanque')
 
     def test_otro_conductor_no_puede_llenar_un_acta_ajena(self):
         intruso = self.persona('conductor2', 'Conductores')
@@ -4509,14 +4520,21 @@ class ExperienciaDelConductorTests(BaseCRM):
         recorridos = self.client.get(reverse('gestion:historial_conductor')).context['recorridos']
         self.assertEqual(len(recorridos), 2)
 
-    def test_puede_subir_el_tiquete_de_bascula_de_su_orden(self):
+    def test_el_tiquete_de_bascula_ya_no_es_tarea_del_conductor(self):
+        """Oct-2026: lo sube la oficina desde Básculas; el conductor ni lo ve ni lo puede subir."""
         self.orden.bascula = 'PESAN'
         self.orden.save()
-        self.client.post(
-            reverse('gestion:detalle_orden_conductor', args=[self.orden.pk]),
-            {'submit_bascula': '1', 'bascula_adjunto': imagen('tiquete.png')})
+        url = reverse('gestion:detalle_orden_conductor', args=[self.orden.pk])
+        respuesta = self.client.get(url)
+        self.assertNotIn('el tiquete de báscula', [t['titulo_corto'] for t in respuesta.context['tareas']])
+        self.assertNotContains(respuesta, 'name="bascula_adjunto"')
+        respuesta = self.client.post(url, {'submit_bascula': '1', 'bascula_adjunto': imagen('tiquete.png')}, follow=True)
+        self.assertContains(respuesta, 'El tiquete de báscula lo sube la oficina.')
         self.orden.refresh_from_db()
-        self.assertTrue(self.orden.bascula_adjunto.name)
+        self.assertFalse(self.orden.bascula_adjunto, "aunque lo mande a mano, no se guarda")
+        # En «Mi jornada» tampoco aparece como algo que le falte.
+        tarjeta = self.client.get(reverse('gestion:dashboard_conductor')).context['tarjetas_hoy'][0]
+        self.assertNotIn('el tiquete de báscula', tarjeta['faltan'])
 
     def test_las_fotos_de_mas_quedan_como_documentos_de_la_orden(self):
         self.orden.registro_fotografico = 'SI'
