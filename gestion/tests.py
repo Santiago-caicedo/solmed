@@ -8392,3 +8392,50 @@ class MigracionFotosPorSedeTests(TransactionTestCase):
         self.assertEqual([d.descripcion for d in Documento.objects.filter(orden_id=22204)], ['Acta física'],
                          "el documento copiado se quita; el acta se queda")
         self.assertFalse(any(f.name == 'registro_fotografico_adjunto' for f in Orden._meta.get_fields()))
+
+
+class DemoConductorTests(BaseCRM):
+    """El comando que arma una orden de prueba para capacitar conductores (oct-2026)."""
+
+    def _correr(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        salida = StringIO()
+        call_command('crear_demo_conductor', *args, stdout=salida)
+        return salida.getvalue()
+
+    def test_crea_el_conductor_con_su_orden_de_hoy_y_las_fotos_por_sede(self):
+        self.persona('admin', superusuario=True)
+        salida = self._correr()
+        conductor = User.objects.get(username='demo_conductor')
+        self.assertTrue(conductor.groups.filter(name='Conductores').exists())
+        self.assertTrue(conductor.check_password('Demo.2026'))
+        self.assertTrue(DocumentoPersonal.objects.filter(usuario=conductor, tipo='SEGURIDAD_SOCIAL').exists())
+        orden = OrdenServicio.objects.get()
+        recorrido = orden.recorridos.get()
+        self.assertEqual((recorrido.conductor, recorrido.fecha_recorrido), (conductor, timezone.localdate()))
+        self.assertEqual([p['nombre'] for p in orden.puntos_registro()], ['Sede Norte', 'Sede Sur'])
+        self.assertIn(f'#{orden.numero_orden}', salida)
+        self.assertIn('demo_conductor', salida)
+        # Lo ve en su jornada, con sus tareas.
+        self.client.force_login(conductor)
+        tarjetas = self.client.get(reverse('gestion:dashboard_conductor')).context['tarjetas_hoy']
+        self.assertEqual([t['orden'].pk for t in tarjetas], [orden.pk])
+        self.assertIn('las fotos de Sede Norte', tarjetas[0]['faltan'])
+        # Correrlo otra vez no duplica nada; --nueva sí crea otra orden.
+        self._correr()
+        self.assertEqual((OrdenServicio.objects.count(), Vehiculo.objects.filter(placa='DEMO001').count()), (1, 1))
+        self._correr('--nueva')
+        self.assertEqual(OrdenServicio.objects.count(), 2)
+
+    def test_borrar_limpia_toda_la_demo(self):
+        self.persona('admin', superusuario=True)
+        self._correr()
+        salida = self._correr('--borrar')
+        self.assertIn('Demo borrada', salida)
+        self.assertFalse(OrdenServicio.objects.exists())
+        self.assertFalse(Programacion.objects.exists())
+        self.assertFalse(User.objects.filter(username='demo_conductor').exists())
+        self.assertFalse(Vehiculo.objects.filter(placa='DEMO001').exists())
+        self.assertFalse(Cliente.objects.filter(nombre='Cliente de prueba (demo)').exists())
+        self.assertTrue(User.objects.filter(username='admin').exists(), "lo demás no se toca")
