@@ -295,7 +295,7 @@
   function ir(n) {
     paso = n;
     form.querySelectorAll('.ec-paso').forEach(function (s) { s.hidden = +s.dataset.paso !== n; });
-    form.querySelectorAll('.ec-pasos li').forEach(function (li) {
+    form.querySelectorAll('.ec-pasos [data-paso]').forEach(function (li) {
       var p = +li.dataset.paso;
       li.classList.toggle('hecho', p < n);
       if (p === n) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current');
