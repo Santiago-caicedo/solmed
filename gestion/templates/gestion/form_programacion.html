@@ -266,9 +266,30 @@
                 <div class="col-md-6">
                     <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">¿Requiere registro fotográfico?</label>
                     {{ form.registro_fotografico }}
+                    {% for e in form.registro_fotografico.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
                     <small class="text-muted d-block mt-1">
-                        Se arrastran a la orden al generarla; los adjuntos se cargan allí.
+                        Con «Sí», marca abajo en cuáles sedes se toman las fotos: al conductor le sale una tarea por cada una.
                     </small>
+                </div>
+                {# Sedes y terceros con registro fotográfico (oct-2026): las casillas las pinta el JS según el cliente elegido. #}
+                <style>
+                .pr-caja{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel-2); padding:.75rem 1rem; }
+                .pr-tit{ font-size:.85rem; font-weight:600; color:var(--ink-2); margin-bottom:.5rem; }
+                .pr-lista{ display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:.4rem .9rem; }
+                .pr-item{ display:flex; align-items:flex-start; gap:.55rem; margin:0; padding:.45rem .6rem; min-height:44px; cursor:pointer;
+                    border:1px solid var(--line); border-radius:var(--r-sm); background:var(--panel); }
+                .pr-item:has(input:checked){ border-color:var(--brand-600); background:var(--brand-tint); }
+                .pr-item input{ margin-top:.2rem; flex-shrink:0; }
+                .pr-item .n{ font-weight:600; font-size:.9rem; line-height:1.2; }
+                .pr-item .d{ display:block; font-size:.75rem; color:var(--ink-3); }
+                .pr-item .tipo{ font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--steel); margin-left:.3rem; }
+                </style>
+                <div class="col-12 d-none" id="puntos-registro">
+                    <div class="pr-caja">
+                        <div class="pr-tit"><i class="bi bi-camera me-1"></i>¿En cuáles sedes se toma el registro fotográfico?</div>
+                        <div class="pr-lista" id="pr-lista"></div>
+                        <small class="text-muted d-none" id="pr-vacio">Este cliente no tiene sedes ni terceros registrados: las fotos serán generales del servicio.</small>
+                    </div>
                 </div>
                 <div class="col-md-6">
                     <label for="{{ form.requiere_disposicion_final.id_for_label }}" class="form-label">¿Se realizará disposición final?</label>
@@ -689,6 +710,8 @@ el bloque de scripts). Las clases catalogo-* son las que busca ese JS.
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
 {{ terceros_por_cliente|json_script:"terceros-cliente-data" }}
+{{ form.sedes_marcadas|json_script:"sedes-registro-iniciales" }}
+{{ form.terceros_marcados|json_script:"terceros-registro-iniciales" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ basculas|json_script:"basculas-data" }}
 {{ sitios_inicio|json_script:"sitios-inicio-data" }}
@@ -1187,6 +1210,77 @@ var tercerosPorCliente = JSON.parse(document.getElementById('terceros-cliente-da
     // Al cargar (por si se edita con cliente ya elegido), poblar preservando lo guardado.
     poblarSedes(true);
     poblarTerceros(true);
+})();
+</script>
+<script>
+// --- Registro fotográfico por sede (oct-2026): con «Sí», se muestran las sedes
+//     y los terceros del cliente elegido como casillas. Lo marcado viaja como
+//     sedes_registro / terceros_registro. Sin nada marcado, se propone la sede
+//     (o el tercero) del servicio. ---
+(function () {
+    var sel = document.getElementById('id_registro_fotografico');
+    var caja = document.getElementById('puntos-registro');
+    var lista = document.getElementById('pr-lista');
+    var vacio = document.getElementById('pr-vacio');
+    var selCliente = document.getElementById('id_cliente');
+    var selSede = document.getElementById('id_sede_cliente');
+    var selTercero = document.getElementById('id_tercero');
+    if (!sel || !caja || !selCliente) return;
+
+    function leer(id) {
+        var el = document.getElementById(id);
+        var v = el ? JSON.parse(el.textContent) : [];
+        return Array.isArray(v) ? v.map(String) : [];
+    }
+    var marcadas = { sede: leer('sedes-registro-iniciales'), tercero: leer('terceros-registro-iniciales') };
+    var pintadoPara = null;
+
+    function fila(tipo, nombreCampo, item) {
+        var label = document.createElement('label');
+        label.className = 'pr-item';
+        var chk = document.createElement('input');
+        chk.type = 'checkbox'; chk.className = 'form-check-input';
+        chk.name = nombreCampo; chk.value = item.id; chk.setAttribute('data-tipo', tipo);
+        chk.checked = marcadas[tipo].indexOf(String(item.id)) !== -1;
+        var tx = document.createElement('span');
+        var n = document.createElement('span'); n.className = 'n'; n.textContent = item.nombre;
+        if (tipo === 'tercero') { var t = document.createElement('span'); t.className = 'tipo'; t.textContent = 'tercero'; n.appendChild(t); }
+        tx.appendChild(n);
+        if (item.direccion) { var d = document.createElement('span'); d.className = 'd'; d.textContent = item.direccion; tx.appendChild(d); }
+        label.appendChild(chk); label.appendChild(tx);
+        lista.appendChild(label);
+    }
+
+    function pintar() {
+        var activo = sel.value === 'SI';
+        caja.classList.toggle('d-none', !activo);
+        if (!activo) return;
+        var cliente = selCliente.value;
+        if (pintadoPara === cliente) return;
+        pintadoPara = cliente;
+        lista.innerHTML = '';
+        var sedes = sedesPorCliente[cliente] || [];
+        var terceros = tercerosPorCliente[cliente] || [];
+        vacio.classList.toggle('d-none', sedes.length + terceros.length > 0);
+        // Sin nada marcado, se propone el sitio del servicio.
+        if (!marcadas.sede.length && !marcadas.tercero.length) {
+            if (selSede && selSede.value) marcadas.sede = [selSede.value];
+            else if (selTercero && selTercero.value) marcadas.tercero = [selTercero.value];
+        }
+        sedes.forEach(function (s) { fila('sede', 'sedes_registro', s); });
+        terceros.forEach(function (t) { fila('tercero', 'terceros_registro', t); });
+    }
+    function reiniciar() { marcadas = { sede: [], tercero: [] }; pintadoPara = null; pintar(); }
+
+    sel.addEventListener('change', pintar);
+    selCliente.addEventListener('change', reiniciar);
+    // Si cambia el sitio del servicio y todavía no se marcó nada, se propone el nuevo.
+    [selSede, selTercero].forEach(function (el) {
+        if (el) el.addEventListener('change', function () {
+            if (sel.value === 'SI' && !lista.querySelector('input:checked')) reiniciar();
+        });
+    });
+    pintar();
 })();
 </script>
 <script>

@@ -382,39 +382,43 @@ en el número pedido y las que estorben se corren un puesto.
                 {% endif %}
 
                 {% if orden.requiere_registro_fotografico %}
+                {# Un bloque por cada sede o tercero donde se exigen fotos (oct-2026); sin sedes marcadas, uno solo general. #}
+                {% for grupo in fotos_por_punto %}
                 <div class="ev-bloque">
                     <div class="ev-cab">
                         <span class="ev-ico"><i class="bi bi-camera"></i></span>
                         <div class="ev-tit">
-                            <div class="t">Registro fotográfico</div>
-                            {% if orden.registro_fotografico_adjunto %}
+                            <div class="t">Registro fotográfico{% if grupo.nombre %} · {{ grupo.nombre }}{% endif %}</div>
+                            {% if grupo.suelto %}
+                            <div class="s">Fotos que no corresponden a ninguna de las sedes marcadas hoy</div>
+                            {% elif grupo.direccion %}
+                            <div class="s">{{ grupo.direccion }}</div>
+                            {% elif grupo.fotos %}
                             <div class="s">Fotos del servicio subidas por el equipo</div>
                             {% endif %}
                         </div>
-                        {% if orden.registro_fotografico_adjunto %}
+                        {% if grupo.hecho %}
                         <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Cargado</span>
                         {% else %}
                         <span class="badge bg-warning text-dark">Pendiente</span>
                         {% endif %}
                     </div>
-                    {% if orden.registro_fotografico_adjunto %}
+                    {% if grupo.fotos %}
                     <div class="ev-fotos">
-                        <a class="ev-foto" href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank" title="Registro fotográfico">
-                            <img src="{{ orden.registro_fotografico_adjunto.url }}" alt="Foto 1">
-                            <div class="pie">Foto 1</div>
-                        </a>
-                        {# Fotos adicionales que cargaron el conductor o gestión #}
-                        {% for doc in fotos_registro %}
-                        <a class="ev-foto" href="{{ doc.archivo.url }}" target="_blank" title="{{ doc.descripcion }}">
-                            <img src="{{ doc.archivo.url }}" alt="Foto {{ forloop.counter|add:1 }}">
-                            <div class="pie">Foto {{ forloop.counter|add:1 }}</div>
+                        {% for foto in grupo.fotos %}
+                        <a class="ev-foto" href="{{ foto.archivo.url }}" target="_blank" title="{% if grupo.nombre %}{{ grupo.nombre }} · {% endif %}Foto {{ forloop.counter }}{% if foto.nota %} · {{ foto.nota }}{% endif %}">
+                            <img src="{{ foto.archivo.url }}" alt="Foto {{ forloop.counter }}{% if grupo.nombre %} de {{ grupo.nombre }}{% endif %}">
+                            <div class="pie">Foto {{ forloop.counter }}</div>
                         </a>
                         {% endfor %}
                     </div>
-                    {% else %}
+                    {% endif %}
+                    {% if not grupo.suelto %}
+                    {# Gestión puede completar o añadir fotos de ESTA sede #}
                     <form method="post" enctype="multipart/form-data" class="ev-pend">
                         {% csrf_token %}
-                        <span class="et"><i class="bi bi-cloud-upload"></i>Falta el soporte</span>
+                        <input type="hidden" name="punto" value="{{ grupo.clave }}">
+                        <span class="et"><i class="bi bi-cloud-upload"></i>{% if grupo.fotos %}Añadir fotos{% else %}Faltan las fotos{% endif %}</span>
                         <input type="file" name="fotos" accept="image/*" multiple
                                class="form-control form-control-sm" required>
                         <button name="submit_fotos" value="1" class="btn btn-sm btn-outline-success">
@@ -423,6 +427,7 @@ en el número pedido y las que estorben se corren un puesto.
                     </form>
                     {% endif %}
                 </div>
+                {% endfor %}
                 {% endif %}
             </div>
         </div>

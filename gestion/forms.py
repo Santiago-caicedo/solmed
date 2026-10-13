@@ -8,6 +8,21 @@ from django.utils.text import slugify
 from decimal import Decimal
 import datetime
 
+def _pks_marcados(form, campo):
+    """
+    Los ids marcados en un campo múltiple, como lista ordenada de enteros. El
+    valor del campo trae instancias (al editar) o textos (tras un POST): aquí
+    se unifican para que la plantilla pinte las casillas sin equivocarse.
+    """
+    valor = form[campo].value() or []
+    pks = set()
+    for v in valor:
+        v = getattr(v, 'pk', v)
+        if str(v).isdigit():
+            pks.add(int(v))
+    return sorted(pks)
+
+
 # Usamos ModelForm para que el formulario se construya a partir de nuestro modelo
 class OrdenServicioForm(forms.ModelForm):
     # Ya no necesitamos el método __init__ para este formulario
@@ -19,7 +34,7 @@ class OrdenServicioForm(forms.ModelForm):
             'direccion_servicio',
             'descripcion',
             'bascula', 'bascula_adjunto',
-            'registro_fotografico', 'registro_fotografico_adjunto',
+            'registro_fotografico', 'sedes_registro', 'terceros_registro',
         ]
 
         widgets = {
@@ -29,8 +44,29 @@ class OrdenServicioForm(forms.ModelForm):
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'bascula_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
-            'registro_fotografico_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
+            'sedes_registro': forms.CheckboxSelectMultiple,
+            'terceros_registro': forms.CheckboxSelectMultiple,
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Las sedes y terceros con registro fotográfico: solo los del cliente
+        # de la orden (oct-2026). La plantilla los pinta como casillas.
+        cliente_id = self.instance.cliente_id if self.instance.pk else None
+        self.fields['sedes_registro'].queryset = Sede.objects.filter(
+            cliente_id=cliente_id, activa=True).order_by('nombre')
+        self.fields['terceros_registro'].queryset = Tercero.objects.filter(
+            cliente_id=cliente_id, activo=True).order_by('nombre')
+        for campo in ('sedes_registro', 'terceros_registro'):
+            self.fields[campo].required = False
+
+    @property
+    def sedes_marcadas(self):
+        return _pks_marcados(self, 'sedes_registro')
+
+    @property
+    def terceros_marcados(self):
+        return _pks_marcados(self, 'terceros_registro')
 
 class VehiculoForm(forms.ModelForm):
     class Meta:
@@ -787,7 +823,7 @@ class ProgramacionForm(forms.ModelForm):
             'observaciones_servicio',
             'paleada',
             'bascula', 'bascula_sitio',
-            'registro_fotografico',
+            'registro_fotografico', 'sedes_registro', 'terceros_registro',
             'responsable_sg',
             'requiere_disposicion_final',
             'dispositor_final',
@@ -810,6 +846,10 @@ class ProgramacionForm(forms.ModelForm):
             'bascula_sitio': forms.Select(attrs={'class': 'form-select'}),
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
+            # Las casillas de sedes/terceros las pinta la plantilla (dependen
+            # del cliente elegido); estos widgets solo reciben lo marcado.
+            'sedes_registro': forms.CheckboxSelectMultiple,
+            'terceros_registro': forms.CheckboxSelectMultiple,
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
             'requiere_disposicion_final': forms.Select(attrs={'class': 'form-select'}),
             'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
@@ -896,6 +936,26 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['tercero'].empty_label = '--- Sin tercero ---'
         self.fields['tercero'].label = 'Tercero'
 
+        # Sedes y terceros con registro fotográfico (oct-2026): los mismos del
+        # cliente en juego, más los ya marcados (por si alguno quedó inactivo).
+        marcadas_sedes = Q(pk__in=sedes.values('pk'))
+        marcados_terceros = Q(pk__in=terceros.values('pk'))
+        if self.instance.pk:
+            marcadas_sedes |= Q(pk__in=self.instance.sedes_registro.values('pk'))
+            marcados_terceros |= Q(pk__in=self.instance.terceros_registro.values('pk'))
+        self.fields['sedes_registro'].queryset = Sede.objects.filter(marcadas_sedes).order_by('nombre')
+        self.fields['terceros_registro'].queryset = Tercero.objects.filter(marcados_terceros).order_by('nombre')
+        for campo in ('sedes_registro', 'terceros_registro'):
+            self.fields[campo].required = False
+
+    @property
+    def sedes_marcadas(self):
+        return _pks_marcados(self, 'sedes_registro')
+
+    @property
+    def terceros_marcados(self):
+        return _pks_marcados(self, 'terceros_registro')
+
         # --- Instrucciones del servicio (primera parte del acta) ---
         # Casillas de qué se hace + su cantidad. Es lo que antes llenaba el
         # conductor; ahora lo define el asesor y se copia al acta.
@@ -955,6 +1015,20 @@ class ProgramacionForm(forms.ModelForm):
         # servicio se recoja donde un tercero).
         if cliente and not sede and not tercero and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
+
+        # --- Registro fotográfico por sede (oct-2026) ---
+        # Con «Sí» y un cliente que tiene sedes o terceros, hay que marcar en
+        # cuáles: así al conductor le sale una tarea por cada una. Con otra
+        # respuesta, lo marcado se limpia.
+        if cleaned.get('registro_fotografico') == 'SI':
+            if (cliente and not cleaned.get('sedes_registro') and not cleaned.get('terceros_registro')
+                    and (cliente.sedes.filter(activa=True).exists()
+                         or cliente.terceros.filter(activo=True).exists())):
+                self.add_error('registro_fotografico',
+                               'Marca en cuáles sedes o terceros se toma el registro fotográfico.')
+        else:
+            cleaned['sedes_registro'] = Sede.objects.none()
+            cleaned['terceros_registro'] = Tercero.objects.none()
 
         # --- Báscula ---
         # Sí ('PESAN') -> hay que decir en cuál; otra respuesta -> se limpia.

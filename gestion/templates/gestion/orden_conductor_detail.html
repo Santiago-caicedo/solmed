@@ -104,22 +104,21 @@ importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
             <button type="button" class="cd-btn sec" data-abrir="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
         </form>
     {% elif tarea.formulario == 'fotos' %}
-        {% if orden.registro_fotografico_adjunto or fotos_registro %}
+        {# Una tarea por cada sede (oct-2026): las fotos se suben a la suya (`punto`). #}
+        {% if tarea.fotos %}
         <div class="oc-fotos">
-            {% if orden.registro_fotografico_adjunto %}
-            <a href="{{ orden.registro_fotografico_adjunto.url }}" target="_blank" rel="noopener"><i class="bi bi-image" aria-hidden="true"></i>Foto 1</a>
-            {% endif %}
-            {% for doc in fotos_registro %}
-            <a href="{{ doc.archivo.url }}" target="_blank" rel="noopener"><i class="bi bi-image" aria-hidden="true"></i>Foto {{ forloop.counter|add:1 }}</a>
+            {% for foto in tarea.fotos %}
+            <a href="{{ foto.archivo.url }}" target="_blank" rel="noopener"><i class="bi bi-image" aria-hidden="true"></i>Foto {{ forloop.counter }}</a>
             {% endfor %}
         </div>
         {% endif %}
         <form method="post" enctype="multipart/form-data" class="oc-subir form-soporte">
             {% csrf_token %}
             <input type="hidden" name="submit_fotos" value="1">
+            <input type="hidden" name="punto" value="{{ tarea.punto }}">
             <input type="file" name="fotos" accept="image/*" capture="environment" multiple hidden class="entrada-soporte">
             <input type="file" name="fotos" accept="image/*" multiple hidden class="entrada-soporte">
-            <button type="button" class="cd-btn {% if orden.registro_fotografico_adjunto or fotos_registro %}sec{% else %}ok{% endif %}" data-abrir="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Tomar foto</button>
+            <button type="button" class="cd-btn {% if tarea.fotos %}sec{% else %}ok{% endif %}" data-abrir="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Tomar foto</button>
             <button type="button" class="cd-btn sec" data-abrir="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
         </form>
     {% endif %}

@@ -44,7 +44,7 @@ from .renumeracion import reubicar_orden
 from planes.models import Asignacion, Novedad
 from .forms import ManifiestoHojaConductorForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, FotoRegistro, LineaFactura, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -452,8 +452,12 @@ def _pendientes_orden(orden):
 
     if orden.requiere_bascula and not orden.bascula_adjunto:
         faltan.append({'etiqueta': 'Tiquete de báscula', 'icono': 'bi-speedometer2'})
-    if orden.requiere_registro_fotografico and not orden.registro_fotografico_adjunto:
-        faltan.append({'etiqueta': 'Fotos del servicio', 'icono': 'bi-camera'})
+    if orden.requiere_registro_fotografico:
+        # Una por cada sede o tercero que siga sin fotos (oct-2026).
+        for grupo in orden.fotos_por_punto():
+            if not grupo['suelto'] and not grupo['hecho']:
+                faltan.append({'etiqueta': (f"Fotos de {grupo['nombre']}" if grupo['nombre']
+                                            else 'Fotos del servicio'), 'icono': 'bi-camera'})
 
     # Fotos que le pidieron al ayudante y todavía no ha subido.
     programacion = getattr(orden, 'programacion_origen', None)
@@ -500,6 +504,8 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
             fecha_servicio=Min('recorridos__fecha_recorrido')
         ).select_related('cliente').prefetch_related(
             'recorridos__manifiesto', 'recorridos__encuesta_conductor',
+            # «Qué falta» mira las fotos por sede sin una consulta por orden.
+            'fotos_registro', 'sedes_registro', 'terceros_registro',
             'programacion_origen__cuadrillas__fotos_ayudantes')
         query = self.request.GET.get('q')
         
@@ -594,9 +600,12 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
                 bascula=datos.get('bascula') or '',
                 bascula_adjunto=datos.get('bascula_adjunto'),
                 registro_fotografico=datos.get('registro_fotografico') or '',
-                registro_fotografico_adjunto=datos.get('registro_fotografico_adjunto'),
             )
             orden.save()
+            if datos.get('registro_fotografico_adjunto'):
+                # Una orden histórica no tiene sedes marcadas: es una foto general.
+                FotoRegistro.objects.create(orden=orden, archivo=datos['registro_fotografico_adjunto'],
+                                            subido_por=self.request.user, nota='Acta física')
             Recorrido.objects.create(
                 orden=orden, vehiculo=datos['vehiculo'],
                 conductor=datos.get('conductor'),
@@ -672,6 +681,9 @@ def _sincronizar_orden_desde_programacion(programacion, orden):
             "cantidad de transporte cuando hagas el corte del mes."
         )
     orden.save(update_fields=campos)
+    # Las sedes y terceros con registro fotográfico también se reflejan.
+    orden.sedes_registro.set(programacion.sedes_registro.all())
+    orden.terceros_registro.set(programacion.terceros_registro.all())
 
     cuadrilla = programacion.cuadrillas.first()
     recorrido = orden.recorridos.first()
@@ -820,6 +832,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
             if programacion.creado_por_id is None:
                 programacion.creado_por = request.user
             programacion.save()
+            form.save_m2m()   # las sedes/terceros con registro fotográfico
             cuadrilla = cuadrilla_form.save(commit=False)
             cuadrilla.programacion = programacion
             cuadrilla.save()
@@ -2324,7 +2337,6 @@ class ActualizarUsuarioView(AdministradorRequiredMixin, SuccessMessageMixin, Upd
         return response
 
 
-ETIQUETA_FOTO_REGISTRO = 'Registro fotográfico'
 
 
 def _cargar_soporte_orden(request, orden):
@@ -2346,23 +2358,25 @@ def _cargar_soporte_orden(request, orden):
 
     if 'submit_fotos' in request.POST and orden.requiere_registro_fotografico:
         fotos = request.FILES.getlist('fotos')
+        # Con sedes marcadas, cada foto se guarda en la suya (`punto` =
+        # 'sede:<id>' / 'tercero:<id>'); sin sedes, es una foto general.
+        puntos = {p['clave']: p for p in orden.puntos_registro()}
+        clave = (request.POST.get('punto') or '').strip()
+        if puntos and clave not in puntos:
+            messages.error(request, "Indica a cuál sede corresponden las fotos.")
+            return True
+        punto = puntos.get(clave)
         if fotos:
-            # La primera foto llena el soporte de la orden (si está vacío);
-            # el resto queda como documentos etiquetados con quién los cargó.
             for foto in fotos:
-                if not orden.registro_fotografico_adjunto:
-                    orden.registro_fotografico_adjunto = foto
-                    orden.save(update_fields=['registro_fotografico_adjunto'])
-                else:
-                    DocumentoOrden.objects.create(
-                        orden=orden, archivo=foto,
-                        descripcion=f"{ETIQUETA_FOTO_REGISTRO} "
-                                    f"({request.user.get_full_name() or request.user.username})",
-                    )
+                FotoRegistro.objects.create(
+                    orden=orden, archivo=foto, subido_por=request.user,
+                    sede=punto['sede'] if punto else None,
+                    tercero=punto['tercero'] if punto else None)
+            n = len(fotos)
             messages.success(
                 request,
-                f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} del registro "
-                f"fotográfico cargada{'s' if len(fotos) != 1 else ''}."
+                f"{n} foto{'s' if n != 1 else ''}{f' de {punto[chr(110)+chr(111)+chr(109)+chr(98)+chr(114)+chr(101)]}' if punto else ''} "
+                f"del registro fotográfico cargada{'s' if n != 1 else ''}."
             )
         else:
             messages.error(request, "Selecciona al menos una foto del servicio.")
@@ -2432,15 +2446,12 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
         context['actas_formato'] = _actas_formato(
             self.object.recorridos.all().order_by('fecha_recorrido'))
-        # Fotos adicionales del registro fotográfico que cargó el conductor.
-        context['fotos_registro'] = self.object.documentos.filter(
-            descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
-        )
+        # Las fotos del registro, agrupadas por sede o tercero (oct-2026).
+        context['fotos_por_punto'] = (self.object.fotos_por_punto()
+                                      if self.object.requiere_registro_fotografico else [])
         # Otros adjuntos de la orden (p. ej. el acta física de una orden
         # histórica); las fotos de registro ya se muestran como soportes.
-        context['documentos_orden'] = self.object.documentos.exclude(
-            descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO
-        )
+        context['documentos_orden'] = self.object.documentos.all()
         # Evidencias que subieron los ayudantes desde su enlace, agrupadas por
         # persona (la programación de origen es la que las tiene).
         programacion = getattr(self.object, 'programacion_origen', None)
@@ -2493,8 +2504,7 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         orden = self.object
         context['soportes_ok'] = (
             (not orden.requiere_bascula or bool(orden.bascula_adjunto))
-            and (not orden.requiere_registro_fotografico
-                 or bool(orden.registro_fotografico_adjunto))
+            and orden.fotos_completas()
         )
         return context
 
@@ -3010,16 +3020,16 @@ def _tarjeta_conductor(recorrido, con_tareas=True):
     }
     if con_tareas:
         acta, estado = _acta_para_vista(recorrido)
-        fotos = orden.documentos.filter(descripcion__startswith=OrdenConductorDetailView.ETIQUETA_FOTO)
+        grupos = orden.fotos_por_punto() if orden.requiere_registro_fotografico else []
         tareas = _tareas_servicio_conductor(
-            orden, [{'recorrido': recorrido, 'acta': acta, 'estado': estado}], fotos)
+            orden, [{'recorrido': recorrido, 'acta': acta, 'estado': estado}], grupos)
         tarjeta['faltan'] = [t['titulo_corto'] for t in tareas if not t['hecha']]
     tarjeta['cerrado'] = recorrido.estado == 'COMPLETADO' or (con_tareas and not tarjeta['faltan'])
     return tarjeta
 
 
 # --- VISTA DE ORDEN PARA EL CONDUCTOR ---
-def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
+def _tareas_servicio_conductor(orden, actas_formato, grupos_fotos):
     """
     Las tareas del conductor para cerrar el servicio, en lenguaje simple y
     en el orden natural del día. Todas se pueden hacer cuando él quiera;
@@ -3060,13 +3070,19 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
     # El tiquete de báscula ya no es tarea del conductor (oct-2026, pedido de
     # Santiago): lo sube la oficina desde el módulo de Básculas.
 
-    if orden.requiere_registro_fotografico:
-        con_fotos = bool(orden.registro_fotografico_adjunto) or bool(fotos_registro)
+    # Una tarea por cada sede o tercero donde se exigen fotos (oct-2026); sin
+    # sedes marcadas, una sola tarea general. `grupos_fotos` viene de
+    # orden.fotos_por_punto().
+    for grupo in grupos_fotos:
+        if grupo['suelto']:
+            continue
+        nombre, con_fotos = grupo['nombre'], grupo['hecho']
         tareas.append({
-            'titulo': 'Sube las fotos del servicio',
-            'titulo_corto': 'las fotos del servicio',
-            'detalle': ('Fotos cargadas. Puedes añadir más si hace falta.'
-                        if con_fotos else
+            'titulo': f'Sube las fotos de {nombre}' if nombre else 'Sube las fotos del servicio',
+            'titulo_corto': f'las fotos de {nombre}' if nombre else 'las fotos del servicio',
+            'detalle': ('Fotos cargadas. Puedes añadir más si hace falta.' if con_fotos else
+                        f'El registro fotográfico del trabajo en {nombre}'
+                        + (f' ({grupo["direccion"]})' if grupo['direccion'] else '') + '.' if nombre else
                         'El registro fotográfico del trabajo realizado.'),
             'icono': 'bi-camera-fill',
             'hecha': con_fotos,
@@ -3074,6 +3090,9 @@ def _tareas_servicio_conductor(orden, actas_formato, fotos_registro):
             'url': None,
             'boton': '',
             'formulario': 'fotos',
+            'punto': grupo['clave'],
+            'direccion': grupo['direccion'],
+            'fotos': grupo['fotos'],
         })
 
     for item in actas_formato:
@@ -3130,10 +3149,6 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
     template_name = 'gestion/orden_conductor_detail.html'
     context_object_name = 'orden'
 
-    # Etiqueta con la que se guardan las fotos adicionales del registro
-    # fotográfico como documentos de la orden (visibles en el expediente).
-    ETIQUETA_FOTO = 'Registro fotográfico'
-
     def get_queryset(self):
         # Restringe el acceso a las órdenes propias del conductor.
         return OrdenServicio.objects.filter(
@@ -3149,10 +3164,9 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
         context['mis_recorridos'] = mis_recorridos
         # Acta(s) en formato documento (igual al PDF) para la pestaña del conductor.
         context['actas_formato'] = _actas_formato(mis_recorridos)
-        # Fotos adicionales del registro fotográfico ya cargadas.
-        context['fotos_registro'] = self.object.documentos.filter(
-            descripcion__startswith=self.ETIQUETA_FOTO
-        )
+        # Las fotos del registro, por sede o tercero (oct-2026).
+        context['fotos_registro'] = (self.object.fotos_por_punto()
+                                     if self.object.requiere_registro_fotografico else [])
         # La lista de tareas del servicio y su avance (la pantalla del
         # conductor es una lista de chequeo, no un trámite).
         context['tareas'] = self._tareas_servicio(

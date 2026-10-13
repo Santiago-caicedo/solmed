@@ -130,7 +130,7 @@
                 </tr>
                 <tr>
                     <td class="center"><b>{{ orden.get_bascula_display|default:"—" }}</b></td>
-                    <td class="center"><b>{{ orden.get_registro_fotografico_display|default:"—" }}</b></td>
+                    <td class="center"><b>{{ orden.get_registro_fotografico_display|default:"—" }}</b>{% with puntos=orden.puntos_registro %}{% if puntos %}<br><small>En: {% for p in puntos %}{{ p.nombre }}{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}{% endwith %}</td>
                 </tr>
             </table>
         </div>
