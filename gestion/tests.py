@@ -1955,6 +1955,16 @@ class CrearProgramacionTests(BaseCRM):
         datos.update(extra)
         return datos
 
+    def test_las_instrucciones_del_servicio_salen_con_el_estilo_del_sistema(self):
+        """Oct-2026: una propiedad metida en medio del __init__ dejó estos campos como los nativos del navegador."""
+        form = self.client.get(reverse('gestion:crear_programacion')).context['form']
+        self.assertEqual(form.fields['succ_canecas'].widget.attrs.get('class'), 'form-check-input')
+        for campo in ('succ_canecas_cant', 'sond_diametro', 'lavado_concepto', 'lavado_cantidad',
+                      'transporte_cantidad', 'succ_otros'):
+            with self.subTest(campo=campo):
+                self.assertIn('form-control', form.fields[campo].widget.attrs.get('class', ''))
+        self.assertEqual(form.fields['succ_canecas_cant'].widget.attrs.get('placeholder'), 'Ton/M³ · H/ML · Cant.')
+
     def test_crear_la_programacion_genera_la_orden_y_su_recorrido(self):
         respuesta = self.client.post(reverse('gestion:crear_programacion'), self.datos())
         orden = OrdenServicio.objects.get()

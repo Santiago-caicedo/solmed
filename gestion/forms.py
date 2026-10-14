@@ -941,10 +941,6 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['puntos_registro'].queryset = PuntoRegistro.objects.filter(vigentes).order_by('nombre')
         self.fields['puntos_registro'].required = False
 
-    @property
-    def puntos_marcados(self):
-        return _pks_marcados(self, 'puntos_registro')
-
         # --- Instrucciones del servicio (primera parte del acta) ---
         # Casillas de qué se hace + su cantidad. Es lo que antes llenaba el
         # conductor; ahora lo define el asesor y se copia al acta.
@@ -962,6 +958,10 @@ class ProgramacionForm(forms.ModelForm):
                 widget.attrs.setdefault('class', 'form-control form-control-sm')
                 if campo.endswith('_cant'):
                     widget.attrs.setdefault('placeholder', 'Ton/M³ · H/ML · Cant.')
+
+    @property
+    def puntos_marcados(self):
+        return _pks_marcados(self, 'puntos_registro')
 
     def _cliente_en_juego(self):
         """
