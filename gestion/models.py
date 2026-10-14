@@ -356,20 +356,14 @@ class FiltroAceite(models.Model):
         return (timezone.localdate() - self.fecha_cambio).days
 
 
-def _puntos_registro(sedes, terceros):
+def _puntos_registro(puntos):
     """
-    Los sitios donde se exige registro fotográfico, como los usan el
-    formulario, el conductor y el expediente: primero las sedes y luego los
-    terceros, cada uno con su clave ('sede:<id>' / 'tercero:<id>').
+    Los puntos donde se exige registro fotográfico, como los usan el
+    formulario, el conductor y el expediente, cada uno con su clave
+    ('punto:<id>'), en orden alfabético.
     """
-    puntos = []
-    for sede in sedes:
-        puntos.append({'clave': f'sede:{sede.pk}', 'nombre': sede.nombre,
-                       'direccion': sede.direccion or '', 'sede': sede, 'tercero': None})
-    for tercero in terceros:
-        puntos.append({'clave': f'tercero:{tercero.pk}', 'nombre': tercero.nombre,
-                       'direccion': tercero.direccion or '', 'sede': None, 'tercero': tercero})
-    return puntos
+    return [{'clave': f'punto:{p.pk}', 'nombre': p.nombre, 'direccion': '', 'punto': p}
+            for p in sorted(puntos, key=lambda p: p.nombre.lower())]
 
 
 class OrdenServicio(models.Model):
@@ -446,14 +440,13 @@ class OrdenServicio(models.Model):
     bascula = models.CharField(max_length=20, choices=BASCULA_CHOICES, blank=True, verbose_name="Báscula")
     bascula_adjunto = models.FileField(upload_to='ordenes_documentos/', null=True, blank=True, verbose_name="Adjunto báscula")
     registro_fotografico = models.CharField(max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="Registro fotográfico")
-    # Dónde se toman las fotos (oct-2026, pedido de Santiago): las sedes o los
-    # terceros del cliente que el asesor marcó al programar. Al conductor le
-    # sale una tarea por cada uno y cada foto queda anclada al suyo (ver
+    # Dónde se toman las fotos (oct-2026, pedido de Santiago): los PUNTOS del
+    # cliente que el asesor marcó (o creó) al programar. Al conductor le sale
+    # una tarea por cada uno y cada foto queda anclada al suyo (ver
     # FotoRegistro). Sin ninguno marcado, las fotos son generales del servicio.
-    sedes_registro = models.ManyToManyField(
-        Sede, blank=True, related_name='+', verbose_name="Sedes con registro fotográfico")
-    terceros_registro = models.ManyToManyField(
-        Tercero, blank=True, related_name='+', verbose_name="Terceros con registro fotográfico")
+    puntos_registro = models.ManyToManyField(
+        'PuntoRegistro', blank=True, related_name='ordenes',
+        verbose_name="Puntos con registro fotográfico")
 
     # --- Campos de Seguimiento ---
     estado_orden = models.CharField(max_length=20, choices=ESTADO_ORDEN_CHOICES, default='PROGRAMADA')
@@ -581,26 +574,25 @@ class OrdenServicio(models.Model):
     def requiere_registro_fotografico(self):
         return self.registro_fotografico == 'SI'
 
-    def puntos_registro(self):
+    def puntos_marcados(self):
         """Los sitios donde se exige foto (ver _puntos_registro); [] si no aplica o no se marcó ninguno."""
         if not self.requiere_registro_fotografico:
             return []
         # .all() y orden en Python: así sirve el prefetch de la lista de órdenes.
-        return _puntos_registro(sorted(self.sedes_registro.all(), key=lambda s: s.nombre.lower()),
-                                sorted(self.terceros_registro.all(), key=lambda t: t.nombre.lower()))
+        return _puntos_registro(self.puntos_registro.all())
 
     def fotos_por_punto(self):
         """
         Las fotos del registro agrupadas por sitio: un grupo por cada sede o
         tercero exigido (con `hecho` si ya tiene alguna). Sin sitios marcados,
         un solo grupo general (clave ''). Las fotos que no cuadran con ningún
-        sitio vigente (p. ej. se desmarcó la sede después) se muestran aparte,
+        punto vigente (p. ej. se desmarcó el punto después) se muestran aparte,
         marcadas `suelto`: no se pierden, pero tampoco cuentan como exigidas.
         """
         fotos = list(self.fotos_registro.all())
-        puntos = self.puntos_registro()
+        puntos = self.puntos_marcados()
         if not puntos:
-            return [{'clave': '', 'nombre': '', 'direccion': '', 'sede': None, 'tercero': None,
+            return [{'clave': '', 'nombre': '', 'direccion': '', 'punto': None,
                      'fotos': fotos, 'hecho': bool(fotos), 'suelto': False}]
         grupos = []
         for punto in puntos:
@@ -609,12 +601,12 @@ class OrdenServicio(models.Model):
         claves = {p['clave'] for p in puntos}
         sueltas = [f for f in fotos if f.clave not in claves]
         if sueltas:
-            grupos.append({'clave': '', 'nombre': 'Sin sede', 'direccion': '', 'sede': None,
-                           'tercero': None, 'fotos': sueltas, 'hecho': True, 'suelto': True})
+            grupos.append({'clave': '', 'nombre': 'Sin punto', 'direccion': '', 'punto': None,
+                           'fotos': sueltas, 'hecho': True, 'suelto': True})
         return grupos
 
     def fotos_completas(self):
-        """¿Cada sitio exigido tiene al menos una foto? (True si la orden no pide fotos)."""
+        """¿Cada punto exigido tiene al menos una foto? (True si la orden no pide fotos)."""
         if not self.requiere_registro_fotografico:
             return True
         return all(g['hecho'] for g in self.fotos_por_punto() if not g['suelto'])
@@ -633,17 +625,39 @@ class DocumentoOrden(models.Model):
         return self.archivo.name.split('/')[-1]
 
 
+class PuntoRegistro(models.Model):
+    """
+    Un punto donde se toma registro fotográfico en los servicios de un cliente
+    (oct-2026, pedido de Santiago): «Trampa de grasa cocina», «Cuarto de
+    residuos»… Se crea desde la programación y queda guardado en el cliente:
+    vuelve a aparecer para marcarlo en sus siguientes programaciones. Quitarlo
+    lo oculta (`activo`), sin tocar las órdenes que ya lo usaron.
+    """
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='puntos_registro')
+    nombre = models.CharField(max_length=150)
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Punto de registro fotográfico"
+        verbose_name_plural = "Puntos de registro fotográfico"
+
+    def __str__(self):
+        return f"{self.nombre} ({self.cliente})"
+
+
 class FotoRegistro(models.Model):
     """
-    Una foto del registro fotográfico del servicio (oct-2026). Queda anclada a
-    la sede o al tercero donde se tomó, cuando la orden exige fotos por sitio;
-    sin sede ni tercero es una foto general del servicio (las de antes de este
-    cambio, o las de órdenes sin sitios marcados). Antes la primera foto iba en
+    Una foto del registro fotográfico del servicio (oct-2026). Queda anclada al
+    PUNTO donde se tomó, cuando la orden exige fotos por punto; sin punto es una
+    foto general del servicio (las de antes de este cambio, o las de órdenes
+    sin puntos marcados). Antes la primera foto iba en
     `OrdenServicio.registro_fotografico_adjunto` y el resto en DocumentoOrden.
     """
     orden = models.ForeignKey(OrdenServicio, on_delete=models.CASCADE, related_name='fotos_registro')
-    sede = models.ForeignKey(Sede, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
-    tercero = models.ForeignKey(Tercero, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    punto = models.ForeignKey(PuntoRegistro, on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='fotos')
     archivo = models.FileField(upload_to='ordenes_documentos/')
     subido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                    null=True, blank=True, related_name='+')
@@ -657,24 +671,11 @@ class FotoRegistro(models.Model):
         verbose_name_plural = "Fotos del registro fotográfico"
 
     def __str__(self):
-        return f"Foto de la orden #{self.orden_id}" + (f" ({self.punto})" if self.punto else '')
+        return f"Foto de la orden #{self.orden_id}" + (f" ({self.punto.nombre})" if self.punto_id else '')
 
     @property
     def clave(self):
-        if self.sede_id:
-            return f'sede:{self.sede_id}'
-        if self.tercero_id:
-            return f'tercero:{self.tercero_id}'
-        return ''
-
-    @property
-    def punto(self):
-        """El nombre de la sede o del tercero ('' si es una foto general)."""
-        if self.sede_id:
-            return self.sede.nombre
-        if self.tercero_id:
-            return self.tercero.nombre
-        return ''
+        return f'punto:{self.punto_id}' if self.punto_id else ''
 
 
 
@@ -1489,12 +1490,11 @@ class Programacion(models.Model):
         max_length=2, choices=SI_NO_CHOICES, blank=True,
         verbose_name="¿Requiere registro fotográfico?"
     )
-    # Con «Sí», en cuáles sedes o terceros del cliente (oct-2026). Se copian a
-    # la orden al generarla: ahí quedan anclados (ver OrdenServicio).
-    sedes_registro = models.ManyToManyField(
-        Sede, blank=True, related_name='+', verbose_name="Sedes con registro fotográfico")
-    terceros_registro = models.ManyToManyField(
-        Tercero, blank=True, related_name='+', verbose_name="Terceros con registro fotográfico")
+    # Con «Sí», en cuáles puntos del cliente (oct-2026). Se copian a la orden
+    # al generarla: ahí quedan anclados (ver OrdenServicio y PuntoRegistro).
+    puntos_registro = models.ManyToManyField(
+        'PuntoRegistro', blank=True, related_name='programaciones',
+        verbose_name="Puntos con registro fotográfico")
 
     responsable_sg = models.CharField(
         max_length=2, choices=SI_NO_CHOICES, blank=True,
@@ -1676,7 +1676,7 @@ class Programacion(models.Model):
         fotos = 'NO'
         if self.registro_fotografico == 'SI':
             fotos = 'SÍ — SUBIR FOTOS'
-            sitios = [p['nombre'] for p in self.puntos_registro()]
+            sitios = [p['nombre'] for p in self.puntos_marcados()]
             if sitios:
                 fotos += ' EN: ' + ', '.join(sitios)
         derecha = [
@@ -1686,12 +1686,11 @@ class Programacion(models.Model):
         ]
         return izquierda, derecha
 
-    def puntos_registro(self):
-        """Las sedes y terceros marcados para el registro fotográfico (ver _puntos_registro)."""
+    def puntos_marcados(self):
+        """Los puntos marcados para el registro fotográfico (ver _puntos_registro)."""
         if self.registro_fotografico != 'SI' or not self.pk:
             return []
-        return _puntos_registro(sorted(self.sedes_registro.all(), key=lambda s: s.nombre.lower()),
-                                sorted(self.terceros_registro.all(), key=lambda t: t.nombre.lower()))
+        return _puntos_registro(self.puntos_registro.all())
 
     def resumen_instrucciones(self):
         """
@@ -1828,10 +1827,9 @@ class Programacion(models.Model):
                 registro_fotografico=self.registro_fotografico,
                 estado_conciliacion=conciliacion,
             )
-            # Las sedes y terceros con registro fotográfico quedan ANCLADOS a
-            # la orden: es ahí donde el conductor sube cada foto.
-            orden.sedes_registro.set(self.sedes_registro.all())
-            orden.terceros_registro.set(self.terceros_registro.all())
+            # Los puntos con registro fotográfico quedan ANCLADOS a la orden:
+            # es ahí donde el conductor sube cada foto.
+            orden.puntos_registro.set(self.puntos_registro.all())
             for c in cuadrillas:
                 Recorrido.objects.create(
                     orden=orden,

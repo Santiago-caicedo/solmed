@@ -453,7 +453,7 @@ def _pendientes_orden(orden):
     if orden.requiere_bascula and not orden.bascula_adjunto:
         faltan.append({'etiqueta': 'Tiquete de báscula', 'icono': 'bi-speedometer2'})
     if orden.requiere_registro_fotografico:
-        # Una por cada sede o tercero que siga sin fotos (oct-2026).
+        # Una por cada punto que siga sin fotos (oct-2026).
         for grupo in orden.fotos_por_punto():
             if not grupo['suelto'] and not grupo['hecho']:
                 faltan.append({'etiqueta': (f"Fotos de {grupo['nombre']}" if grupo['nombre']
@@ -505,7 +505,7 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         ).select_related('cliente').prefetch_related(
             'recorridos__manifiesto', 'recorridos__encuesta_conductor',
             # «Qué falta» mira las fotos por sede sin una consulta por orden.
-            'fotos_registro', 'sedes_registro', 'terceros_registro',
+            'fotos_registro', 'puntos_registro',
             'programacion_origen__cuadrillas__fotos_ayudantes')
         query = self.request.GET.get('q')
         
@@ -603,7 +603,7 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
             )
             orden.save()
             if datos.get('registro_fotografico_adjunto'):
-                # Una orden histórica no tiene sedes marcadas: es una foto general.
+                # Una orden histórica no tiene puntos marcados: es una foto general.
                 FotoRegistro.objects.create(orden=orden, archivo=datos['registro_fotografico_adjunto'],
                                             subido_por=self.request.user, nota='Acta física')
             Recorrido.objects.create(
@@ -681,9 +681,8 @@ def _sincronizar_orden_desde_programacion(programacion, orden):
             "cantidad de transporte cuando hagas el corte del mes."
         )
     orden.save(update_fields=campos)
-    # Las sedes y terceros con registro fotográfico también se reflejan.
-    orden.sedes_registro.set(programacion.sedes_registro.all())
-    orden.terceros_registro.set(programacion.terceros_registro.all())
+    # Los puntos con registro fotográfico también se reflejan.
+    orden.puntos_registro.set(programacion.puntos_registro.all())
 
     cuadrilla = programacion.cuadrillas.first()
     recorrido = orden.recorridos.first()
@@ -832,7 +831,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
             if programacion.creado_por_id is None:
                 programacion.creado_por = request.user
             programacion.save()
-            form.save_m2m()   # las sedes/terceros con registro fotográfico
+            form.save_m2m()   # los puntos con registro fotográfico
             cuadrilla = cuadrilla_form.save(commit=False)
             cuadrilla.programacion = programacion
             cuadrilla.save()
@@ -2358,20 +2357,19 @@ def _cargar_soporte_orden(request, orden):
 
     if 'submit_fotos' in request.POST and orden.requiere_registro_fotografico:
         fotos = request.FILES.getlist('fotos')
-        # Con sedes marcadas, cada foto se guarda en la suya (`punto` =
-        # 'sede:<id>' / 'tercero:<id>'); sin sedes, es una foto general.
-        puntos = {p['clave']: p for p in orden.puntos_registro()}
+        # Con puntos marcados, cada foto se guarda en el suyo (`punto` =
+        # 'punto:<id>'); sin puntos, es una foto general.
+        puntos = {p['clave']: p for p in orden.puntos_marcados()}
         clave = (request.POST.get('punto') or '').strip()
         if puntos and clave not in puntos:
-            messages.error(request, "Indica a cuál sede corresponden las fotos.")
+            messages.error(request, "Indica a cuál punto corresponden las fotos.")
             return True
         punto = puntos.get(clave)
         if fotos:
             for foto in fotos:
                 FotoRegistro.objects.create(
                     orden=orden, archivo=foto, subido_por=request.user,
-                    sede=punto['sede'] if punto else None,
-                    tercero=punto['tercero'] if punto else None)
+                    punto=punto['punto'] if punto else None)
             n = len(fotos)
             messages.success(
                 request,
@@ -2446,7 +2444,7 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         # Acta(s) en formato documento (igual al PDF) para la pestaña de la orden.
         context['actas_formato'] = _actas_formato(
             self.object.recorridos.all().order_by('fecha_recorrido'))
-        # Las fotos del registro, agrupadas por sede o tercero (oct-2026).
+        # Las fotos del registro, agrupadas por punto (oct-2026).
         context['fotos_por_punto'] = (self.object.fotos_por_punto()
                                       if self.object.requiere_registro_fotografico else [])
         # Otros adjuntos de la orden (p. ej. el acta física de una orden
@@ -3070,8 +3068,8 @@ def _tareas_servicio_conductor(orden, actas_formato, grupos_fotos):
     # El tiquete de báscula ya no es tarea del conductor (oct-2026, pedido de
     # Santiago): lo sube la oficina desde el módulo de Básculas.
 
-    # Una tarea por cada sede o tercero donde se exigen fotos (oct-2026); sin
-    # sedes marcadas, una sola tarea general. `grupos_fotos` viene de
+    # Una tarea por cada punto donde se exigen fotos (oct-2026); sin puntos
+    # marcados, una sola tarea general. `grupos_fotos` viene de
     # orden.fotos_por_punto().
     for grupo in grupos_fotos:
         if grupo['suelto']:
@@ -3164,7 +3162,7 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
         context['mis_recorridos'] = mis_recorridos
         # Acta(s) en formato documento (igual al PDF) para la pestaña del conductor.
         context['actas_formato'] = _actas_formato(mis_recorridos)
-        # Las fotos del registro, por sede o tercero (oct-2026).
+        # Las fotos del registro, por punto (oct-2026).
         context['fotos_registro'] = (self.object.fotos_por_punto()
                                      if self.object.requiere_registro_fotografico else [])
         # La lista de tareas del servicio y su avance (la pantalla del
@@ -3876,6 +3874,54 @@ def _sedes_por_cliente():
     return data
 
 
+def _puntos_por_cliente():
+    """
+    Mapa {id_cliente: [{id, nombre}, ...]} de los puntos de registro
+    fotográfico activos de cada cliente, para la programación (oct-2026).
+    """
+    from .models import PuntoRegistro
+    data = {}
+    for p in PuntoRegistro.objects.filter(activo=True).values('id', 'cliente_id', 'nombre').order_by('nombre'):
+        data.setdefault(str(p['cliente_id']), []).append({'id': p['id'], 'nombre': p['nombre']})
+    return data
+
+
+class CrearPuntoRegistroView(AsesorRequiredMixin, View):
+    """
+    Crea un punto de registro fotográfico del cliente desde la programación
+    (oct-2026). Queda guardado en el cliente para sus próximas programaciones.
+    Si ya existe uno con ese nombre (aunque esté oculto), se reutiliza.
+    """
+    def post(self, request):
+        from .models import PuntoRegistro
+        nombre = ' '.join((request.POST.get('nombre') or '').split())[:150]
+        cliente = Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        if cliente is None:
+            return JsonResponse({'ok': False, 'error': 'Elige primero el cliente.'}, status=400)
+        if not nombre:
+            return JsonResponse({'ok': False, 'error': 'Escribe el nombre del punto.'}, status=400)
+        punto = PuntoRegistro.objects.filter(cliente=cliente, nombre__iexact=nombre).first()
+        if punto is None:
+            punto = PuntoRegistro.objects.create(cliente=cliente, nombre=nombre)
+        elif not punto.activo:
+            punto.activo = True
+            punto.save(update_fields=['activo'])
+        return JsonResponse({'ok': True, 'id': punto.pk, 'nombre': punto.nombre})
+
+
+class QuitarPuntoRegistroView(AsesorRequiredMixin, View):
+    """
+    Quita un punto de la lista del cliente: lo OCULTA (no se borra), así las
+    órdenes que ya lo usaron conservan sus fotos agrupadas por él.
+    """
+    def post(self, request, pk):
+        from .models import PuntoRegistro
+        punto = get_object_or_404(PuntoRegistro, pk=pk)
+        punto.activo = False
+        punto.save(update_fields=['activo'])
+        return JsonResponse({'ok': True, 'id': punto.pk})
+
+
 def _terceros_por_cliente():
     """
     Mapa {id_cliente: [{id, nombre, direccion, contacto, telefono}, ...]} de los
@@ -4501,6 +4547,7 @@ def _contexto_programacion(context):
     context['personal_docs'] = _estado_documentos_personal()
     context['direcciones_clientes'] = _direcciones_clientes()
     context['sedes_por_cliente'] = _sedes_por_cliente()
+    context['puntos_por_cliente'] = _puntos_por_cliente()
     context['terceros_por_cliente'] = _terceros_por_cliente()
     context['disposicion_meta'] = _disposicion_meta()
     # Catálogos que se administran desde un popup del propio formulario

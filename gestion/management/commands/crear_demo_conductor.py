@@ -12,8 +12,8 @@ Es idempotente: correrlo dos veces no duplica el conductor, el camión ni el
 cliente; la orden se reutiliza si ya hay una de hoy sin cerrar. Todo lo que
 crea lleva la marca «DEMO CONDUCTOR», que es lo que --borrar busca.
 
-La orden pide registro fotográfico en dos sedes, para que se vea la tarea
-de fotos por sede; no pide báscula (eso lo sube la oficina).
+La orden pide registro fotográfico en dos puntos del cliente, para que se vea
+la tarea de fotos por punto; no pide báscula (eso lo sube la oficina).
 """
 import datetime
 
@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from gestion.models import (
     Cliente, DocumentoPersonal, OrdenServicio, PerfilPersona, Programacion,
-    ProgramacionCuadrilla, Sede, Vehiculo,
+    ProgramacionCuadrilla, PuntoRegistro, Sede, Vehiculo,
 )
 
 MARCA = 'DEMO CONDUCTOR'
@@ -34,6 +34,7 @@ CLAVE = 'Demo.2026'
 PLACA = 'DEMO001'
 CLIENTE = 'Cliente de prueba (demo)'
 SEDES = (('Sede Norte', 'Cl 170 # 8-20, Bogotá'), ('Sede Sur', 'Cra 10 # 20-30, Bogotá'))
+PUNTOS = ('Trampa de grasa cocina', 'Cuarto de residuos')
 
 
 class Command(BaseCommand):
@@ -52,14 +53,14 @@ class Command(BaseCommand):
             conductor = self._conductor(opciones['usuario'], opciones['clave'])
             asesor = self._asesor()
             camion = self._camion()
-            cliente, sedes = self._cliente()
-            orden, reutilizada = self._orden(conductor, asesor, camion, cliente, sedes, opciones['nueva'])
+            cliente, sedes, puntos = self._cliente()
+            orden, reutilizada = self._orden(conductor, asesor, camion, cliente, sedes, puntos, opciones['nueva'])
         self.stdout.write(self.style.SUCCESS(
             f"{'Orden de hoy ya existente' if reutilizada else 'Orden creada'}: #{orden.numero_orden} "
-            f"({cliente.nombre}, {camion.placa}, registro fotográfico en {' y '.join(s.nombre for s in sedes)})."))
+            f"({cliente.nombre}, {camion.placa}, registro fotográfico en {' y '.join(p.nombre for p in puntos)})."))
         self.stdout.write(f"Conductor: usuario «{conductor.username}», contraseña «{opciones['clave']}».")
         self.stdout.write("Entra en /login/ con ese usuario: verá la orden en «Mi jornada» y podrá "
-                          "llenar los datos, subir las fotos de cada sede, pedir la firma y cerrar.")
+                          "llenar los datos, subir las fotos de cada punto, pedir la firma y cerrar.")
         self.stdout.write("Cuando termine la capacitación: python manage.py crear_demo_conductor --borrar")
 
     # ---- piezas ----
@@ -105,11 +106,13 @@ class Command(BaseCommand):
                       'email': 'demo@ejemplo.com', 'persona_contacto': 'María Rodríguez'})
         sedes = [Sede.objects.get_or_create(cliente=c, nombre=nombre, defaults={'direccion': direccion, 'ciudad': 'Bogotá'})[0]
                  for nombre, direccion in SEDES]
+        puntos = [PuntoRegistro.objects.get_or_create(cliente=c, nombre=nombre)[0] for nombre in PUNTOS]
+        PuntoRegistro.objects.filter(pk__in=[p.pk for p in puntos]).update(activo=True)
         if creado:
-            self.stdout.write(f"Cliente de demo creado: {c.nombre} ({', '.join(s.nombre for s in sedes)})")
-        return c, sedes
+            self.stdout.write(f"Cliente de demo creado: {c.nombre} (puntos: {', '.join(PUNTOS)})")
+        return c, sedes, puntos
 
-    def _orden(self, conductor, asesor, camion, cliente, sedes, nueva):
+    def _orden(self, conductor, asesor, camion, cliente, sedes, puntos, nueva):
         hoy = timezone.localdate()
         if not nueva:
             abierta = (OrdenServicio.objects
@@ -126,7 +129,7 @@ class Command(BaseCommand):
             succ_canecas=True, succ_canecas_cant='4', succ_trampas_grasa=True, succ_trampas_grasa_cant='1',
             nombre_contacto_recibe='María Rodríguez',
         )
-        prog.sedes_registro.set(sedes)
+        prog.puntos_registro.set(puntos)
         ProgramacionCuadrilla.objects.create(programacion=prog, conductor=conductor, vehiculo=camion)
         orden = prog.convertir_en_orden(asesor)
         orden.descripcion = f'{MARCA}: orden de demostración para capacitar'

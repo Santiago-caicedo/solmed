@@ -55,25 +55,18 @@
                     <label for="{{ form.registro_fotografico.id_for_label }}" class="form-label">Registro fotográfico</label>
                     {{ form.registro_fotografico }}
                 </div>
-                {# Sedes y terceros con registro fotográfico (oct-2026): una tarea de fotos por cada uno para el conductor. #}
+                {# Puntos con registro fotográfico (oct-2026): una tarea de fotos por cada uno para el conductor. Se crean desde la programación. #}
                 <div class="col-md-6{% if not object.requiere_registro_fotografico %} d-none{% endif %}" id="col-registro-adjunto">
-                    <label class="form-label">¿En cuáles sedes se toman las fotos?</label>
-                    {% for sede in form.sedes_registro.field.queryset %}
+                    <label class="form-label">¿En cuáles puntos se toman las fotos?</label>
+                    {% for p in form.puntos_registro.field.queryset %}
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="sedes_registro" value="{{ sede.pk }}" id="sr-{{ sede.pk }}" {% if sede.pk in form.sedes_marcadas %}checked{% endif %}>
-                        <label class="form-check-label" for="sr-{{ sede.pk }}">{{ sede.nombre }}{% if sede.direccion %} <small class="text-muted">· {{ sede.direccion }}</small>{% endif %}</label>
+                        <input class="form-check-input" type="checkbox" name="puntos_registro" value="{{ p.pk }}" id="pr-{{ p.pk }}" {% if p.pk in form.puntos_marcados %}checked{% endif %}>
+                        <label class="form-check-label" for="pr-{{ p.pk }}">{{ p.nombre }}</label>
                     </div>
+                    {% empty %}
+                    <small class="text-muted d-block">Este cliente no tiene puntos: las fotos serán generales del servicio.</small>
                     {% endfor %}
-                    {% for t in form.terceros_registro.field.queryset %}
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="terceros_registro" value="{{ t.pk }}" id="tr-{{ t.pk }}" {% if t.pk in form.terceros_marcados %}checked{% endif %}>
-                        <label class="form-check-label" for="tr-{{ t.pk }}">{{ t.nombre }} <small class="text-muted">· tercero</small></label>
-                    </div>
-                    {% endfor %}
-                    {% if not form.sedes_registro.field.queryset and not form.terceros_registro.field.queryset %}
-                    <small class="text-muted d-block">Este cliente no tiene sedes ni terceros: las fotos serán generales del servicio.</small>
-                    {% endif %}
-                    {% for e in form.sedes_registro.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+                    {% for e in form.puntos_registro.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
                 </div>
             </div>
 

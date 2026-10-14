@@ -34,7 +34,7 @@ class OrdenServicioForm(forms.ModelForm):
             'direccion_servicio',
             'descripcion',
             'bascula', 'bascula_adjunto',
-            'registro_fotografico', 'sedes_registro', 'terceros_registro',
+            'registro_fotografico', 'puntos_registro',
         ]
 
         widgets = {
@@ -44,29 +44,24 @@ class OrdenServicioForm(forms.ModelForm):
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'bascula_adjunto': forms.FileInput(attrs={'class': 'form-control'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
-            'sedes_registro': forms.CheckboxSelectMultiple,
-            'terceros_registro': forms.CheckboxSelectMultiple,
+            'puntos_registro': forms.CheckboxSelectMultiple,
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Las sedes y terceros con registro fotográfico: solo los del cliente
-        # de la orden (oct-2026). La plantilla los pinta como casillas.
+        # Los puntos con registro fotográfico: los del cliente de la orden
+        # (activos + los ya marcados). La plantilla los pinta como casillas.
+        from .models import PuntoRegistro
         cliente_id = self.instance.cliente_id if self.instance.pk else None
-        self.fields['sedes_registro'].queryset = Sede.objects.filter(
-            cliente_id=cliente_id, activa=True).order_by('nombre')
-        self.fields['terceros_registro'].queryset = Tercero.objects.filter(
-            cliente_id=cliente_id, activo=True).order_by('nombre')
-        for campo in ('sedes_registro', 'terceros_registro'):
-            self.fields[campo].required = False
+        vigentes = Q(cliente_id=cliente_id, activo=True)
+        if self.instance.pk:
+            vigentes |= Q(pk__in=self.instance.puntos_registro.values('pk'))
+        self.fields['puntos_registro'].queryset = PuntoRegistro.objects.filter(vigentes).order_by('nombre')
+        self.fields['puntos_registro'].required = False
 
     @property
-    def sedes_marcadas(self):
-        return _pks_marcados(self, 'sedes_registro')
-
-    @property
-    def terceros_marcados(self):
-        return _pks_marcados(self, 'terceros_registro')
+    def puntos_marcados(self):
+        return _pks_marcados(self, 'puntos_registro')
 
 class VehiculoForm(forms.ModelForm):
     class Meta:
@@ -823,7 +818,7 @@ class ProgramacionForm(forms.ModelForm):
             'observaciones_servicio',
             'paleada',
             'bascula', 'bascula_sitio',
-            'registro_fotografico', 'sedes_registro', 'terceros_registro',
+            'registro_fotografico', 'puntos_registro',
             'responsable_sg',
             'requiere_disposicion_final',
             'dispositor_final',
@@ -846,10 +841,9 @@ class ProgramacionForm(forms.ModelForm):
             'bascula_sitio': forms.Select(attrs={'class': 'form-select'}),
             'bascula': forms.Select(attrs={'class': 'form-select'}),
             'registro_fotografico': forms.Select(attrs={'class': 'form-select'}),
-            # Las casillas de sedes/terceros las pinta la plantilla (dependen
-            # del cliente elegido); estos widgets solo reciben lo marcado.
-            'sedes_registro': forms.CheckboxSelectMultiple,
-            'terceros_registro': forms.CheckboxSelectMultiple,
+            # Las casillas de los puntos las pinta la plantilla (dependen del
+            # cliente elegido y se crean ahí mismo); el widget recibe lo marcado.
+            'puntos_registro': forms.CheckboxSelectMultiple,
             'responsable_sg': forms.Select(attrs={'class': 'form-select'}),
             'requiere_disposicion_final': forms.Select(attrs={'class': 'form-select'}),
             'dispositor_final': forms.Select(attrs={'class': 'form-select'}),
@@ -936,25 +930,20 @@ class ProgramacionForm(forms.ModelForm):
         self.fields['tercero'].empty_label = '--- Sin tercero ---'
         self.fields['tercero'].label = 'Tercero'
 
-        # Sedes y terceros con registro fotográfico (oct-2026): los mismos del
-        # cliente en juego, más los ya marcados (por si alguno quedó inactivo).
-        marcadas_sedes = Q(pk__in=sedes.values('pk'))
-        marcados_terceros = Q(pk__in=terceros.values('pk'))
+        # Puntos con registro fotográfico (oct-2026): los activos del cliente
+        # en juego, más los ya marcados (por si alguno se ocultó después).
+        from .models import PuntoRegistro
+        vigentes = Q(activo=True)
+        if cliente_actual:
+            vigentes &= Q(cliente_id=cliente_actual)
         if self.instance.pk:
-            marcadas_sedes |= Q(pk__in=self.instance.sedes_registro.values('pk'))
-            marcados_terceros |= Q(pk__in=self.instance.terceros_registro.values('pk'))
-        self.fields['sedes_registro'].queryset = Sede.objects.filter(marcadas_sedes).order_by('nombre')
-        self.fields['terceros_registro'].queryset = Tercero.objects.filter(marcados_terceros).order_by('nombre')
-        for campo in ('sedes_registro', 'terceros_registro'):
-            self.fields[campo].required = False
+            vigentes |= Q(pk__in=self.instance.puntos_registro.values('pk'))
+        self.fields['puntos_registro'].queryset = PuntoRegistro.objects.filter(vigentes).order_by('nombre')
+        self.fields['puntos_registro'].required = False
 
     @property
-    def sedes_marcadas(self):
-        return _pks_marcados(self, 'sedes_registro')
-
-    @property
-    def terceros_marcados(self):
-        return _pks_marcados(self, 'terceros_registro')
+    def puntos_marcados(self):
+        return _pks_marcados(self, 'puntos_registro')
 
         # --- Instrucciones del servicio (primera parte del acta) ---
         # Casillas de qué se hace + su cantidad. Es lo que antes llenaba el
@@ -1016,19 +1005,20 @@ class ProgramacionForm(forms.ModelForm):
         if cliente and not sede and not tercero and cliente.sedes.filter(activa=True).exists():
             self.add_error('sede_cliente', 'Este cliente tiene sedes: elige a cuál corresponde el servicio.')
 
-        # --- Registro fotográfico por sede (oct-2026) ---
-        # Con «Sí» y un cliente que tiene sedes o terceros, hay que marcar en
-        # cuáles: así al conductor le sale una tarea por cada una. Con otra
-        # respuesta, lo marcado se limpia.
+        # --- Registro fotográfico por punto (oct-2026) ---
+        # Con «Sí» hay que marcar (o crear) al menos un punto del cliente: al
+        # conductor le sale una tarea de fotos por cada uno. Los puntos deben
+        # ser de ESTE cliente. Con otra respuesta, lo marcado se limpia.
+        from .models import PuntoRegistro
+        puntos = cleaned.get('puntos_registro')
         if cleaned.get('registro_fotografico') == 'SI':
-            if (cliente and not cleaned.get('sedes_registro') and not cleaned.get('terceros_registro')
-                    and (cliente.sedes.filter(activa=True).exists()
-                         or cliente.terceros.filter(activo=True).exists())):
+            if not puntos:
                 self.add_error('registro_fotografico',
-                               'Marca en cuáles sedes o terceros se toma el registro fotográfico.')
+                               'Marca o crea al menos un punto donde se toma el registro fotográfico.')
+            elif cliente and any(p.cliente_id != cliente.id for p in puntos):
+                self.add_error('registro_fotografico', 'Uno de los puntos marcados no es de este cliente.')
         else:
-            cleaned['sedes_registro'] = Sede.objects.none()
-            cleaned['terceros_registro'] = Tercero.objects.none()
+            cleaned['puntos_registro'] = PuntoRegistro.objects.none()
 
         # --- Báscula ---
         # Sí ('PESAN') -> hay que decir en cuál; otra respuesta -> se limpia.

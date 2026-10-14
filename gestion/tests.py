@@ -44,7 +44,7 @@ from .models import (
     ADJUNTOS_FACTURA,
     Bascula, CertificadoDisposicion, Cliente, Dispositor, DocumentoAmbientalCliente, DocumentoCorreoCliente,
     DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal,
-    EncuestaConductor, EnvioCorreo, FotoAyudante, FotoRegistro, Manifiesto, MedidaACPM,
+    EncuestaConductor, EnvioCorreo, FotoAyudante, FotoRegistro, Manifiesto, MedidaACPM, PuntoRegistro,
     DisposicionOrden, Factura, LineaFactura, NovedadOperacional, OrdenServicio, Pago, PerfilPersona,
     Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio,
     Tercero, TipoResiduo, Vehiculo, cursos_faltantes_ayudante,
@@ -2059,8 +2059,10 @@ class EdicionDeOrdenesTests(BaseCRM):
         otro_conductor = self.persona('conductor2', 'Conductores', 'Diana', 'Lopez')
         self.con_ss(otro_conductor)
         nueva_fecha = timezone.localdate() + datetime.timedelta(days=3)
+        punto = PuntoRegistro.objects.create(cliente=otro_cliente, nombre='Trampa de grasa')
 
         self.client.post(reverse('gestion:actualizar_orden', args=[self.orden.pk]), {
+            'puntos_registro': [punto.pk],
             'fecha': nueva_fecha.isoformat(), 'cliente': otro_cliente.pk,
             'hora_ingreso_bodega': '', 'sitio_inicio': '', 'hora_servicio': '',
             'sede_cliente': '', 'tercero': '', 'direccion': 'Nueva dirección 45',
@@ -2294,7 +2296,7 @@ class OrdenHistoricaTests(BaseCRM):
         self.assertEqual(orden.registro_fotografico, 'SI')
         foto = orden.fotos_registro.get()
         self.assertTrue(foto.archivo, "la foto del acta física queda como foto general")
-        self.assertIsNone(foto.sede)
+        self.assertIsNone(foto.punto)
         recorrido = orden.recorridos.get()
         self.assertEqual(recorrido.conductor, conductor)
         self.assertEqual(recorrido.ayudante, ayudante)
@@ -4555,7 +4557,7 @@ class ExperienciaDelConductorTests(BaseCRM):
         self.client.post(url, {'submit_fotos': '1', 'fotos': [imagen('f1.png'), imagen('f2.png')]})
         fotos = list(self.orden.fotos_registro.all())
         self.assertEqual(len(fotos), 2)
-        self.assertEqual({f.sede_id for f in fotos} | {f.tercero_id for f in fotos}, {None})
+        self.assertEqual({f.punto_id for f in fotos}, {None})
         self.assertEqual({f.subido_por for f in fotos}, {self.conductor})
         self.assertEqual(self.orden.documentos.count(), 0, "ya no se guardan como documentos sueltos")
         self.assertTrue(self.orden.fotos_completas())
@@ -8175,12 +8177,12 @@ class EnvioDeCertificadosTests(BaseCRM):
         self.assertIsNone(_resolver_adjunto_correo('certificado:999999'))
 
 
-class RegistroFotograficoPorSedeTests(BaseCRM):
+class RegistroFotograficoPorPuntoTests(BaseCRM):
     """
-    Registro fotográfico POR SEDE (oct-2026, pedido de Santiago): al programar
-    con «Sí» se marcan las sedes o terceros del cliente; quedan anclados a la
-    orden; al conductor le sale una tarea por cada uno y cada foto va a la
-    suya; el expediente las muestra agrupadas.
+    Registro fotográfico POR PUNTO (oct-2026, pedido de Santiago): los puntos
+    se crean desde la programación y quedan guardados en el cliente para sus
+    próximas programaciones; se anclan a la orden; al conductor le sale una
+    tarea por cada uno y cada foto va al suyo; el expediente las agrupa.
     """
 
     def setUp(self):
@@ -8190,10 +8192,10 @@ class RegistroFotograficoPorSedeTests(BaseCRM):
         self.camion = self.vehiculo()
         self.cli = self.cliente()
         self.norte = Sede.objects.create(cliente=self.cli, nombre='Sede Norte', direccion='Cll 170 # 8-20')
-        self.sur = Sede.objects.create(cliente=self.cli, nombre='Sede Sur', direccion='Cra 10 # 20-30')
-        self.bodega = Tercero.objects.create(cliente=self.cli, nombre='Bodega El Dorado', direccion='Av 68')
+        self.trampa = PuntoRegistro.objects.create(cliente=self.cli, nombre='Trampa de grasa cocina')
+        self.cuarto = PuntoRegistro.objects.create(cliente=self.cli, nombre='Cuarto de residuos')
         self.otro = self.cliente('Otro cliente', identificacion='800999')
-        self.ajena = Sede.objects.create(cliente=self.otro, nombre='Sede ajena')
+        self.ajeno = PuntoRegistro.objects.create(cliente=self.otro, nombre='Punto ajeno')
         self.entrar(self.asesor)
 
     def datos(self, **extra):
@@ -8212,138 +8214,143 @@ class RegistroFotograficoPorSedeTests(BaseCRM):
         datos.update(extra)
         return datos
 
-    def _orden_con(self, sedes=(), terceros=()):
-        self.client.post(reverse('gestion:crear_programacion'), self.datos(
-            sedes_registro=[s.pk for s in sedes], terceros_registro=[t.pk for t in terceros]))
-        return OrdenServicio.objects.get()
+    def _orden_con(self, *puntos):
+        self.client.post(reverse('gestion:crear_programacion'), self.datos(puntos_registro=[p.pk for p in puntos]))
+        return OrdenServicio.objects.order_by('-pk').first()
 
-    def test_con_si_hay_que_marcar_en_cuales_sedes(self):
+    def test_el_punto_se_crea_desde_la_programacion_y_queda_en_el_cliente(self):
+        url = reverse('gestion:crear_punto_registro')
+        r = self.client.post(url, {'cliente': self.cli.pk, 'nombre': '  Tanque   de lodos '}).json()
+        self.assertTrue(r['ok'])
+        punto = PuntoRegistro.objects.get(pk=r['id'])
+        self.assertEqual((punto.cliente, punto.nombre, punto.activo), (self.cli, 'Tanque de lodos', True))
+        # El mismo nombre (sin importar mayúsculas) no se duplica.
+        r2 = self.client.post(url, {'cliente': self.cli.pk, 'nombre': 'tanque de lodos'}).json()
+        self.assertEqual(r2['id'], punto.pk)
+        self.assertEqual(PuntoRegistro.objects.filter(cliente=self.cli).count(), 3)
+        # Sin cliente o sin nombre, no.
+        self.assertFalse(self.client.post(url, {'cliente': '', 'nombre': 'X'}).json()['ok'])
+        self.assertFalse(self.client.post(url, {'cliente': self.cli.pk, 'nombre': '  '}).json()['ok'])
+        # Vuelve a aparecer en la siguiente programación de ESE cliente, y no en la de otro.
+        pagina = self.client.get(reverse('gestion:crear_programacion'))
+        puntos = pagina.context['puntos_por_cliente']
+        self.assertEqual([p['nombre'] for p in puntos[str(self.cli.pk)]],
+                         ['Cuarto de residuos', 'Tanque de lodos', 'Trampa de grasa cocina'])
+        self.assertEqual([p['nombre'] for p in puntos[str(self.otro.pk)]], ['Punto ajeno'])
+        self.assertContains(pagina, 'id="puntos-cliente-data"')
+
+    def test_quitar_un_punto_lo_oculta_sin_tocar_las_ordenes(self):
+        orden = self._orden_con(self.trampa)
+        r = self.client.post(reverse('gestion:quitar_punto_registro', args=[self.trampa.pk])).json()
+        self.assertTrue(r['ok'])
+        self.trampa.refresh_from_db()
+        self.assertFalse(self.trampa.activo)
+        self.assertNotIn('Trampa de grasa cocina',
+                         [p['nombre'] for p in self.client.get(reverse('gestion:crear_programacion'))
+                          .context['puntos_por_cliente'][str(self.cli.pk)]])
+        self.assertEqual(list(orden.puntos_registro.all()), [self.trampa], "la orden lo conserva")
+        # Crearlo de nuevo lo vuelve a mostrar.
+        self.client.post(reverse('gestion:crear_punto_registro'), {'cliente': self.cli.pk, 'nombre': 'Trampa de grasa cocina'})
+        self.trampa.refresh_from_db()
+        self.assertTrue(self.trampa.activo)
+
+    def test_solo_gestion_y_asesores_crean_puntos(self):
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.post(reverse('gestion:crear_punto_registro'),
+                                          {'cliente': self.cli.pk, 'nombre': 'X'}).status_code, 403)
+        self.assertEqual(self.client.post(reverse('gestion:quitar_punto_registro', args=[self.trampa.pk])).status_code, 403)
+
+    def test_con_si_hay_que_marcar_un_punto_y_de_este_cliente(self):
         respuesta = self.client.post(reverse('gestion:crear_programacion'), self.datos())
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertContains(respuesta, 'Marca en cuáles sedes o terceros se toma el registro fotográfico.')
+        self.assertContains(respuesta, 'Marca o crea al menos un punto donde se toma el registro fotográfico.')
         self.assertFalse(OrdenServicio.objects.exists())
-        # Las sedes de OTRO cliente no valen.
+        # Un punto de OTRO cliente no se acepta.
         respuesta = self.client.post(reverse('gestion:crear_programacion'),
-                                     self.datos(sedes_registro=[self.ajena.pk]))
-        self.assertEqual(respuesta.status_code, 200)
+                                     self.datos(puntos_registro=[self.ajeno.pk]))
+        self.assertIn('puntos_registro', respuesta.context['form'].errors)
         self.assertFalse(OrdenServicio.objects.exists())
 
-    def test_las_sedes_marcadas_quedan_ancladas_a_la_orden(self):
-        orden = self._orden_con(sedes=[self.norte, self.sur], terceros=[self.bodega])
-        self.assertEqual(set(orden.sedes_registro.all()), {self.norte, self.sur})
-        self.assertEqual(list(orden.terceros_registro.all()), [self.bodega])
-        self.assertEqual([p['nombre'] for p in orden.puntos_registro()],
-                         ['Sede Norte', 'Sede Sur', 'Bodega El Dorado'])
-        izquierda, derecha = orden.programacion_origen.resumen_checklist()
+    def test_los_puntos_marcados_quedan_anclados_a_la_orden(self):
+        orden = self._orden_con(self.trampa, self.cuarto)
+        self.assertEqual(set(orden.puntos_registro.all()), {self.trampa, self.cuarto})
+        self.assertEqual([p['nombre'] for p in orden.puntos_marcados()],
+                         ['Cuarto de residuos', 'Trampa de grasa cocina'])
+        _, derecha = orden.programacion_origen.resumen_checklist()
         self.assertEqual(dict(derecha)['REGISTRO FOTOGRÁFICO'],
-                         'SÍ — SUBIR FOTOS EN: Sede Norte, Sede Sur, Bodega El Dorado')
-        # Y se ve en la información del servicio del conductor.
+                         'SÍ — SUBIR FOTOS EN: Cuarto de residuos, Trampa de grasa cocina')
         self.entrar(self.conductor)
         self.assertContains(self.client.get(reverse('gestion:detalle_orden_conductor', args=[orden.pk])),
-                            'En: Sede Norte, Sede Sur, Bodega El Dorado')
+                            'En: Cuarto de residuos, Trampa de grasa cocina')
 
     def test_con_no_lo_marcado_se_descarta(self):
-        orden = self._orden_con(sedes=[self.norte])
-        self.assertEqual(orden.sedes_registro.count(), 1)
         self.client.post(reverse('gestion:crear_programacion'),
-                         self.datos(registro_fotografico='NO', sedes_registro=[self.sur.pk]))
-        segunda = OrdenServicio.objects.exclude(pk=orden.pk).get()
-        self.assertEqual(segunda.sedes_registro.count(), 0)
-        self.assertEqual(segunda.puntos_registro(), [])
-        self.assertTrue(segunda.fotos_completas(), "sin registro no falta nada")
+                         self.datos(registro_fotografico='NO', puntos_registro=[self.trampa.pk]))
+        orden = OrdenServicio.objects.get()
+        self.assertEqual(orden.puntos_registro.count(), 0)
+        self.assertTrue(orden.fotos_completas(), "sin registro no falta nada")
 
-    def test_un_cliente_sin_sedes_pasa_con_fotos_generales(self):
-        sin_sedes = self.cliente('Sin sedes SAS', identificacion='800111')
-        self.client.post(reverse('gestion:crear_programacion'), self.datos(cliente=sin_sedes.pk, sede_cliente=''))
-        orden = OrdenServicio.objects.get(cliente=sin_sedes)
-        self.assertEqual(orden.puntos_registro(), [])
-        self.assertEqual([g['clave'] for g in orden.fotos_por_punto()], [''])
-
-    def test_al_conductor_le_sale_una_tarea_por_sede_y_cada_foto_va_a_la_suya(self):
-        orden = self._orden_con(sedes=[self.norte, self.sur], terceros=[self.bodega])
+    def test_al_conductor_le_sale_una_tarea_por_punto_y_cada_foto_va_al_suyo(self):
+        orden = self._orden_con(self.trampa, self.cuarto)
         self.entrar(self.conductor)
         url = reverse('gestion:detalle_orden_conductor', args=[orden.pk])
         respuesta = self.client.get(url)
         tareas = [t for t in respuesta.context['tareas'] if t['formulario'] == 'fotos']
         self.assertEqual([t['titulo'] for t in tareas],
-                         ['Sube las fotos de Sede Norte', 'Sube las fotos de Sede Sur',
-                          'Sube las fotos de Bodega El Dorado'])
-        self.assertEqual([t['punto'] for t in tareas],
-                         [f'sede:{self.norte.pk}', f'sede:{self.sur.pk}', f'tercero:{self.bodega.pk}'])
-        self.assertContains(respuesta, 'Cll 170 # 8-20', msg_prefix="la dirección de la sede, para ubicarse")
-        self.assertContains(respuesta, f'name="punto" value="sede:{self.norte.pk}"')
-
-        # Sube a Sede Norte y al tercero; la Sur queda pendiente.
-        self.client.post(url, {'submit_fotos': '1', 'punto': f'sede:{self.norte.pk}',
-                               'fotos': [imagen('n1.png'), imagen('n2.png')]})
-        self.client.post(url, {'submit_fotos': '1', 'punto': f'tercero:{self.bodega.pk}',
-                               'fotos': [imagen('b1.png')]})
-        fotos = orden.fotos_registro.all()
-        self.assertEqual(fotos.filter(sede=self.norte).count(), 2)
-        self.assertEqual(fotos.filter(tercero=self.bodega).count(), 1)
-        self.assertEqual(fotos.filter(sede=self.sur).count(), 0)
-        tareas = {t['titulo']: t for t in self.client.get(url).context['tareas'] if t['formulario'] == 'fotos'}
-        self.assertTrue(tareas['Sube las fotos de Sede Norte']['hecha'])
-        self.assertEqual(len(tareas['Sube las fotos de Sede Norte']['fotos']), 2)
-        self.assertFalse(tareas['Sube las fotos de Sede Sur']['hecha'])
+                         ['Sube las fotos de Cuarto de residuos', 'Sube las fotos de Trampa de grasa cocina'])
+        self.assertContains(respuesta, f'name="punto" value="punto:{self.trampa.pk}"')
+        self.client.post(url, {'submit_fotos': '1', 'punto': f'punto:{self.trampa.pk}',
+                               'fotos': [imagen('t1.png'), imagen('t2.png')]})
+        self.assertEqual(orden.fotos_registro.filter(punto=self.trampa).count(), 2)
         self.assertFalse(orden.fotos_completas())
-        # En «Mi jornada» se dice exactamente cuál falta.
         tarjeta = self.client.get(reverse('gestion:dashboard_conductor')).context['tarjetas_hoy'][0]
-        self.assertIn('las fotos de Sede Sur', tarjeta['faltan'])
-        self.assertNotIn('las fotos de Sede Norte', tarjeta['faltan'])
-        # Con la Sur, quedan completas.
-        self.client.post(url, {'submit_fotos': '1', 'punto': f'sede:{self.sur.pk}', 'fotos': [imagen('s1.png')]})
+        self.assertIn('las fotos de Cuarto de residuos', tarjeta['faltan'])
+        self.assertNotIn('las fotos de Trampa de grasa cocina', tarjeta['faltan'])
+        self.client.post(url, {'submit_fotos': '1', 'punto': f'punto:{self.cuarto.pk}', 'fotos': [imagen('c1.png')]})
         self.assertTrue(OrdenServicio.objects.get(pk=orden.pk).fotos_completas())
 
-    def test_no_se_sube_sin_decir_la_sede_ni_a_una_sede_que_no_es_de_la_orden(self):
-        orden = self._orden_con(sedes=[self.norte])
+    def test_no_se_sube_sin_punto_ni_a_un_punto_que_no_es_de_la_orden(self):
+        orden = self._orden_con(self.trampa)
         self.entrar(self.conductor)
         url = reverse('gestion:detalle_orden_conductor', args=[orden.pk])
         respuesta = self.client.post(url, {'submit_fotos': '1', 'fotos': [imagen('x.png')]}, follow=True)
-        self.assertContains(respuesta, 'Indica a cuál sede corresponden las fotos.')
-        for clave in (f'sede:{self.sur.pk}', f'sede:{self.ajena.pk}', 'sede:999999', 'tercero:abc'):
+        self.assertContains(respuesta, 'Indica a cuál punto corresponden las fotos.')
+        for clave in (f'punto:{self.cuarto.pk}', f'punto:{self.ajeno.pk}', 'punto:999999', 'sede:1'):
             with self.subTest(clave=clave):
                 self.client.post(url, {'submit_fotos': '1', 'punto': clave, 'fotos': [imagen('x.png')]})
         self.assertFalse(orden.fotos_registro.exists())
 
-    def test_el_expediente_muestra_las_fotos_de_cada_sede_por_separado(self):
-        orden = self._orden_con(sedes=[self.norte, self.sur])
-        FotoRegistro.objects.create(orden=orden, sede=self.norte, archivo=imagen('n1.png'), subido_por=self.conductor)
+    def test_el_expediente_muestra_las_fotos_de_cada_punto_por_separado(self):
+        orden = self._orden_con(self.trampa, self.cuarto)
+        FotoRegistro.objects.create(orden=orden, punto=self.trampa, archivo=imagen('t1.png'), subido_por=self.conductor)
         url = reverse('gestion:detalle_orden', args=[orden.pk])
         respuesta = self.client.get(url)
-        grupos = respuesta.context['fotos_por_punto']
-        self.assertEqual([(g['nombre'], g['hecho'], len(g['fotos'])) for g in grupos],
-                         [('Sede Norte', True, 1), ('Sede Sur', False, 0)])
+        self.assertEqual([(g['nombre'], g['hecho'], len(g['fotos'])) for g in respuesta.context['fotos_por_punto']],
+                         [('Cuarto de residuos', False, 0), ('Trampa de grasa cocina', True, 1)])
         self.assertFalse(respuesta.context['soportes_ok'])
-        self.assertContains(respuesta, 'Registro fotográfico · Sede Norte')
-        self.assertContains(respuesta, 'Registro fotográfico · Sede Sur')
-        self.assertContains(respuesta, f'name="punto" value="sede:{self.sur.pk}"', msg_prefix="gestión completa la que falta")
-        # La lista de órdenes dice qué sede falta.
+        self.assertContains(respuesta, 'Registro fotográfico · Trampa de grasa cocina')
+        self.assertContains(respuesta, f'name="punto" value="punto:{self.cuarto.pk}"')
         lista = self.client.get(reverse('gestion:lista_ordenes'))
         pendientes = [p['etiqueta'] for p in [o for o in lista.context['ordenes'] if o.pk == orden.pk][0].pendientes]
-        self.assertIn('Fotos de Sede Sur', pendientes)
-        self.assertNotIn('Fotos de Sede Norte', pendientes)
-        # Gestión sube las de la Sur desde el expediente y todo queda completo.
-        self.client.post(url, {'submit_fotos': '1', 'punto': f'sede:{self.sur.pk}', 'fotos': [imagen('s1.png')]})
+        self.assertIn('Fotos de Cuarto de residuos', pendientes)
+        self.assertNotIn('Fotos de Trampa de grasa cocina', pendientes)
+        self.client.post(url, {'submit_fotos': '1', 'punto': f'punto:{self.cuarto.pk}', 'fotos': [imagen('c1.png')]})
         self.assertTrue(self.client.get(url).context['soportes_ok'])
 
-    def test_una_foto_de_una_sede_que_se_desmarco_no_se_pierde(self):
-        orden = self._orden_con(sedes=[self.norte, self.sur])
-        FotoRegistro.objects.create(orden=orden, sede=self.sur, archivo=imagen('s1.png'))
-        orden.sedes_registro.set([self.norte])
-        grupos = orden.fotos_por_punto()
-        self.assertEqual([(g['nombre'], g['suelto'], len(g['fotos'])) for g in grupos],
-                         [('Sede Norte', False, 0), ('Sin sede', True, 1)])
-        self.assertFalse(orden.fotos_completas(), "la suelta no cuenta por la Norte")
+    def test_una_foto_de_un_punto_que_se_desmarco_no_se_pierde(self):
+        orden = self._orden_con(self.trampa, self.cuarto)
+        FotoRegistro.objects.create(orden=orden, punto=self.cuarto, archivo=imagen('c1.png'))
+        orden.puntos_registro.set([self.trampa])
+        self.assertEqual([(g['nombre'], g['suelto'], len(g['fotos'])) for g in orden.fotos_por_punto()],
+                         [('Trampa de grasa cocina', False, 0), ('Sin punto', True, 1)])
+        self.assertFalse(orden.fotos_completas())
 
-    def test_editar_la_orden_cambia_las_sedes_ancladas(self):
-        orden = self._orden_con(sedes=[self.norte])
+    def test_editar_la_orden_cambia_los_puntos_anclados(self):
+        orden = self._orden_con(self.trampa)
         self.client.post(reverse('gestion:actualizar_orden', args=[orden.pk]),
-                         self.datos(sedes_registro=[self.sur.pk], terceros_registro=[self.bodega.pk]))
+                         self.datos(puntos_registro=[self.cuarto.pk]))
         orden.refresh_from_db()
-        self.assertEqual(list(orden.sedes_registro.all()), [self.sur])
-        self.assertEqual(list(orden.terceros_registro.all()), [self.bodega])
-        self.assertEqual(list(orden.programacion_origen.sedes_registro.all()), [self.sur])
+        self.assertEqual(list(orden.puntos_registro.all()), [self.cuarto])
+        self.assertEqual(list(orden.programacion_origen.puntos_registro.all()), [self.cuarto])
 
 
 class MigracionFotosPorSedeTests(TransactionTestCase):
@@ -8354,6 +8361,13 @@ class MigracionFotosPorSedeTests(TransactionTestCase):
     """
     antes = [('gestion', '0085_datos_del_conductor_en_el_acta')]
     despues = [('gestion', '0087_quita_el_adjunto_unico_del_registro')]
+
+    def tearDown(self):
+        # Deja la base en la última migración: las pruebas que vengan después la necesitan.
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(ejecutor.loader.graph.leaf_nodes())
 
     def test_las_fotos_viejas_pasan_a_la_tabla_nueva(self):
         from django.db import connection
@@ -8414,14 +8428,14 @@ class DemoConductorTests(BaseCRM):
         orden = OrdenServicio.objects.get()
         recorrido = orden.recorridos.get()
         self.assertEqual((recorrido.conductor, recorrido.fecha_recorrido), (conductor, timezone.localdate()))
-        self.assertEqual([p['nombre'] for p in orden.puntos_registro()], ['Sede Norte', 'Sede Sur'])
+        self.assertEqual([p['nombre'] for p in orden.puntos_marcados()], ['Cuarto de residuos', 'Trampa de grasa cocina'])
         self.assertIn(f'#{orden.numero_orden}', salida)
         self.assertIn('demo_conductor', salida)
         # Lo ve en su jornada, con sus tareas.
         self.client.force_login(conductor)
         tarjetas = self.client.get(reverse('gestion:dashboard_conductor')).context['tarjetas_hoy']
         self.assertEqual([t['orden'].pk for t in tarjetas], [orden.pk])
-        self.assertIn('las fotos de Sede Norte', tarjetas[0]['faltan'])
+        self.assertIn('las fotos de Trampa de grasa cocina', tarjetas[0]['faltan'])
         # Correrlo otra vez no duplica nada; --nueva sí crea otra orden.
         self._correr()
         self.assertEqual((OrdenServicio.objects.count(), Vehiculo.objects.filter(placa='DEMO001').count()), (1, 1))
@@ -8439,3 +8453,54 @@ class DemoConductorTests(BaseCRM):
         self.assertFalse(Vehiculo.objects.filter(placa='DEMO001').exists())
         self.assertFalse(Cliente.objects.filter(nombre='Cliente de prueba (demo)').exists())
         self.assertTrue(User.objects.filter(username='admin').exists(), "lo demás no se toca")
+
+
+class MigracionSedesAPuntosTests(TransactionTestCase):
+    """
+    Ensaya gestion/0088-0089: lo marcado por sede o tercero (y las fotos
+    ancladas a ellos) pasa a PUNTOS del cliente con el mismo nombre.
+    """
+    antes = [('gestion', '0087_quita_el_adjunto_unico_del_registro')]
+    despues = [('gestion', '0089_quita_las_sedes_del_registro')]
+
+    def tearDown(self):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(ejecutor.loader.graph.leaf_nodes())
+
+    def test_las_sedes_marcadas_y_sus_fotos_pasan_a_puntos(self):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(self.antes)
+        viejo = ejecutor.loader.project_state(self.antes).apps
+        User = viejo.get_model('auth', 'User')
+        Cliente = viejo.get_model('gestion', 'Cliente')
+        Sede = viejo.get_model('gestion', 'Sede')
+        Tercero = viejo.get_model('gestion', 'Tercero')
+        Orden = viejo.get_model('gestion', 'OrdenServicio')
+        Foto = viejo.get_model('gestion', 'FotoRegistro')
+        asesor = User.objects.create(username='asesor')
+        cliente = Cliente.objects.create(nombre='Crepes', identificacion='900')
+        norte = Sede.objects.create(cliente=cliente, nombre='Sede Norte')
+        bodega = Tercero.objects.create(cliente=cliente, nombre='Bodega')
+        orden = Orden.objects.create(numero_orden=22204, cliente=cliente, asesor=asesor, registro_fotografico='SI')
+        orden.sedes_registro.add(norte)
+        orden.terceros_registro.add(bodega)
+        Foto.objects.create(orden=orden, sede=norte, archivo='ordenes_documentos/n.png')
+        Foto.objects.create(orden=orden, archivo='ordenes_documentos/general.png')
+
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(self.despues)
+        nuevo = ejecutor.loader.project_state(self.despues).apps
+        Punto = nuevo.get_model('gestion', 'PuntoRegistro')
+        Orden = nuevo.get_model('gestion', 'OrdenServicio')
+        Foto = nuevo.get_model('gestion', 'FotoRegistro')
+        self.assertEqual(sorted(Punto.objects.filter(cliente_id=cliente.pk).values_list('nombre', flat=True)),
+                         ['Bodega', 'Sede Norte'])
+        self.assertEqual(sorted(Orden.objects.get(pk=22204).puntos_registro.values_list('nombre', flat=True)),
+                         ['Bodega', 'Sede Norte'])
+        foto = Foto.objects.get(archivo='ordenes_documentos/n.png')
+        self.assertEqual(foto.punto.nombre, 'Sede Norte')
+        self.assertIsNone(Foto.objects.get(archivo='ordenes_documentos/general.png').punto_id)

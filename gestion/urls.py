@@ -130,6 +130,9 @@ urlpatterns = [
     # Catálogos que se administran desde los popups de la programación
     # (crear/eliminar por AJAX, sin salir del formulario).
     path('basculas/crear/', views.CrearBasculaView.as_view(), name='crear_bascula'),
+    # Puntos de registro fotográfico del cliente, creados desde la programación (oct-2026).
+    path('puntos-registro/crear/', views.CrearPuntoRegistroView.as_view(), name='crear_punto_registro'),
+    path('puntos-registro/<int:pk>/quitar/', views.QuitarPuntoRegistroView.as_view(), name='quitar_punto_registro'),
     path('bascula/<int:pk>/eliminar/', views.EliminarBasculaView.as_view(), name='eliminar_bascula'),
     path('sitios-inicio/crear/', views.CrearSitioInicioView.as_view(), name='crear_sitio_inicio'),
     path('sitio-inicio/<int:pk>/eliminar/', views.EliminarSitioInicioView.as_view(), name='eliminar_sitio_inicio'),

@@ -268,10 +268,10 @@
                     {{ form.registro_fotografico }}
                     {% for e in form.registro_fotografico.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
                     <small class="text-muted d-block mt-1">
-                        Con «Sí», marca abajo en cuáles sedes se toman las fotos: al conductor le sale una tarea por cada una.
+                        Con «Sí», marca o crea abajo los puntos donde se toman las fotos: al conductor le sale una tarea por cada uno.
                     </small>
                 </div>
-                {# Sedes y terceros con registro fotográfico (oct-2026): las casillas las pinta el JS según el cliente elegido. #}
+                {# Puntos de registro fotográfico del cliente (oct-2026): se marcan o se crean aquí y quedan guardados en el cliente. #}
                 <style>
                 .pr-caja{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel-2); padding:.75rem 1rem; }
                 .pr-tit{ font-size:.85rem; font-weight:600; color:var(--ink-2); margin-bottom:.5rem; }
@@ -282,13 +282,25 @@
                 .pr-item input{ margin-top:.2rem; flex-shrink:0; }
                 .pr-item .n{ font-weight:600; font-size:.9rem; line-height:1.2; }
                 .pr-item .d{ display:block; font-size:.75rem; color:var(--ink-3); }
-                .pr-item .tipo{ font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--steel); margin-left:.3rem; }
+                .pr-item .n{ flex:1; }
+                .pr-quitar{ border:0; background:none; color:var(--ink-3); padding:0 .2rem; line-height:1; font-size:1.1rem; }
+                .pr-quitar:hover{ color:var(--err); }
+                .pr-nuevo{ display:flex; gap:.5rem; margin-top:.75rem; max-width:34rem; }
+                .pr-nuevo input{ flex:1; min-width:0; }
+                .pr-aviso{ font-size:.8rem; margin-top:.4rem; }
                 </style>
                 <div class="col-12 d-none" id="puntos-registro">
                     <div class="pr-caja">
-                        <div class="pr-tit"><i class="bi bi-camera me-1"></i>¿En cuáles sedes se toma el registro fotográfico?</div>
+                        <div class="pr-tit"><i class="bi bi-camera me-1"></i>¿En cuáles puntos se toma el registro fotográfico?</div>
                         <div class="pr-lista" id="pr-lista"></div>
-                        <small class="text-muted d-none" id="pr-vacio">Este cliente no tiene sedes ni terceros registrados: las fotos serán generales del servicio.</small>
+                        <small class="text-muted d-none" id="pr-vacio">Este cliente aún no tiene puntos: crea el primero aquí abajo. Quedará guardado para sus próximas programaciones.</small>
+                        <div class="pr-nuevo">
+                            <label class="visually-hidden" for="pr-nombre">Nuevo punto</label>
+                            <input type="text" id="pr-nombre" class="form-control form-control-sm" maxlength="150"
+                                   placeholder="Nuevo punto (ej.: Trampa de grasa cocina)" autocomplete="off">
+                            <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="pr-agregar"><i class="bi bi-plus-lg me-1"></i>Agregar</button>
+                        </div>
+                        <div class="pr-aviso" id="pr-aviso" role="status"></div>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -710,8 +722,8 @@ el bloque de scripts). Las clases catalogo-* son las que busca ese JS.
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
 {{ terceros_por_cliente|json_script:"terceros-cliente-data" }}
-{{ form.sedes_marcadas|json_script:"sedes-registro-iniciales" }}
-{{ form.terceros_marcados|json_script:"terceros-registro-iniciales" }}
+{{ form.puntos_marcados|json_script:"puntos-registro-iniciales" }}
+{{ puntos_por_cliente|json_script:"puntos-cliente-data" }}
 {{ disposicion_meta|json_script:"disposicion-meta-data" }}
 {{ basculas|json_script:"basculas-data" }}
 {{ sitios_inicio|json_script:"sitios-inicio-data" }}
@@ -1213,73 +1225,102 @@ var tercerosPorCliente = JSON.parse(document.getElementById('terceros-cliente-da
 })();
 </script>
 <script>
-// --- Registro fotográfico por sede (oct-2026): con «Sí», se muestran las sedes
-//     y los terceros del cliente elegido como casillas. Lo marcado viaja como
-//     sedes_registro / terceros_registro. Sin nada marcado, se propone la sede
-//     (o el tercero) del servicio. ---
+// --- Registro fotográfico por PUNTO (oct-2026): con «Sí» se muestran los puntos
+//     del cliente elegido como casillas (name="puntos_registro"). «Agregar» crea
+//     un punto nuevo en el cliente (queda guardado para sus próximas
+//     programaciones) y lo deja marcado; la × lo quita de la lista (lo oculta). ---
 (function () {
     var sel = document.getElementById('id_registro_fotografico');
     var caja = document.getElementById('puntos-registro');
     var lista = document.getElementById('pr-lista');
     var vacio = document.getElementById('pr-vacio');
+    var nombre = document.getElementById('pr-nombre');
+    var agregar = document.getElementById('pr-agregar');
+    var aviso = document.getElementById('pr-aviso');
     var selCliente = document.getElementById('id_cliente');
-    var selSede = document.getElementById('id_sede_cliente');
-    var selTercero = document.getElementById('id_tercero');
     if (!sel || !caja || !selCliente) return;
+    var puntosPorCliente = JSON.parse(document.getElementById('puntos-cliente-data').textContent);
+    var marcados = (JSON.parse(document.getElementById('puntos-registro-iniciales').textContent) || []).map(String);
+    var csrf = document.querySelector('form input[name="csrfmiddlewaretoken"]').value;
+    var URL_CREAR = '{% url "gestion:crear_punto_registro" %}';
+    var URL_QUITAR = '{% url "gestion:quitar_punto_registro" 0 %}';
 
-    function leer(id) {
-        var el = document.getElementById(id);
-        var v = el ? JSON.parse(el.textContent) : [];
-        return Array.isArray(v) ? v.map(String) : [];
+    function avisar(texto, tipo) {
+        aviso.className = 'pr-aviso ' + (tipo === 'error' ? 'text-danger' : 'text-success');
+        aviso.textContent = texto || '';
     }
-    var marcadas = { sede: leer('sedes-registro-iniciales'), tercero: leer('terceros-registro-iniciales') };
-    var pintadoPara = null;
-
-    function fila(tipo, nombreCampo, item) {
-        var label = document.createElement('label');
-        label.className = 'pr-item';
-        var chk = document.createElement('input');
-        chk.type = 'checkbox'; chk.className = 'form-check-input';
-        chk.name = nombreCampo; chk.value = item.id; chk.setAttribute('data-tipo', tipo);
-        chk.checked = marcadas[tipo].indexOf(String(item.id)) !== -1;
-        var tx = document.createElement('span');
-        var n = document.createElement('span'); n.className = 'n'; n.textContent = item.nombre;
-        if (tipo === 'tercero') { var t = document.createElement('span'); t.className = 'tipo'; t.textContent = 'tercero'; n.appendChild(t); }
-        tx.appendChild(n);
-        if (item.direccion) { var d = document.createElement('span'); d.className = 'd'; d.textContent = item.direccion; tx.appendChild(d); }
-        label.appendChild(chk); label.appendChild(tx);
-        lista.appendChild(label);
+    function leerMarcados() {
+        marcados = Array.prototype.map.call(lista.querySelectorAll('input:checked'), function (i) { return i.value; });
     }
-
     function pintar() {
         var activo = sel.value === 'SI';
         caja.classList.toggle('d-none', !activo);
         if (!activo) return;
-        var cliente = selCliente.value;
-        if (pintadoPara === cliente) return;
-        pintadoPara = cliente;
+        var puntos = puntosPorCliente[selCliente.value] || [];
         lista.innerHTML = '';
-        var sedes = sedesPorCliente[cliente] || [];
-        var terceros = tercerosPorCliente[cliente] || [];
-        vacio.classList.toggle('d-none', sedes.length + terceros.length > 0);
-        // Sin nada marcado, se propone el sitio del servicio.
-        if (!marcadas.sede.length && !marcadas.tercero.length) {
-            if (selSede && selSede.value) marcadas.sede = [selSede.value];
-            else if (selTercero && selTercero.value) marcadas.tercero = [selTercero.value];
-        }
-        sedes.forEach(function (s) { fila('sede', 'sedes_registro', s); });
-        terceros.forEach(function (t) { fila('tercero', 'terceros_registro', t); });
-    }
-    function reiniciar() { marcadas = { sede: [], tercero: [] }; pintadoPara = null; pintar(); }
-
-    sel.addEventListener('change', pintar);
-    selCliente.addEventListener('change', reiniciar);
-    // Si cambia el sitio del servicio y todavía no se marcó nada, se propone el nuevo.
-    [selSede, selTercero].forEach(function (el) {
-        if (el) el.addEventListener('change', function () {
-            if (sel.value === 'SI' && !lista.querySelector('input:checked')) reiniciar();
+        vacio.classList.toggle('d-none', puntos.length > 0);
+        puntos.forEach(function (p) {
+            var label = document.createElement('label');
+            label.className = 'pr-item';
+            var chk = document.createElement('input');
+            chk.type = 'checkbox'; chk.className = 'form-check-input'; chk.name = 'puntos_registro';
+            chk.value = p.id; chk.checked = marcados.indexOf(String(p.id)) !== -1;
+            var n = document.createElement('span'); n.className = 'n'; n.textContent = p.nombre;
+            var x = document.createElement('button');
+            x.type = 'button'; x.className = 'pr-quitar'; x.innerHTML = '&times;';
+            x.title = 'Quitar este punto de la lista del cliente';
+            x.setAttribute('aria-label', 'Quitar el punto ' + p.nombre);
+            x.addEventListener('click', function (e) { e.preventDefault(); quitar(p); });
+            label.appendChild(chk); label.appendChild(n); label.appendChild(x);
+            lista.appendChild(label);
         });
-    });
+    }
+    function crear() {
+        var texto = nombre.value.trim();
+        if (!selCliente.value) { avisar('Elige primero el cliente.', 'error'); return; }
+        if (!texto) { avisar('Escribe el nombre del punto.', 'error'); nombre.focus(); return; }
+        var datos = new FormData();
+        datos.append('cliente', selCliente.value); datos.append('nombre', texto);
+        agregar.disabled = true;
+        fetch(URL_CREAR, { method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.ok) { avisar(data.error || 'No se pudo crear el punto.', 'error'); return; }
+                var puntos = puntosPorCliente[selCliente.value] = puntosPorCliente[selCliente.value] || [];
+                if (!puntos.some(function (p) { return String(p.id) === String(data.id); })) {
+                    puntos.push({ id: data.id, nombre: data.nombre });
+                    puntos.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+                }
+                leerMarcados();
+                if (marcados.indexOf(String(data.id)) === -1) marcados.push(String(data.id));
+                nombre.value = '';
+                avisar('Punto «' + data.nombre + '» guardado en el cliente y marcado.');
+                pintar();
+                nombre.focus();
+            })
+            .catch(function () { avisar('Error de conexión al crear el punto.', 'error'); })
+            .then(function () { agregar.disabled = false; });
+    }
+    function quitar(p) {
+        if (!window.confirm('¿Quitar «' + p.nombre + '» de la lista de puntos de este cliente? Las órdenes que ya lo usaron no cambian.')) return;
+        fetch(URL_QUITAR.replace('/0/', '/' + p.id + '/'), { method: 'POST', headers: { 'X-CSRFToken': csrf } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.ok) { avisar('No se pudo quitar el punto.', 'error'); return; }
+                leerMarcados();
+                marcados = marcados.filter(function (id) { return id !== String(p.id); });
+                puntosPorCliente[selCliente.value] = (puntosPorCliente[selCliente.value] || [])
+                    .filter(function (x) { return String(x.id) !== String(p.id); });
+                avisar('Punto «' + p.nombre + '» quitado de la lista.');
+                pintar();
+            })
+            .catch(function () { avisar('Error de conexión al quitar el punto.', 'error'); });
+    }
+    agregar.addEventListener('click', crear);
+    // Enter en el campo crea el punto (no envía la programación).
+    nombre.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); crear(); } });
+    sel.addEventListener('change', function () { leerMarcados(); pintar(); });
+    selCliente.addEventListener('change', function () { marcados = []; avisar(''); pintar(); });
     pintar();
 })();
 </script>
