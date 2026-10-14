@@ -7022,10 +7022,13 @@ class ConductorAyudanteTests(BaseCRM):
         self.con_ss(self.conductor)
         self.hibrido = self.persona('hibrido', self.ROL, 'Mario', 'Rueda')
         self.con_ss(self.hibrido)
+        # Con registro fotográfico «Sí» hay que marcar al menos un punto (oct-2026).
+        self.punto = PuntoRegistro.objects.create(cliente=self.cli, nombre='Pozo séptico')
         self.entrar(self.asesor)
 
     def datos(self, **extra):
         datos = {
+            'puntos_registro': [self.punto.pk],
             'fecha': timezone.localdate().isoformat(), 'cliente': self.cli.pk,
             'hora_ingreso_bodega': '06:00', 'sitio_inicio': '', 'hora_servicio': '08:00',
             'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 100 # 20-30',
