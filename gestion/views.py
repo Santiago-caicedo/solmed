@@ -2348,9 +2348,10 @@ def _cargar_soporte_orden(request, orden):
     if 'submit_bascula' in request.POST and orden.requiere_bascula:
         archivo = request.FILES.get('bascula_adjunto')
         if archivo:
+            tenia = bool(orden.bascula_adjunto)
             orden.bascula_adjunto = archivo
             orden.save(update_fields=['bascula_adjunto'])
-            messages.success(request, "Soporte de báscula cargado.")
+            messages.success(request, f"Soporte de báscula {'reemplazado' if tenia else 'cargado'}.")
         else:
             messages.error(request, "Selecciona la foto o el archivo del tiquete de báscula.")
         return True
@@ -2509,8 +2510,31 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
     def post(self, request, *args, **kwargs):
         orden = self.get_object()
 
-        # Soportes pendientes (báscula / fotos): el asesor puede completarlos
-        # si el conductor no lo ha hecho.
+        # Quitar una foto del registro fotográfico o el tiquete de báscula que
+        # ya subió el equipo (oct-2026): solo desde el expediente, que es de
+        # administradores y asesores. El archivo se borra del almacenamiento.
+        if 'submit_quitar_foto' in request.POST:
+            foto = orden.fotos_registro.select_related('punto').filter(
+                pk=request.POST.get('foto') or 0).first()
+            if foto is None:
+                messages.error(request, "Esa foto no es de esta orden.")
+            else:
+                donde = f" de {foto.punto.nombre}" if foto.punto else ""
+                foto.archivo.delete(save=False)
+                foto.delete()
+                messages.success(request, f"Foto{donde} quitada del registro fotográfico.")
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+        if 'submit_quitar_bascula' in request.POST:
+            if orden.bascula_adjunto:
+                orden.bascula_adjunto.delete(save=False)
+                orden.save(update_fields=['bascula_adjunto'])
+                messages.success(request, "Tiquete de báscula quitado: la orden vuelve a tenerlo pendiente.")
+            else:
+                messages.error(request, "La orden no tiene tiquete de báscula.")
+            return redirect('gestion:detalle_orden', pk=orden.pk)
+
+        # Soportes (báscula / fotos): el asesor puede completarlos si el
+        # conductor no lo ha hecho, añadir más fotos o cambiar el tiquete.
         if _cargar_soporte_orden(request, orden):
             return redirect('gestion:detalle_orden', pk=orden.pk)
 

@@ -8366,6 +8366,84 @@ class RegistroFotograficoPorPuntoTests(BaseCRM):
         self.assertEqual(list(orden.programacion_origen.puntos_registro.all()), [self.cuarto])
 
 
+class EditarSoportesDesdeElExpedienteTests(BaseCRM):
+    """
+    Oct-2026: desde el expediente, administradores y asesores quitan fotos del
+    registro fotográfico y el tiquete de báscula que ya subió el equipo, y
+    añaden o reemplazan. El conductor no.
+    """
+    # Mismo escenario que el registro por punto (sin repetir sus pruebas).
+    datos = RegistroFotograficoPorPuntoTests.datos
+    _orden_con = RegistroFotograficoPorPuntoTests._orden_con
+
+    def setUp(self):
+        RegistroFotograficoPorPuntoTests.setUp(self)
+        self.orden = self._orden_con(self.trampa)
+        self.url = reverse('gestion:detalle_orden', args=[self.orden.pk])
+
+    def test_el_asesor_quita_una_foto_y_se_borra_el_archivo(self):
+        foto = FotoRegistro.objects.create(orden=self.orden, punto=self.trampa, archivo=imagen('t1.png'),
+                                           subido_por=self.conductor)
+        otra = FotoRegistro.objects.create(orden=self.orden, punto=self.trampa, archivo=imagen('t2.png'))
+        ruta = foto.archivo.name
+        self.assertTrue(self.orden.fotos_completas())
+        pagina = self.client.get(self.url)
+        self.assertContains(pagina, f'name="foto" value="{foto.pk}"')
+        respuesta = self.client.post(self.url, {'submit_quitar_foto': '1', 'foto': foto.pk}, follow=True)
+        self.assertContains(respuesta, 'Foto de Trampa de grasa cocina quitada del registro fotográfico.')
+        self.assertEqual(list(self.orden.fotos_registro.all()), [otra])
+        self.assertFalse(foto.archivo.storage.exists(ruta))
+        # Sin fotos, el punto vuelve a quedar pendiente.
+        self.client.post(self.url, {'submit_quitar_foto': '1', 'foto': otra.pk})
+        self.assertFalse(OrdenServicio.objects.get(pk=self.orden.pk).fotos_completas())
+
+    def test_no_se_quita_una_foto_de_otra_orden(self):
+        otra_orden = self._orden_con(self.cuarto)
+        ajena = FotoRegistro.objects.create(orden=otra_orden, punto=self.cuarto, archivo=imagen('c.png'))
+        respuesta = self.client.post(self.url, {'submit_quitar_foto': '1', 'foto': ajena.pk}, follow=True)
+        self.assertContains(respuesta, 'Esa foto no es de esta orden.')
+        self.assertTrue(FotoRegistro.objects.filter(pk=ajena.pk).exists())
+
+    def test_tambien_se_quitan_las_fotos_sin_punto(self):
+        suelta = FotoRegistro.objects.create(orden=self.orden, archivo=imagen('s.png'))
+        self.assertContains(self.client.get(self.url), f'name="foto" value="{suelta.pk}"')
+        self.client.post(self.url, {'submit_quitar_foto': '1', 'foto': suelta.pk})
+        self.assertFalse(FotoRegistro.objects.filter(pk=suelta.pk).exists())
+
+    def test_el_tiquete_de_bascula_se_cambia_y_se_quita(self):
+        OrdenServicio.objects.filter(pk=self.orden.pk).update(bascula='PESAN')
+        self.client.post(self.url, {'submit_bascula': '1', 'bascula_adjunto': imagen('tiquete1.png')})
+        self.orden.refresh_from_db()
+        primero = self.orden.bascula_adjunto.name
+        pagina = self.client.get(self.url)
+        self.assertContains(pagina, 'Cambiar el tiquete')
+        self.assertContains(pagina, 'name="submit_quitar_bascula"')
+        respuesta = self.client.post(self.url, {'submit_bascula': '1', 'bascula_adjunto': imagen('tiquete2.png')},
+                                     follow=True)
+        self.assertContains(respuesta, 'Soporte de báscula reemplazado.')
+        self.orden.refresh_from_db()
+        self.assertNotEqual(self.orden.bascula_adjunto.name, primero)
+        ruta = self.orden.bascula_adjunto.name
+        respuesta = self.client.post(self.url, {'submit_quitar_bascula': '1'}, follow=True)
+        self.assertContains(respuesta, 'Tiquete de báscula quitado')
+        self.orden.refresh_from_db()
+        self.assertFalse(self.orden.bascula_adjunto)
+        self.assertFalse(self.orden.bascula_adjunto.storage.exists(ruta))
+        self.assertFalse(respuesta.context['soportes_ok'])
+        self.assertContains(respuesta, 'Cargar tiquete')
+
+    def test_el_conductor_no_quita_nada(self):
+        foto = FotoRegistro.objects.create(orden=self.orden, punto=self.trampa, archivo=imagen('t1.png'))
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.post(self.url, {'submit_quitar_foto': '1', 'foto': foto.pk}).status_code, 403)
+        # Ni desde su propia vista del servicio.
+        self.client.post(reverse('gestion:detalle_orden_conductor', args=[self.orden.pk]),
+                         {'submit_quitar_foto': '1', 'foto': foto.pk})
+        self.assertTrue(FotoRegistro.objects.filter(pk=foto.pk).exists())
+        self.assertNotContains(self.client.get(reverse('gestion:detalle_orden_conductor', args=[self.orden.pk])),
+                               'submit_quitar_foto')
+
+
 class MigracionFotosPorSedeTests(TransactionTestCase):
     """
     Ensaya gestion/0086-0087 con fotos de antes: el adjunto único de la orden

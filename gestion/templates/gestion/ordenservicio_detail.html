@@ -353,19 +353,35 @@ en el número pedido y las que estorben se corren un puesto.
                         {% endif %}
                     </div>
                     {% if orden.bascula_adjunto %}
-                        {% if ".pdf" in orden.bascula_adjunto.name|lower %}
-                        <a class="ev-doc" href="{{ orden.bascula_adjunto.url }}" target="_blank">
-                            <i class="bi bi-file-earmark-pdf-fill"></i>
-                            <span class="tx">Ver el tiquete<small>Documento PDF</small></span>
-                        </a>
-                        {% else %}
                         <div class="ev-fotos">
-                            <a class="ev-foto" href="{{ orden.bascula_adjunto.url }}" target="_blank" title="Ver el tiquete de báscula">
-                                <img src="{{ orden.bascula_adjunto.url }}" alt="Tiquete de báscula">
-                                <div class="pie">Tiquete</div>
-                            </a>
+                            <div class="ev-item">
+                                {% if ".pdf" in orden.bascula_adjunto.name|lower %}
+                                <a class="ev-doc" href="{{ orden.bascula_adjunto.url }}" target="_blank">
+                                    <i class="bi bi-file-earmark-pdf-fill"></i>
+                                    <span class="tx">Ver el tiquete<small>Documento PDF</small></span>
+                                </a>
+                                {% else %}
+                                <a class="ev-foto" href="{{ orden.bascula_adjunto.url }}" target="_blank" title="Ver el tiquete de báscula">
+                                    <img src="{{ orden.bascula_adjunto.url }}" alt="Tiquete de báscula">
+                                    <div class="pie">Tiquete</div>
+                                </a>
+                                {% endif %}
+                                <form method="post" class="ev-quitar" onsubmit="return confirm('¿Quitar el tiquete de báscula? Se borra el archivo y la orden vuelve a tenerlo pendiente.');">
+                                    {% csrf_token %}
+                                    <button name="submit_quitar_bascula" value="1" title="Quitar el tiquete" aria-label="Quitar el tiquete de báscula"><i class="bi bi-x-lg"></i></button>
+                                </form>
+                            </div>
                         </div>
-                        {% endif %}
+                        {# Cambiar el tiquete: el nuevo reemplaza al anterior. #}
+                        <form method="post" enctype="multipart/form-data" class="ev-pend mt-2">
+                            {% csrf_token %}
+                            <span class="et"><i class="bi bi-arrow-repeat"></i>Cambiar el tiquete</span>
+                            <input type="file" name="bascula_adjunto" accept="image/*,application/pdf"
+                                   class="form-control form-control-sm" required>
+                            <button name="submit_bascula" value="1" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-upload me-1"></i>Reemplazar
+                            </button>
+                        </form>
                     {% else %}
                     {# El conductor no lo ha subido: gestión lo puede completar aquí #}
                     <form method="post" enctype="multipart/form-data" class="ev-pend">
@@ -382,7 +398,7 @@ en el número pedido y las que estorben se corren un puesto.
                 {% endif %}
 
                 {% if orden.requiere_registro_fotografico %}
-                {# Un bloque por cada sede o tercero donde se exigen fotos (oct-2026); sin sedes marcadas, uno solo general. #}
+                {# Un bloque por cada punto donde se exigen fotos (oct-2026); sin puntos marcados, uno solo general. Cada foto se puede quitar. #}
                 {% for grupo in fotos_por_punto %}
                 <div class="ev-bloque">
                     <div class="ev-cab">
@@ -390,7 +406,7 @@ en el número pedido y las que estorben se corren un puesto.
                         <div class="ev-tit">
                             <div class="t">Registro fotográfico{% if grupo.nombre %} · {{ grupo.nombre }}{% endif %}</div>
                             {% if grupo.suelto %}
-                            <div class="s">Fotos que no corresponden a ninguna de las sedes marcadas hoy</div>
+                            <div class="s">Fotos que no corresponden a ninguno de los puntos marcados hoy</div>
                             {% elif grupo.direccion %}
                             <div class="s">{{ grupo.direccion }}</div>
                             {% elif grupo.fotos %}
@@ -406,15 +422,22 @@ en el número pedido y las que estorben se corren un puesto.
                     {% if grupo.fotos %}
                     <div class="ev-fotos">
                         {% for foto in grupo.fotos %}
-                        <a class="ev-foto" href="{{ foto.archivo.url }}" target="_blank" title="{% if grupo.nombre %}{{ grupo.nombre }} · {% endif %}Foto {{ forloop.counter }}{% if foto.nota %} · {{ foto.nota }}{% endif %}">
-                            <img src="{{ foto.archivo.url }}" alt="Foto {{ forloop.counter }}{% if grupo.nombre %} de {{ grupo.nombre }}{% endif %}">
-                            <div class="pie">Foto {{ forloop.counter }}</div>
-                        </a>
+                        <div class="ev-item">
+                            <a class="ev-foto" href="{{ foto.archivo.url }}" target="_blank" title="{% if grupo.nombre %}{{ grupo.nombre }} · {% endif %}Foto {{ forloop.counter }}{% if foto.nota %} · {{ foto.nota }}{% endif %}">
+                                <img src="{{ foto.archivo.url }}" alt="Foto {{ forloop.counter }}{% if grupo.nombre %} de {{ grupo.nombre }}{% endif %}">
+                                <div class="pie">Foto {{ forloop.counter }}</div>
+                            </a>
+                            <form method="post" class="ev-quitar" onsubmit="return confirm('¿Quitar esta foto del registro fotográfico? Se borra el archivo.');">
+                                {% csrf_token %}
+                                <input type="hidden" name="foto" value="{{ foto.pk }}">
+                                <button name="submit_quitar_foto" value="1" title="Quitar esta foto" aria-label="Quitar la foto {{ forloop.counter }}{% if grupo.nombre %} de {{ grupo.nombre }}{% endif %}"><i class="bi bi-x-lg"></i></button>
+                            </form>
+                        </div>
                         {% endfor %}
                     </div>
                     {% endif %}
                     {% if not grupo.suelto %}
-                    {# Gestión puede completar o añadir fotos de ESTA sede #}
+                    {# Gestión puede completar o añadir fotos de ESTE punto #}
                     <form method="post" enctype="multipart/form-data" class="ev-pend">
                         {% csrf_token %}
                         <input type="hidden" name="punto" value="{{ grupo.clave }}">
@@ -748,6 +771,15 @@ en el número pedido y las que estorben se corren un puesto.
             font-size:.68rem; line-height:1.25; color:var(--ink-2,#5b6470);
             text-align:center; margin-top:.3rem; overflow:hidden;
         }
+        /* Cada foto o tiquete lleva su botón para quitarlo, en la esquina (oct-2026). */
+        .ev-item{ position:relative; }
+        .ev-quitar{ position:absolute; top:-7px; right:-7px; margin:0; }
+        .ev-quitar button{
+            width:26px; height:26px; border-radius:50%; border:1px solid var(--line,#e6e9ee);
+            background:#fff; color:#c92a2a; display:grid; place-items:center; padding:0;
+            font-size:.72rem; box-shadow:0 1px 4px rgba(15,23,35,.18);
+        }
+        .ev-quitar button:hover, .ev-quitar button:focus-visible{ background:#c92a2a; color:#fff; border-color:#c92a2a; }
         .ev-doc{
             display:inline-flex; align-items:center; gap:.6rem; text-decoration:none;
             border:1px solid var(--line,#e6e9ee); background:#f8f9fa; border-radius:10px; padding:.55rem .85rem;
