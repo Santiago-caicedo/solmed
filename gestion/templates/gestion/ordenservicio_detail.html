@@ -554,11 +554,18 @@ en el número pedido y las que estorben se corren un puesto.
                         {% if e.fotos %}
                         <div class="ev-fotos{% if e.pendientes %} mb-2{% endif %}">
                             {% for f in e.fotos %}
+                            <div class="ev-item">
                             <a class="ev-foto" href="{{ f.archivo.url }}" target="_blank"
                                title="{{ f.get_novedad_display_label }} · {{ f.fecha_subida|date:'d/m/Y H:i' }}">
                                 <img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}">
                                 <div class="pie">{{ f.get_novedad_display_label }}</div>
                             </a>
+                            <form method="post" class="ev-quitar" onsubmit="return confirm('¿Quitar esta foto del ayudante? Se borra el archivo y, si era la única, la novedad vuelve a quedar pendiente.');">
+                                {% csrf_token %}
+                                <input type="hidden" name="foto" value="{{ f.pk }}">
+                                <button name="submit_quitar_foto_ayudante" value="1" title="Quitar esta foto" aria-label="Quitar la foto de {{ f.get_novedad_display_label }}"><i class="bi bi-x-lg"></i></button>
+                            </form>
+                            </div>
                             {% endfor %}
                         </div>
                         {% elif not e.pendientes %}

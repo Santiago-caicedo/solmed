@@ -2524,6 +2524,21 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
                 foto.delete()
                 messages.success(request, f"Foto{donde} quitada del registro fotográfico.")
             return redirect('gestion:detalle_orden', pk=orden.pk)
+        # Igual con las evidencias de los ayudantes: la novedad vuelve a quedar
+        # pendiente y se carga de nuevo (aquí o desde su enlace si sigue vigente).
+        if 'submit_quitar_foto_ayudante' in request.POST:
+            programacion = getattr(orden, 'programacion_origen', None)
+            foto = (FotoAyudante.objects.filter(
+                cuadrilla__programacion=programacion,
+                pk=request.POST.get('foto') or 0).first() if programacion else None)
+            if foto is None:
+                messages.error(request, "Esa foto no es de esta orden.")
+            else:
+                etiqueta = foto.get_novedad_display_label()
+                foto.archivo.delete(save=False)
+                foto.delete()
+                messages.success(request, f"Foto del ayudante quitada ({etiqueta}).")
+            return redirect('gestion:detalle_orden', pk=orden.pk)
         if 'submit_quitar_bascula' in request.POST:
             if orden.bascula_adjunto:
                 orden.bascula_adjunto.delete(save=False)

@@ -5930,6 +5930,44 @@ class ExpedienteDeLaOrdenTests(BaseCRM):
             'fotos_ayudante': [imagen('otra.png')]})
         self.assertFalse(FotoAyudante.objects.exists())
 
+    def test_el_asesor_quita_la_foto_del_ayudante_y_vuelve_a_quedar_pendiente(self):
+        foto = FotoAyudante.objects.create(cuadrilla=self.cuadrilla, slot=1, novedad='INICIA_CLIENTE',
+                                           archivo=imagen('llegada.png'))
+        ruta = foto.archivo.name
+        pagina = self.client.get(self.url)
+        self.assertContains(pagina, 'name="submit_quitar_foto_ayudante"')
+        self.assertNotContains(pagina, 'name="submit_foto_ayudante"')
+        respuesta = self.client.post(self.url, {'submit_quitar_foto_ayudante': '1', 'foto': foto.pk},
+                                     follow=True)
+        self.assertContains(respuesta, 'Foto del ayudante quitada (Inicia turno donde el cliente).')
+        self.assertFalse(FotoAyudante.objects.exists())
+        self.assertFalse(foto.archivo.storage.exists(ruta))
+        # La novedad vuelve a pedirse: se puede cargar otra.
+        self.assertContains(respuesta, 'name="submit_foto_ayudante"')
+
+    def test_no_se_quita_la_foto_de_un_ayudante_de_otra_orden(self):
+        conductor = self.persona('conductor9', 'Conductores', 'Beto', 'Cruz')
+        self.con_ss(conductor)
+        otra = type(self).programacion(  # self.programacion es la del escenario
+            cliente=self.cliente(nombre='Otro cliente', identificacion='900999-9'),
+            conductor=conductor, vehiculo=self.vehiculo(placa='ZZZ999'),
+            ayudante=self.persona('ayu9', 'Ayudantes', 'Cris', 'Mora'))
+        otra.convertir_en_orden(self.asesor)
+        ajena = FotoAyudante.objects.create(cuadrilla=otra.cuadrillas.get(), slot=1,
+                                            novedad='INICIA_CLIENTE', archivo=imagen('x.png'))
+        respuesta = self.client.post(self.url, {'submit_quitar_foto_ayudante': '1', 'foto': ajena.pk},
+                                     follow=True)
+        self.assertContains(respuesta, 'Esa foto no es de esta orden.')
+        self.assertTrue(FotoAyudante.objects.filter(pk=ajena.pk).exists())
+
+    def test_el_conductor_no_quita_la_foto_del_ayudante(self):
+        foto = FotoAyudante.objects.create(cuadrilla=self.cuadrilla, slot=1, novedad='INICIA_CLIENTE',
+                                           archivo=imagen('llegada.png'))
+        self.entrar(self.conductor)
+        respuesta = self.client.post(self.url, {'submit_quitar_foto_ayudante': '1', 'foto': foto.pk})
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertTrue(FotoAyudante.objects.filter(pk=foto.pk).exists())
+
     def test_el_asesor_sube_las_fotos_aunque_el_enlace_del_ayudante_ya_vencio(self):
         vencida = ProgramacionCuadrilla.DIAS_VIGENCIA_ACCESO + 5
         self.programacion.fecha = timezone.localdate() - datetime.timedelta(days=vencida)
