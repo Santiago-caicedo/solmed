@@ -270,6 +270,25 @@ class AsignacionesTests(BasePlan):
                      hora='14:30')
         self.assertEqual(Asignacion.objects.get().hora, datetime.time(14, 30))
 
+    def test_los_apoyos_guardan_una_hora_final_opcional(self):
+        self.asignar([self.ayudante], 'APOYO_SERVICIO', [self.camion],
+                     hora='08:00', hora_fin='10:30')
+        asignacion = Asignacion.objects.get()
+        self.assertEqual(asignacion.hora_fin, datetime.time(10, 30))
+        self.assertEqual(asignacion.horario, '08:00–10:30')
+        self.assertContains(self.client.get(self.url), '08:00–10:30')
+
+    def test_la_hora_final_va_despues_de_la_de_inicio(self):
+        for hora, hora_fin in (('10:00', '09:00'), ('10:00', '10:00'), ('', '09:00')):
+            with self.subTest(hora=hora, hora_fin=hora_fin):
+                self.asignar([self.ayudante], 'APOYO_SERVICIO', [self.camion],
+                             hora=hora, hora_fin=hora_fin)
+                self.assertFalse(Asignacion.objects.exists())
+
+    def test_sin_hora_en_la_actividad_no_se_guarda_la_final(self):
+        self.asignar([self.conductor], 'TRASTEO', hora='08:00', hora_fin='10:00')
+        self.assertIsNone(Asignacion.objects.get().hora_fin)
+
 
 class DisposicionDesdeElPlanTests(BasePlan):
     """
@@ -507,7 +526,7 @@ class NovedadesTests(BasePlan):
         datos = {'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
                  'persona': self.conductor.pk, 'tipo': 'VACACIONES',
                  'fecha_inicio': self.hoy.isoformat(), 'fecha_fin': '',
-                 'hora': '', 'detalle': ''}
+                 'hora': '', 'hora_fin': '', 'detalle': ''}
         datos.update(extra)
         return self.client.post(self.url, datos)
 
@@ -529,6 +548,28 @@ class NovedadesTests(BasePlan):
         self.assertIn(novedad, Novedad.del_dia(self.hoy))
         self.assertNotIn(novedad,
                          Novedad.del_dia(self.hoy + datetime.timedelta(days=1)))
+
+    def test_un_permiso_guarda_su_hora_de_inicio_y_de_fin(self):
+        self.registrar(tipo='PERMISO_PERSONAL', hora='10:00', hora_fin='12:15')
+        novedad = Novedad.objects.get()
+        self.assertEqual(novedad.hora_fin, datetime.time(12, 15))
+        self.assertEqual(novedad.horario, '10:00–12:15')
+        self.assertContains(self.client.get(self.url), '10:00–12:15')
+        pdf = self.client.get(reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))
+        self.assertEqual(pdf.status_code, 200)
+
+    def test_la_hora_final_de_la_novedad_es_opcional_pero_coherente(self):
+        self.registrar(tipo='PERMISO_PERSONAL', hora='10:00')
+        self.assertEqual(Novedad.objects.get().horario, '10:00')
+        for hora, hora_fin in (('10:00', '09:30'), ('', '09:30')):
+            with self.subTest(hora=hora, hora_fin=hora_fin):
+                form = NovedadForm({'persona': self.conductor.pk,
+                                    'tipo': 'PERMISO_PERSONAL',
+                                    'fecha_inicio': self.hoy.isoformat(),
+                                    'fecha_fin': '', 'hora': hora,
+                                    'hora_fin': hora_fin, 'detalle': ''})
+                self.assertFalse(form.is_valid())
+                self.assertIn('hora_fin', form.errors)
 
     def test_la_fecha_final_no_puede_ser_anterior_a_la_inicial(self):
         form = NovedadForm({'persona': self.conductor.pk, 'tipo': 'VACACIONES',

@@ -137,7 +137,7 @@
                         {% endfor %}
                         {% for a in fila.asignaciones %}
                         <span class="pt-chip c-actividad">
-                            {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.ordenes_texto %} · <span class="mono">{{ a.ordenes_texto }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.hora|time:"H:i" }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
+                            {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.ordenes_texto %} · <span class="mono">{{ a.ordenes_texto }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.horario }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
                             <form method="post" action="{% url 'planes:eliminar_asignacion' a.pk %}">
                                 {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
                                 <button class="quitar" title="Quitar esta asignación"><i class="bi bi-x-lg"></i></button>
@@ -147,7 +147,7 @@
                         {% for n in fila.novedades %}
                         <span class="pt-chip c-novedad">
                             <i class="bi bi-person-dash"></i> {{ n.get_tipo_display }}
-                            · <span class="mono">{{ n.fecha_inicio|date:"d/m" }}{% if n.fecha_fin %}–{{ n.fecha_fin|date:"d/m" }}{% endif %}{% if n.hora %} {{ n.hora|time:"H:i" }}{% endif %}</span>
+                            · <span class="mono">{{ n.fecha_inicio|date:"d/m" }}{% if n.fecha_fin %}–{{ n.fecha_fin|date:"d/m" }}{% endif %}{% if n.hora %} {{ n.horario }}{% endif %}</span>
                             {% if n.detalle %} · {{ n.detalle }}{% endif %}
                             <form method="post" action="{% url 'planes:eliminar_novedad' n.pk %}">
                                 {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
@@ -270,8 +270,16 @@
                         </div>
 
                         <div class="pt-campo" id="campo-hora">
-                            <div class="pt-etq">Hora</div>
-                            <input type="time" name="hora" class="form-control form-control-sm">
+                            <div class="row g-2 mt-0">
+                                <div class="col-6">
+                                    <div class="pt-etq">Hora de inicio</div>
+                                    <input type="time" name="hora" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-6">
+                                    <div class="pt-etq">Hora final <span class="text-muted">(opcional)</span></div>
+                                    <input type="time" name="hora_fin" class="form-control form-control-sm">
+                                </div>
+                            </div>
                         </div>
 
                         <div class="pt-etq" id="etq-detalle">Descripción <span class="text-muted" id="detalle-opcional">(opcional)</span></div>
@@ -312,8 +320,16 @@
                                 {{ form_novedad.fecha_fin }}
                             </div>
                         </div>
-                        <div class="pt-etq">Hora <span class="text-muted">(permisos de unas horas)</span></div>
-                        {{ form_novedad.hora }}
+                        <div class="row g-2 mt-0">
+                            <div class="col-6">
+                                <label class="pt-etq" for="{{ form_novedad.hora.id_for_label }}">Hora de inicio <span class="text-muted">(opcional)</span></label>
+                                {{ form_novedad.hora }}
+                            </div>
+                            <div class="col-6">
+                                <label class="pt-etq" for="{{ form_novedad.hora_fin.id_for_label }}">Hora final <span class="text-muted">(opcional)</span></label>
+                                {{ form_novedad.hora_fin }}
+                            </div>
+                        </div>
                         <div class="pt-etq">Detalle</div>
                         {{ form_novedad.detalle }}
                         <div class="form-text" style="font-size:.72rem">

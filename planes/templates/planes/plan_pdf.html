@@ -124,7 +124,7 @@ Se genera al descargar; la fuente de datos es la misma del tablero.
         <tr>
             <td>{{ n.persona_nombre }}</td>
             <td>{{ n.get_tipo_display }}</td>
-            <td class="mono">{{ n.fecha_inicio|date:"d/m/Y" }}{% if n.hora %} {{ n.hora|time:"H:i" }}{% endif %}</td>
+            <td class="mono">{{ n.fecha_inicio|date:"d/m/Y" }}{% if n.hora %} {{ n.horario }}{% endif %}</td>
             <td class="mono">{{ n.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
             <td>{{ n.detalle|default:"" }}</td>
         </tr>

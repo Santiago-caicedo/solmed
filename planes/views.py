@@ -190,7 +190,7 @@ def _correo_asignacion(asignacion):
     filas = [('Actividad', asignacion.get_tipo_display()),
              ('Fecha', asignacion.plan.fecha.strftime('%d/%m/%Y'))]
     if asignacion.hora:
-        filas.append(('Hora', asignacion.hora.strftime('%H:%M')))
+        filas.append(('Hora', asignacion.horario))
     if asignacion.placas:
         filas.append(('Placa(s)', asignacion.placas))
     if asignacion.ordenes_texto:
@@ -596,7 +596,7 @@ def _pdf_plan(fecha, request):
                     (f"Orden{'es' if len(ordenes) > 1 else ''} "
                      + ', '.join(f'#{n}' for n in ordenes)) if ordenes else '',
                     a.proveedor.razon_social if a.proveedor_id else '',
-                    a.hora.strftime('%H:%M') if a.hora else '',
+                    a.horario,
                     a.detalle,
                 ]))
                 filas.append({**base, 'actividad': a.get_tipo_display(),

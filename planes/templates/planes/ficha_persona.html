@@ -128,7 +128,7 @@ Los estilos viven aquí porque el fragmento se inyecta ya renderizado.
         <div class="fp-item i-actividad">
             <div class="qué">
                 <span class="titulo">{{ a.get_tipo_display }}</span>
-                {% if a.hora %}<span class="horas">{{ a.hora|time:"H:i" }}</span>{% endif %}
+                {% if a.hora %}<span class="horas">{{ a.horario }}</span>{% endif %}
             </div>
             <div class="detalle">
                 {% if a.placas %}<span class="mono">{{ a.placas }}</span>{% endif %}
@@ -150,7 +150,7 @@ Los estilos viven aquí porque el fragmento se inyecta ya renderizado.
         <div class="fp-item i-novedad">
             <div class="qué">
                 <span class="titulo">{{ n.get_tipo_display }}</span>
-                {% if n.hora %}<span class="horas">{{ n.hora|time:"H:i" }}</span>{% endif %}
+                {% if n.hora %}<span class="horas">{{ n.horario }}</span>{% endif %}
             </div>
             <div class="detalle">
                 {% comment %}

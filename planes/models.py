@@ -22,6 +22,15 @@ from django.db import models
 from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 
 
+def horario(inicio, fin):
+    """Las horas de una actividad o novedad como se leen en el plan."""
+    if not inicio:
+        return ''
+    if fin:
+        return f"{inicio:%H:%M}–{fin:%H:%M}"
+    return f"{inicio:%H:%M}"
+
+
 class PlanDia(models.Model):
     """El plan de UN día. Se crea solo al registrar la primera asignación."""
     fecha = models.DateField(unique=True)
@@ -127,6 +136,8 @@ class Asignacion(models.Model):
         related_name='asignaciones_plan', verbose_name="Gestor de disposición",
     )
     hora = models.TimeField(null=True, blank=True)
+    hora_fin = models.TimeField(null=True, blank=True,
+                                verbose_name="Hora de finalización")
     detalle = models.CharField(max_length=255, blank=True, verbose_name="Descripción")
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
@@ -148,6 +159,11 @@ class Asignacion(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} — {self.persona_nombre} ({self.plan.fecha:%d/%m/%Y})"
+
+    @property
+    def horario(self):
+        """«08:00–10:30», «08:00» o vacío: la hora final es opcional."""
+        return horario(self.hora, self.hora_fin)
 
     @property
     def persona_nombre(self):
@@ -273,6 +289,8 @@ class Novedad(models.Model):
     )
     hora = models.TimeField(null=True, blank=True,
                             help_text="Para permisos de unas horas.")
+    hora_fin = models.TimeField(null=True, blank=True,
+                                verbose_name="Hora de finalización")
     detalle = models.CharField(max_length=255, blank=True, verbose_name="Detalle")
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
@@ -287,6 +305,11 @@ class Novedad(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} — {self.persona_nombre}"
+
+    @property
+    def horario(self):
+        """«08:00–10:30», «08:00» o vacío: la hora final es opcional."""
+        return horario(self.hora, self.hora_fin)
 
     @property
     def persona_nombre(self):

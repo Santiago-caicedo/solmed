@@ -87,7 +87,7 @@
                         <span class="badge bg-warning text-dark ms-1">Hoy</span>
                         {% endif %}
                     </td>
-                    <td class="mono">{{ n.fecha_inicio|date:"d/m/Y" }}{% if n.hora %} · {{ n.hora|time:"H:i" }}{% endif %}</td>
+                    <td class="mono">{{ n.fecha_inicio|date:"d/m/Y" }}{% if n.hora %} · {{ n.horario }}{% endif %}</td>
                     <td class="mono">{{ n.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                     <td class="text-muted">{{ n.detalle|default:"—" }}</td>
                     <td class="text-muted">{% if n.registrado_por %}{% firstof n.registrado_por.get_full_name n.registrado_por.username %}{% else %}—{% endif %}</td>

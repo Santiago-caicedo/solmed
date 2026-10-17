@@ -7,6 +7,15 @@ from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 from .models import Asignacion, Novedad
 
 
+def validar_horas(form, cleaned, campo_fin):
+    """La hora final es opcional, pero va con la de inicio y después de ella."""
+    inicio, fin = cleaned.get('hora'), cleaned.get('hora_fin')
+    if fin and not inicio:
+        form.add_error(campo_fin, "Escribe también la hora de inicio.")
+    elif inicio and fin and fin <= inicio:
+        form.add_error(campo_fin, "La hora final debe ser posterior a la de inicio.")
+
+
 class AsignacionForm(forms.Form):
     """
     Alta de una actividad del plan para UNA O VARIAS personas a la vez (el
@@ -17,6 +26,7 @@ class AsignacionForm(forms.Form):
     """
     tipo = forms.ChoiceField(choices=Asignacion.TIPO_CHOICES)
     hora = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
+    hora_fin = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
     orden_numero = forms.CharField(required=False, max_length=10)
     proveedor = forms.ModelChoiceField(
         queryset=Proveedor.objects.filter(activo=True), required=False)
@@ -98,8 +108,10 @@ class AsignacionForm(forms.Form):
             self.add_error(None, f"Describe en qué consiste «{etiqueta}».")
 
         # Lo que la actividad no pide, no se guarda (aunque venga en el POST).
-        if not campos.get('hora'):
-            cleaned['hora'] = None
+        if campos.get('hora'):
+            validar_horas(self, cleaned, None)
+        else:
+            cleaned['hora'] = cleaned['hora_fin'] = None
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
         if not campos.get('dispositor'):
@@ -120,6 +132,7 @@ class AsignacionForm(forms.Form):
                 proveedor=self.cleaned_data['proveedor'],
                 dispositor=self.cleaned_data['dispositor'],
                 hora=self.cleaned_data['hora'],
+                hora_fin=self.cleaned_data['hora_fin'],
                 detalle=(self.cleaned_data.get('detalle') or '').strip(),
                 registrado_por=usuario,
             )
@@ -141,7 +154,8 @@ class NovedadForm(forms.ModelForm):
 
     class Meta:
         model = Novedad
-        fields = ['persona', 'tipo', 'fecha_inicio', 'fecha_fin', 'hora', 'detalle']
+        fields = ['persona', 'tipo', 'fecha_inicio', 'fecha_fin', 'hora', 'hora_fin',
+                  'detalle']
         widgets = {
             'persona': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'tipo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
@@ -152,6 +166,9 @@ class NovedadForm(forms.ModelForm):
                 attrs={'class': 'form-control form-control-sm', 'type': 'date'},
                 format='%Y-%m-%d'),
             'hora': forms.TimeInput(
+                attrs={'class': 'form-control form-control-sm', 'type': 'time'},
+                format='%H:%M'),
+            'hora_fin': forms.TimeInput(
                 attrs={'class': 'form-control form-control-sm', 'type': 'time'},
                 format='%H:%M'),
             'detalle': forms.TextInput(attrs={
@@ -165,6 +182,7 @@ class NovedadForm(forms.ModelForm):
         self.fields['fecha_inicio'].input_formats = ['%Y-%m-%d']
         self.fields['fecha_fin'].input_formats = ['%Y-%m-%d']
         self.fields['hora'].input_formats = ['%H:%M', '%H:%M:%S']
+        self.fields['hora_fin'].input_formats = ['%H:%M', '%H:%M:%S']
         # Personal activo (sin retirados ni superadministradores), por nombre.
         self.fields['persona'].queryset = (
             User.objects.filter(is_superuser=False, groups__isnull=False)
@@ -180,4 +198,5 @@ class NovedadForm(forms.ModelForm):
         inicio, fin = cleaned.get('fecha_inicio'), cleaned.get('fecha_fin')
         if inicio and fin and fin < inicio:
             self.add_error('fecha_fin', 'La fecha final no puede ser anterior a la de inicio.')
+        validar_horas(self, cleaned, 'hora_fin')
         return cleaned
