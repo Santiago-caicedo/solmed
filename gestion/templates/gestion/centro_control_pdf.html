@@ -78,6 +78,8 @@
         .cifras td:first-child { border-left: none; }
         .cifras .v { font-size: 16pt; font-weight: bold; color: #2C4D9E; line-height: 1.05; }
         .cifras .v.destacada { color: #C00000; }
+        .cifras.horas { margin-top: 4px; border-top: 0.9px solid #C9D6EE; }
+        .cifras.horas .v { font-size: 12pt; }
         .cifras .k { color: #2C4D9E; font-size: 6.4pt; text-transform: uppercase;
                      letter-spacing: .5px; }
         .cifras .n { color: #55637A; font-size: 6.2pt; }
@@ -198,6 +200,30 @@
                 </td>
             </tr>
         </table>
+        <table class="cifras horas">
+            <tr>
+                <td>
+                    <div class="v destacada">{{ horas.total|default:"0 h" }}</div>
+                    <div class="k">Horas trabajadas</div>
+                    <div class="n">{% if horas.dias %}en {{ horas.dias }} día{{ horas.dias|pluralize }}{% else %}&nbsp;{% endif %}</div>
+                </td>
+                <td>
+                    <div class="v">{{ horas.servicios|default:"0 h" }}</div>
+                    <div class="k">En servicios</div>
+                    <div class="n">&nbsp;</div>
+                </td>
+                <td>
+                    <div class="v">{{ horas.actividades|default:"0 h" }}</div>
+                    <div class="k">En actividades</div>
+                    <div class="n">&nbsp;</div>
+                </td>
+                <td>
+                    <div class="v">{{ horas.promedio_dia|default:"—" }}</div>
+                    <div class="k">Promedio por día</div>
+                    <div class="n">{% if horas.sin_hora %}{{ horas.sin_hora }} sin las dos horas{% else %}&nbsp;{% endif %}</div>
+                </td>
+            </tr>
+        </table>
     </div>
 
     {% comment %} ================= MAPA DEL PERIODO ================= {% endcomment %}
@@ -247,7 +273,7 @@
                     <td>{{ s.como }}</td>
                     <td>{{ s.recorrido.vehiculo.placa }}</td>
                     <td>{{ s.recorrido.orden.cliente.nombre }}</td>
-                    <td class="tenue">{{ s.horas|default:"—" }}</td>
+                    <td class="tenue">{{ s.horas|default:"—" }}{% if s.duracion %}<br>{{ s.duracion }}{% endif %}</td>
                     <td class="tenue">{{ s.recorrido.get_estado_display }}</td>
                 </tr>
                 {% endfor %}
@@ -270,8 +296,8 @@
                     <th style="width: 13%;">Placa(s)</th>
                     <th style="width: 9%;">Orden</th>
                     <th style="width: 19%;">Proveedor / gestor</th>
-                    <th style="width: 7%;">Hora</th>
-                    <th style="width: 17%;">Descripción</th>
+                    <th style="width: 11%;">Horas</th>
+                    <th style="width: 13%;">Descripción</th>
                 </tr>
             </thead>
             <tbody>
@@ -282,7 +308,7 @@
                     <td>{{ a.placas|default:"—" }}</td>
                     <td class="num">{% if a.orden %}{{ a.orden.numero_orden }}{% else %}—{% endif %}</td>
                     <td class="tenue">{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
-                    <td class="tenue">{{ a.hora|time:"H:i"|default:"—" }}</td>
+                    <td class="tenue">{{ a.horario|default:"—" }}{% if a.duracion %}<br>{{ a.duracion }}{% endif %}</td>
                     <td class="tenue">{{ a.detalle|default:"—" }}</td>
                 </tr>
                 {% endfor %}
@@ -304,8 +330,8 @@
                     <th style="width: 11%;">Desde</th>
                     <th style="width: 11%;">Hasta</th>
                     <th style="width: 10%;">Días</th>
-                    <th style="width: 7%;">Hora</th>
-                    <th style="width: 22%;">Detalle</th>
+                    <th style="width: 11%;">Horas</th>
+                    <th style="width: 18%;">Detalle</th>
                     <th style="width: 15%;">Registró</th>
                 </tr>
             </thead>
@@ -316,7 +342,7 @@
                     <td>{{ f.novedad.fecha_inicio|date:"d/m/Y" }}</td>
                     <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                     <td class="num">{{ f.dias_en_rango }}</td>
-                    <td class="tenue">{{ f.novedad.hora|time:"H:i"|default:"—" }}</td>
+                    <td class="tenue">{{ f.novedad.horario|default:"—" }}</td>
                     <td class="tenue">{{ f.novedad.detalle|default:"—" }}</td>
                     <td class="tenue">{% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}</td>
                 </tr>

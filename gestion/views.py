@@ -5621,6 +5621,95 @@ def _mapa_periodo(inicio, fin, dias_servicio, dias_actividad, dias_novedad, hoy)
     return filas
 
 
+def _minutos_entre(inicio, fin):
+    """
+    Cuánto duró algo, en minutos, a partir de sus dos horas. Una llegada
+    anterior a la salida es un servicio que pasó la medianoche. Sin alguna de
+    las dos horas no hay duración (None): no se adivina.
+    """
+    if not (inicio and fin):
+        return None
+    desde = inicio.hour * 60 + inicio.minute
+    hasta = fin.hour * 60 + fin.minute
+    if hasta < desde:
+        hasta += 24 * 60
+    return hasta - desde
+
+
+def _texto_horas(minutos):
+    """7 h 30 min · 8 h · 0 h; vacío si no hay duración."""
+    if minutos is None:
+        return ''
+    horas, resto = divmod(minutos, 60)
+    return f"{horas} h {resto:02d} min" if resto else f"{horas} h"
+
+
+def _horas_trabajadas(inicio, fin, servicios, asignaciones):
+    """
+    La estadística de horas del periodo. Cuentan los SERVICIOS con las dos
+    horas en el acta (salida y llegada a SolMed, o inicio y final operativo)
+    y las ACTIVIDADES del plan con hora de inicio y final. Lo que no tiene las
+    dos horas no se cuenta, pero se dice cuántos quedaron por fuera. Las
+    novedades no son tiempo trabajado.
+
+    El total UNE los tramos de cada día: si una actividad cae dentro de un
+    servicio, esa hora se cuenta una sola vez.
+    """
+    tramos, min_servicios, min_actividades, sin_hora = [], 0, 0, 0
+    for fecha, minutos, desde, lista in (
+            [(s['recorrido'].fecha_recorrido, s['minutos'], s['desde'], 'S')
+             for s in servicios]
+            + [(a.plan.fecha, a.minutos, a.hora, 'A') for a in asignaciones]):
+        if minutos is None:
+            sin_hora += 1
+            continue
+        if lista == 'S':
+            min_servicios += minutos
+        else:
+            min_actividades += minutos
+        base = (fecha - inicio).days * 24 * 60 + desde.hour * 60 + desde.minute
+        tramos.append((base, base + minutos, fecha))
+
+    # Une los tramos que se pisan; cada tramo unido cuenta en el día y el mes
+    # en que empezó.
+    unidos = []
+    for desde, hasta, fecha in sorted(tramos):
+        if unidos and desde <= unidos[-1][1]:
+            unidos[-1][1] = max(unidos[-1][1], hasta)
+        else:
+            unidos.append([desde, hasta, fecha])
+    total = sum(h - d for d, h, _ in unidos)
+    dias = {f for _, _, f in unidos}
+
+    por_mes = {}
+    for desde, hasta, fecha in unidos:
+        clave = (fecha.year, fecha.month)
+        por_mes[clave] = por_mes.get(clave, 0) + (hasta - desde)
+    meses, maximo = [], max(por_mes.values(), default=0)
+    if (inicio.year, inicio.month) != (fin.year, fin.month):
+        actual = datetime.date(inicio.year, inicio.month, 1)
+        while actual <= fin:
+            minutos = por_mes.get((actual.year, actual.month), 0)
+            meses.append({
+                'nombre': f"{HistoricoClienteView.MESES[actual.month - 1]} {actual.year}",
+                'minutos': minutos,
+                'texto': _texto_horas(minutos),
+                'porcentaje': round(minutos * 100 / maximo) if maximo else 0,
+            })
+            actual = (actual + datetime.timedelta(days=32)).replace(day=1)
+
+    return {
+        'minutos': total,
+        'total': _texto_horas(total),
+        'servicios': _texto_horas(min_servicios),
+        'actividades': _texto_horas(min_actividades),
+        'dias': len(dias),
+        'promedio_dia': _texto_horas(round(total / len(dias))) if dias else '',
+        'sin_hora': sin_hora,
+        'por_mes': meses,
+    }
+
+
 def _datos_centro_control(persona, inicio, fin):
     """
     Todo lo que el sistema le tiene registrado a la persona entre dos fechas:
@@ -5642,11 +5731,24 @@ def _datos_centro_control(persona, inicio, fin):
     # El acta es OneToOne y puede no existir: se trae aparte en un query.
     actas = {a.recorrido_id: a for a in
              Manifiesto.objects.filter(recorrido__in=recorridos)}
-    servicios = [{
-        'recorrido': r,
-        'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
-        'horas': _horario_de(r, actas.get(r.pk)),
-    } for r in recorridos]
+    servicios = []
+    for r in recorridos:
+        acta = actas.get(r.pk)
+        # Las mismas horas del acta que muestra _horario_de; la hora
+        # programada no es tiempo trabajado y no da duración.
+        desde = hasta = None
+        if acta is not None:
+            desde = acta.hora_salida_solmed or acta.tiempo_inicio_operativo
+            hasta = acta.hora_llegada_solmed or acta.tiempo_final_operativo
+        minutos = _minutos_entre(desde, hasta)
+        servicios.append({
+            'recorrido': r,
+            'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
+            'horas': _horario_de(r, acta),
+            'desde': desde,
+            'minutos': minutos,
+            'duracion': _texto_horas(minutos),
+        })
 
     asignaciones = list(
         Asignacion.objects
@@ -5655,6 +5757,9 @@ def _datos_centro_control(persona, inicio, fin):
         .prefetch_related('vehiculos')
         .order_by('plan__fecha', 'id')
     )
+    for a in asignaciones:
+        a.minutos = _minutos_entre(a.hora, a.hora_fin)
+        a.duracion = _texto_horas(a.minutos)
 
     # Las novedades viven por RANGO (unas vacaciones se registran una vez):
     # entran las que TOCAN el periodo, contando solo sus días dentro de él.
@@ -5695,6 +5800,7 @@ def _datos_centro_control(persona, inicio, fin):
         'dias_transcurridos': transcurridos,
         'dias_sin_registro': max(transcurridos - len(ocupados), 0),
         'sin_nada': not (servicios or asignaciones or novedades),
+        'horas': _horas_trabajadas(inicio, fin, servicios, asignaciones),
         'mapa': _mapa_periodo(inicio, fin, dias_servicio, dias_actividad,
                               dias_novedad, hoy),
     }
@@ -5890,6 +5996,15 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
             ('Días con novedad', datos['dias_con_novedad']),
             ('Días transcurridos', datos['dias_transcurridos']),
             ('Días sin registro', datos['dias_sin_registro']),
+            ('', ''),
+            ('Horas trabajadas', datos['horas']['total'] or '0 h'),
+            ('Horas en servicios', datos['horas']['servicios'] or '0 h'),
+            ('Horas en actividades', datos['horas']['actividades'] or '0 h'),
+            ('Días con horas', datos['horas']['dias']),
+            ('Promedio por día', datos['horas']['promedio_dia'] or '—'),
+            ('Registros sin hora completa', datos['horas']['sin_hora']),
+            *[(f"Horas · {m['nombre']}", m['texto'] or '0 h')
+              for m in datos['horas']['por_mes']],
         ]
         for etiqueta, valor in renglones:
             portada.append([etiqueta, valor])
@@ -5902,42 +6017,43 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
         self._hoja(
             libro, 'Servicios',
             ['Fecha', 'N° Orden', 'Participó como', 'Vehículo', 'Cliente',
-             'Horas', 'Estado', 'Dirección'],
+             'Horas', 'Duración', 'Estado', 'Dirección'],
             [[s['recorrido'].fecha_recorrido,
               s['recorrido'].orden.numero_orden, s['como'],
               s['recorrido'].vehiculo.placa, s['recorrido'].orden.cliente.nombre,
-              s['horas'] or '—', s['recorrido'].get_estado_display(),
+              s['horas'] or '—', s['duracion'] or '—',
+              s['recorrido'].get_estado_display(),
               s['recorrido'].orden.direccion_servicio or '—']
              for s in datos['servicios']],
-            [12, 11, 15, 12, 34, 16, 14, 34], fechas=(1,))
+            [12, 11, 15, 12, 34, 16, 14, 14, 34], fechas=(1,))
 
         self._hoja(
             libro, 'Actividades',
             ['Fecha', 'Actividad', 'Placa(s)', 'Orden', 'Proveedor / gestor',
-             'Hora', 'Descripción'],
+             'Horas', 'Duración', 'Descripción'],
             [[a.plan.fecha, a.get_tipo_display(),
               a.placas or '—',
               f"#{a.orden.numero_orden}" if a.orden else '—',
               str(a.proveedor or a.dispositor or '—'),
-              a.hora.strftime('%H:%M') if a.hora else '—',
+              a.horario or '—', a.duracion or '—',
               a.detalle or '—']
              for a in datos['asignaciones']],
-            [12, 32, 16, 11, 30, 8, 40], fechas=(1,))
+            [12, 32, 16, 11, 30, 13, 14, 40], fechas=(1,))
 
         self._hoja(
             libro, 'Novedades',
-            ['Novedad', 'Desde', 'Hasta', 'Días en el periodo', 'Hora',
+            ['Novedad', 'Desde', 'Hasta', 'Días en el periodo', 'Horas',
              'Detalle', 'Registró'],
             [[f['novedad'].get_tipo_display(),
               f['novedad'].fecha_inicio,
               f['novedad'].fecha_fin or '—',
               f['dias_en_rango'],
-              f['novedad'].hora.strftime('%H:%M') if f['novedad'].hora else '—',
+              f['novedad'].horario or '—',
               f['novedad'].detalle or '—',
               (f['novedad'].registrado_por.get_full_name()
                or f['novedad'].registrado_por.username) if f['novedad'].registrado_por else '—']
              for f in datos['novedades']],
-            [30, 12, 12, 18, 8, 40, 24], fechas=(2, 3))
+            [30, 12, 12, 18, 13, 40, 24], fechas=(2, 3))
 
         flujo = BytesIO()
         libro.save(flujo)

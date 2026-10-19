@@ -30,6 +30,18 @@
 .cc-rango{ display:flex; align-items:end; gap:.5rem; flex-wrap:wrap;
     padding:.5rem .65rem; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--panel-2); }
 .cc-rango .form-control{ min-width:9.5rem; }
+.cc-horas{ display:grid; grid-template-columns:minmax(180px,1fr) 2fr; gap:1.25rem; align-items:start; }
+@media (max-width: 768px){ .cc-horas{ grid-template-columns:1fr; } }
+.cc-horas .total{ font-family:var(--mono); font-size:2rem; font-weight:600; line-height:1.05; color:var(--ink); }
+.cc-horas .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.cc-horas dl{ display:grid; grid-template-columns:auto 1fr; gap:.3rem 1rem; margin:0; font-size:.88rem; }
+.cc-horas dt{ font-weight:500; color:var(--ink-2); }
+.cc-horas dd{ margin:0; font-family:var(--mono); color:var(--ink); }
+.cc-barras{ display:grid; grid-template-columns:auto 1fr auto; gap:.3rem .6rem; align-items:center; font-size:.8rem; margin-top:.9rem; }
+.cc-barras .m{ color:var(--ink-2); }
+.cc-barras .barra{ height:.55rem; border-radius:99px; background:var(--panel-2); overflow:hidden; }
+.cc-barras .barra span{ display:block; height:100%; background:var(--brand-600); border-radius:99px; }
+.cc-barras .t{ font-family:var(--mono); color:var(--ink-2); text-align:right; }
 </style>
 
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
@@ -142,6 +154,45 @@
     </div>
 </div>
 
+{# Horas trabajadas: servicios con las dos horas del acta + actividades con inicio y final. #}
+<div class="card shadow mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-clock-history me-1"></i>Horas trabajadas</h5>
+        <span class="text-muted small">{{ periodo }}</span>
+    </div>
+    <div class="card-body">
+        <div class="cc-horas">
+            <div>
+                <div class="total">{{ horas.total|default:"0 h" }}</div>
+                <div class="k">en total</div>
+                {% if horas.dias %}
+                <div class="small text-muted mt-1">en {{ horas.dias }} día{{ horas.dias|pluralize }} · {{ horas.promedio_dia }} por día en promedio</div>
+                {% endif %}
+            </div>
+            <div>
+                <dl>
+                    <dt>En servicios</dt><dd>{{ horas.servicios|default:"0 h" }}</dd>
+                    <dt>En actividades del plan</dt><dd>{{ horas.actividades|default:"0 h" }}</dd>
+                </dl>
+                {% if horas.por_mes %}
+                <div class="cc-barras">
+                    {% for m in horas.por_mes %}
+                    <span class="m">{{ m.nombre }}</span>
+                    <span class="barra"><span style="width:{{ m.porcentaje }}%"></span></span>
+                    <span class="t">{{ m.texto|default:"—" }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-text mt-3">
+            Cuentan los servicios con hora de salida y llegada (o inicio y final operativo) en el acta,
+            y las actividades del plan con hora de inicio y final. Si un tramo se cruza con otro, se cuenta una sola vez.
+            {% if horas.sin_hora %}<strong>{{ horas.sin_hora }} registro{{ horas.sin_hora|pluralize }} sin las dos horas no se cuenta{{ horas.sin_hora|pluralize:"n" }}.</strong>{% endif %}
+        </div>
+    </div>
+</div>
+
 {% if sin_nada %}
 <div class="alert alert-info d-flex align-items-center">
     <i class="bi bi-info-circle me-2"></i>
@@ -161,7 +212,7 @@
                 <thead>
                     <tr>
                         <th>Fecha</th><th>N° Orden</th><th>Participó como</th>
-                        <th>Vehículo</th><th>Cliente</th><th>Horas</th><th>Estado</th>
+                        <th>Vehículo</th><th>Cliente</th><th>Horas</th><th>Duración</th><th>Estado</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -177,6 +228,7 @@
                         <td>{{ s.recorrido.vehiculo.placa }}</td>
                         <td>{{ s.recorrido.orden.cliente.nombre }}</td>
                         <td>{{ s.horas|default:"—" }}</td>
+                        <td>{{ s.duracion|default:"—" }}</td>
                         <td>
                             {% if s.recorrido.estado == 'COMPLETADO' %}<span class="badge bg-success">Completado</span>
                             {% elif s.recorrido.estado == 'EN_CURSO' %}<span class="badge bg-warning text-dark">En curso</span>
@@ -205,7 +257,7 @@
                 <thead>
                     <tr>
                         <th>Fecha</th><th>Actividad</th><th>Placa(s)</th>
-                        <th>Orden</th><th>Proveedor / gestor</th><th>Hora</th><th>Descripción</th>
+                        <th>Orden</th><th>Proveedor / gestor</th><th>Horas</th><th>Duración</th><th>Descripción</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -224,7 +276,8 @@
                             {% else %}—{% endif %}
                         </td>
                         <td>{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
-                        <td>{{ a.hora|time:"H:i"|default:"—" }}</td>
+                        <td>{{ a.horario|default:"—" }}</td>
+                        <td>{{ a.duracion|default:"—" }}</td>
                         <td>{{ a.detalle|default:"—" }}</td>
                     </tr>
                 {% endfor %}
@@ -249,7 +302,7 @@
                 <thead>
                     <tr>
                         <th>Novedad</th><th>Desde</th><th>Hasta</th>
-                        <th>Días en el periodo</th><th>Hora</th><th>Detalle</th><th>Registró</th>
+                        <th>Días en el periodo</th><th>Horas</th><th>Detalle</th><th>Registró</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -259,7 +312,7 @@
                         <td>{{ f.novedad.fecha_inicio|date:"d/m/Y" }}</td>
                         <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                         <td>{{ f.dias_en_rango }}</td>
-                        <td>{{ f.novedad.hora|time:"H:i"|default:"—" }}</td>
+                        <td>{{ f.novedad.horario|default:"—" }}</td>
                         <td>{{ f.novedad.detalle|default:"—" }}</td>
                         <td class="text-muted small">
                             {% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}

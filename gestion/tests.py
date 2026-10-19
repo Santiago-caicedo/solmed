@@ -6889,6 +6889,108 @@ class CentroControlDescargasTests(BaseCRM):
                          'Sin registros en el periodo.')
 
 
+class CentroControlHorasTrabajadasTests(BaseCRM):
+    """
+    Las horas en las tablas del centro de control y la estadística de horas
+    trabajadas (pedido de la clienta, oct-2026): cuentan los servicios con
+    las dos horas del acta y las actividades con inicio y final; un tramo que
+    se cruza con otro se cuenta una sola vez.
+    """
+
+    def setUp(self):
+        from planes.models import Asignacion, Novedad, PlanDia
+        self.Asignacion, self.Novedad, self.PlanDia = Asignacion, Novedad, PlanDia
+        self.datos = self.servicio_completo()
+        self.conductor = self.datos['conductor']
+        self.recorrido = self.datos['recorrido']
+        self.dia = self.recorrido.fecha_recorrido
+        self.url = reverse('gestion:centro_control_persona', args=[self.conductor.pk])
+        self.entrar(self.persona('jefe', 'Administradores'))
+
+    def acta(self, salida, llegada):
+        return Manifiesto.objects.create(
+            recorrido=self.recorrido, hora_salida_solmed=salida,
+            hora_llegada_solmed=llegada)
+
+    def actividad(self, hora=None, hora_fin=None, tipo='APOYO_SERVICIO'):
+        plan, _ = self.PlanDia.objects.get_or_create(fecha=self.dia)
+        return self.Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo=tipo, hora=hora, hora_fin=hora_fin)
+
+    def horas(self, **params):
+        params = params or {'anio': self.dia.year, 'mes': self.dia.month}
+        return self.client.get(self.url, params)
+
+    def test_el_servicio_muestra_sus_horas_y_su_duracion(self):
+        self.acta(datetime.time(7, 0), datetime.time(15, 30))
+        respuesta = self.horas()
+        self.assertEqual(respuesta.context['servicios'][0]['duracion'], '8 h 30 min')
+        self.assertEqual(respuesta.context['horas']['total'], '8 h 30 min')
+        self.assertContains(respuesta, '07:00–15:30')
+        self.assertContains(respuesta, 'Horas trabajadas')
+
+    def test_la_actividad_muestra_su_rango_y_suma_sus_horas(self):
+        self.actividad(datetime.time(8, 0), datetime.time(10, 0))
+        respuesta = self.horas()
+        self.assertContains(respuesta, '08:00–10:00')
+        self.assertEqual(respuesta.context['horas']['actividades'], '2 h')
+        self.assertEqual(respuesta.context['horas']['total'], '2 h')
+
+    def test_un_tramo_que_se_cruza_con_otro_se_cuenta_una_vez(self):
+        self.acta(datetime.time(7, 0), datetime.time(15, 30))
+        self.actividad(datetime.time(14, 0), datetime.time(16, 0))
+        horas = self.horas().context['horas']
+        self.assertEqual(horas['servicios'], '8 h 30 min')
+        self.assertEqual(horas['actividades'], '2 h')
+        self.assertEqual(horas['total'], '9 h', "07:00 a 16:00, sin contar dos veces")
+        self.assertEqual(horas['dias'], 1)
+
+    def test_lo_que_no_tiene_las_dos_horas_no_se_cuenta_pero_se_avisa(self):
+        # Servicio sin acta y actividad con solo la hora de inicio.
+        self.actividad(datetime.time(8, 0))
+        respuesta = self.horas()
+        horas = respuesta.context['horas']
+        self.assertEqual(horas['minutos'], 0)
+        self.assertEqual(horas['sin_hora'], 2)
+        self.assertContains(respuesta, '2 registros sin las dos horas no se cuentan')
+
+    def test_un_servicio_que_pasa_la_medianoche(self):
+        self.acta(datetime.time(22, 0), datetime.time(2, 0))
+        self.assertEqual(self.horas().context['horas']['total'], '4 h')
+
+    def test_el_ano_completo_reparte_las_horas_por_mes(self):
+        self.acta(datetime.time(7, 0), datetime.time(9, 0))
+        horas = self.horas(anio=self.dia.year, mes='todo').context['horas']
+        self.assertEqual(len(horas['por_mes']), 12)
+        del_mes = horas['por_mes'][self.dia.month - 1]
+        self.assertEqual((del_mes['texto'], del_mes['porcentaje']), ('2 h', 100))
+        # Un solo mes no lleva desglose.
+        self.assertEqual(self.horas().context['horas']['por_mes'], [])
+
+    def test_la_novedad_muestra_su_rango_de_horas(self):
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='PERMISO_PERSONAL', fecha_inicio=self.dia,
+            hora=datetime.time(10, 0), hora_fin=datetime.time(12, 0))
+        self.assertContains(self.horas(), '10:00–12:00')
+
+    def test_el_pdf_y_el_excel_llevan_las_horas(self):
+        from openpyxl import load_workbook
+        self.acta(datetime.time(7, 0), datetime.time(15, 30))
+        self.actividad(datetime.time(16, 0), datetime.time(17, 0))
+        params = {'anio': self.dia.year, 'mes': self.dia.month}
+        pdf = self.client.get(
+            reverse('gestion:centro_control_pdf', args=[self.conductor.pk]), params)
+        self.assertEqual(pdf.status_code, 200)
+        excel = self.client.get(
+            reverse('gestion:centro_control_excel', args=[self.conductor.pk]), params)
+        libro = load_workbook(io.BytesIO(excel.content))
+        resumen = {f[0]: f[1] for f in libro['Resumen'].iter_rows(values_only=True)}
+        self.assertEqual(resumen['Horas trabajadas'], '9 h 30 min')
+        self.assertEqual(libro['Servicios']['G2'].value, '8 h 30 min')
+        self.assertEqual(libro['Actividades']['F2'].value, '16:00–17:00')
+        self.assertEqual(libro['Actividades']['G2'].value, '1 h')
+
+
 # ============================================================
 #  OBSERVACIONES PARA EL AYUDANTE
 # ============================================================
