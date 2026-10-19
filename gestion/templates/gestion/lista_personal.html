@@ -1,6 +1,14 @@
 {% extends "gestion/base.html" %}
 
 {% block content %}
+<style>
+.lp-persona{ display:flex; align-items:center; gap:.6rem; }
+.lp-foto, .lp-inicial{ width:34px; height:34px; border-radius:50%; flex:0 0 auto; border:1px solid var(--line); }
+.lp-foto{ object-fit:cover; background:var(--panel-2); }
+.lp-inicial{ display:flex; align-items:center; justify-content:center;
+    background:var(--brand-tint); color:var(--brand-700); font-weight:700; font-size:.85rem; }
+.table-light .lp-foto{ filter:grayscale(1); opacity:.7; }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="mb-0"><i class="bi bi-people-fill me-2"></i>Personal</h1>
     <a href="{% url 'gestion:crear_persona' %}" class="btn btn-primary">
@@ -60,8 +68,16 @@
                     {% for usuario in usuarios %}
                     <tr {% if usuario.esta_retirado %}class="table-light text-muted"{% endif %}>
                         <td>
-                            {{ usuario.get_full_name|default:"—" }}
-                            {% if usuario.esta_retirado %}<span class="badge bg-dark ms-1"><i class="bi bi-person-dash"></i> Retirado</span>{% endif %}
+                            <div class="lp-persona">
+                                {% with foto=usuario.perfil.foto %}
+                                {% if foto %}<img class="lp-foto" src="{{ foto.url }}" alt="" loading="lazy">
+                                {% else %}<span class="lp-inicial" aria-hidden="true">{{ usuario.first_name|default:usuario.username|slice:":1"|upper }}</span>{% endif %}
+                                {% endwith %}
+                                <div>
+                                    {{ usuario.get_full_name|default:"—" }}
+                                    {% if usuario.esta_retirado %}<span class="badge bg-dark ms-1"><i class="bi bi-person-dash"></i> Retirado</span>{% endif %}
+                                </div>
+                            </div>
                         </td>
                         <td>
                             {% for group in usuario.groups.all %}

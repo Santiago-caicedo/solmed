@@ -1349,6 +1349,18 @@ class PersonalYExpedienteTests(BaseCRM):
         self.assertContains(ficha, f'<img class="fp-foto" src="{nueva.perfil.foto.url}"')
         self.assertNotContains(ficha, 'class="fp-inicial"')
 
+    def test_la_lista_de_personal_muestra_la_foto_o_la_inicial(self):
+        self.entrar(self.persona('admin', superusuario=True))
+        lista = reverse('gestion:lista_personal')
+        self.assertContains(self.client.get(lista),
+                            '<span class="lp-inicial" aria-hidden="true">C</span>')
+        perfil = self.conductor.perfil
+        perfil.foto = self._imagen('carlos.png')
+        perfil.save()
+        respuesta = self.client.get(lista)
+        self.assertContains(respuesta, f'<img class="lp-foto" src="{perfil.foto.url}"')
+        self.assertNotContains(respuesta, '<span class="lp-inicial" aria-hidden="true">C</span>')
+
     def test_la_fecha_de_ingreso_y_la_arl_se_guardan_y_se_ven(self):
         self.entrar(self.persona('admin', superusuario=True))
         self.client.post(reverse('gestion:crear_persona'), {
