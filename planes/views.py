@@ -13,7 +13,7 @@ import os
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import get_template
 from django.urls import reverse
@@ -27,7 +27,7 @@ from gestion.roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin, _reply_to
 
 from .forms import AsignacionForm, NovedadForm
-from .models import Asignacion, Novedad, PlanDia
+from .models import Asignacion, Novedad, PlanDia, TipoPersonalizado
 
 # El orden del formato físico: primero la operación, luego la oficina.
 ORDEN_CARGOS = [
@@ -140,7 +140,8 @@ def _tablero(fecha):
     plan = PlanDia.objects.filter(fecha=fecha).first()
     asignaciones = {}
     if plan:
-        for a in (plan.asignaciones.select_related('persona', 'orden', 'proveedor')
+        for a in (plan.asignaciones.select_related('persona', 'orden', 'proveedor',
+                                                   'tipo_personalizado')
                   .prefetch_related('vehiculos')):
             asignaciones.setdefault(a.persona_id, []).append(a)
     novedades = {}
@@ -245,6 +246,60 @@ def _avisar_asignaciones(request, asignaciones):
         messages.success(request, "Se avisó por correo a " + ", ".join(avisadas) + ".")
 
 
+def _tipos_propios(ambito):
+    """Las actividades o novedades creadas en el popup, para el JS."""
+    return [{'id': t.pk, 'valor': t.valor, 'nombre': t.nombre, 'es_trabajo': t.es_trabajo}
+            for t in TipoPersonalizado.objects.filter(ambito=ambito, activo=True)]
+
+
+class CrearTipoPersonalizadoView(AdministradorRequiredMixin, View):
+    """
+    Crea una actividad o una novedad nueva desde el popup del plan (POST,
+    responde JSON para que el desplegable se actualice sin recargar). Si el
+    nombre ya existe en ese ámbito no se duplica: se reutiliza y, si estaba
+    oculto, vuelve a aparecer.
+    """
+    def post(self, request):
+        ambito = request.POST.get('ambito', '')
+        nombre = ' '.join(request.POST.get('nombre', '').split())
+        if ambito not in dict(TipoPersonalizado.AMBITO_CHOICES):
+            return JsonResponse({'ok': False, 'error': 'Ámbito no válido.'}, status=400)
+        if not nombre:
+            return JsonResponse({'ok': False, 'error': 'Escribe el nombre.'}, status=400)
+        if len(nombre) > 100:
+            return JsonResponse({'ok': False, 'error': 'El nombre es muy largo (máximo 100).'},
+                                status=400)
+        # Solo las novedades distinguen trabajo de ausencia.
+        es_trabajo = ambito == 'NOVEDAD' and request.POST.get('es_trabajo') in ('1', 'on', 'true')
+        tipo = TipoPersonalizado.objects.filter(ambito=ambito, nombre__iexact=nombre).first()
+        if tipo is None:
+            tipo = TipoPersonalizado.objects.create(
+                ambito=ambito, nombre=nombre, es_trabajo=es_trabajo, creado_por=request.user)
+        else:
+            tipo.activo = True
+            tipo.es_trabajo = es_trabajo
+            tipo.save(update_fields=['activo', 'es_trabajo'])
+        return JsonResponse({'ok': True, 'id': tipo.pk, 'valor': tipo.valor,
+                             'nombre': tipo.nombre, 'es_trabajo': tipo.es_trabajo})
+
+
+class EliminarTipoPersonalizadoView(AdministradorRequiredMixin, View):
+    """
+    Quita del popup una actividad o novedad creada ahí. Si ya se registró
+    alguna vez no se borra (lo registrado conserva su nombre): se oculta.
+    """
+    def post(self, request, pk):
+        tipo = get_object_or_404(TipoPersonalizado, pk=pk)
+        if tipo.asignaciones.exists() or tipo.novedades.exists():
+            tipo.activo = False
+            tipo.save(update_fields=['activo'])
+            return JsonResponse({'ok': True, 'eliminada': False,
+                                 'mensaje': f'«{tipo.nombre}» ya se usó en el plan: '
+                                            'se ocultó de la lista.'})
+        tipo.delete()
+        return JsonResponse({'ok': True, 'eliminada': True})
+
+
 class PlanDiaView(AdministradorRequiredMixin, View):
     """El plan de UN día: tablero de formación + registro de actividades y novedades."""
     template_name = 'planes/plan_dia.html'
@@ -278,7 +333,11 @@ class PlanDiaView(AdministradorRequiredMixin, View):
             'form_asignacion': AsignacionForm(),
             'form_novedad': NovedadForm(initial={'fecha_inicio': fecha}),
             'campos_tipo': campos_tipo,
-            'tipos_actividad': Asignacion.TIPO_CHOICES,
+            # Las del formato; las creadas en el popup van en su propio grupo.
+            'tipos_actividad': [t for t in Asignacion.TIPO_CHOICES
+                                if t[0] != 'PERSONALIZADA'],
+            'actividades_propias': _tipos_propios('ACTIVIDAD'),
+            'novedades_propias': _tipos_propios('NOVEDAD'),
             # TODAS las placas (también las que están en taller: la
             # tecnomecánica o el mantenimiento son justo para esas).
             'vehiculos': Vehiculo.objects.order_by('placa'),
@@ -376,7 +435,8 @@ class FichaPersonaPlanView(AdministradorRequiredMixin, View):
             'asignaciones': (
                 Asignacion.objects
                 .filter(plan__fecha=fecha, persona=persona)
-                .select_related('orden', 'proveedor', 'dispositor', 'registrado_por')
+                .select_related('orden', 'proveedor', 'dispositor', 'registrado_por',
+                                'tipo_personalizado')
                 .prefetch_related('vehiculos')),
             'novedades': [n for n in Novedad.del_dia(fecha) if n.persona_id == persona.pk],
         })
@@ -522,7 +582,8 @@ class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView
         from django.db.models import Q
         from django.db.models.functions import Coalesce
 
-        qs = (Novedad.objects.select_related('persona', 'registrado_por')
+        qs = (Novedad.objects.select_related('persona', 'registrado_por',
+                                             'tipo_personalizado')
               # El último día que cubre la novedad: su fecha final o, si no
               # tiene, la de inicio (las de un solo día).
               .annotate(fin_efectivo=Coalesce('fecha_fin', 'fecha_inicio')))
@@ -536,7 +597,9 @@ class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView
                            | Q(persona__last_name__icontains=q)
                            | Q(persona__username__icontains=q)
                            | Q(persona__perfil__numero_documento__icontains=q))
-        if tipo:
+        if tipo.startswith('P:') and tipo[2:].isdigit():
+            qs = qs.filter(tipo='PERSONALIZADA', tipo_personalizado_id=int(tipo[2:]))
+        elif tipo:
             qs = qs.filter(tipo=tipo)
         if desde:
             qs = qs.filter(fin_efectivo__gte=desde)
@@ -553,7 +616,12 @@ class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView
             # Nombres viejos, por si alguna plantilla los usa.
             'q': filtros['q'],
             'tipo_sel': filtros['tipo'],
-            'tipos': Novedad.TIPO_CHOICES,
+            # Las del formato y las creadas en el plan (también las ocultas:
+            # aquí se buscan registros viejos).
+            'tipos': ([g for g in Novedad.TIPO_CHOICES if g[0] != 'Creadas en el plan']
+                      + [('Creadas en el plan',
+                          [(t.valor, t.nombre) for t in
+                           TipoPersonalizado.objects.filter(ambito='NOVEDAD')])]),
             'hay_filtros': any(filtros.values()),
             'hoy': timezone.localdate(),
         })

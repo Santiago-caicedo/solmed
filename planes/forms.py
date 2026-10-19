@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 
 from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
 
-from .models import Asignacion, Novedad
+from .models import Asignacion, Novedad, TipoPersonalizado, tipo_personalizado_de
 
 
 def validar_horas(form, cleaned, campo_fin):
@@ -24,7 +24,8 @@ class AsignacionForm(forms.Form):
     tablero); los demás campos se validan según lo que la actividad pida
     (Asignacion.CAMPOS_POR_TIPO).
     """
-    tipo = forms.ChoiceField(choices=Asignacion.TIPO_CHOICES)
+    # Un código del formato o «P:<id>», una actividad creada en el popup.
+    tipo = forms.CharField(max_length=20)
     hora = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
     hora_fin = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
     orden_numero = forms.CharField(required=False, max_length=10)
@@ -53,8 +54,21 @@ class AsignacionForm(forms.Form):
         tipo = cleaned.get('tipo')
         if not tipo:
             return cleaned
+        cleaned['tipo_personalizado'] = None
+        if tipo.startswith('P:'):
+            personalizado = tipo_personalizado_de(tipo, 'ACTIVIDAD')
+            if personalizado is None:
+                self.add_error(None, "Esa actividad ya no está en la lista: elige otra.")
+                return cleaned
+            tipo = cleaned['tipo'] = 'PERSONALIZADA'
+            cleaned['tipo_personalizado'] = personalizado
+            etiqueta = personalizado.nombre
+        elif tipo == 'PERSONALIZADA' or tipo not in dict(Asignacion.TIPO_CHOICES):
+            self.add_error(None, "Elige una actividad de la lista.")
+            return cleaned
+        else:
+            etiqueta = dict(Asignacion.TIPO_CHOICES)[tipo]
         campos = Asignacion.CAMPOS_POR_TIPO.get(tipo, {})
-        etiqueta = dict(Asignacion.TIPO_CHOICES)[tipo]
 
         # ¿A quién? — al menos una persona, y que existan y estén activas.
         self.personas = list(
@@ -125,6 +139,7 @@ class AsignacionForm(forms.Form):
         for persona in self.personas:
             asignacion = Asignacion.objects.create(
                 plan=plan, persona=persona, tipo=self.cleaned_data['tipo'],
+                tipo_personalizado=self.cleaned_data['tipo_personalizado'],
                 orden=self.cleaned_data['orden'],
                 proveedor=self.cleaned_data['proveedor'],
                 dispositor=self.cleaned_data['dispositor'],
@@ -176,6 +191,15 @@ class NovedadForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Las novedades del formato y, en su grupo, las creadas en el popup
+        # (viajan como «P:<id>»; clean_tipo las convierte).
+        propias = [(t.valor, t.nombre) for t in
+                   TipoPersonalizado.objects.filter(ambito='NOVEDAD', activo=True)]
+        self.fields['tipo'] = forms.ChoiceField(
+            choices=([('', '---------')]
+                     + [g for g in Novedad.TIPO_CHOICES if g[0] != 'Creadas en el plan']
+                     + ([('Creadas en el plan', propias)] if propias else [])),
+            widget=forms.Select(attrs={'class': 'form-select form-select-sm'}))
         self.fields['fecha_inicio'].input_formats = ['%Y-%m-%d']
         self.fields['fecha_fin'].input_formats = ['%Y-%m-%d']
         self.fields['hora'].input_formats = ['%H:%M', '%H:%M:%S']
@@ -189,6 +213,17 @@ class NovedadForm(forms.ModelForm):
         self.fields['persona'].empty_label = '--- Elige la persona ---'
         self.fields['persona'].label_from_instance = (
             lambda u: u.get_full_name() or u.username)
+
+    def clean_tipo(self):
+        valor = self.cleaned_data['tipo']
+        self.instance.tipo_personalizado = None
+        if valor.startswith('P:'):
+            personalizado = tipo_personalizado_de(valor, 'NOVEDAD')
+            if personalizado is None:
+                raise forms.ValidationError("Esa novedad ya no está en la lista: elige otra.")
+            self.instance.tipo_personalizado = personalizado
+            return 'PERSONALIZADA'
+        return valor
 
     def clean(self):
         cleaned = super().clean()

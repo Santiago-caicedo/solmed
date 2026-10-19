@@ -16,4 +16,8 @@ urlpatterns = [
     path('novedad/<int:pk>/eliminar/', views.EliminarNovedadView.as_view(),
          name='eliminar_novedad'),
     path('pdf/<str:fecha>/', views.PlanPDFView.as_view(), name='plan_pdf'),
+    # Actividades y novedades nuevas, creadas desde el popup del panel.
+    path('tipos/crear/', views.CrearTipoPersonalizadoView.as_view(), name='crear_tipo'),
+    path('tipos/<int:pk>/eliminar/', views.EliminarTipoPersonalizadoView.as_view(),
+         name='eliminar_tipo'),
 ]

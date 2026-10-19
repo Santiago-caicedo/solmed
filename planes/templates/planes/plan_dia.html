@@ -77,6 +77,16 @@
 .pt-campo{ display:none; }
 .pt-campo.visible{ display:block; }
 .pt-panel .form-label{ font-size:.78rem; margin-bottom:.2rem; color:var(--ink-2); }
+/* Etiqueta con el botón que abre el popup de actividades / novedades creadas */
+.pt-etq-fila{ display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
+.pt-etq-fila .pt-etq{ margin-bottom:.3rem; }
+.pt-crear{ border:0; background:none; padding:0; font-size:.74rem; font-weight:600; color:var(--brand-700); white-space:nowrap; }
+.pt-crear:hover{ text-decoration:underline; }
+.tp-lista{ list-style:none; margin:0; padding:0; }
+.tp-lista li{ display:flex; align-items:center; gap:.5rem; padding:.45rem 0; border-top:1px solid var(--line-2); font-size:.9rem; }
+.tp-lista li:first-child{ border-top:0; }
+.tp-lista .nombre{ flex:1; min-width:0; }
+.tp-lista .marca{ font-family:var(--mono); font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ok); }
 
 @media (max-width: 992px){ .pt-panel{ position:static; } }
 </style>
@@ -198,12 +208,25 @@
                             {% endfor %}
                         </div>
 
-                        <label class="pt-etq" for="sel-tipo">Actividad</label>
+                        <div class="pt-etq-fila">
+                            <label class="pt-etq" for="sel-tipo">Actividad</label>
+                            <button type="button" class="pt-crear" data-bs-toggle="modal" data-bs-target="#modal-tipos"
+                                    data-ambito="ACTIVIDAD"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Crear actividad</button>
+                        </div>
                         <select name="tipo" id="sel-tipo" class="form-select form-select-sm" required>
                             <option value="">--- Elige la actividad ---</option>
-                            {% for valor, etiqueta in tipos_actividad %}
-                            <option value="{{ valor }}">{{ etiqueta }}</option>
-                            {% endfor %}
+                            <optgroup label="Del formato">
+                                {% for valor, etiqueta in tipos_actividad %}
+                                <option value="{{ valor }}">{{ etiqueta }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% if actividades_propias %}
+                            <optgroup label="Creadas en el plan">
+                                {% for t in actividades_propias %}
+                                <option value="{{ t.valor }}">{{ t.nombre }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
                         </select>
 
                         <div class="pt-campo" id="campo-vehiculos">
@@ -308,7 +331,11 @@
                         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
                         <label class="pt-etq" for="{{ form_novedad.persona.id_for_label }}">Persona</label>
                         {{ form_novedad.persona }}
-                        <label class="pt-etq" for="{{ form_novedad.tipo.id_for_label }}">Novedad</label>
+                        <div class="pt-etq-fila">
+                            <label class="pt-etq" for="{{ form_novedad.tipo.id_for_label }}">Novedad</label>
+                            <button type="button" class="pt-crear" data-bs-toggle="modal" data-bs-target="#modal-tipos"
+                                    data-ambito="NOVEDAD"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Crear novedad</button>
+                        </div>
                         {{ form_novedad.tipo }}
                         <div class="row g-2 mt-0">
                             <div class="col-6">
@@ -382,6 +409,42 @@ dejar veinte fichas ocultas en la página.
     </div>
 </div>
 
+{% comment %}
+Popup para crear (y quitar) actividades y novedades que no están en el
+formato. Es uno solo: el botón que lo abre dice de cuál se trata. Lo creado
+queda guardado y aparece en el desplegable, en «Creadas en el plan».
+{% endcomment %}
+<div class="modal fade" id="modal-tipos" tabindex="-1" aria-labelledby="modal-tipos-t" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="modal-tipos-t">Crear actividad</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="tp-aviso" aria-live="polite"></div>
+                <label class="form-label fw-semibold" for="tp-nombre" id="tp-etq-nombre">Nombre de la actividad</label>
+                <div class="d-flex gap-2">
+                    <input type="text" id="tp-nombre" class="form-control" maxlength="100" autocomplete="off">
+                    <button type="button" class="btn btn-success text-nowrap flex-shrink-0" id="tp-agregar"><i class="bi bi-check2 me-1" aria-hidden="true"></i>Crear</button>
+                </div>
+                <div class="form-check mt-2" id="tp-trabajo-caja">
+                    <input class="form-check-input" type="checkbox" id="tp-trabajo">
+                    <label class="form-check-label" for="tp-trabajo">Sus horas cuentan como tiempo trabajado</label>
+                    <div class="form-text">Márcalo si es trabajo (como el trabajo en bodega). Déjalo sin marcar si es una ausencia (como un permiso).</div>
+                </div>
+                <div class="pt-etq mt-4" id="tp-titulo-lista">Actividades creadas</div>
+                <ul class="tp-lista" id="tp-lista"></ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Listo</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ actividades_propias|json_script:"actividades-propias" }}
+{{ novedades_propias|json_script:"novedades-propias" }}
 {{ campos_tipo|json_script:"campos-tipo" }}
 <script>
 (function () {
@@ -431,6 +494,135 @@ dejar veinte fichas ocultas en la página.
     }
     selTipo.addEventListener('change', pinta);
     pinta();
+
+    // --- Popup: crear y quitar actividades / novedades que no trae el formato ---
+    // Igual que el de la ficha: lo abre Bootstrap por data-bs-toggle y aquí
+    // solo se escucha show.bs.modal (sin nombrar el objeto `bootstrap`).
+    (function () {
+        var modal = document.getElementById('modal-tipos');
+        if (!modal) return;
+        var csrf = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        var listas = {
+            ACTIVIDAD: JSON.parse(document.getElementById('actividades-propias').textContent),
+            NOVEDAD: JSON.parse(document.getElementById('novedades-propias').textContent),
+        };
+        var selects = { ACTIVIDAD: selTipo, NOVEDAD: document.getElementById('{{ form_novedad.tipo.id_for_label }}') };
+        var textos = {
+            ACTIVIDAD: { titulo: 'Crear actividad', nombre: 'Nombre de la actividad', lista: 'Actividades creadas',
+                         vacia: 'Aún no has creado actividades.' },
+            NOVEDAD: { titulo: 'Crear novedad', nombre: 'Nombre de la novedad', lista: 'Novedades creadas',
+                       vacia: 'Aún no has creado novedades.' },
+        };
+        var ambito = 'ACTIVIDAD';
+        var nombre = document.getElementById('tp-nombre');
+        var trabajo = document.getElementById('tp-trabajo');
+        var aviso = document.getElementById('tp-aviso');
+        var ul = document.getElementById('tp-lista');
+
+        function escapar(t) {
+            return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function avisar(texto, tipo) {
+            aviso.innerHTML = texto ? '<div class="alert alert-' + (tipo || 'info') + ' py-2 small">'
+                + escapar(texto) + '</div>' : '';
+        }
+        function pintarLista() {
+            var items = listas[ambito];
+            ul.innerHTML = items.length ? items.map(function (t) {
+                return '<li><span class="nombre">' + escapar(t.nombre) + '</span>'
+                    + (ambito === 'NOVEDAD' && t.es_trabajo ? '<span class="marca">Tiempo trabajado</span>' : '')
+                    + '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-id="' + t.id
+                    + '" title="Quitar" aria-label="Quitar ' + escapar(t.nombre) + '"><i class="bi bi-trash"></i></button></li>';
+            }).join('') : '<li class="text-muted">' + textos[ambito].vacia + '</li>';
+        }
+        // El desplegable: las creadas van en su grupo «Creadas en el plan».
+        function grupo(select) {
+            var g = select.querySelector('optgroup[label="Creadas en el plan"]');
+            if (!g) {
+                g = document.createElement('optgroup');
+                g.label = 'Creadas en el plan';
+                select.appendChild(g);
+            }
+            return g;
+        }
+        function sincronizar(amb) {
+            var select = selects[amb];
+            if (!select) return;
+            var previo = select.value;
+            var g = grupo(select);
+            g.innerHTML = listas[amb].map(function (t) {
+                return '<option value="' + escapar(t.valor) + '">' + escapar(t.nombre) + '</option>';
+            }).join('');
+            if (!listas[amb].length) g.remove();
+            select.value = previo;
+            if (select.value !== previo) { select.value = ''; }
+            select.dispatchEvent(new Event('change'));
+        }
+
+        modal.addEventListener('show.bs.modal', function (evento) {
+            var boton = evento.relatedTarget;
+            ambito = (boton && boton.dataset.ambito) || 'ACTIVIDAD';
+            document.getElementById('modal-tipos-t').textContent = textos[ambito].titulo;
+            document.getElementById('tp-etq-nombre').textContent = textos[ambito].nombre;
+            document.getElementById('tp-titulo-lista').textContent = textos[ambito].lista;
+            document.getElementById('tp-trabajo-caja').hidden = ambito !== 'NOVEDAD';
+            nombre.value = '';
+            trabajo.checked = false;
+            avisar('');
+            pintarLista();
+        });
+        modal.addEventListener('shown.bs.modal', function () { nombre.focus(); });
+        nombre.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); document.getElementById('tp-agregar').click(); }
+        });
+
+        document.getElementById('tp-agregar').addEventListener('click', function () {
+            if (!nombre.value.trim()) { avisar('Escribe el nombre.', 'warning'); nombre.focus(); return; }
+            var datos = new FormData();
+            datos.append('ambito', ambito);
+            datos.append('nombre', nombre.value.trim());
+            if (trabajo.checked) datos.append('es_trabajo', '1');
+            fetch('{% url "planes:crear_tipo" %}', { method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf } })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) { avisar(data.error || 'No se pudo crear.', 'danger'); return; }
+                    var items = listas[ambito].filter(function (t) { return t.id !== data.id; });
+                    items.push({ id: data.id, valor: data.valor, nombre: data.nombre, es_trabajo: data.es_trabajo });
+                    items.sort(function (a, b) { return a.nombre.localeCompare(b.nombre); });
+                    listas[ambito] = items;
+                    nombre.value = '';
+                    trabajo.checked = false;
+                    pintarLista();
+                    sincronizar(ambito);
+                    // Queda elegida de una vez: es lo que se venía a registrar.
+                    selects[ambito].value = data.valor;
+                    selects[ambito].dispatchEvent(new Event('change'));
+                    avisar('«' + data.nombre + '» quedó guardada y elegida en la lista.', 'success');
+                })
+                .catch(function () { avisar('Error de conexión. Intenta de nuevo.', 'danger'); });
+        });
+
+        ul.addEventListener('click', function (e) {
+            var boton = e.target.closest('button[data-id]');
+            if (!boton) return;
+            var id = Number(boton.dataset.id);
+            var item = listas[ambito].filter(function (t) { return t.id === id; })[0];
+            if (!window.confirm('¿Quitar «' + (item ? item.nombre : '') + '» de la lista?')) return;
+            fetch('{% url "planes:eliminar_tipo" 0 %}'.replace('/0/', '/' + id + '/'),
+                  { method: 'POST', headers: { 'X-CSRFToken': csrf } })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.ok) { avisar('No se pudo quitar.', 'danger'); return; }
+                    listas[ambito] = listas[ambito].filter(function (t) { return t.id !== id; });
+                    pintarLista();
+                    sincronizar(ambito);
+                    avisar(data.eliminada ? 'Quitada de la lista.' : data.mensaje,
+                           data.eliminada ? 'success' : 'warning');
+                })
+                .catch(function () { avisar('Error de conexión. Intenta de nuevo.', 'danger'); });
+        });
+    })();
 
     // --- La hoja del día: se pide al abrir, no viene con la página ---
     // El popup lo abre Bootstrap por data-bs-toggle, y aquí solo se escucha su

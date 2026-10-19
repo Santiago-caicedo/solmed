@@ -30,13 +30,13 @@
                 <label class="form-label small mb-1" for="f-tipo">Novedad</label>
                 <select name="tipo" id="f-tipo" class="form-select form-select-sm">
                     <option value="">Todas las novedades</option>
-                    {% for grupo, opciones in tipos %}
+                    {% for grupo, opciones in tipos %}{% if opciones %}
                     <optgroup label="{{ grupo }}">
                         {% for valor, etiqueta in opciones %}
                         <option value="{{ valor }}" {% if valor == filtros.tipo %}selected{% endif %}>{{ etiqueta }}</option>
                         {% endfor %}
                     </optgroup>
-                    {% endfor %}
+                    {% endif %}{% endfor %}
                 </select>
             </div>
             <div class="col-md-2">

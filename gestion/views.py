@@ -5656,9 +5656,9 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     La estadística de horas del periodo (base de la nómina). Cuentan los
     SERVICIOS con las dos horas en el acta (salida y llegada a SolMed, o
     inicio y final operativo), las ACTIVIDADES del plan con hora de inicio y
-    final y las novedades que SON trabajo (bodega, oficina) con sus dos horas,
-    una vez por cada día de su rango. Las demás novedades no son tiempo
-    trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
+    final y las novedades que SON trabajo (bodega, oficina, o las creadas en el
+    plan marcadas como trabajo) con sus dos horas, una vez por cada día de su
+    rango. Las demás novedades no son tiempo trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
     agendado para mañana aún no se ha trabajado. Lo que no tiene las dos
     horas no se cuenta, pero se dice cuántos quedaron por fuera.
 
@@ -5672,7 +5672,7 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
            if a.plan.fecha <= hoy])
     for f in novedades:
         n = f['novedad']
-        if n.tipo not in Novedad.TIPOS_TRABAJO:
+        if not n.es_trabajo:
             continue
         minutos = _minutos_entre(n.hora, n.hora_fin)
         for i in range(f['dias_en_rango']):
@@ -5783,7 +5783,8 @@ def _datos_centro_control(persona, inicio, fin):
     asignaciones = list(
         Asignacion.objects
         .filter(persona=persona, plan__fecha__range=(inicio, fin))
-        .select_related('plan', 'orden', 'proveedor', 'dispositor')
+        .select_related('plan', 'orden', 'proveedor', 'dispositor',
+                        'tipo_personalizado')
         .prefetch_related('vehiculos')
         .order_by('plan__fecha', 'id')
     )
@@ -5799,7 +5800,7 @@ def _datos_centro_control(persona, inicio, fin):
               .filter(Q(fecha_inicio__lte=fin)
                       & (Q(fecha_fin__gte=inicio)
                          | Q(fecha_fin__isnull=True, fecha_inicio__gte=inicio)))
-              .select_related('registrado_por')
+              .select_related('registrado_por', 'tipo_personalizado')
               .order_by('fecha_inicio', 'id')):
         desde = max(n.fecha_inicio, inicio)
         hasta = min(n.fecha_fin or n.fecha_inicio, fin)

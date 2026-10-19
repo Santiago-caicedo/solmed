@@ -16,7 +16,7 @@ from gestion.models import (
 )
 
 from .forms import AsignacionForm, NovedadForm
-from .models import Asignacion, Novedad, PlanDia
+from .models import Asignacion, Novedad, PlanDia, TipoPersonalizado
 
 CLAVE = 'Solmed.Pruebas.2026'
 
@@ -292,8 +292,8 @@ class AsignacionesTests(BasePlan):
                 spec = Asignacion.CAMPOS_POR_TIPO[tipo]
                 extra = {'hora': '08:00', 'hora_fin': '10:00',
                          'detalle': 'Detalle de prueba'}
-                if spec.get('ordenes') == 'pendientes':
-                    continue    # la disposición tiene su propia prueba en gestion
+                if spec.get('ordenes') == 'pendientes' or tipo == 'PERSONALIZADA':
+                    continue    # tienen sus propias pruebas (gestion y más abajo)
                 vehiculos = [self.camion] if spec.get('vehiculos') else None
                 if spec.get('proveedor'):
                     extra['proveedor'] = Proveedor.objects.get_or_create(
@@ -1022,3 +1022,117 @@ class CorreoDeAsignacionTests(BasePlan):
         self.assertContains(respuesta, 'Avisar por correo a los asignados')
 
 
+
+
+class ActividadesYNovedadesCreadasTests(BasePlan):
+    """
+    Actividades y novedades que no trae el formato: se crean desde un popup
+    del panel, quedan guardadas en el desplegable («Creadas en el plan») y se
+    asignan o registran como cualquier otra (oct-2026).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.crear_url = reverse('planes:crear_tipo')
+
+    def crear(self, ambito, nombre, **extra):
+        return self.client.post(self.crear_url, {'ambito': ambito, 'nombre': nombre, **extra})
+
+    def test_el_panel_ofrece_crearlas_en_un_popup(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn('id="modal-tipos"', contenido)
+        self.assertIn('data-ambito="ACTIVIDAD"', contenido)
+        self.assertIn('data-ambito="NOVEDAD"', contenido)
+        self.assertNotIn('value="PERSONALIZADA"', contenido,
+                         "el código interno no se ofrece como opción")
+
+    def test_crear_una_actividad_la_guarda_en_la_lista_y_se_puede_asignar(self):
+        datos = self.crear('ACTIVIDAD', '  Pintura   de la bodega ').json()
+        self.assertTrue(datos['ok'])
+        self.assertEqual(datos['nombre'], 'Pintura de la bodega')
+        tipo = TipoPersonalizado.objects.get()
+        self.assertEqual((tipo.ambito, tipo.creado_por), ('ACTIVIDAD', self.admin))
+        # Queda en el desplegable al volver a la página.
+        self.assertContains(self.client.get(self.url),
+                            f'<option value="P:{tipo.pk}">Pintura de la bodega</option>')
+
+        self.asignar([self.conductor], f'P:{tipo.pk}', hora='08:00', hora_fin='12:00')
+        asignacion = Asignacion.objects.get()
+        self.assertEqual((asignacion.tipo, asignacion.tipo_personalizado), ('PERSONALIZADA', tipo))
+        self.assertEqual(asignacion.get_tipo_display(), 'Pintura de la bodega')
+        self.assertContains(self.client.get(self.url), 'Pintura de la bodega')
+        pdf = self.client.get(reverse('planes:plan_pdf', args=[self.hoy.isoformat()]))
+        self.assertEqual(pdf.status_code, 200)
+
+    def test_el_mismo_nombre_no_se_duplica(self):
+        primera = self.crear('ACTIVIDAD', 'Pintura').json()
+        segunda = self.crear('ACTIVIDAD', 'PINTURA').json()
+        self.assertEqual(primera['id'], segunda['id'])
+        # En otro ámbito sí es otra.
+        self.crear('NOVEDAD', 'Pintura')
+        self.assertEqual(TipoPersonalizado.objects.count(), 2)
+
+    def test_sin_nombre_no_se_crea(self):
+        self.assertEqual(self.crear('ACTIVIDAD', '   ').status_code, 400)
+        self.assertEqual(self.crear('OTRO', 'Algo').status_code, 400)
+        self.assertFalse(TipoPersonalizado.objects.exists())
+
+    def test_crear_una_novedad_y_registrarla(self):
+        datos = self.crear('NOVEDAD', 'Capacitación externa', es_trabajo='1').json()
+        self.client.post(self.url, {
+            'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
+            'persona': self.conductor.pk, 'tipo': datos['valor'],
+            'fecha_inicio': self.hoy.isoformat(), 'fecha_fin': '',
+            'hora': '08:00', 'hora_fin': '12:00', 'detalle': ''})
+        novedad = Novedad.objects.get()
+        self.assertEqual(novedad.tipo, 'PERSONALIZADA')
+        self.assertEqual(novedad.get_tipo_display(), 'Capacitación externa')
+        self.assertTrue(novedad.es_trabajo)
+        # El registro de novedades la filtra por su nombre.
+        respuesta = self.client.get(reverse('planes:novedades'), {'tipo': datos['valor']})
+        self.assertEqual(list(respuesta.context['object_list']), [novedad])
+        self.assertContains(respuesta, 'Capacitación externa')
+
+    def test_una_novedad_creada_como_trabajo_suma_horas_y_la_otra_no(self):
+        trabajo = TipoPersonalizado.objects.create(ambito='NOVEDAD', nombre='Inventario',
+                                                   es_trabajo=True)
+        ausencia = TipoPersonalizado.objects.create(ambito='NOVEDAD', nombre='Diligencia')
+        for tipo, hora in ((trabajo, 7), (ausencia, 14)):
+            Novedad.objects.create(persona=self.conductor, tipo='PERSONALIZADA',
+                                   tipo_personalizado=tipo, fecha_inicio=self.hoy,
+                                   hora=datetime.time(hora), hora_fin=datetime.time(hora + 2))
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
+            {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
+        self.assertEqual(respuesta.context['horas']['interno'], '2 h')
+        self.assertContains(respuesta, 'Inventario')
+
+    def test_quitar_una_sin_usar_la_borra_y_una_usada_se_oculta(self):
+        sin_usar = TipoPersonalizado.objects.create(ambito='ACTIVIDAD', nombre='Sin usar')
+        usada = TipoPersonalizado.objects.create(ambito='ACTIVIDAD', nombre='Usada')
+        self.asignar([self.conductor], usada.valor)
+        quitar = lambda t: self.client.post(reverse('planes:eliminar_tipo', args=[t.pk])).json()
+        self.assertTrue(quitar(sin_usar)['eliminada'])
+        self.assertFalse(TipoPersonalizado.objects.filter(pk=sin_usar.pk).exists())
+        self.assertFalse(quitar(usada)['eliminada'])
+        usada.refresh_from_db()
+        self.assertFalse(usada.activo)
+        # Ya no se ofrece ni se puede asignar, pero lo registrado conserva su nombre.
+        self.assertNotContains(self.client.get(self.url), f'value="{usada.valor}"')
+        self.asignar([self.ayudante], usada.valor)
+        self.assertEqual(Asignacion.objects.count(), 1)
+        self.assertEqual(Asignacion.objects.get().get_tipo_display(), 'Usada')
+
+    def test_el_codigo_interno_no_se_acepta_a_mano(self):
+        self.asignar([self.conductor], 'PERSONALIZADA')
+        self.assertFalse(Asignacion.objects.exists())
+        form = NovedadForm({'persona': self.conductor.pk, 'tipo': 'PERSONALIZADA',
+                            'fecha_inicio': self.hoy.isoformat()})
+        self.assertFalse(form.is_valid())
+        self.assertIn('tipo', form.errors)
+
+    def test_solo_los_administradores_las_crean(self):
+        self.entrar(self.asesor)
+        self.assertEqual(self.crear('ACTIVIDAD', 'Algo').status_code, 403)
+        self.assertFalse(TipoPersonalizado.objects.exists())

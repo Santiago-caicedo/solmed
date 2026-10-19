@@ -31,6 +31,52 @@ def horario(inicio, fin):
     return f"{inicio:%H:%M}"
 
 
+class TipoPersonalizado(models.Model):
+    """
+    Una actividad o una novedad que no está en el formato y que el
+    administrador creó desde el popup del plan (oct-2026). Se elige en el
+    mismo desplegable que las del formato; la asignación o la novedad la
+    guarda con tipo 'PERSONALIZADA' y este enlace. Si ya se usó, no se borra:
+    se oculta del desplegable y lo registrado conserva su nombre.
+    """
+    AMBITO_CHOICES = [('ACTIVIDAD', 'Actividad'), ('NOVEDAD', 'Novedad')]
+
+    ambito = models.CharField(max_length=10, choices=AMBITO_CHOICES)
+    nombre = models.CharField(max_length=100)
+    # Solo para novedades: ¿sus horas son tiempo trabajado (como el trabajo en
+    # bodega) o una ausencia (como un permiso)? Lo dice quien la crea.
+    es_trabajo = models.BooleanField(default=False,
+                                     verbose_name="Cuenta como tiempo trabajado")
+    activo = models.BooleanField(default=True)
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tipos_plan_creados',
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Actividad o novedad creada en el plan"
+        verbose_name_plural = "Actividades y novedades creadas en el plan"
+
+    def __str__(self):
+        return self.nombre
+
+    @property
+    def valor(self):
+        """Cómo viaja en el desplegable, al lado de los códigos del formato."""
+        return f"P:{self.pk}"
+
+
+def tipo_personalizado_de(valor, ambito):
+    """El TipoPersonalizado activo que nombra un valor «P:<id>», o None."""
+    valor = str(valor or '')
+    if not valor.startswith('P:') or not valor[2:].isdigit():
+        return None
+    return TipoPersonalizado.objects.filter(
+        pk=int(valor[2:]), ambito=ambito, activo=True).first()
+
+
 class PlanDia(models.Model):
     """El plan de UN día. Se crea solo al registrar la primera asignación."""
     fecha = models.DateField(unique=True)
@@ -77,6 +123,8 @@ class Asignacion(models.Model):
         ('APOYO_SERVICIO', 'Apoyo a servicio'),
         ('APOYO_DISPOSICION', 'Apoyo a disposición'),
         ('OTRA', 'Otra actividad'),
+        # Las que se crean en el popup: el nombre está en tipo_personalizado.
+        ('PERSONALIZADA', 'Actividad creada en el plan'),
     ]
 
     # Qué campos pide cada actividad (el formato físico los trae por fila):
@@ -105,6 +153,7 @@ class Asignacion(models.Model):
         'APOYO_SERVICIO':      {'vehiculos': 'uno'},
         'APOYO_DISPOSICION':   {'vehiculos': 'uno'},
         'OTRA':                {'detalle': True},
+        'PERSONALIZADA':       {},
     }
 
     plan = models.ForeignKey(PlanDia, on_delete=models.CASCADE,
@@ -114,6 +163,10 @@ class Asignacion(models.Model):
         related_name='asignaciones_plan',
     )
     tipo = models.CharField(max_length=25, choices=TIPO_CHOICES)
+    tipo_personalizado = models.ForeignKey(
+        TipoPersonalizado, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='asignaciones', verbose_name="Actividad creada en el plan",
+    )
     vehiculos = models.ManyToManyField(
         Vehiculo, blank=True, related_name='asignaciones_plan',
         verbose_name="Placa(s)",
@@ -160,6 +213,12 @@ class Asignacion(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} — {self.persona_nombre} ({self.plan.fecha:%d/%m/%Y})"
+
+    def get_tipo_display(self):
+        """El nombre de la actividad o novedad, también si se creó en el plan."""
+        if self.tipo == 'PERSONALIZADA' and self.tipo_personalizado_id:
+            return self.tipo_personalizado.nombre
+        return dict(self._meta.get_field('tipo').flatchoices).get(self.tipo, self.tipo)
 
     @property
     def horario(self):
@@ -276,16 +335,31 @@ class Novedad(models.Model):
             ('RENUNCIA', 'Renuncia'),
             ('DESPIDO', 'Despido'),
         )),
+        # Las que se crean en el popup: el nombre está en tipo_personalizado.
+        ('Creadas en el plan', (
+            ('PERSONALIZADA', 'Novedad creada en el plan'),
+        )),
     ]
     # Las novedades que SON trabajo: sus horas suman en las horas trabajadas
     # del centro de control del empleado (base de la nómina).
     TIPOS_TRABAJO = ('TRABAJO_BODEGA', 'TRABAJO_OFICINA')
+
+    @property
+    def es_trabajo(self):
+        """¿Sus horas son tiempo trabajado? Las creadas en el plan lo dicen ellas."""
+        if self.tipo == 'PERSONALIZADA':
+            return bool(self.tipo_personalizado_id and self.tipo_personalizado.es_trabajo)
+        return self.tipo in self.TIPOS_TRABAJO
 
     persona = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='novedades_plan',
     )
     tipo = models.CharField(max_length=25, choices=TIPO_CHOICES)
+    tipo_personalizado = models.ForeignKey(
+        TipoPersonalizado, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='novedades', verbose_name="Novedad creada en el plan",
+    )
     fecha_inicio = models.DateField(verbose_name="Fecha de inicio")
     fecha_fin = models.DateField(
         null=True, blank=True, verbose_name="Fecha final",
@@ -310,6 +384,12 @@ class Novedad(models.Model):
     def __str__(self):
         return f"{self.get_tipo_display()} — {self.persona_nombre}"
 
+    def get_tipo_display(self):
+        """El nombre de la actividad o novedad, también si se creó en el plan."""
+        if self.tipo == 'PERSONALIZADA' and self.tipo_personalizado_id:
+            return self.tipo_personalizado.nombre
+        return dict(self._meta.get_field('tipo').flatchoices).get(self.tipo, self.tipo)
+
     @property
     def horario(self):
         """«08:00–10:30», «08:00» o vacío: la hora final es opcional."""
@@ -325,4 +405,4 @@ class Novedad(models.Model):
         return cls.objects.filter(
             models.Q(fecha_inicio=fecha, fecha_fin__isnull=True)
             | models.Q(fecha_inicio__lte=fecha, fecha_fin__gte=fecha)
-        ).select_related('persona')
+        ).select_related('persona', 'tipo_personalizado')
