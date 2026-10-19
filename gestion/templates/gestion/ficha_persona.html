@@ -61,6 +61,11 @@
         <strong>Persona retirada{% if fecha_retiro %} desde el {{ fecha_retiro|date:"d/m/Y" }}{% endif %}.</strong>
         No aparece en programaciones, recorridos ni planificación. Su expediente e historial se conservan para trazabilidad.
     </div>
+    {% if es_administrador %}
+    <button type="button" class="btn btn-sm btn-outline-dark ms-auto text-nowrap" data-bs-toggle="modal" data-bs-target="#modalFechaRetiro">
+        <i class="bi bi-calendar-event me-1"></i>Cambiar fecha de retiro
+    </button>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -295,6 +300,29 @@
     </div>
     {% endif %}
 {% endfor %}
+{% if retirado and es_administrador %}
+<div class="modal fade" id="modalFechaRetiro" tabindex="-1" aria-labelledby="modalFechaRetiroTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" action="{% url 'gestion:cambiar_fecha_retiro' persona.pk %}" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalFechaRetiroTitulo"><i class="bi bi-calendar-event me-2"></i>Cambiar fecha de retiro</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-semibold" for="nueva_fecha_retiro">Fecha de retiro</label>
+                <input type="date" name="fecha_retiro" id="nueva_fecha_retiro" class="form-control"
+                       value="{{ fecha_retiro|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}" required>
+                <div class="form-text">La persona sigue retirada; solo cambia la fecha.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-dark"><i class="bi bi-check2 me-1"></i>Guardar fecha</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% if not retirado %}
 <div class="modal fade" id="modalRetiro" tabindex="-1" aria-labelledby="modalRetiroTitulo" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">

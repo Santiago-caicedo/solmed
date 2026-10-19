@@ -1591,6 +1591,38 @@ class PersonalYExpedienteTests(BaseCRM):
         self.assertContains(ficha, 'Persona retirada desde el 30/09/2026')
         self.assertNotContains(ficha, 'id="modalRetiro"')
 
+    def test_el_administrador_cambia_la_fecha_de_retiro_sin_reactivar(self):
+        perfil = PerfilPersona.objects.get(usuario=self.conductor)
+        perfil.retirado, perfil.fecha_retiro = True, datetime.date(2026, 9, 30)
+        perfil.save()
+        ficha_url = reverse('gestion:ficha_persona', args=[self.conductor.pk])
+        url = reverse('gestion:cambiar_fecha_retiro', args=[self.conductor.pk])
+
+        # El asesor ve la ficha, pero no el botón ni puede usar la URL.
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(ficha_url), 'Cambiar fecha de retiro')
+        self.assertEqual(self.client.post(url, {'fecha_retiro': '2026-09-15'}).status_code, 403)
+
+        self.entrar(self.persona('jefe', 'Administradores'))
+        ficha = self.client.get(ficha_url)
+        self.assertContains(ficha, 'Cambiar fecha de retiro')
+        self.assertContains(ficha, 'value="2026-09-30"')
+        manana = (timezone.localdate() + datetime.timedelta(days=1)).isoformat()
+        for fecha in (manana, 'no-es-fecha'):
+            self.client.post(url, {'fecha_retiro': fecha})
+            perfil.refresh_from_db()
+            self.assertEqual(perfil.fecha_retiro, datetime.date(2026, 9, 30))
+        self.client.post(url, {'fecha_retiro': '2026-09-15'})
+        perfil.refresh_from_db()
+        self.assertEqual((perfil.retirado, perfil.fecha_retiro), (True, datetime.date(2026, 9, 15)))
+
+    def test_no_se_cambia_la_fecha_de_retiro_de_alguien_activo(self):
+        self.entrar(self.persona('jefe', 'Administradores'))
+        self.client.post(reverse('gestion:cambiar_fecha_retiro', args=[self.conductor.pk]),
+                         {'fecha_retiro': '2026-09-15'})
+        perfil = PerfilPersona.objects.get(usuario=self.conductor)
+        self.assertEqual((perfil.retirado, perfil.fecha_retiro), (False, None))
+
     def test_reactivar_devuelve_el_acceso_menos_a_los_roles_sin_acceso(self):
         ayudante = self.persona('ayudante', 'Ayudantes')
         self.entrar(self.asesor)

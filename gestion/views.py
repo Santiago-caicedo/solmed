@@ -6506,6 +6506,27 @@ class ActualizarVigenciaDocumentoView(PersonalRequiredMixin, View):
         return redirect('gestion:ficha_persona', pk=documento.usuario_id)
 
 
+def _fecha_retiro_del_post(request):
+    """
+    La fecha de retiro que mandó el formulario: (fecha, None) o (None, error).
+    Hoy o un día pasado, nunca futuro (retirar quita el acceso desde ya). Sin
+    fecha, la de hoy.
+    """
+    from django.utils.dateparse import parse_date
+    hoy = timezone.localdate()
+    crudo = (request.POST.get('fecha_retiro') or '').strip()
+    try:
+        fecha = parse_date(crudo) if crudo else hoy
+    except ValueError:
+        fecha = None
+    if fecha is None:
+        return None, "La fecha de retiro no es válida."
+    if fecha > hoy:
+        return None, ("La fecha de retiro no puede ser futura: retirar le quita "
+                      "el acceso desde ya.")
+    return fecha, None
+
+
 class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
     """
     Retira o reactiva a una persona (solo POST). Al retirar, deja de aparecer en
@@ -6518,7 +6539,6 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
     se toma la de hoy.
     """
     def post(self, request, pk):
-        from django.utils.dateparse import parse_date
         persona = get_object_or_404(User, pk=pk)
         frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
@@ -6533,18 +6553,9 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
                 persona.save(update_fields=['is_active'])
             messages.success(request, "Persona reactivada. Vuelve a estar disponible para asignaciones.")
         else:
-            hoy = timezone.localdate()
-            crudo = (request.POST.get('fecha_retiro') or '').strip()
-            try:
-                fecha = parse_date(crudo) if crudo else hoy
-            except ValueError:
-                fecha = None
-            if fecha is None:
-                messages.error(request, "La fecha de retiro no es válida.")
-                return redirect('gestion:ficha_persona', pk=pk)
-            if fecha > hoy:
-                messages.error(request, "La fecha de retiro no puede ser futura: retirar "
-                                        "le quita el acceso desde ya.")
+            fecha, error = _fecha_retiro_del_post(request)
+            if error:
+                messages.error(request, error)
                 return redirect('gestion:ficha_persona', pk=pk)
             perfil.retirado = True
             perfil.fecha_retiro = fecha
@@ -6556,6 +6567,31 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
                 "Persona marcada como retirada. Ya no aparece en las asignaciones; "
                 "su expediente se conserva para trazabilidad."
             )
+        return redirect('gestion:ficha_persona', pk=pk)
+
+
+class CambiarFechaRetiroView(AdministradorRequiredMixin, View):
+    """
+    Corrige la fecha de retiro de alguien que YA está retirado, sin
+    reactivarlo (solo POST). Solo administradores (pedido del usuario,
+    oct-2026); mismas reglas de fecha que al retirar.
+    """
+    def post(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        frenar = _protege_superusuario(request, persona)
+        if frenar is not None:
+            return frenar
+        perfil = _perfil_de(persona)
+        if not perfil.retirado:
+            messages.error(request, "Esta persona no está retirada.")
+            return redirect('gestion:ficha_persona', pk=pk)
+        fecha, error = _fecha_retiro_del_post(request)
+        if error:
+            messages.error(request, error)
+        else:
+            perfil.fecha_retiro = fecha
+            perfil.save(update_fields=['fecha_retiro'])
+            messages.success(request, f"Fecha de retiro cambiada al {fecha:%d/%m/%Y}.")
         return redirect('gestion:ficha_persona', pk=pk)
 
 
