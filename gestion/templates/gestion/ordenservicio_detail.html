@@ -290,7 +290,7 @@ en el número pedido y las que estorben se corren un puesto.
                                     completar los datos que el conductor deje pendientes.
                                     {% endcomment %}
                                     <a href="{% url 'gestion:firmar_manifiesto_step' recorrido.pk 'paso3' %}" class="btn btn-outline-secondary btn-sm"
-                                       title="Llenar o completar tiempos, kilómetros, novedades y ACPM">
+                                       title="Llenar o completar tiempos, novedades y horas de los ayudantes">
                                         <i class="bi bi-pen-fill me-1"></i>{% if recorrido.manifiesto %}Completar datos{% else %}Llenar{% endif %}
                                     </a>
                                 {% endif %}

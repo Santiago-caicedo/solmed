@@ -366,16 +366,27 @@ class NovedadOperacionalForm(forms.Form):
                     or d.get('hora_inicio') or d.get('hora_final'))
 
 
-class MedidaACPMForm(forms.Form):
-    """Una casilla del bloque CONTROL DE ACPM: la medida y su foto."""
-    medida = forms.CharField(
-        required=False, max_length=50,
-        widget=forms.TextInput(attrs={'class': 'form-control form-control-sm',
-                                      'placeholder': 'Medida'}))
-    foto = forms.ImageField(
-        required=False,
-        widget=forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm',
-                                               'accept': 'image/*'}))
+class HorasAyudanteForm(forms.Form):
+    """
+    Las horas de UN ayudante en el servicio (oct-2026). Las llena la oficina
+    en la hoja del servicio y alimentan sus horas trabajadas en Personal; no
+    van en el acta. Una salida de madrugada puede terminar después de la
+    medianoche, así que la final puede ser menor que la de inicio.
+    """
+    hora_inicio = forms.TimeField(
+        required=False, input_formats=['%H:%M', '%H:%M:%S'],
+        widget=forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'},
+                               format='%H:%M'))
+    hora_fin = forms.TimeField(
+        required=False, input_formats=['%H:%M', '%H:%M:%S'],
+        widget=forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'},
+                               format='%H:%M'))
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('hora_fin') and not cleaned.get('hora_inicio'):
+            self.add_error('hora_inicio', "Escribe también la hora de inicio.")
+        return cleaned
 
 
 class ManifiestoPaso4Form(forms.ModelForm):

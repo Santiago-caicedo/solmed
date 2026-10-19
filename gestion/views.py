@@ -44,7 +44,7 @@ from .renumeracion import reubicar_orden
 from planes.models import Asignacion, Novedad
 from .forms import ManifiestoHojaConductorForm
 from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
-from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, FotoRegistro, LineaFactura, MedidaACPM, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
+from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, FotoRegistro, LineaFactura, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
 def rango_de_paginas(page_obj, a_los_lados=2):
@@ -1692,28 +1692,43 @@ def _formularios_novedades(manifiesto, data=None):
     return filas
 
 
-def _formularios_acpm(manifiesto, data=None, files=None):
-    """Las 3 casillas de CONTROL DE ACPM, con lo ya guardado."""
-    from .forms import MedidaACPMForm
-    guardadas = {}
-    if manifiesto is not None:
-        guardadas = {m.tipo: m for m in manifiesto.medidas_acpm.all()}
+def _formularios_horas_ayudantes(recorrido, data=None):
+    """
+    Una fila por ayudante asignado al recorrido, con sus horas ya guardadas:
+    [(persona, campo_inicio, campo_fin, form)]. Sin ayudantes, lista vacía.
+    """
+    from .forms import HorasAyudanteForm
     filas = []
-    for tipo, etiqueta in MedidaACPM.TIPO_CHOICES:
-        m = guardadas.get(tipo)
-        filas.append((tipo, etiqueta, m,
-                      MedidaACPMForm(data, files, prefix=f'acpm-{tipo}',
-                                     initial={'medida': m.medida if m else ''})))
+    for n, persona in ((1, recorrido.ayudante), (2, recorrido.ayudante2)):
+        if persona is None:
+            continue
+        sufijo = '' if n == 1 else '2'
+        campos = (f'hora_inicio_ayudante{sufijo}', f'hora_fin_ayudante{sufijo}')
+        filas.append((persona, *campos, HorasAyudanteForm(
+            data, prefix=f'ayu{n}',
+            initial={'hora_inicio': getattr(recorrido, campos[0]),
+                     'hora_fin': getattr(recorrido, campos[1])})))
     return filas
 
 
-def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas=True, con_acpm=True):
+def _guardar_horas_ayudantes(recorrido, filas):
+    """Escribe en el recorrido las horas de cada ayudante (no en el acta)."""
+    campos = []
+    for _persona, campo_inicio, campo_fin, form in filas:
+        setattr(recorrido, campo_inicio, form.cleaned_data['hora_inicio'])
+        setattr(recorrido, campo_fin, form.cleaned_data['hora_fin'])
+        campos += [campo_inicio, campo_fin]
+    if campos:
+        recorrido.save(update_fields=campos)
+
+
+def _guardar_novedades(manifiesto, filas_novedades, con_horas=True):
     """
     Escribe lo marcado en la hoja: las novedades sin datos se borran (el
-    conductor pudo desmarcarlas) y las fotos de ACPM solo se reemplazan si
-    subió una nueva. Sin `con_horas` (la hoja del conductor, oct-2026) las
-    horas de cada novedad no se tocan: las llena el asesor. Sin `con_acpm`
-    el ACPM tampoco: desde oct-2026 también lo llena la oficina.
+    conductor pudo desmarcarlas). Sin `con_horas` (la hoja del conductor,
+    oct-2026) las horas de cada novedad no se tocan: las llena el asesor.
+    El control de ACPM ya no lo llena nadie (oct-2026): lo guardado antes
+    se conserva en el modelo, pero la hoja no lo pide.
     """
     for tipo, _etiqueta, _icono, form in filas_novedades:
         if form.tiene_datos():
@@ -1725,18 +1740,6 @@ def _guardar_novedades_y_acpm(manifiesto, filas_novedades, filas_acpm, con_horas
                 manifiesto=manifiesto, tipo=tipo, defaults=datos)
         else:
             NovedadOperacional.objects.filter(manifiesto=manifiesto, tipo=tipo).delete()
-
-    for tipo, _etiqueta, _previa, form in (filas_acpm if con_acpm else []):
-        medida = form.cleaned_data['medida']
-        foto = form.cleaned_data['foto']
-        if not medida and not foto:
-            continue
-        registro, _creada = MedidaACPM.objects.get_or_create(
-            manifiesto=manifiesto, tipo=tipo)
-        registro.medida = medida
-        if foto:
-            registro.foto = foto
-        registro.save()
 
 
 def _llena_tiempos(user):
@@ -1838,17 +1841,20 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             contexto.update(self._contexto_hoja(recorrido, manifiesto_instance))
         return render(request, template_path, contexto)
 
-    def _contexto_hoja(self, recorrido, manifiesto, data=None, files=None):
-        """Bloques del formato que acompañan a tiempos y kilómetros."""
+    def _contexto_hoja(self, recorrido, manifiesto, data=None):
+        """Bloques del formato que acompañan a los tiempos."""
         programacion = _programacion_de(recorrido)
         izquierda, derecha = (programacion.resumen_checklist() if programacion
                               else ([], []))
+        llena_tiempos = _llena_tiempos(self.request.user)
         return {
             'checklist_izq': izquierda,
             'checklist_der': derecha,
-            'llena_tiempos': _llena_tiempos(self.request.user),
+            'llena_tiempos': llena_tiempos,
             'filas_novedades': _formularios_novedades(manifiesto, data),
-            'filas_acpm': _formularios_acpm(manifiesto, data, files),
+            # Las horas de los ayudantes son de la oficina, como los tiempos.
+            'filas_ayudantes': (_formularios_horas_ayudantes(recorrido, data)
+                                if llena_tiempos else []),
         }
 
     def post(self, request, pk, step='paso3'):
@@ -1865,14 +1871,15 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             return redirect('gestion:detalle_orden', pk=recorrido.orden.pk)
 
         form = FormClass(request.POST, instance=manifiesto_instance)
-        # El paso de tiempos trae además las novedades operacionales y el ACPM.
+        # El paso de tiempos trae además las novedades operacionales y las
+        # horas de los ayudantes.
         extra = {}
         if step == 'paso3':
-            extra = self._contexto_hoja(recorrido, manifiesto_instance,
-                                        request.POST, request.FILES)
-        subformularios_ok = all(
-            f.is_valid() for _t, _e, _i, f in extra.get('filas_novedades', [])
-        ) and all(f.is_valid() for _t, _e, _p, f in extra.get('filas_acpm', []))
+            extra = self._contexto_hoja(recorrido, manifiesto_instance, request.POST)
+        subformularios_ok = all([
+            *(f.is_valid() for _t, _e, _i, f in extra.get('filas_novedades', [])),
+            *(f.is_valid() for _p, _ci, _cf, f in extra.get('filas_ayudantes', [])),
+        ])
 
         if not form.is_valid() or not subformularios_ok:
             messages.error(request, "Por favor, corrija los errores en el formulario.")
@@ -1883,8 +1890,8 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             })
 
         if step == 'paso3':
-            # Las novedades y el ACPM cuelgan del acta (y las fotos no caben en
-            # la sesión): se persiste el acta ya mismo y se guardan de una vez.
+            # Las novedades cuelgan del acta: se persiste el acta ya mismo y
+            # se guardan de una vez.
             # Los pasos siguientes actualizan esta misma acta.
             if manifiesto_instance is None:
                 auxiliar1, auxiliar2 = recorrido.auxiliares
@@ -1904,9 +1911,9 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             for campo, valor in form.cleaned_data.items():
                 setattr(manifiesto_instance, campo, valor)
             manifiesto_instance.save()
-            _guardar_novedades_y_acpm(
-                manifiesto_instance, extra['filas_novedades'], extra['filas_acpm'],
-                con_horas=extra['llena_tiempos'], con_acpm=extra['llena_tiempos'])
+            _guardar_novedades(manifiesto_instance, extra['filas_novedades'],
+                               con_horas=extra['llena_tiempos'])
+            _guardar_horas_ayudantes(recorrido, extra['filas_ayudantes'])
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
         cleaned_data = form.cleaned_data
@@ -5748,17 +5755,26 @@ def _datos_centro_control(persona, inicio, fin):
     servicios = []
     for r in recorridos:
         acta = actas.get(r.pk)
-        # Las mismas horas del acta que muestra _horario_de; la hora
-        # programada no es tiempo trabajado y no da duración.
-        desde = hasta = None
-        if acta is not None:
-            desde = acta.hora_salida_solmed or acta.tiempo_inicio_operativo
-            hasta = acta.hora_llegada_solmed or acta.tiempo_final_operativo
+        es_conductor = r.conductor_id == persona.pk
+        # Al AYUDANTE la oficina le anota sus propias horas (oct-2026): si las
+        # tiene, esas son las suyas. Si no, las del acta, como al conductor.
+        desde, hasta = (None, None) if es_conductor else r.horas_de_ayudante(persona)
+        if desde:
+            horas = (f"{desde:%H:%M}–{hasta:%H:%M}" if hasta
+                     else f"desde {desde:%H:%M}")
+        else:
+            # Las mismas horas del acta que muestra _horario_de; la hora
+            # programada no es tiempo trabajado y no da duración.
+            desde = hasta = None
+            if acta is not None:
+                desde = acta.hora_salida_solmed or acta.tiempo_inicio_operativo
+                hasta = acta.hora_llegada_solmed or acta.tiempo_final_operativo
+            horas = _horario_de(r, acta)
         minutos = _minutos_entre(desde, hasta)
         servicios.append({
             'recorrido': r,
-            'como': 'Conductor' if r.conductor_id == persona.pk else 'Ayudante',
-            'horas': _horario_de(r, acta),
+            'como': 'Conductor' if es_conductor else 'Ayudante',
+            'horas': horas,
             'desde': desde,
             'minutos': minutos,
             'duracion': _texto_horas(minutos),

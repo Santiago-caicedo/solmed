@@ -5,8 +5,9 @@
 {% comment %}
 La hoja del servicio. El CONDUCTOR la llena en un solo paso: novedades y
 observaciones, con un solo botón «Guardar» (oct-2026: los tiempos, las horas
-de las novedades y el ACPM los llena la oficina). Gestión ve la misma hoja
-con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
+de las novedades y las de los ayudantes los llena la oficina). Gestión ve la
+misma hoja con todo eso y sigue al paso 2 (observaciones). `llena_tiempos`
+decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
 {% endcomment %}
 <style>
 .hj-sec{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; overflow:hidden; }
@@ -54,20 +55,16 @@ con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
 .nv-item.on .nv-det{ display:block; }
 .nv-det .grilla-2{ margin-top:.65rem; }
 
-/* ACPM: la medida y su foto con dos botones (cámara o galería) */
-.acpm{ display:grid; grid-template-columns:1fr; gap:.75rem; }
-.acpm .casilla{ border:1px solid var(--line); border-radius:12px; padding:.85rem; background:var(--panel-2); }
-.acpm .casilla h3{ font-size:.95rem; font-weight:700; margin:0 0 .55rem; }
-.acpm .fotos{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-top:.6rem; }
-.acpm .fotos .cd-btn{ min-height:46px; font-size:.95rem; }
-.acpm .elegida{ font-size:.82rem; color:var(--ok); font-weight:600; margin-top:.45rem; }
-.acpm .previa img{ width:100%; max-height:140px; object-fit:cover; border-radius:10px; margin-top:.55rem; border:1px solid var(--line); }
+/* La hora de cada ayudante: una fila por persona */
+.ay-fila + .ay-fila{ margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--line); }
+.ay-nombre{ font-weight:700; font-size:.95rem; margin-bottom:.5rem; display:flex; align-items:center; gap:.4rem; }
+.ay-nombre i{ color:var(--steel); }
 
 /* Botón principal fijo abajo, al alcance del pulgar */
 .hj-pie{ position:sticky; bottom:0; z-index:5; margin:1rem -1rem 0; padding:.75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
     background:linear-gradient(to top, var(--canvas) 70%, rgba(237,240,244,0)); display:grid; gap:.4rem; }
 .hj-pie .volver{ text-align:center; min-height:44px; display:flex; align-items:center; justify-content:center; color:var(--ink-2); font-weight:600; text-decoration:none; }
-@media (min-width:768px){ .nv-lista{ grid-template-columns:1fr 1fr; } .acpm{ grid-template-columns:repeat(3,1fr); } }
+@media (min-width:768px){ .nv-lista{ grid-template-columns:1fr 1fr; } }
 </style>
 
 <div class="cd">
@@ -115,6 +112,24 @@ con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
                 <div class="campo"><label for="{{ form.hora_llegada_solmed.id_for_label }}">Llegada a SolMed</label>{{ form.hora_llegada_solmed }}</div>
             </div></div>
         </div>
+        {# Horas de cada ayudante: van a sus horas trabajadas en Personal, NO al acta. #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-people" aria-hidden="true"></i><span class="t">Horas de los ayudantes</span><span class="s">no salen en el acta</span></div>
+            <div class="cuerpo">
+                {% for persona, _ci, _cf, f in filas_ayudantes %}
+                <div class="ay-fila">
+                    <div class="ay-nombre"><i class="bi bi-person" aria-hidden="true"></i>{{ persona.get_full_name|default:persona.username }}</div>
+                    {% if f.errors %}<div class="text-danger small mb-2">{% for e in f.non_field_errors %}{{ e }} {% endfor %}{% for campo in f %}{% for e in campo.errors %}{{ e }} {% endfor %}{% endfor %}</div>{% endif %}
+                    <div class="grilla-2">
+                        <div class="campo"><label for="{{ f.hora_inicio.id_for_label }}">Hora de inicio</label>{{ f.hora_inicio }}</div>
+                        <div class="campo"><label for="{{ f.hora_fin.id_for_label }}">Hora final</label>{{ f.hora_fin }}</div>
+                    </div>
+                </div>
+                {% empty %}
+                <p class="ayuda mb-0">Este servicio no tiene ayudantes asignados.</p>
+                {% endfor %}
+            </div>
+        </div>
         {% endif %}
 
         {% comment %}
@@ -154,35 +169,6 @@ con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
                 </div>
             </div>
         </div>
-
-        {# El ACPM, como los tiempos, ya no es del conductor (oct-2026): lo llena la oficina. #}
-        {% if llena_tiempos %}
-        <div class="hj-sec">
-            <div class="cab"><i class="bi bi-fuel-pump" aria-hidden="true"></i><span class="t">Control de ACPM</span></div>
-            <div class="cuerpo">
-                <p class="ayuda">Lo que marca el medidor y, si puedes, una foto.</p>
-                <div class="acpm">
-                    {% for tipo, etiqueta, previa, f in filas_acpm %}
-                    <div class="casilla" data-acpm>
-                        <h3><label for="{{ f.medida.id_for_label }}">{{ etiqueta }}</label></h3>
-                        {{ f.medida }}
-                        {# Dos entradas con el mismo name: cámara o galería; la que no se usa se apaga. #}
-                        <input type="file" name="{{ f.foto.html_name }}" accept="image/*" capture="environment" hidden class="acpm-foto">
-                        <input type="file" name="{{ f.foto.html_name }}" accept="image/*" hidden class="acpm-foto">
-                        <div class="fotos">
-                            <button type="button" class="cd-btn sec" data-foto="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Foto</button>
-                            <button type="button" class="cd-btn sec" data-foto="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
-                        </div>
-                        <div class="elegida" hidden></div>
-                        {% if previa.foto %}
-                        <div class="previa"><a href="{{ previa.foto.url }}" target="_blank" rel="noopener"><img src="{{ previa.foto.url }}" alt="Foto guardada de {{ etiqueta }}"></a></div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-        {% endif %}
 
         {% if not llena_tiempos %}
         <div class="hj-sec">
@@ -243,23 +229,6 @@ con todo eso y sigue al paso 2 (observaciones). `llena_tiempos` decide cuál.
         if (contar()) mostrar();
     } else { contar(); }
 
-    // ACPM: el botón abre su entrada; al elegir la foto se apaga la otra y se dice cuál quedó.
-    document.querySelectorAll('[data-acpm]').forEach(function (casilla) {
-        var entradas = casilla.querySelectorAll('.acpm-foto');
-        var aviso = casilla.querySelector('.elegida');
-        casilla.querySelectorAll('[data-foto]').forEach(function (b) {
-            b.addEventListener('click', function () { entradas[b.getAttribute('data-foto')].click(); });
-        });
-        entradas.forEach(function (entrada) {
-            entrada.addEventListener('change', function () {
-                if (!entrada.files.length) return;
-                entradas.forEach(function (otra) { if (otra !== entrada) { otra.value = ''; otra.disabled = true; } });
-                entrada.disabled = false;
-                aviso.hidden = false;
-                aviso.textContent = '✓ Foto lista: ' + entrada.files[0].name;
-            });
-        });
-    });
 })();
 </script>
 {% endblock %}

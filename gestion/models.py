@@ -732,6 +732,13 @@ class Recorrido(models.Model):
         related_name='recorridos_como_ayudante2',
         null=True, blank=True
     )
+    # Las horas de cada ayudante (oct-2026, base de la nómina): las llena la
+    # oficina en la hoja del servicio, debajo de los tiempos del acta, y son
+    # sus horas trabajadas en Personal. NO van en el acta ni en su PDF.
+    hora_inicio_ayudante = models.TimeField(null=True, blank=True)
+    hora_fin_ayudante = models.TimeField(null=True, blank=True)
+    hora_inicio_ayudante2 = models.TimeField(null=True, blank=True)
+    hora_fin_ayudante2 = models.TimeField(null=True, blank=True)
 
     fecha_recorrido = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
@@ -762,6 +769,16 @@ class Recorrido(models.Model):
                 return ''
             return persona.get_full_name() or persona.username
         return nombre(self.ayudante), nombre(self.ayudante2)
+
+    def horas_de_ayudante(self, persona):
+        """(inicio, fin) que la oficina le anotó a ese ayudante; (None, None) si no."""
+        if persona is None:
+            return None, None
+        if self.ayudante_id == persona.pk:
+            return self.hora_inicio_ayudante, self.hora_fin_ayudante
+        if self.ayudante2_id == persona.pk:
+            return self.hora_inicio_ayudante2, self.hora_fin_ayudante2
+        return None, None
 
     @property
     def va_sin_ayudante(self):

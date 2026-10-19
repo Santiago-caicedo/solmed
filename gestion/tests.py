@@ -663,25 +663,66 @@ class ActaDeServicioTests(BaseCRM):
         self.client.post(self.url_paso('paso3'), self.datos_hoja())
         self.assertFalse(NovedadOperacional.objects.exists())
 
-    def test_el_control_de_acpm_lo_llena_la_oficina(self):
-        """Oct-2026: el conductor ya no ve ni guarda el ACPM; el asesor sí."""
+    def test_el_control_de_acpm_ya_no_lo_llena_nadie(self):
+        """Oct-2026: ni el conductor ni la oficina; lo guardado antes se conserva."""
+        acta = Manifiesto.objects.create(recorrido=self.recorrido)
+        MedidaACPM.objects.create(manifiesto=acta, tipo='INICIAL', medida='3/4')
+        for usuario in (self.conductor, self.asesor):
+            with self.subTest(usuario=usuario.username):
+                self.entrar(usuario)
+                hoja = self.client.get(self.url_paso('paso3'))
+                self.assertNotContains(hoja, 'Control de ACPM')
+                self.assertNotContains(hoja, 'name="acpm-')
+                self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+                    'acpm-INICIAL-medida': '1/2 tanque', 'acpm-FINAL-medida': 'lleno',
+                    'observaciones': 'ok'}))
+                self.assertEqual(list(MedidaACPM.objects.values_list('medida', flat=True)),
+                                 ['3/4'], "no escribe ACPM y no borra lo histórico")
+
+    def test_la_oficina_anota_las_horas_de_cada_ayudante_debajo_de_los_tiempos(self):
+        ayudante2 = self.persona('ayu2', 'Ayudantes', 'Pedro', 'Ríos')
+        self.recorrido.ayudante2 = ayudante2
+        self.recorrido.save()
+        self.entrar(self.asesor)
+        hoja = self.client.get(self.url_paso('paso3')).content.decode()
+        self.assertLess(hoja.index('Tiempos de recorrido'), hoja.index('Horas de los ayudantes'))
+        self.assertIn('Luis Gómez', hoja)
+        self.assertIn('Pedro Ríos', hoja)
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'ayu1-hora_inicio': '05:30', 'ayu1-hora_fin': '14:00',
+            'ayu2-hora_inicio': '06:00', 'ayu2-hora_fin': '12:15'}))
+        self.assertRedirects(respuesta, self.url_paso('paso4'))
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.horas_de_ayudante(self.ayudante),
+                         (datetime.time(5, 30), datetime.time(14, 0)))
+        self.assertEqual(self.recorrido.horas_de_ayudante(ayudante2),
+                         (datetime.time(6, 0), datetime.time(12, 15)))
+        # Al volver, la hoja las trae puestas.
+        self.assertContains(self.client.get(self.url_paso('paso3')), 'value="05:30"')
+        # No van en el acta ni en su formato.
+        acta = Manifiesto.objects.get(recorrido=self.recorrido)
+        self.assertEqual(acta.hora_salida_solmed, datetime.time(6, 0))
+        detalle = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertNotContains(detalle, '05:30')
+
+    def test_la_hora_final_del_ayudante_sin_la_de_inicio_no_se_guarda(self):
+        self.entrar(self.asesor)
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'ayu1-hora_fin': '14:00'}))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Escribe también la hora de inicio.')
+        self.recorrido.refresh_from_db()
+        self.assertIsNone(self.recorrido.hora_fin_ayudante)
+
+    def test_el_conductor_no_ve_ni_escribe_las_horas_de_los_ayudantes(self):
         self.entrar(self.conductor)
         hoja = self.client.get(self.url_paso('paso3'))
-        self.assertNotContains(hoja, 'Control de ACPM')
-        self.assertNotContains(hoja, 'name="acpm-INICIAL-medida"')
-        self.client.post(self.url_paso('paso3'), {'acpm-INICIAL-medida': 'lo que mande a mano'})
-        self.assertFalse(MedidaACPM.objects.exists(), "aunque lo mande, el conductor no escribe el ACPM")
-
-        self.entrar(self.asesor)
-        self.assertContains(self.client.get(self.url_paso('paso3')), 'Control de ACPM')
-        self.client.post(self.url_paso('paso3'), self.datos_hoja(**{'acpm-INICIAL-medida': '1/2 tanque'}))
-        medida = MedidaACPM.objects.get()
-        self.assertEqual(medida.tipo, 'INICIAL')
-        self.assertEqual(medida.medida, '1/2 tanque')
-        # Y si después el conductor guarda su hoja, lo del asesor se conserva.
-        self.entrar(self.conductor)
-        self.client.post(self.url_paso('paso3'), {'observaciones': 'ok'})
-        self.assertEqual(MedidaACPM.objects.get().medida, '1/2 tanque')
+        self.assertNotContains(hoja, 'Horas de los ayudantes')
+        self.assertNotContains(hoja, 'name="ayu1-hora_inicio"')
+        self.client.post(self.url_paso('paso3'), {
+            'ayu1-hora_inicio': '05:30', 'ayu1-hora_fin': '14:00', 'observaciones': 'ok'})
+        self.recorrido.refresh_from_db()
+        self.assertIsNone(self.recorrido.hora_inicio_ayudante)
 
     def test_otro_conductor_no_puede_llenar_un_acta_ajena(self):
         intruso = self.persona('conductor2', 'Conductores')
@@ -7010,6 +7051,24 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         horas = self.horas(anio=manana.year, mes='todo').context['horas']
         self.assertEqual(horas['actividades'], '0 h')
         self.assertEqual(horas['interno'], '0 h')
+
+    def test_el_ayudante_suma_las_horas_que_le_anoto_la_oficina(self):
+        ayudante = self.persona('ayu', 'Ayudantes', 'Luis', 'Gómez')
+        self.recorrido.ayudante = ayudante
+        self.recorrido.save()
+        self.acta(datetime.time(6, 0), datetime.time(15, 0))
+        url = reverse('gestion:centro_control_persona', args=[ayudante.pk])
+        params = {'anio': self.dia.year, 'mes': self.dia.month}
+        # Sin sus horas, las del acta (como antes).
+        self.assertEqual(self.client.get(url, params).context['horas']['total'], '9 h')
+        self.recorrido.hora_inicio_ayudante = datetime.time(7, 0)
+        self.recorrido.hora_fin_ayudante = datetime.time(11, 30)
+        self.recorrido.save()
+        respuesta = self.client.get(url, params)
+        self.assertEqual(respuesta.context['servicios'][0]['horas'], '07:00–11:30')
+        self.assertEqual(respuesta.context['horas']['total'], '4 h 30 min')
+        # Al conductor no lo tocan: sigue con las del acta.
+        self.assertEqual(self.horas().context['horas']['total'], '9 h')
 
     def test_la_novedad_muestra_su_rango_de_horas(self):
         self.Novedad.objects.create(
