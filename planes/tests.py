@@ -246,6 +246,28 @@ class AsignacionesTests(BasePlan):
         asignacion = Asignacion.objects.get()
         self.assertIsNone(asignacion.proveedor)
 
+    def test_cualquier_actividad_lleva_vehiculo_si_se_marca(self):
+        otro = Vehiculo.objects.create(placa='OBB178', marca='Hino', modelo='2020', capacidad='5 m³')
+        self.assertContains(self.client.get(self.url), 'name="uso_vehiculo"')
+        # Sin marcar, las placas que lleguen no se guardan.
+        self.asignar([self.conductor], 'TRASTEO', [self.camion], detalle='Bodega')
+        self.assertFalse(Asignacion.objects.get().vehiculos.exists())
+        Asignacion.objects.all().delete()
+        # Marcado, se guardan (una o varias) y salen en el tablero.
+        self.asignar([self.conductor], 'TRASTEO', [self.camion, otro], uso_vehiculo='1')
+        asignacion = Asignacion.objects.get()
+        self.assertEqual({v.placa for v in asignacion.vehiculos.all()}, {'WHB123', 'OBB178'})
+        self.assertContains(self.client.get(self.url), 'OBB178')
+
+    def test_marcar_que_se_uso_vehiculo_exige_elegirlo(self):
+        self.asignar([self.conductor], 'DESTRUCCION_CANECAS', uso_vehiculo='1')
+        self.assertFalse(Asignacion.objects.exists())
+
+    def test_una_actividad_creada_en_el_plan_tambien_lleva_vehiculo(self):
+        tipo = TipoPersonalizado.objects.create(ambito='ACTIVIDAD', nombre='Pintura')
+        self.asignar([self.conductor], tipo.valor, [self.camion], uso_vehiculo='1')
+        self.assertEqual(list(Asignacion.objects.get().vehiculos.all()), [self.camion])
+
     def test_el_mantenimiento_externo_guarda_su_proveedor(self):
         proveedor = Proveedor.objects.create(nit='900', razon_social='Taller Sur')
         self.asignar([self.conductor], 'MANT_EXTERNO', [self.camion],

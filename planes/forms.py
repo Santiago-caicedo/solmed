@@ -35,6 +35,9 @@ class AsignacionForm(forms.Form):
         queryset=Dispositor.objects.filter(activo=True, tipo='PROVEEDOR'),
         required=False)
     detalle = forms.CharField(required=False, max_length=255)
+    # Para las actividades que no piden placa: marcada, se dice cuál(es)
+    # vehículo(s) se usó (oct-2026).
+    uso_vehiculo = forms.BooleanField(required=False)
     # Marcada, se le avisa por correo a cada persona asignada (opcional:
     # muchas actividades se reparten de viva voz en la formación).
     notificar = forms.BooleanField(required=False)
@@ -104,6 +107,11 @@ class AsignacionForm(forms.Form):
             self.vehiculos = list(Vehiculo.objects.filter(pk__in=self.vehiculos_ids))
             if not self.vehiculos:
                 self.add_error(None, f"«{etiqueta}» necesita la placa del vehículo.")
+        elif cleaned.get('uso_vehiculo'):
+            # Cualquier otra actividad puede llevar vehículo si se marca.
+            self.vehiculos = list(Vehiculo.objects.filter(pk__in=self.vehiculos_ids))
+            if not self.vehiculos:
+                self.add_error(None, "Marcaste que se usó vehículo: elige cuál.")
         else:
             self.vehiculos = []
 

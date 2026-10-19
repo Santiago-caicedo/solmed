@@ -229,6 +229,12 @@
                             {% endif %}
                         </select>
 
+                        {# Las actividades que no piden placa la llevan si se marca esto. #}
+                        <div class="form-check mt-2 pt-campo" id="campo-uso-vehiculo">
+                            <input class="form-check-input" type="checkbox" name="uso_vehiculo" value="1" id="uso-vehiculo">
+                            <label class="form-check-label" for="uso-vehiculo">Se usó vehículo en esta actividad</label>
+                        </div>
+
                         <div class="pt-campo" id="campo-vehiculos">
                             <div class="pt-etq" id="etq-placas">Placa</div>
                             <div class="pt-sel" id="sel-placas">
@@ -465,9 +471,16 @@ queda guardado y aparece en el desplegable, en «Creadas en el plan».
     function pinta() {
         var spec = CAMPOS[selTipo.value] || {};
         var porOrdenes = spec.ordenes === 'pendientes';
-        document.getElementById('campo-vehiculos').classList.toggle('visible', !!spec.vehiculos || porOrdenes);
+        // Sin placa propia, la actividad la lleva solo si se marca «Se usó vehículo».
+        var opcional = !!selTipo.value && !spec.vehiculos && !porOrdenes;
+        var usoVehiculo = document.getElementById('uso-vehiculo');
+        if (!opcional) { usoVehiculo.checked = false; }
+        document.getElementById('campo-uso-vehiculo').classList.toggle('visible', opcional);
+        document.getElementById('campo-vehiculos').classList.toggle(
+            'visible', !!spec.vehiculos || porOrdenes || usoVehiculo.checked);
         document.getElementById('etq-placas').textContent =
-            porOrdenes ? 'Órdenes sin disponer' : (spec.vehiculos === 'varios' ? 'Placas' : 'Placa');
+            porOrdenes ? 'Órdenes sin disponer'
+                : (spec.vehiculos === 'varios' || usoVehiculo.checked ? 'Placa(s)' : 'Placa');
         document.getElementById('campo-orden').classList.toggle('visible', !!spec.orden);
         document.getElementById('campo-proveedor').classList.toggle('visible', !!spec.proveedor);
         document.getElementById('campo-dispositor').classList.toggle('visible', !!spec.dispositor);
@@ -493,6 +506,13 @@ queda guardado y aparece en el desplegable, en «Creadas en el plan».
             porOrdenes && !hayOrdenes ? 'block' : 'none';
     }
     selTipo.addEventListener('change', pinta);
+    document.getElementById('uso-vehiculo').addEventListener('change', function () {
+        // Al desmarcarlo, las placas elegidas se sueltan (el servidor las ignora igual).
+        if (!this.checked) {
+            document.querySelectorAll('#sel-placas input').forEach(function (c) { c.checked = false; });
+        }
+        pinta();
+    });
     pinta();
 
     // --- Popup: crear y quitar actividades / novedades que no trae el formato ---
