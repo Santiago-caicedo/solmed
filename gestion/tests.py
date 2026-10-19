@@ -1567,6 +1567,30 @@ class PersonalYExpedienteTests(BaseCRM):
         form = ProgramacionCuadrillaForm(prefix='cuadrilla')
         self.assertNotIn(self.conductor, form.fields['conductor'].queryset)
 
+    def test_al_retirar_se_elige_la_fecha_de_retiro(self):
+        self.entrar(self.asesor)
+        ficha = self.client.get(reverse('gestion:ficha_persona', args=[self.conductor.pk]))
+        self.assertContains(ficha, 'id="modalRetiro"')
+        self.assertContains(ficha, 'name="fecha_retiro"')
+        url = reverse('gestion:cambiar_estado_persona', args=[self.conductor.pk])
+        perfil = PerfilPersona.objects.get(usuario=self.conductor)
+
+        # Futura o mal escrita: no se retira.
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        for fecha in (manana.isoformat(), '2026-02-31', 'ayer'):
+            with self.subTest(fecha=fecha):
+                self.client.post(url, {'fecha_retiro': fecha})
+                perfil.refresh_from_db()
+                self.assertFalse(perfil.retirado)
+
+        self.client.post(url, {'fecha_retiro': '2026-09-30'})
+        perfil.refresh_from_db()
+        self.assertTrue(perfil.retirado)
+        self.assertEqual(perfil.fecha_retiro, datetime.date(2026, 9, 30))
+        ficha = self.client.get(reverse('gestion:ficha_persona', args=[self.conductor.pk]))
+        self.assertContains(ficha, 'Persona retirada desde el 30/09/2026')
+        self.assertNotContains(ficha, 'id="modalRetiro"')
+
     def test_reactivar_devuelve_el_acceso_menos_a_los_roles_sin_acceso(self):
         ayudante = self.persona('ayudante', 'Ayudantes')
         self.entrar(self.asesor)

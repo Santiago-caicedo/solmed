@@ -6512,8 +6512,13 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
     las asignaciones (programación, recorridos, planificación) y se le bloquea el
     acceso; su ficha y expediente se conservan para trazabilidad. Al reactivar, se
     restaura el acceso salvo que sea un rol sin acceso (ayudante).
+
+    La fecha de retiro la elige quien retira (oct-2026): puede ser hoy o un
+    día pasado, nunca futuro (retirar bloquea el acceso desde ya). Sin fecha
+    se toma la de hoy.
     """
     def post(self, request, pk):
+        from django.utils.dateparse import parse_date
         persona = get_object_or_404(User, pk=pk)
         frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
@@ -6528,8 +6533,21 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
                 persona.save(update_fields=['is_active'])
             messages.success(request, "Persona reactivada. Vuelve a estar disponible para asignaciones.")
         else:
+            hoy = timezone.localdate()
+            crudo = (request.POST.get('fecha_retiro') or '').strip()
+            try:
+                fecha = parse_date(crudo) if crudo else hoy
+            except ValueError:
+                fecha = None
+            if fecha is None:
+                messages.error(request, "La fecha de retiro no es válida.")
+                return redirect('gestion:ficha_persona', pk=pk)
+            if fecha > hoy:
+                messages.error(request, "La fecha de retiro no puede ser futura: retirar "
+                                        "le quita el acceso desde ya.")
+                return redirect('gestion:ficha_persona', pk=pk)
             perfil.retirado = True
-            perfil.fecha_retiro = timezone.localdate()
+            perfil.fecha_retiro = fecha
             perfil.save(update_fields=['retirado', 'fecha_retiro'])
             persona.is_active = False
             persona.save(update_fields=['is_active'])

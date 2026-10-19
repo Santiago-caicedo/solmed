@@ -30,16 +30,18 @@
         </div>
     </div>
     <div class="d-flex gap-2">
-        {# Retirar / reactivar a la persona #}
+        {# Retirar (popup con la fecha de retiro) / reactivar a la persona #}
+        {% if retirado %}
         <form method="post" action="{% url 'gestion:cambiar_estado_persona' persona.pk %}"
-              onsubmit="return confirm('{% if retirado %}¿Reactivar a esta persona? Volverá a estar disponible para asignaciones.{% else %}¿Marcar como retirada? Ya no se podrá asignar, pero su expediente se conserva.{% endif %}');">
+              onsubmit="return confirm('¿Reactivar a esta persona? Volverá a estar disponible para asignaciones.');">
             {% csrf_token %}
-            {% if retirado %}
             <button class="btn btn-outline-success"><i class="bi bi-arrow-counterclockwise me-1"></i> Reactivar</button>
-            {% else %}
-            <button class="btn btn-outline-dark"><i class="bi bi-person-dash me-1"></i> Marcar retirado</button>
-            {% endif %}
         </form>
+        {% else %}
+        <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#modalRetiro">
+            <i class="bi bi-person-dash me-1"></i> Marcar retirado
+        </button>
+        {% endif %}
         {% if es_administrador %}
         {# Todo lo que se le tiene registrado mes a mes (solo administradores). #}
         <a href="{% url 'gestion:centro_control_persona' persona.pk %}" class="btn btn-primary">
@@ -293,4 +295,31 @@
     </div>
     {% endif %}
 {% endfor %}
+{% if not retirado %}
+<div class="modal fade" id="modalRetiro" tabindex="-1" aria-labelledby="modalRetiroTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" action="{% url 'gestion:cambiar_estado_persona' persona.pk %}" class="modal-content">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalRetiroTitulo"><i class="bi bi-person-dash me-2"></i>Marcar como retirado</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    <strong>{{ persona.get_full_name|default:persona.username }}</strong> ya no se podrá asignar{% if not sin_acceso %}
+                    ni entrar al sistema{% endif %}. Su expediente e historial se conservan.
+                </p>
+                <label class="form-label fw-semibold" for="fecha_retiro">Fecha de retiro</label>
+                <input type="date" name="fecha_retiro" id="fecha_retiro" class="form-control"
+                       value="{% now 'Y-m-d' %}" max="{% now 'Y-m-d' %}" required>
+                <div class="form-text">El último día que trabajó en la empresa. Puede ser hoy o un día anterior.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-dark"><i class="bi bi-person-dash me-1"></i>Marcar retirado</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
