@@ -76,6 +76,7 @@
 /* paso 2: quién, cuándo, dónde (chips label>input, nunca ul/li) */
 .dz-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
 .dz-etq:first-child{ margin-top:0; }
+.dz-horas .dz-etq{ margin-top:.8rem; }
 .dz-sel{ display:flex; flex-wrap:wrap; gap:.35rem; }
 .dz-sel label{ display:inline-flex; align-items:center; min-height:34px; font-size:.82rem; padding:.25rem .7rem;
     border:1px solid var(--line); border-radius:99px; background:var(--panel); cursor:pointer; user-select:none; margin:0; }
@@ -259,8 +260,16 @@
                                 <option value="{{ g.pk }}">{{ g.nombre }}</option>
                                 {% endfor %}
                             </select>
-                            <label class="dz-etq" for="dz-hora">Hora <span class="text-muted text-lowercase">(opcional)</span></label>
-                            <input type="time" name="hora" id="dz-hora" class="form-control form-control-sm">
+                            <div class="row g-2 dz-horas">
+                                <div class="col-6">
+                                    <label class="dz-etq" for="dz-hora">Hora de inicio <span class="text-muted text-lowercase">(opcional)</span></label>
+                                    <input type="time" name="hora" id="dz-hora" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-6">
+                                    <label class="dz-etq" for="dz-hora-fin">Hora final <span class="text-muted text-lowercase">(opcional)</span></label>
+                                    <input type="time" name="hora_fin" id="dz-hora-fin" class="form-control form-control-sm">
+                                </div>
+                            </div>
                             <label class="dz-etq" for="dz-detalle">Nota para el plan <span class="text-muted text-lowercase">(opcional)</span></label>
                             <input type="text" name="detalle" id="dz-detalle" class="form-control form-control-sm" maxlength="255" placeholder="Sale en el plan impreso">
                             <div class="form-check mt-3">
@@ -350,7 +359,8 @@
         });
         var gestor = document.getElementById('dz-gestor');
         document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
-        document.getElementById('dz-r-hora').textContent = document.getElementById('dz-hora').value || '—';
+        var inicio = document.getElementById('dz-hora').value, fin = document.getElementById('dz-hora-fin').value;
+        document.getElementById('dz-r-hora').textContent = inicio ? (fin ? inicio + '–' + fin : inicio) : '—';
         document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
         document.getElementById('dz-r-correo').textContent =
             document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo';

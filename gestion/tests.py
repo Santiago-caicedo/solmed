@@ -7589,6 +7589,27 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         super().setUp()
         self.entrar(self.admin)
 
+    def test_la_disposicion_guarda_su_hora_de_inicio_y_la_final_opcional(self):
+        una = self._orden()
+        self.registrar_desde_panel([una], hora='07:30', hora_fin='11:00')
+        asignacion = self.asignaciones()[0]
+        self.assertEqual(asignacion.hora, datetime.time(7, 30))
+        self.assertEqual(asignacion.hora_fin, datetime.time(11, 0))
+        self.assertEqual(asignacion.horario, '07:30–11:00')
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+
+    def test_la_hora_final_sola_o_anterior_no_registra_la_disposicion(self):
+        una = self._orden()
+        for hora, hora_fin in (('', '11:00'), ('11:00', '07:30')):
+            with self.subTest(hora=hora, hora_fin=hora_fin):
+                self.registrar_desde_panel([una], hora=hora, hora_fin=hora_fin)
+                self.assertEqual(self.asignaciones(), [])
+                self.assertEqual(self.estado(una), 'PENDIENTE')
+
+    def test_el_popup_pide_la_hora_final(self):
+        self._orden()
+        self.assertContains(self.client.get(self.panel), 'name="hora_fin"')
+
     def test_el_popup_ofrece_solo_las_pendientes_y_los_datos_del_viaje(self):
         pendiente = self._orden()
         self._orden(placa='OBB178', pendiente=False)

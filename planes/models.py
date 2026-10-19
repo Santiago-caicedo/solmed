@@ -87,7 +87,8 @@ class Asignacion(models.Model):
     #   orden:     lleva el número de la orden de servicio (se digita).
     #   proveedor: lleva el proveedor externo (con opción de crearlo).
     #   dispositor:lleva el gestor donde se dispuso (opcional).
-    #   hora:      lleva hora (los apoyos).
+    #   hora:      lleva hora de inicio y, opcional, la final (los apoyos y
+    #              la disposición final).
     #   detalle:   True = el detalle es OBLIGATORIO (acompañamiento / otra).
     CAMPOS_POR_TIPO = {
         'TECNOMECANICA':       {'vehiculos': 'uno'},
@@ -98,7 +99,7 @@ class Asignacion(models.Model):
         'COMPRA_REPUESTOS':    {'vehiculos': 'varios'},
         'MONTALLANTAS':        {'vehiculos': 'varios'},
         'TRASTEO':             {},
-        'DISPOSICION_FINAL':   {'ordenes': 'pendientes', 'dispositor': True},
+        'DISPOSICION_FINAL':   {'ordenes': 'pendientes', 'dispositor': True, 'hora': True},
         'DISPOSICION_SOLMED':  {},
         'ACOMPANAMIENTO':      {'detalle': True},
         'RECOGER_VEHICULO':    {'vehiculos': 'uno'},
