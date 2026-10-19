@@ -269,15 +269,15 @@
                             </div>
                         </div>
 
-                        <div class="pt-campo" id="campo-hora">
+                        <div id="campo-hora">
                             <div class="row g-2 mt-0">
                                 <div class="col-6">
-                                    <div class="pt-etq">Hora de inicio</div>
-                                    <input type="time" name="hora" class="form-control form-control-sm">
+                                    <label class="pt-etq" for="asig-hora">Hora de inicio <span class="text-muted">(opcional)</span></label>
+                                    <input type="time" name="hora" id="asig-hora" class="form-control form-control-sm">
                                 </div>
                                 <div class="col-6">
-                                    <div class="pt-etq">Hora final <span class="text-muted">(opcional)</span></div>
-                                    <input type="time" name="hora_fin" class="form-control form-control-sm">
+                                    <label class="pt-etq" for="asig-hora-fin">Hora final <span class="text-muted">(opcional)</span></label>
+                                    <input type="time" name="hora_fin" id="asig-hora-fin" class="form-control form-control-sm">
                                 </div>
                             </div>
                         </div>
@@ -408,7 +408,6 @@ dejar veinte fichas ocultas en la página.
         document.getElementById('campo-orden').classList.toggle('visible', !!spec.orden);
         document.getElementById('campo-proveedor').classList.toggle('visible', !!spec.proveedor);
         document.getElementById('campo-dispositor').classList.toggle('visible', !!spec.dispositor);
-        document.getElementById('campo-hora').classList.toggle('visible', !!spec.hora);
         document.getElementById('detalle-opcional').classList.toggle('d-none', !!spec.detalle);
 
         // Disponer se elige POR ORDEN (cada orden sin disponer es una casilla):

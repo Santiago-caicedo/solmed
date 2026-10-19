@@ -56,7 +56,7 @@ class PlanDia(models.Model):
 class Asignacion(models.Model):
     """
     Una fila del plan: UNA persona con UNA actividad del catálogo del formato.
-    Los campos extra (placas, orden, proveedor, hora) aplican según la
+    Los campos extra (placas, orden, proveedor) aplican según la
     actividad — CAMPOS_POR_TIPO dice cuáles pide cada una y la vista los
     valida y los muestra/oculta.
     """
@@ -87,8 +87,6 @@ class Asignacion(models.Model):
     #   orden:     lleva el número de la orden de servicio (se digita).
     #   proveedor: lleva el proveedor externo (con opción de crearlo).
     #   dispositor:lleva el gestor donde se dispuso (opcional).
-    #   hora:      lleva hora de inicio y, opcional, la final (los apoyos y
-    #              la disposición final).
     #   detalle:   True = el detalle es OBLIGATORIO (acompañamiento / otra).
     CAMPOS_POR_TIPO = {
         'TECNOMECANICA':       {'vehiculos': 'uno'},
@@ -99,13 +97,13 @@ class Asignacion(models.Model):
         'COMPRA_REPUESTOS':    {'vehiculos': 'varios'},
         'MONTALLANTAS':        {'vehiculos': 'varios'},
         'TRASTEO':             {},
-        'DISPOSICION_FINAL':   {'ordenes': 'pendientes', 'dispositor': True, 'hora': True},
+        'DISPOSICION_FINAL':   {'ordenes': 'pendientes', 'dispositor': True},
         'DISPOSICION_SOLMED':  {},
         'ACOMPANAMIENTO':      {'detalle': True},
         'RECOGER_VEHICULO':    {'vehiculos': 'uno'},
         'DESTRUCCION_CANECAS': {},
-        'APOYO_SERVICIO':      {'vehiculos': 'uno', 'hora': True},
-        'APOYO_DISPOSICION':   {'vehiculos': 'uno', 'hora': True},
+        'APOYO_SERVICIO':      {'vehiculos': 'uno'},
+        'APOYO_DISPOSICION':   {'vehiculos': 'uno'},
         'OTRA':                {'detalle': True},
     }
 
@@ -136,6 +134,8 @@ class Asignacion(models.Model):
         Dispositor, on_delete=models.PROTECT, null=True, blank=True,
         related_name='asignaciones_plan', verbose_name="Gestor de disposición",
     )
+    # Toda actividad lleva su hora de inicio y final (opcionales): son la base
+    # de las horas trabajadas del centro de control del empleado.
     hora = models.TimeField(null=True, blank=True)
     hora_fin = models.TimeField(null=True, blank=True,
                                 verbose_name="Hora de finalización")
@@ -277,6 +277,9 @@ class Novedad(models.Model):
             ('DESPIDO', 'Despido'),
         )),
     ]
+    # Las novedades que SON trabajo: sus horas suman en las horas trabajadas
+    # del centro de control del empleado (base de la nómina).
+    TIPOS_TRABAJO = ('TRABAJO_BODEGA', 'TRABAJO_OFICINA')
 
     persona = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,

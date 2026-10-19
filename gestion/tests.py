@@ -6967,6 +6967,38 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         # Un solo mes no lleva desglose.
         self.assertEqual(self.horas().context['horas']['por_mes'], [])
 
+    def test_el_trabajo_interno_suma_sus_horas_cada_dia_de_su_rango(self):
+        # Trabajo en bodega de 07:00 a 15:00 durante tres días ya pasados.
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='TRABAJO_BODEGA',
+            fecha_inicio=self.dia - datetime.timedelta(days=2), fecha_fin=self.dia,
+            hora=datetime.time(7, 0), hora_fin=datetime.time(15, 0))
+        horas = self.horas(desde=(self.dia - datetime.timedelta(days=2)).isoformat(),
+                           hasta=self.dia.isoformat()).context['horas']
+        self.assertEqual(horas['interno'], '24 h')
+        self.assertEqual(horas['dias'], 3)
+
+    def test_las_demas_novedades_no_son_horas_trabajadas(self):
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='PERMISO_PERSONAL', fecha_inicio=self.dia,
+            hora=datetime.time(10, 0), hora_fin=datetime.time(12, 0))
+        horas = self.horas().context['horas']
+        self.assertEqual((horas['minutos'], horas['sin_hora']), (0, 1),
+                         "solo el servicio sin acta queda por fuera")
+
+    def test_lo_agendado_para_despues_de_hoy_no_cuenta(self):
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        plan = self.PlanDia.objects.create(fecha=manana)
+        self.Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='LAVADA',
+            hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='TRABAJO_OFICINA', fecha_inicio=manana,
+            hora=datetime.time(8, 0), hora_fin=datetime.time(12, 0))
+        horas = self.horas(anio=manana.year, mes='todo').context['horas']
+        self.assertEqual(horas['actividades'], '0 h')
+        self.assertEqual(horas['interno'], '0 h')
+
     def test_la_novedad_muestra_su_rango_de_horas(self):
         self.Novedad.objects.create(
             persona=self.conductor, tipo='PERMISO_PERSONAL', fecha_inicio=self.dia,

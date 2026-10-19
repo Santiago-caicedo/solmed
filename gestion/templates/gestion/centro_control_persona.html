@@ -173,6 +173,7 @@
                 <dl>
                     <dt>En servicios</dt><dd>{{ horas.servicios|default:"0 h" }}</dd>
                     <dt>En actividades del plan</dt><dd>{{ horas.actividades|default:"0 h" }}</dd>
+                    <dt>En trabajo interno</dt><dd>{{ horas.interno|default:"0 h" }}</dd>
                 </dl>
                 {% if horas.por_mes %}
                 <div class="cc-barras">
@@ -187,7 +188,9 @@
         </div>
         <div class="form-text mt-3">
             Cuentan los servicios con hora de salida y llegada (o inicio y final operativo) en el acta,
-            y las actividades del plan con hora de inicio y final. Si un tramo se cruza con otro, se cuenta una sola vez.
+            las actividades del plan con hora de inicio y final, y el trabajo en bodega u oficina
+            (novedades) con sus dos horas, una vez por cada día de su rango. Las actividades y el trabajo
+            interno cuentan hasta hoy. Si un tramo se cruza con otro, se cuenta una sola vez.
             {% if horas.sin_hora %}<strong>{{ horas.sin_hora }} registro{{ horas.sin_hora|pluralize }} sin las dos horas no se cuenta{{ horas.sin_hora|pluralize:"n" }}.</strong>{% endif %}
         </div>
     </div>

@@ -108,10 +108,7 @@ class AsignacionForm(forms.Form):
             self.add_error(None, f"Describe en qué consiste «{etiqueta}».")
 
         # Lo que la actividad no pide, no se guarda (aunque venga en el POST).
-        if campos.get('hora'):
-            validar_horas(self, cleaned, None)
-        else:
-            cleaned['hora'] = cleaned['hora_fin'] = None
+        validar_horas(self, cleaned, None)
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
         if not campos.get('dispositor'):

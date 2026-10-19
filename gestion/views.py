@@ -5644,29 +5644,42 @@ def _texto_horas(minutos):
     return f"{horas} h {resto:02d} min" if resto else f"{horas} h"
 
 
-def _horas_trabajadas(inicio, fin, servicios, asignaciones):
+def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     """
-    La estadística de horas del periodo. Cuentan los SERVICIOS con las dos
-    horas en el acta (salida y llegada a SolMed, o inicio y final operativo)
-    y las ACTIVIDADES del plan con hora de inicio y final. Lo que no tiene las
-    dos horas no se cuenta, pero se dice cuántos quedaron por fuera. Las
-    novedades no son tiempo trabajado.
+    La estadística de horas del periodo (base de la nómina). Cuentan los
+    SERVICIOS con las dos horas en el acta (salida y llegada a SolMed, o
+    inicio y final operativo), las ACTIVIDADES del plan con hora de inicio y
+    final y las novedades que SON trabajo (bodega, oficina) con sus dos horas,
+    una vez por cada día de su rango. Las demás novedades no son tiempo
+    trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
+    agendado para mañana aún no se ha trabajado. Lo que no tiene las dos
+    horas no se cuenta, pero se dice cuántos quedaron por fuera.
 
     El total UNE los tramos de cada día: si una actividad cae dentro de un
     servicio, esa hora se cuenta una sola vez.
     """
-    tramos, min_servicios, min_actividades, sin_hora = [], 0, 0, 0
-    for fecha, minutos, desde, lista in (
-            [(s['recorrido'].fecha_recorrido, s['minutos'], s['desde'], 'S')
-             for s in servicios]
-            + [(a.plan.fecha, a.minutos, a.hora, 'A') for a in asignaciones]):
+    registros = (
+        [(s['recorrido'].fecha_recorrido, s['minutos'], s['desde'], 'servicios')
+         for s in servicios]
+        + [(a.plan.fecha, a.minutos, a.hora, 'actividades') for a in asignaciones
+           if a.plan.fecha <= hoy])
+    for f in novedades:
+        n = f['novedad']
+        if n.tipo not in Novedad.TIPOS_TRABAJO:
+            continue
+        minutos = _minutos_entre(n.hora, n.hora_fin)
+        for i in range(f['dias_en_rango']):
+            dia = f['desde'] + datetime.timedelta(days=i)
+            if dia <= hoy:
+                registros.append((dia, minutos, n.hora, 'interno'))
+
+    tramos, sin_hora = [], 0
+    por_lista = {'servicios': 0, 'actividades': 0, 'interno': 0}
+    for fecha, minutos, desde, lista in registros:
         if minutos is None:
             sin_hora += 1
             continue
-        if lista == 'S':
-            min_servicios += minutos
-        else:
-            min_actividades += minutos
+        por_lista[lista] += minutos
         base = (fecha - inicio).days * 24 * 60 + desde.hour * 60 + desde.minute
         tramos.append((base, base + minutos, fecha))
 
@@ -5701,8 +5714,9 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones):
     return {
         'minutos': total,
         'total': _texto_horas(total),
-        'servicios': _texto_horas(min_servicios),
-        'actividades': _texto_horas(min_actividades),
+        'servicios': _texto_horas(por_lista['servicios']),
+        'actividades': _texto_horas(por_lista['actividades']),
+        'interno': _texto_horas(por_lista['interno']),
         'dias': len(dias),
         'promedio_dia': _texto_horas(round(total / len(dias))) if dias else '',
         'sin_hora': sin_hora,
@@ -5776,7 +5790,8 @@ def _datos_centro_control(persona, inicio, fin):
         cubiertos = (hasta - desde).days + 1 if hasta >= desde else 0
         for i in range(cubiertos):
             dias_novedad.add(desde + datetime.timedelta(days=i))
-        novedades.append({'novedad': n, 'dias_en_rango': cubiertos})
+        novedades.append({'novedad': n, 'dias_en_rango': cubiertos,
+                          'desde': desde})
 
     dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
     dias_actividad = {a.plan.fecha for a in asignaciones}
@@ -5800,7 +5815,8 @@ def _datos_centro_control(persona, inicio, fin):
         'dias_transcurridos': transcurridos,
         'dias_sin_registro': max(transcurridos - len(ocupados), 0),
         'sin_nada': not (servicios or asignaciones or novedades),
-        'horas': _horas_trabajadas(inicio, fin, servicios, asignaciones),
+        'horas': _horas_trabajadas(inicio, fin, servicios, asignaciones,
+                                   novedades, hoy),
         'mapa': _mapa_periodo(inicio, fin, dias_servicio, dias_actividad,
                               dias_novedad, hoy),
     }
@@ -6000,6 +6016,7 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
             ('Horas trabajadas', datos['horas']['total'] or '0 h'),
             ('Horas en servicios', datos['horas']['servicios'] or '0 h'),
             ('Horas en actividades', datos['horas']['actividades'] or '0 h'),
+            ('Horas en trabajo interno', datos['horas']['interno'] or '0 h'),
             ('Días con horas', datos['horas']['dias']),
             ('Promedio por día', datos['horas']['promedio_dia'] or '—'),
             ('Registros sin hora completa', datos['horas']['sin_hora']),

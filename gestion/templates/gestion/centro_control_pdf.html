@@ -215,7 +215,7 @@
                 <td>
                     <div class="v">{{ horas.actividades|default:"0 h" }}</div>
                     <div class="k">En actividades</div>
-                    <div class="n">&nbsp;</div>
+                    <div class="n">{% if horas.interno %}+ {{ horas.interno }} trabajo interno{% else %}&nbsp;{% endif %}</div>
                 </td>
                 <td>
                     <div class="v">{{ horas.promedio_dia|default:"—" }}</div>

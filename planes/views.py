@@ -260,7 +260,6 @@ class PlanDiaView(AdministradorRequiredMixin, View):
                 'vehiculos': spec.get('vehiculos') or '',
                 'orden': bool(spec.get('orden')),
                 'proveedor': bool(spec.get('proveedor')),
-                'hora': bool(spec.get('hora')),
                 'detalle': bool(spec.get('detalle')),
             }
             for tipo, spec in Asignacion.CAMPOS_POR_TIPO.items()

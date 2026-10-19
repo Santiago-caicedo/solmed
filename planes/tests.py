@@ -241,10 +241,9 @@ class AsignacionesTests(BasePlan):
 
     def test_lo_que_la_actividad_no_pide_no_se_guarda(self):
         proveedor = Proveedor.objects.create(nit='900', razon_social='Taller Sur')
-        self.asignar([self.conductor], 'TRASTEO', hora='08:00',
+        self.asignar([self.conductor], 'TRASTEO',
                      proveedor=proveedor.pk, detalle='Trasteo de la bodega')
         asignacion = Asignacion.objects.get()
-        self.assertIsNone(asignacion.hora)
         self.assertIsNone(asignacion.proveedor)
 
     def test_el_mantenimiento_externo_guarda_su_proveedor(self):
@@ -285,9 +284,29 @@ class AsignacionesTests(BasePlan):
                              hora=hora, hora_fin=hora_fin)
                 self.assertFalse(Asignacion.objects.exists())
 
-    def test_sin_hora_en_la_actividad_no_se_guarda_la_final(self):
-        self.asignar([self.conductor], 'TRASTEO', hora='08:00', hora_fin='10:00')
-        self.assertIsNone(Asignacion.objects.get().hora_fin)
+    def test_toda_actividad_guarda_su_hora_de_inicio_y_final(self):
+        # Base de la nómina (oct-2026): cualquier actividad lleva horas.
+        for tipo, _ in Asignacion.TIPO_CHOICES:
+            with self.subTest(tipo=tipo):
+                Asignacion.objects.all().delete()
+                spec = Asignacion.CAMPOS_POR_TIPO[tipo]
+                extra = {'hora': '08:00', 'hora_fin': '10:00',
+                         'detalle': 'Detalle de prueba'}
+                if spec.get('ordenes') == 'pendientes':
+                    continue    # la disposición tiene su propia prueba en gestion
+                vehiculos = [self.camion] if spec.get('vehiculos') else None
+                if spec.get('proveedor'):
+                    extra['proveedor'] = Proveedor.objects.get_or_create(
+                        nit='901', defaults={'razon_social': 'Taller'})[0].pk
+                self.asignar([self.conductor], tipo, vehiculos, **extra)
+                asignacion = Asignacion.objects.get()
+                self.assertEqual((asignacion.hora, asignacion.hora_fin),
+                                 (datetime.time(8, 0), datetime.time(10, 0)))
+
+    def test_el_panel_muestra_las_horas_para_toda_actividad(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn('<div id="campo-hora">', contenido)
+        self.assertNotIn('pt-campo" id="campo-hora"', contenido)
 
 
 class DisposicionDesdeElPlanTests(BasePlan):
