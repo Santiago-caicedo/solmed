@@ -1,0 +1,57 @@
+{# Galería de fotos de ayudantes por día. Se incluye con: #}
+{#   dias            → lo que devuelve _fotos_ayudantes (día → grupos por persona → fotos) #}
+{#   mostrar_persona → True en la pantalla general (en la hoja de vida sobra) #}
+{#   vacio           → texto cuando no hay nada #}
+<style>
+.fa-dia{ margin-bottom:1.1rem; }
+.fa-dia-cab{ display:flex; align-items:baseline; gap:.5rem; margin-bottom:.5rem; padding-bottom:.3rem; border-bottom:1px solid var(--line-2,#eef1f5); }
+.fa-dia-cab .f{ font-family:var(--mono,monospace); font-weight:600; font-size:.9rem; color:var(--ink,#1a2230); }
+.fa-dia-cab .n{ font-size:.74rem; color:var(--ink-3,#8a94a3); }
+.fa-grupo{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:flex-start; padding:.45rem .6rem; border-radius:8px; }
+.fa-grupo + .fa-grupo{ margin-top:.3rem; }
+.fa-grupo:hover{ background:var(--panel-2,#f6f8fb); }
+.fa-quien{ flex:0 0 190px; font-size:.8rem; line-height:1.35; }
+.fa-quien .p{ font-weight:600; color:var(--ink,#1a2230); }
+.fa-quien .o a{ text-decoration:none; font-family:var(--mono,monospace); font-weight:600; }
+.fa-quien .c{ color:var(--ink-2,#5b6470); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fa-quien .placa{ display:inline-block; font-family:var(--mono,monospace); font-size:.68rem; letter-spacing:.06em; padding:.05rem .4rem; border-radius:4px; background:var(--g-800,#2c3545); color:#fff; }
+.fa-fotos{ display:flex; flex-wrap:wrap; gap:.5rem; flex:1 1 0; }
+.fa-foto{ width:106px; text-decoration:none; }
+.fa-foto img{ width:106px; height:84px; object-fit:cover; display:block; border-radius:8px;
+    border:1px solid var(--line,#e6e9ee); transition:transform .12s ease, box-shadow .12s ease; }
+.fa-foto:hover img{ transform:scale(1.03); box-shadow:0 4px 14px rgba(15,23,35,.18); }
+.fa-foto .pie{ font-size:.66rem; line-height:1.25; color:var(--ink-2,#5b6470); text-align:center; margin-top:.25rem;
+    overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+@media (max-width: 575px){ .fa-quien{ flex-basis:100%; } }
+</style>
+{% for dia in dias %}
+<div class="fa-dia">
+    <div class="fa-dia-cab">
+        <span class="f">{{ dia.fecha|date:"l d/m/Y" }}</span>
+        <span class="n">{{ dia.n }} foto{{ dia.n|pluralize }}</span>
+    </div>
+    {% for g in dia.grupos %}
+    <div class="fa-grupo">
+        <div class="fa-quien">
+            {% if mostrar_persona %}
+            <div class="p">{% if g.persona %}<a href="{% url 'gestion:ficha_persona' g.persona.pk %}" class="text-reset text-decoration-none">{{ g.persona_nombre }}</a>{% else %}—{% endif %}</div>
+            {% endif %}
+            <div class="o">{% if g.orden %}<a href="{% url 'gestion:detalle_orden' g.orden.pk %}">Orden #{{ g.orden.numero_orden }}</a>{% else %}<span class="text-muted">Programación sin orden</span>{% endif %}
+                {% if g.placa %}<span class="placa">{{ g.placa }}</span>{% endif %}</div>
+            <div class="c" title="{{ g.cliente.nombre }}">{{ g.cliente.nombre }}</div>
+        </div>
+        <div class="fa-fotos">
+            {% for foto in g.fotos %}
+            <a class="fa-foto" href="{{ foto.archivo.url }}" target="_blank" rel="noopener"
+               title="{{ foto.get_novedad_display_label }} · {{ foto.fecha_subida|date:'d/m/Y H:i' }}">
+                <img src="{{ foto.archivo.url }}" alt="{{ foto.get_novedad_display_label }}" loading="lazy">
+                <div class="pie">{{ foto.get_novedad_display_label }}</div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% empty %}
+<p class="text-muted mb-0">{{ vacio|default:"No hay fotos." }}</p>
+{% endfor %}

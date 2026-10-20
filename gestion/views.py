@@ -5514,9 +5514,45 @@ class FichaPersonaView(PersonalRequiredMixin, View):
             'faltan_requeridos': faltan_requeridos,
         }
 
+    def _fotos(self, request, persona):
+        """
+        Las fotos que esta persona subió como ayudante, por mes (oct-2026,
+        pedido de la clienta: verlas desde la hoja de vida sin abrir cada
+        orden). Solo para gestión: Talento Humano no ve la operación. Sin mes
+        elegido se muestra el último mes con fotos.
+        """
+        if not (es_administrador(request.user)
+                or request.user.groups.filter(name='Asesores').exists()):
+            return None
+        ultima = (FotoAyudante.objects
+                  .filter(Q(slot=1, cuadrilla__ayudante=persona) | Q(slot=2, cuadrilla__ayudante2=persona))
+                  .order_by('-cuadrilla__programacion__fecha')
+                  .values_list('cuadrilla__programacion__fecha', flat=True).first())
+        if ultima is None:
+            return None
+        mes = (request.GET.get('mes') or '').strip()
+        try:
+            anio, numero = (int(p) for p in mes.split('-'))
+            inicio = datetime.date(anio, numero, 1)
+        except (ValueError, TypeError):
+            inicio = ultima.replace(day=1)
+        fin = (inicio.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
+        dias = _fotos_ayudantes(persona=persona, desde=inicio, hasta=fin)
+        return {
+            'mes': inicio.strftime('%Y-%m'),
+            'inicio': inicio,
+            'dias': dias,
+            'n': sum(d['n'] for d in dias),
+            'anterior': (inicio - datetime.timedelta(days=1)).strftime('%Y-%m'),
+            'siguiente': (fin + datetime.timedelta(days=1)).strftime('%Y-%m'),
+            'hay_siguiente': fin < timezone.localdate(),
+        }
+
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        return render(request, self.template_name, self._context(persona))
+        contexto = self._context(persona)
+        contexto['fotos'] = self._fotos(request, persona)
+        return render(request, self.template_name, contexto)
 
     def post(self, request, pk):
         # Carga de un documento al expediente (cada casilla envía su 'tipo').
@@ -6482,6 +6518,107 @@ class HistorialDisposicionesView(AdministradorRequiredMixin, View):
             'gestores': Dispositor.objects.filter(tipo='PROVEEDOR').order_by('nombre'),
             'vias': DisposicionOrden.VIA_CHOICES,
             'hoy': timezone.localdate(),
+        })
+
+
+def _fotos_ayudantes(persona=None, desde=None, hasta=None, cliente='', novedad=''):
+    """
+    Las fotos que subieron los ayudantes, agrupadas por día del servicio (del
+    más reciente al más viejo) y, dentro del día, por persona. Cada foto sabe
+    de cuál orden, cliente y placa es, y qué novedad la exigía. Es la misma
+    consulta para la hoja de vida (una persona) y para la pantalla general
+    (todas), pedido de la clienta (oct-2026): antes tocaba abrir cada orden.
+    """
+    fotos = (FotoAyudante.objects
+             .select_related('cuadrilla__programacion__cliente', 'cuadrilla__programacion__orden',
+                             'cuadrilla__vehiculo', 'cuadrilla__ayudante', 'cuadrilla__ayudante2')
+             .order_by('-cuadrilla__programacion__fecha', 'cuadrilla_id', 'slot', 'fecha_subida'))
+    if persona is not None:
+        fotos = fotos.filter(Q(slot=1, cuadrilla__ayudante=persona)
+                             | Q(slot=2, cuadrilla__ayudante2=persona))
+    if desde:
+        fotos = fotos.filter(cuadrilla__programacion__fecha__gte=desde)
+    if hasta:
+        fotos = fotos.filter(cuadrilla__programacion__fecha__lte=hasta)
+    if cliente:
+        fotos = fotos.filter(cuadrilla__programacion__cliente__nombre__icontains=cliente)
+    if novedad:
+        fotos = fotos.filter(novedad=novedad)
+
+    dias = []
+    for foto in fotos:
+        programacion = foto.cuadrilla.programacion
+        fecha = programacion.fecha
+        if not dias or dias[-1]['fecha'] != fecha:
+            dias.append({'fecha': fecha, 'grupos': [], 'n': 0})
+        dia = dias[-1]
+        clave = (foto.cuadrilla_id, foto.slot)
+        if not dia['grupos'] or dia['grupos'][-1]['clave'] != clave:
+            dia['grupos'].append({
+                'clave': clave,
+                'persona': foto.persona,
+                'persona_nombre': foto.persona_nombre,
+                'orden': programacion.orden,
+                'cliente': programacion.cliente,
+                'placa': foto.cuadrilla.vehiculo.placa if foto.cuadrilla.vehiculo_id else '',
+                'fotos': [],
+            })
+        dia['grupos'][-1]['fotos'].append(foto)
+        dia['n'] += 1
+    return dias
+
+
+def _ayudantes_con_fotos():
+    """Las personas que han subido alguna foto, para el desplegable de la pantalla general."""
+    ids = set()
+    for slot, campo in ((1, 'cuadrilla__ayudante_id'), (2, 'cuadrilla__ayudante2_id')):
+        ids.update(FotoAyudante.objects.filter(slot=slot).values_list(campo, flat=True))
+    ids.discard(None)
+    return User.objects.filter(pk__in=ids).order_by('first_name', 'last_name', 'username')
+
+
+class FotosAyudantesView(AsesorRequiredMixin, View):
+    """
+    Pantalla general «Fotos de ayudantes» (oct-2026, pedido de la clienta): lo
+    que subieron todos los ayudantes, por día, sin abrir orden por orden. Se
+    filtra por persona, fechas del servicio, cliente y novedad. Por defecto
+    muestra los últimos 30 días. Gestión y asesores; Talento Humano no entra.
+    """
+    template_name = 'gestion/fotos_ayudantes.html'
+
+    def get(self, request):
+        from django.utils.dateparse import parse_date
+        hoy = timezone.localdate()
+        filtros = {
+            'persona': (request.GET.get('persona') or '').strip(),
+            'desde': (request.GET.get('desde') or '').strip(),
+            'hasta': (request.GET.get('hasta') or '').strip(),
+            'cliente': (request.GET.get('cliente') or '').strip(),
+            'novedad': (request.GET.get('novedad') or '').strip(),
+        }
+        # Sin fechas: los últimos 30 días. Con alguna puesta, se respeta tal cual.
+        desde = parse_date(filtros['desde'])
+        hasta = parse_date(filtros['hasta'])
+        if desde is None and hasta is None and not filtros['persona'] and not filtros['cliente']:
+            desde = hoy - datetime.timedelta(days=30)
+        filtros['desde'] = desde.isoformat() if desde else ''
+        filtros['hasta'] = hasta.isoformat() if hasta else ''
+        persona = (User.objects.filter(pk=filtros['persona']).first()
+                   if filtros['persona'].isdigit() else None)
+        if persona is None:
+            filtros['persona'] = ''
+        novedades = dict(ProgramacionCuadrilla.NOVEDAD_CHOICES)
+        if filtros['novedad'] not in novedades:
+            filtros['novedad'] = ''
+        dias = _fotos_ayudantes(persona=persona, desde=desde, hasta=hasta,
+                                cliente=filtros['cliente'], novedad=filtros['novedad'])
+        return render(request, self.template_name, {
+            'dias': dias,
+            'n_fotos': sum(d['n'] for d in dias),
+            'filtros': filtros,
+            'ayudantes': _ayudantes_con_fotos(),
+            'novedades': ProgramacionCuadrilla.NOVEDAD_CHOICES,
+            'hoy': hoy,
         })
 
 

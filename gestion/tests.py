@@ -6000,6 +6000,113 @@ class ConfiguracionYAccesoTests(BaseCRM):
 # ============================================================
 #  EXPEDIENTE DE LA ORDEN: GESTIÓN COMPLETA LO QUE FALTA
 # ============================================================
+class FotosAyudantesTests(BaseCRM):
+    """
+    Las fotos de los ayudantes se ven sin abrir cada orden (oct-2026, pedido
+    de la clienta): en la hoja de vida de cada ayudante y en la pantalla
+    general «Fotos de ayudantes». Solo gestión: Talento Humano no las ve.
+    """
+
+    def setUp(self):
+        datos = self.servicio_completo()
+        self.__dict__.update(datos)
+        self.ayudante = self.persona('ayudante', 'Ayudantes', 'Luis', 'Gómez')
+        self.segundo = self.persona('segundo', 'Ayudantes', 'Pedro', 'Mora')
+        self.cuadrilla = self.programacion.cuadrillas.get()
+        self.cuadrilla.ayudante = self.ayudante
+        self.cuadrilla.ayudante2 = self.segundo
+        self.cuadrilla.ayudante_novedad = 'INICIA_CLIENTE'
+        self.cuadrilla.save()
+        self.foto = FotoAyudante.objects.create(
+            cuadrilla=self.cuadrilla, slot=1, novedad='INICIA_CLIENTE', archivo=imagen('llegada.png'))
+        self.foto2 = FotoAyudante.objects.create(
+            cuadrilla=self.cuadrilla, slot=2, novedad='TERMINA_CLIENTE', archivo=imagen('salida.png'))
+        self.galeria = reverse('gestion:fotos_ayudantes')
+        self.entrar(self.asesor)
+
+    def ficha(self, persona, consulta=''):
+        return self.client.get(reverse('gestion:ficha_persona', args=[persona.pk]) + consulta)
+
+    def test_la_hoja_de_vida_muestra_las_fotos_que_subio_esa_persona(self):
+        respuesta = self.ficha(self.ayudante)
+        self.assertContains(respuesta, 'Fotos de la operación')
+        self.assertContains(respuesta, f'Orden #{self.orden.numero_orden}')
+        self.assertContains(respuesta, 'Inicia turno donde el cliente')
+        self.assertNotContains(respuesta, 'Termina turno donde el cliente', msg_prefix="la del segundo ayudante no")
+        self.assertContains(respuesta, self.foto.archivo.url)
+        self.assertEqual(respuesta.context['fotos']['n'], 1)
+        # El segundo ayudante ve la suya, atribuida por su puesto en la cuadrilla.
+        respuesta = self.ficha(self.segundo)
+        self.assertContains(respuesta, 'Termina turno donde el cliente')
+        self.assertNotContains(respuesta, 'Inicia turno donde el cliente')
+
+    def test_sin_fotos_la_hoja_de_vida_no_muestra_la_seccion(self):
+        otro = self.persona('otro', 'Ayudantes', 'Nadie', 'Sube')
+        respuesta = self.ficha(otro)
+        self.assertNotContains(respuesta, 'Fotos de la operación')
+        self.assertIsNone(respuesta.context['fotos'])
+
+    def test_la_hoja_de_vida_va_por_meses(self):
+        hoy = timezone.localdate()
+        respuesta = self.ficha(self.ayudante)
+        self.assertEqual(respuesta.context['fotos']['mes'], hoy.strftime('%Y-%m'), "arranca en el último mes con fotos")
+        otro_mes = (hoy.replace(day=1) - datetime.timedelta(days=1)).strftime('%Y-%m')
+        respuesta = self.ficha(self.ayudante, f'?mes={otro_mes}')
+        self.assertEqual(respuesta.context['fotos']['n'], 0)
+        self.assertContains(respuesta, 'No subió fotos este mes')
+        respuesta = self.ficha(self.ayudante, '?mes=basura')
+        self.assertEqual(respuesta.context['fotos']['n'], 1)
+
+    def test_talento_humano_no_ve_las_fotos_en_la_hoja_de_vida(self):
+        th = self.persona('th', 'Talento Humano', 'Tere', 'Humana')
+        self.entrar(th)
+        respuesta = self.ficha(self.ayudante)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, 'Fotos de la operación')
+        self.assertNotContains(respuesta, 'Fotos de ayudantes', msg_prefix="ni el menú")
+
+    def test_la_pantalla_general_es_de_gestion(self):
+        self.assertEqual(self.client.get(self.galeria).status_code, 200)
+        self.assertContains(self.client.get(self.galeria), 'Fotos de ayudantes')
+        for persona in (self.conductor, self.persona('th2', 'Talento Humano', 'Tere', 'Humana')):
+            self.entrar(persona)
+            self.assertEqual(self.client.get(self.galeria).status_code, 403)
+
+    def test_la_pantalla_general_lista_por_dia_con_persona_orden_y_novedad(self):
+        respuesta = self.client.get(self.galeria)
+        contenido = respuesta.content.decode()
+        self.assertEqual(respuesta.context['n_fotos'], 2)
+        self.assertEqual(len(respuesta.context['dias']), 1)
+        self.assertIn('Luis Gómez', contenido)
+        self.assertIn('Pedro Mora', contenido)
+        self.assertIn(f'Orden #{self.orden.numero_orden}', contenido)
+        self.assertIn('Inicia turno donde el cliente', contenido)
+        self.assertIn('Termina turno donde el cliente', contenido)
+        self.assertIn(self.cuadrilla.vehiculo.placa, contenido)
+        self.assertIn(self.foto.archivo.url, contenido)
+
+    def test_los_filtros_de_la_pantalla_general(self):
+        def n(consulta):
+            return self.client.get(self.galeria + consulta).context['n_fotos']
+
+        self.assertEqual(n(f'?persona={self.ayudante.pk}'), 1)
+        self.assertEqual(n(f'?persona={self.segundo.pk}'), 1)
+        self.assertEqual(n(f'?persona={self.conductor.pk}'), 0)
+        self.assertEqual(n('?novedad=TERMINA_CLIENTE'), 1)
+        self.assertEqual(n('?novedad=INVENTADA'), 2, "una novedad desconocida no filtra")
+        self.assertEqual(n('?cliente=Transportes'), 2)
+        self.assertEqual(n('?cliente=nadie'), 0)
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        self.assertEqual(n(f'?desde={manana.isoformat()}'), 0)
+        hace_mucho = timezone.localdate() - datetime.timedelta(days=400)
+        self.assertEqual(n(f'?hasta={hace_mucho.isoformat()}'), 0)
+        respuesta = self.client.get(self.galeria + f'?desde={manana.isoformat()}')
+        self.assertContains(respuesta, 'Ningún ayudante subió fotos')
+
+    def test_el_menu_de_gestion_lleva_a_la_pantalla(self):
+        self.assertContains(self.client.get(reverse('gestion:lista_ordenes')), self.galeria)
+
+
 class ExpedienteDeLaOrdenTests(BaseCRM):
     """El asesor puede cerrar el servicio aunque el conductor o el ayudante no puedan."""
 

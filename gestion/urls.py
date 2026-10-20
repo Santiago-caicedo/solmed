@@ -155,6 +155,8 @@ urlpatterns = [
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),
+    # Las fotos de todos los ayudantes por día, sin abrir cada orden (oct-2026).
+    path('fotos-ayudantes/', views.FotosAyudantesView.as_view(), name='fotos_ayudantes'),
     path('personal/<int:pk>/centro/', views.CentroControlPersonaView.as_view(), name='centro_control_persona'),
     path('personal/<int:pk>/centro/pdf/', views.CentroControlPDFView.as_view(), name='centro_control_pdf'),
     path('personal/<int:pk>/centro/excel/', views.CentroControlExcelView.as_view(), name='centro_control_excel'),

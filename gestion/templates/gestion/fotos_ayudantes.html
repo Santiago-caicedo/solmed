@@ -1,0 +1,65 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Fotos de ayudantes{% endblock %}
+{% block content %}
+{# Todo lo que subieron los ayudantes, por día de servicio, sin abrir orden por orden #}
+{# (pedido de la clienta, oct-2026). Por defecto los últimos 30 días. #}
+<style>
+.fa-filtros .form-label{ font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-3); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Fotos de ayudantes</h2>
+        <div class="text-muted">Lo que subieron los ayudantes desde su enlace, por día de servicio. Cada foto lleva a su orden.</div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="row g-2 align-items-end fa-filtros">
+            <div class="col-md-3">
+                <label class="form-label mb-1" for="persona">Ayudante</label>
+                <select name="persona" id="persona" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for a in ayudantes %}
+                    <option value="{{ a.pk }}" {% if filtros.persona == a.pk|stringformat:'s' %}selected{% endif %}>{{ a.get_full_name|default:a.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1" for="desde">Desde</label>
+                <input type="date" name="desde" id="desde" class="form-control form-control-sm" value="{{ filtros.desde }}" max="{{ hoy|date:'Y-m-d' }}">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1" for="hasta">Hasta</label>
+                <input type="date" name="hasta" id="hasta" class="form-control form-control-sm" value="{{ filtros.hasta }}" max="{{ hoy|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="cliente">Cliente</label>
+                <input type="text" name="cliente" id="cliente" class="form-control form-control-sm" value="{{ filtros.cliente }}" placeholder="Crepes">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="novedad">Novedad</label>
+                <select name="novedad" id="novedad" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    {% for clave, nombre in novedades %}
+                    <option value="{{ clave }}" {% if filtros.novedad == clave %}selected{% endif %}>{{ nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-sm btn-primary w-100"><i class="bi bi-funnel me-1"></i>Ver</button>
+            </div>
+            {% if filtros.persona or filtros.cliente or filtros.novedad or filtros.hasta %}
+            <div class="col-12"><a href="{% url 'gestion:fotos_ayudantes' %}" class="btn btn-sm btn-link px-0">Limpiar filtros</a></div>
+            {% endif %}
+        </form>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            {% if n_fotos %}{{ n_fotos }} foto{{ n_fotos|pluralize }} en {{ dias|length }} día{{ dias|length|pluralize }}{% else %}Sin fotos{% endif %}{% if filtros.desde and filtros.hasta %} del {{ filtros.desde }} al {{ filtros.hasta }}{% elif filtros.desde %} desde el {{ filtros.desde }}{% elif filtros.hasta %} hasta el {{ filtros.hasta }}{% endif %}{% if filtros.persona or filtros.cliente or filtros.novedad %} con ese filtro{% endif %}.
+        </p>
+        {% include 'gestion/_galeria_fotos_ayudantes.html' with dias=dias mostrar_persona=True vacio="Ningún ayudante subió fotos en ese rango." %}
+    </div>
+</div>
+{% endblock %}
