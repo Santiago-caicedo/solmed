@@ -7998,6 +7998,15 @@ class HistorialDisposicionesTests(BaseDisposicion):
         self.assertContains(respuesta, 'ya tiene otra disposición')
         self.assertEqual(orden.disposiciones.filter(deshecha=False).count(), 1)
 
+    def test_las_disposiciones_sin_usuario_registrador_tambien_salen(self):
+        """Las migradas no tienen quién las registró ni quién las deshizo."""
+        orden = self._orden(pendiente=False)
+        orden.disposiciones.update(registrado_por=None)
+        orden.deshacer_disposicion(usuario=None, nota='migrada')
+        respuesta = self.client.get(self.historial + '?estado=todas')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'migrada')
+
     def test_el_panel_enlaza_al_historial(self):
         self.assertContains(self.client.get(self.panel), self.historial)
 

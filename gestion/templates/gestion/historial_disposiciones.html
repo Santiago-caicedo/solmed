@@ -140,13 +140,13 @@ tr.hd-deshecha .hd-dia, tr.hd-deshecha .hd-gestor{ text-decoration:line-through;
                         <td><span class="hd-via">{{ r.get_via_display }}</span></td>
                         <td class="hd-quien">{{ f.personas|join:", "|default:"—" }}</td>
                         <td class="hd-registro" title="{{ r.nota }}">
-                            {{ r.registrado_por.get_full_name|default:r.registrado_por.username|default:"—" }}<br>
+                            {% firstof r.registrado_por.get_full_name r.registrado_por.username "—" %}<br>
                             {{ r.registrado_en|date:"d/m/Y H:i" }}
                         </td>
                         <td>
                             {% if r.deshecha %}
                             <span class="hd-estado deshecha">Deshecha</span>
-                            <div class="hd-nota">{{ r.deshecha_en|date:"d/m/Y" }} · {{ r.deshecha_por.get_full_name|default:r.deshecha_por.username|default:"" }}{% if r.deshecha_nota %}: {{ r.deshecha_nota }}{% endif %}</div>
+                            <div class="hd-nota">{{ r.deshecha_en|date:"d/m/Y" }}{% firstof r.deshecha_por.get_full_name r.deshecha_por.username as quien %}{% if quien %} · {{ quien }}{% endif %}{% if r.deshecha_nota %}: {{ r.deshecha_nota }}{% endif %}</div>
                             {% else %}
                             <span class="hd-estado vigente">Vigente</span>
                             {% if r.nota %}<div class="hd-nota">{{ r.nota }}</div>{% endif %}
