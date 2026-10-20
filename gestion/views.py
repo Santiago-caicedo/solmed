@@ -6307,6 +6307,184 @@ class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
         return respuesta
 
 
+def _filas_historial(request):
+    """
+    Una fila por REGISTRO de disposición (lo que ya se dispuso), de la más
+    reciente a la más vieja: cuándo, de cuál orden, a qué gestor, por cuál vía,
+    quiénes hicieron el viaje y quién lo registró. Las deshechas salen tachadas
+    si se piden. Devuelve (filas, filtros).
+    """
+    from django.utils.dateparse import parse_date
+    filtros = {
+        'q': (request.GET.get('q') or '').strip(),
+        'gestor': (request.GET.get('gestor') or '').strip(),
+        'via': (request.GET.get('via') or '').strip(),
+        'desde': (request.GET.get('desde') or '').strip(),
+        'hasta': (request.GET.get('hasta') or '').strip(),
+        # vigentes (lo que hoy cuenta), deshechas o todas.
+        'estado': (request.GET.get('estado') or 'vigentes').strip(),
+    }
+    registros = (DisposicionOrden.objects
+                 .select_related('orden__cliente', 'dispositor', 'registrado_por', 'deshecha_por')
+                 .prefetch_related('asignaciones_plan__persona', 'orden__recorridos__vehiculo')
+                 .order_by('-fecha', '-pk'))
+    if filtros['estado'] not in ('vigentes', 'deshechas', 'todas'):
+        filtros['estado'] = 'vigentes'
+    if filtros['estado'] == 'vigentes':
+        registros = registros.filter(deshecha=False)
+    elif filtros['estado'] == 'deshechas':
+        registros = registros.filter(deshecha=True)
+    if filtros['q']:
+        q = filtros['q']
+        condicion = Q(orden__cliente__nombre__icontains=q)
+        if q.isdigit():
+            condicion |= Q(orden__numero_orden=int(q))
+        registros = registros.filter(condicion)
+    if filtros['gestor'].isdigit():
+        registros = registros.filter(dispositor_id=int(filtros['gestor']))
+    if filtros['via'] in dict(DisposicionOrden.VIA_CHOICES):
+        registros = registros.filter(via=filtros['via'])
+    else:
+        filtros['via'] = ''
+    desde = parse_date(filtros['desde'])
+    hasta = parse_date(filtros['hasta'])
+    if desde:
+        registros = registros.filter(fecha__gte=desde)
+    else:
+        filtros['desde'] = ''
+    if hasta:
+        registros = registros.filter(fecha__lte=hasta)
+    else:
+        filtros['hasta'] = ''
+
+    filas = []
+    for registro in registros:
+        recorridos = list(registro.orden.recorridos.all())
+        filas.append({
+            'registro': registro,
+            'orden': registro.orden,
+            'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
+            'personas': registro.personas,
+            # Una deshecha solo se restaura si la orden sigue sin disponer: si
+            # ya tiene otra disposición vigente, esa es la que vale.
+            'restaurable': registro.deshecha and registro.orden.estado_disposicion == 'PENDIENTE',
+        })
+    return filas, filtros
+
+
+class HistorialDisposicionesView(AdministradorRequiredMixin, View):
+    """
+    Historial de disposiciones (oct-2026, pedido de Santiago): todo lo que ya
+    se dispuso, en una sola lista, para revisarlo y CORREGIR lo que quedó mal.
+    Es el complemento del panel, que solo lista lo que se debe.
+
+    Corregir nunca borra: cambiar el día o el gestor deja el registro viejo
+    marcado como deshecho (con la razón) y crea uno nuevo «corregido a mano»,
+    enlazado a la misma actividad del plan para que quitarla siga deshaciendo
+    la disposición. Marcar sin disponer y restaurar una deshecha funcionan
+    igual, siempre con nota: es la trazabilidad del residuo.
+
+    SOLO administradores y superusuario (decisión de Santiago).
+    """
+    template_name = 'gestion/historial_disposiciones.html'
+
+    def _volver(self, request):
+        from django.utils.http import url_has_allowed_host_and_scheme
+        volver = request.POST.get('volver') or ''
+        if volver and url_has_allowed_host_and_scheme(volver, allowed_hosts={request.get_host()}):
+            return volver
+        return reverse('gestion:historial_disposiciones')
+
+    @staticmethod
+    def _enlazar_al_plan(viejo, nuevo):
+        """El registro nuevo hereda la actividad del plan del que corrige."""
+        for asignacion in viejo.asignaciones_plan.all():
+            asignacion.disposiciones.add(nuevo)
+
+    def post(self, request):
+        from django.utils.dateparse import parse_date
+        volver = self._volver(request)
+        registro = get_object_or_404(
+            DisposicionOrden.objects.select_related('orden'), pk=request.POST.get('registro'))
+        orden = registro.orden
+        nota = (request.POST.get('nota') or '').strip()
+        if not nota:
+            messages.error(request, "Escribe por qué se corrige: es la trazabilidad del residuo.")
+            return redirect(volver)
+        quien = request.user
+
+        if 'submit_corregir' in request.POST:
+            if registro.deshecha:
+                messages.error(request, "Esa disposición ya está deshecha: restáurala o registra otra.")
+                return redirect(volver)
+            fecha = parse_date((request.POST.get('fecha') or '').strip())
+            if fecha is None:
+                messages.error(request, "Elige el día de la disposición.")
+                return redirect(volver)
+            if fecha > timezone.localdate():
+                messages.error(request, "El día de la disposición no puede ser futuro.")
+                return redirect(volver)
+            gestor = Dispositor.objects.filter(pk=request.POST.get('dispositor') or None,
+                                               tipo='PROVEEDOR').first()
+            if fecha == registro.fecha and gestor == registro.dispositor:
+                messages.info(request, f"La disposición de la orden #{orden.numero_orden} "
+                                       "ya tenía ese día y ese gestor: no se cambió nada.")
+                return redirect(volver)
+            registro.deshecha = True
+            registro.deshecha_por = quien
+            registro.deshecha_en = timezone.now()
+            registro.deshecha_nota = f"Corregida desde el historial: {nota}"[:255]
+            registro.save(update_fields=['deshecha', 'deshecha_por', 'deshecha_en', 'deshecha_nota'])
+            nuevo = orden.registrar_disposicion(
+                via='MANUAL', fecha=fecha, usuario=quien, dispositor=gestor,
+                nota=f"Corregida desde el historial: {nota}")
+            self._enlazar_al_plan(registro, nuevo)
+            messages.success(request, f"Disposición de la orden #{orden.numero_orden} corregida: "
+                                      f"{fecha:%d/%m/%Y}"
+                                      + (f", {gestor.nombre}" if gestor else ", sin gestor") + ".")
+            return redirect(volver)
+
+        if 'submit_deshacer' in request.POST:
+            if registro.deshecha:
+                messages.error(request, "Esa disposición ya estaba deshecha.")
+                return redirect(volver)
+            orden.deshacer_disposicion(usuario=quien, nota=f"Corregida desde el historial: {nota}")
+            messages.warning(request, f"La orden #{orden.numero_orden} queda SIN DISPONER.")
+            return redirect(volver)
+
+        if 'submit_restaurar' in request.POST:
+            if not registro.deshecha:
+                messages.error(request, "Esa disposición sigue vigente: no hay nada que restaurar.")
+                return redirect(volver)
+            if orden.estado_disposicion != 'PENDIENTE':
+                messages.error(request, f"La orden #{orden.numero_orden} ya tiene otra disposición "
+                                        "vigente: corrige esa en vez de restaurar la vieja.")
+                return redirect(volver)
+            nuevo = orden.registrar_disposicion(
+                via='MANUAL', fecha=registro.fecha, usuario=quien, dispositor=registro.dispositor,
+                nota=f"Restaurada desde el historial: {nota}")
+            self._enlazar_al_plan(registro, nuevo)
+            messages.success(request, f"La orden #{orden.numero_orden} vuelve a quedar DISPUESTA "
+                                      f"({registro.fecha:%d/%m/%Y}).")
+            return redirect(volver)
+
+        messages.error(request, "No se reconoció la acción enviada.")
+        return redirect(volver)
+
+    def get(self, request):
+        filas, filtros = _filas_historial(request)
+        return render(request, self.template_name, {
+            'filas': filas,
+            'filtros': filtros,
+            'n_vigentes': DisposicionOrden.objects.filter(deshecha=False).count(),
+            'n_deshechas': DisposicionOrden.objects.filter(deshecha=True).count(),
+            'n_pendientes': OrdenServicio.objects.filter(estado_disposicion='PENDIENTE').count(),
+            'gestores': Dispositor.objects.filter(tipo='PROVEEDOR').order_by('nombre'),
+            'vias': DisposicionOrden.VIA_CHOICES,
+            'hoy': timezone.localdate(),
+        })
+
+
 class EditarCuentaPersonaView(PersonalRequiredMixin, View):
     """Edita la cuenta (usuario, nombre, correo, rol, estado) y el perfil de datos."""
     template_name = 'gestion/form_persona.html'

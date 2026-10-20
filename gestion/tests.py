@@ -7838,6 +7838,170 @@ class TrazabilidadDisposicionesTests(BaseDisposicion):
         self.assertIn('spreadsheet', respuesta['Content-Type'])
 
 
+class HistorialDisposicionesTests(BaseDisposicion):
+    """
+    El historial (oct-2026): todo lo ya dispuesto, de lo más reciente a lo más
+    viejo, solo para administradores, con corrección sin borrar nada.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.historial = reverse('gestion:historial_disposiciones')
+
+    def corregir(self, registro, **datos):
+        base = {'registro': registro.pk, 'nota': 'quedó mal'}
+        base.update(datos)
+        return self.client.post(self.historial, base, follow=True)
+
+    def test_solo_administradores_y_superusuario(self):
+        self.assertEqual(self.client.get(self.historial).status_code, 200)
+        for persona in (self.asesor, self.conductor):
+            self.entrar(persona)
+            self.assertEqual(self.client.get(self.historial).status_code, 403)
+            respuesta = self.client.post(self.historial, {'registro': 1, 'nota': 'x', 'submit_deshacer': '1'})
+            self.assertEqual(respuesta.status_code, 403)
+
+    def test_lista_lo_dispuesto_de_lo_mas_reciente_a_lo_mas_viejo(self):
+        hace_5 = timezone.localdate() - datetime.timedelta(days=5)
+        vieja = self._orden(placa='OBB178', pendiente=False, fecha=hace_5)
+        vieja.disposiciones.update(fecha=hace_5)
+        reciente = self._orden(placa='WNO623')
+        self.registrar_desde_panel([reciente])
+        pendiente = self._orden(placa='OBC727')
+
+        respuesta = self.client.get(self.historial)
+        filas = respuesta.context['filas']
+        self.assertEqual([f['orden'].pk for f in filas], [reciente.pk, vieja.pk])
+        contenido = respuesta.content.decode()
+        self.assertNotIn(f'#{pendiente.numero_orden}', contenido, "lo que se debe no es historial")
+        self.assertIn('Carlos Pérez, Luis Gómez', contenido, "quiénes hicieron el viaje")
+        self.assertIn('Plan de trabajo', contenido)
+        self.assertIn('Al convertir la orden', contenido)
+        self.assertIn('ENERGY ORGANIC SAS', contenido)
+        self.assertIn('WNO623', contenido)
+        self.assertEqual(respuesta.context['n_vigentes'], 2)
+        self.assertEqual(respuesta.context['n_pendientes'], 1)
+
+    def test_los_filtros(self):
+        hace_5 = timezone.localdate() - datetime.timedelta(days=5)
+        una = self._orden(pendiente=False)
+        otra = self._orden(placa='OBB178', pendiente=False, fecha=hace_5)
+        otra.disposiciones.update(fecha=hace_5, dispositor=None)
+        deshecha = self._orden(placa='OBC727', pendiente=False)
+        deshecha.deshacer_disposicion(usuario=self.admin, nota='no se hizo')
+
+        def pks(consulta):
+            return [f['orden'].pk for f in self.client.get(self.historial + consulta).context['filas']]
+
+        self.assertEqual(pks(''), [una.pk, otra.pk], "por defecto solo las vigentes")
+        self.assertEqual(pks('?estado=deshechas'), [deshecha.pk])
+        self.assertEqual(pks('?estado=todas'), [deshecha.pk, una.pk, otra.pk],
+                         "mismo día: la registrada de último va primero")
+        self.assertEqual(pks(f'?q={otra.numero_orden}'), [otra.pk])
+        self.assertEqual(pks('?q=Transportes'), [una.pk, otra.pk])
+        self.assertEqual(pks(f'?gestor={self.gestor.pk}'), [una.pk])
+        self.assertEqual(pks('?via=CONVERTIR'), [una.pk, otra.pk])
+        self.assertEqual(pks('?via=PLAN'), [])
+        self.assertEqual(pks(f'?desde={timezone.localdate().isoformat()}'), [una.pk])
+        self.assertEqual(pks(f'?hasta={hace_5.isoformat()}'), [otra.pk])
+        self.assertEqual(pks('?desde=basura&estado=cualquiera'), [una.pk, otra.pk],
+                         "un filtro malformado no rompe ni filtra")
+
+    def test_corregir_dia_y_gestor_deja_el_viejo_deshecho_y_crea_el_corregido(self):
+        orden = self._orden()
+        self.registrar_desde_panel([orden])
+        viejo = orden.disposicion_vigente
+        asignacion = self.asignaciones()[0]
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        otro_gestor = Dispositor.objects.create(nombre='RELLENO SUR', tipo='PROVEEDOR')
+
+        respuesta = self.corregir(viejo, submit_corregir='1', fecha=ayer.isoformat(),
+                                  dispositor=otro_gestor.pk, nota='el viaje fue ayer')
+        self.assertContains(respuesta, 'corregida')
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
+        viejo.refresh_from_db()
+        self.assertTrue(viejo.deshecha, "no se borra: queda deshecho con la razón")
+        self.assertEqual(viejo.deshecha_por, self.admin)
+        self.assertIn('el viaje fue ayer', viejo.deshecha_nota)
+        nuevo = orden.disposicion_vigente
+        self.assertNotEqual(nuevo.pk, viejo.pk)
+        self.assertEqual(nuevo.via, 'MANUAL')
+        self.assertEqual(nuevo.fecha, ayer)
+        self.assertEqual(nuevo.dispositor, otro_gestor)
+        self.assertEqual(nuevo.registrado_por, self.admin)
+        self.assertIn('el viaje fue ayer', nuevo.nota)
+        # El corregido sigue atado a la actividad del plan: quitarla lo deshace.
+        self.assertIn(nuevo, asignacion.disposiciones.all())
+        self.assertEqual(nuevo.personas, ['Carlos Pérez', 'Luis Gómez'])
+        asignacion.deshacer_disposicion()
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+
+    def test_corregir_sin_cambios_no_toca_nada(self):
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        respuesta = self.corregir(registro, submit_corregir='1', fecha=registro.fecha.isoformat(),
+                                  dispositor=self.gestor.pk)
+        self.assertContains(respuesta, 'no se cambió nada')
+        self.assertEqual(orden.disposiciones.count(), 1)
+        self.assertFalse(orden.disposicion_vigente.deshecha)
+
+    def test_sin_nota_o_con_fecha_futura_no_se_corrige(self):
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        manana = timezone.localdate() + datetime.timedelta(days=1)
+        respuesta = self.corregir(registro, submit_corregir='1', fecha=manana.isoformat(), nota=' ')
+        self.assertContains(respuesta, 'Escribe por qué')
+        respuesta = self.corregir(registro, submit_corregir='1', fecha=manana.isoformat())
+        self.assertContains(respuesta, 'no puede ser futuro')
+        respuesta = self.corregir(registro, submit_corregir='1', fecha='')
+        self.assertContains(respuesta, 'Elige el día')
+        self.assertEqual(orden.disposiciones.count(), 1)
+        self.assertEqual(orden.disposicion_vigente.pk, registro.pk)
+
+    def test_marcar_sin_disponer_desde_el_historial(self):
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        respuesta = self.corregir(registro, submit_deshacer='1', nota='el viaje no se hizo')
+        self.assertContains(respuesta, 'queda SIN DISPONER')
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
+        registro.refresh_from_db()
+        self.assertTrue(registro.deshecha)
+        self.assertIn('el viaje no se hizo', registro.deshecha_nota)
+        # Vuelve a salir en el panel de lo que se debe y en el historial como deshecha.
+        self.assertContains(self.client.get(self.panel), f'#{orden.numero_orden}')
+        self.assertContains(self.client.get(self.historial + '?estado=deshechas'), 'Deshecha')
+        self.assertContains(self.client.get(self.historial + '?estado=deshechas'), 'data-modo="restaurar"')
+
+    def test_restaurar_una_deshecha_vuelve_a_disponer_la_orden(self):
+        orden = self._orden(pendiente=False)
+        registro = orden.disposicion_vigente
+        orden.deshacer_disposicion(usuario=self.admin, nota='error')
+        respuesta = self.corregir(registro, submit_restaurar='1', nota='se deshizo por error')
+        self.assertContains(respuesta, 'vuelve a quedar DISPUESTA')
+        self.assertEqual(self.estado(orden), 'DISPUESTA')
+        nuevo = orden.disposicion_vigente
+        self.assertNotEqual(nuevo.pk, registro.pk)
+        self.assertEqual(nuevo.fecha, registro.fecha)
+        self.assertEqual(nuevo.dispositor, registro.dispositor)
+        self.assertEqual(nuevo.via, 'MANUAL')
+        self.assertIn('se deshizo por error', nuevo.nota)
+
+    def test_una_deshecha_no_se_restaura_si_la_orden_ya_tiene_otra_vigente(self):
+        orden = self._orden(pendiente=False)
+        vieja = orden.disposicion_vigente
+        orden.deshacer_disposicion(usuario=self.admin, nota='error')
+        orden.registrar_disposicion(via='MANUAL', fecha=timezone.localdate(), usuario=self.admin)
+        respuesta = self.client.get(self.historial + '?estado=deshechas')
+        self.assertNotContains(respuesta, 'data-modo="restaurar"')
+        respuesta = self.corregir(vieja, submit_restaurar='1')
+        self.assertContains(respuesta, 'ya tiene otra disposición')
+        self.assertEqual(orden.disposiciones.filter(deshecha=False).count(), 1)
+
+    def test_el_panel_enlaza_al_historial(self):
+        self.assertContains(self.client.get(self.panel), self.historial)
+
+
 class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
     """
     El panel registra la disposición con un popup por pasos: se marcan las

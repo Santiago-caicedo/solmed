@@ -421,7 +421,7 @@
         </li>
         {# Trazabilidad de disposiciones: el «quién» sale del plan, mismo acceso. #}
         <li>
-            <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="nav-link {% if request.path == '/app/disposiciones/' %}active{% endif %}">
+            <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="nav-link {% if request.path|slice:':19' == '/app/disposiciones/' %}active{% endif %}">
                 <i class="bi bi-recycle"></i>Disposiciones
             </a>
         </li>

@@ -1,0 +1,300 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Historial de disposiciones{% endblock %}
+{% block content %}
+{# Todo lo que YA se dispuso, de lo más reciente a lo más viejo, para revisarlo y corregir lo #}
+{# que quedó mal. Lo que se debe está en el panel de Disposiciones. Solo administradores. #}
+{# Corregir nunca borra: el registro viejo queda deshecho con la razón y se crea el corregido. #}
+<style>
+.hd-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
+.hd-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--line);
+    border-radius:var(--r-sm); background:var(--panel); text-decoration:none; color:inherit; display:block; }
+.hd-tile .v{ font-family:var(--mono); font-size:1.5rem; font-weight:600; line-height:1.1; color:var(--ink); }
+.hd-tile .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.hd-tile.hecho{ border-left-color:var(--brand-600); }
+.hd-tile.deshecha{ border-left-color:var(--ink-3); }
+.hd-tile.debe{ border-left-color:var(--warn); }
+a.hd-tile:hover{ border-color:var(--brand-600); }
+.hd-estado{ font-family:var(--mono); font-size:.7rem; font-weight:600; letter-spacing:.05em;
+    padding:.15rem .5rem; border-radius:99px; white-space:nowrap; }
+.hd-estado.vigente{ background:var(--ok-tint); color:var(--ok); border:1px solid var(--ok-line); }
+.hd-estado.deshecha{ background:var(--panel-2); color:var(--ink-3); border:1px solid var(--line); }
+.hd-via{ font-size:.78rem; color:var(--ink-2); white-space:nowrap; }
+.hd-nota{ font-size:.76rem; color:var(--ink-3); max-width:28rem; }
+tr.hd-deshecha td:not(.hd-acciones){ color:var(--ink-3); }
+tr.hd-deshecha .hd-dia, tr.hd-deshecha .hd-gestor{ text-decoration:line-through; }
+.hd-quien{ font-size:.8rem; }
+.hd-registro{ font-size:.74rem; color:var(--ink-3); white-space:nowrap; }
+.hd-acciones{ white-space:nowrap; }
+.hd-acciones .btn{ --bs-btn-padding-y:.15rem; --bs-btn-padding-x:.5rem; --bs-btn-font-size:.76rem; }
+.hd-filtros .form-label{ font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-3); }
+
+/* El popup de corrección */
+.hd-modal .modal-content{ border:0; border-radius:var(--r-lg); overflow:hidden; }
+.hd-modal .modal-header{ background:var(--g-900); color:#fff; border:0; padding:.9rem 1.25rem; align-items:center; }
+.hd-modal .modal-header .btn-close{ filter:invert(1) grayscale(1); opacity:.7; }
+.hd-modal .modal-title{ font-family:var(--sans); font-size:1.05rem; font-weight:600; letter-spacing:0; text-transform:none; color:#fff; }
+.hd-modal .modal-title small{ display:block; font-size:.78rem; font-weight:400; color:rgba(255,255,255,.7); margin-top:.15rem; }
+.hd-modal .modal-footer{ border-top:1px solid var(--line-2); }
+.hd-actual{ border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-md);
+    background:var(--panel-2); padding:.7rem .9rem; font-size:.84rem; margin-bottom:1rem; }
+.hd-actual .cab{ font-family:var(--mono); font-size:.7rem; text-transform:uppercase; letter-spacing:.1em; color:var(--brand-700); font-weight:600; margin-bottom:.3rem; }
+.hd-actual dl{ display:grid; grid-template-columns:6.5rem 1fr; gap:.2rem .6rem; margin:0; }
+.hd-actual dt{ font-weight:500; color:var(--ink-3); }
+.hd-actual dd{ margin:0; color:var(--ink); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Historial de disposiciones</h2>
+        <div class="text-muted">Todo lo que ya se dispuso, de lo más reciente a lo más viejo. Aquí se corrige lo que quedó mal.</div>
+    </div>
+    <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="btn btn-outline-primary">
+        <i class="bi bi-recycle me-1"></i>Sin disponer
+    </a>
+</div>
+
+<div class="hd-tiles mb-4">
+    <a class="hd-tile hecho" href="{% url 'gestion:historial_disposiciones' %}?estado=vigentes">
+        <div class="v">{{ n_vigentes }}</div>
+        <div class="k">Disposiciones vigentes</div>
+    </a>
+    <a class="hd-tile deshecha" href="{% url 'gestion:historial_disposiciones' %}?estado=deshechas">
+        <div class="v">{{ n_deshechas }}</div>
+        <div class="k">Deshechas o corregidas</div>
+    </a>
+    <a class="hd-tile debe" href="{% url 'gestion:trazabilidad_disposiciones' %}">
+        <div class="v">{{ n_pendientes }}</div>
+        <div class="k">Órdenes sin disponer</div>
+    </a>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="row g-2 align-items-end hd-filtros">
+            <div class="col-md-3">
+                <label class="form-label mb-1" for="q">Orden o cliente</label>
+                <input type="text" name="q" id="q" class="form-control form-control-sm"
+                       value="{{ filtros.q }}" placeholder="22246 o Crepes">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="gestor">Gestor</label>
+                <select name="gestor" id="gestor" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for g in gestores %}
+                    <option value="{{ g.pk }}" {% if filtros.gestor == g.pk|stringformat:'s' %}selected{% endif %}>{{ g.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="via">Vía</label>
+                <select name="via" id="via" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    {% for clave, nombre in vias %}
+                    <option value="{{ clave }}" {% if filtros.via == clave %}selected{% endif %}>{{ nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-1">
+                <label class="form-label mb-1" for="desde">Desde</label>
+                <input type="date" name="desde" id="desde" class="form-control form-control-sm" value="{{ filtros.desde }}">
+            </div>
+            <div class="col-6 col-md-1">
+                <label class="form-label mb-1" for="hasta">Hasta</label>
+                <input type="date" name="hasta" id="hasta" class="form-control form-control-sm" value="{{ filtros.hasta }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="estado">Mostrar</label>
+                <select name="estado" id="estado" class="form-select form-select-sm">
+                    <option value="vigentes" {% if filtros.estado == 'vigentes' %}selected{% endif %}>Vigentes</option>
+                    <option value="deshechas" {% if filtros.estado == 'deshechas' %}selected{% endif %}>Deshechas</option>
+                    <option value="todas" {% if filtros.estado == 'todas' %}selected{% endif %}>Todas</option>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-sm btn-primary w-100"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+            </div>
+            {% if filtros.q or filtros.gestor or filtros.via or filtros.desde or filtros.hasta or filtros.estado != 'vigentes' %}
+            <div class="col-12"><a href="{% url 'gestion:historial_disposiciones' %}" class="btn btn-sm btn-link px-0">Limpiar filtros</a></div>
+            {% endif %}
+        </form>
+    </div>
+    <div class="card-body">
+        {% if filas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Día</th><th>Orden</th><th>Cliente</th><th>Placa</th><th>Gestor</th>
+                        <th>Vía</th><th>Quiénes</th><th>Registró</th><th>Estado</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for f in filas %}
+                    {% with r=f.registro %}
+                    <tr class="{% if r.deshecha %}hd-deshecha{% endif %}">
+                        <td class="hd-dia font-monospace">{{ r.fecha|date:"d/m/Y" }}</td>
+                        <td><a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a></td>
+                        <td>{{ f.orden.cliente.nombre|truncatechars:36 }}</td>
+                        <td class="font-monospace">{{ f.placa|default:"—" }}</td>
+                        <td class="hd-gestor">{{ r.dispositor.nombre|default:"Sin gestor" }}</td>
+                        <td><span class="hd-via">{{ r.get_via_display }}</span></td>
+                        <td class="hd-quien">{{ f.personas|join:", "|default:"—" }}</td>
+                        <td class="hd-registro" title="{{ r.nota }}">
+                            {{ r.registrado_por.get_full_name|default:r.registrado_por.username|default:"—" }}<br>
+                            {{ r.registrado_en|date:"d/m/Y H:i" }}
+                        </td>
+                        <td>
+                            {% if r.deshecha %}
+                            <span class="hd-estado deshecha">Deshecha</span>
+                            <div class="hd-nota">{{ r.deshecha_en|date:"d/m/Y" }} · {{ r.deshecha_por.get_full_name|default:r.deshecha_por.username|default:"" }}{% if r.deshecha_nota %}: {{ r.deshecha_nota }}{% endif %}</div>
+                            {% else %}
+                            <span class="hd-estado vigente">Vigente</span>
+                            {% if r.nota %}<div class="hd-nota">{{ r.nota }}</div>{% endif %}
+                            {% endif %}
+                        </td>
+                        <td class="hd-acciones text-end">
+                            {% if not r.deshecha %}
+                            <button type="button" class="btn btn-outline-primary hd-abrir" data-modo="corregir"
+                                    data-registro="{{ r.pk }}" data-orden="{{ f.orden.numero_orden }}"
+                                    data-fecha="{{ r.fecha|date:'Y-m-d' }}" data-gestor="{{ r.dispositor_id|default:'' }}"
+                                    data-gestor-nombre="{{ r.dispositor.nombre|default:'Sin gestor' }}"
+                                    data-via="{{ r.get_via_display }}" data-personas="{{ f.personas|join:', ' }}">
+                                <i class="bi bi-pencil me-1"></i>Corregir
+                            </button>
+                            <button type="button" class="btn btn-outline-warning hd-abrir" data-modo="deshacer"
+                                    data-registro="{{ r.pk }}" data-orden="{{ f.orden.numero_orden }}"
+                                    data-fecha="{{ r.fecha|date:'Y-m-d' }}" data-gestor="{{ r.dispositor_id|default:'' }}"
+                                    data-gestor-nombre="{{ r.dispositor.nombre|default:'Sin gestor' }}"
+                                    data-via="{{ r.get_via_display }}" data-personas="{{ f.personas|join:', ' }}">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Sin disponer
+                            </button>
+                            {% elif f.restaurable %}
+                            <button type="button" class="btn btn-outline-success hd-abrir" data-modo="restaurar"
+                                    data-registro="{{ r.pk }}" data-orden="{{ f.orden.numero_orden }}"
+                                    data-fecha="{{ r.fecha|date:'Y-m-d' }}" data-gestor="{{ r.dispositor_id|default:'' }}"
+                                    data-gestor-nombre="{{ r.dispositor.nombre|default:'Sin gestor' }}"
+                                    data-via="{{ r.get_via_display }}" data-personas="{{ f.personas|join:', ' }}">
+                                <i class="bi bi-arrow-repeat me-1"></i>Restaurar
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="text-muted small mb-0 mt-2">{% if filas|length == 1 %}1 disposición{% else %}{{ filas|length }} disposiciones{% endif %}{% if filtros.estado == 'vigentes' %} vigentes{% elif filtros.estado == 'deshechas' %} deshechas{% endif %}{% if filtros.q or filtros.gestor or filtros.via or filtros.desde or filtros.hasta %} con ese filtro{% endif %}.</p>
+        {% else %}
+        <p class="text-muted mb-0">{% if filtros.q or filtros.gestor or filtros.via or filtros.desde or filtros.hasta or filtros.estado != 'vigentes' %}Nada con ese filtro.{% else %}Todavía no hay disposiciones registradas.{% endif %}</p>
+        {% endif %}
+    </div>
+</div>
+
+{# ===== El popup: corregir día o gestor / marcar sin disponer / restaurar. Siempre con la razón. ===== #}
+<div class="modal fade hd-modal" id="hd-modal" tabindex="-1" aria-labelledby="hd-titulo">
+    <div class="modal-dialog">
+        <form method="post" class="modal-content" id="hd-form">
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+            <input type="hidden" name="registro" id="hd-registro" value="">
+            <div class="modal-header">
+                <h5 class="modal-title" id="hd-titulo">Corregir disposición <small id="hd-sub">Orden #—</small></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="hd-actual">
+                    <div class="cab">Como está registrada</div>
+                    <dl>
+                        <dt>Día</dt><dd id="hd-a-fecha">—</dd>
+                        <dt>Gestor</dt><dd id="hd-a-gestor">—</dd>
+                        <dt>Vía</dt><dd id="hd-a-via">—</dd>
+                        <dt>Quiénes</dt><dd id="hd-a-personas">—</dd>
+                    </dl>
+                </div>
+                <div id="hd-campos-corregir">
+                    <div class="row g-2 mb-2">
+                        <div class="col-5">
+                            <label class="form-label small mb-1" for="hd-fecha">Día correcto</label>
+                            <input type="date" name="fecha" id="hd-fecha" class="form-control form-control-sm" max="{{ hoy|date:'Y-m-d' }}">
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label small mb-1" for="hd-gestor">Gestor correcto</label>
+                            <select name="dispositor" id="hd-gestor" class="form-select form-select-sm">
+                                <option value="">Sin gestor</option>
+                                {% for g in gestores %}<option value="{{ g.pk }}">{{ g.nombre }}</option>{% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <p class="small text-muted mb-2" id="hd-ayuda-deshacer" hidden>La orden vuelve a quedar <strong>sin disponer</strong> y sale otra vez en el panel. El registro no se borra: queda deshecho con tu razón.</p>
+                <p class="small text-muted mb-2" id="hd-ayuda-restaurar" hidden>La orden vuelve a quedar <strong>dispuesta</strong> con el mismo día y gestor de este registro.</p>
+                <label class="form-label small mb-1" for="hd-nota">¿Por qué se corrige? <span class="text-danger">*</span></label>
+                <input type="text" name="nota" id="hd-nota" class="form-control form-control-sm" required maxlength="200"
+                       placeholder="Ej: el viaje fue el 03/09 y quedó con otra fecha">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" name="submit_corregir" value="1" id="hd-btn-corregir"><i class="bi bi-check2-circle me-1"></i>Guardar corrección</button>
+                <button type="submit" class="btn btn-warning" name="submit_deshacer" value="1" id="hd-btn-deshacer" hidden><i class="bi bi-arrow-counterclockwise me-1"></i>Marcar sin disponer</button>
+                <button type="submit" class="btn btn-success" name="submit_restaurar" value="1" id="hd-btn-restaurar" hidden><i class="bi bi-arrow-repeat me-1"></i>Restaurar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function () {
+    // Un solo popup para las tres correcciones: se llena con los datos de la
+    // fila y se muestra lo que aplica. Abre con los eventos de Bootstrap por
+    // data-bs-*, así que no necesita el objeto bootstrap al cargar.
+    var modal = document.getElementById('hd-modal');
+    if (!modal) return;
+    var titulos = {corregir: 'Corregir disposición', deshacer: 'Marcar sin disponer', restaurar: 'Restaurar disposición'};
+    var nota = document.getElementById('hd-nota');
+
+    function texto(fechaIso) {
+        var p = fechaIso ? fechaIso.split('-') : null;
+        return p ? p[2] + '/' + p[1] + '/' + p[0] : '—';
+    }
+
+    function abrir(btn) {
+        var modo = btn.dataset.modo;
+        document.getElementById('hd-registro').value = btn.dataset.registro;
+        document.getElementById('hd-titulo').firstChild.textContent = titulos[modo] + ' ';
+        document.getElementById('hd-sub').textContent = 'Orden #' + btn.dataset.orden;
+        document.getElementById('hd-a-fecha').textContent = texto(btn.dataset.fecha);
+        document.getElementById('hd-a-gestor').textContent = btn.dataset.gestorNombre;
+        document.getElementById('hd-a-via').textContent = btn.dataset.via;
+        document.getElementById('hd-a-personas').textContent = btn.dataset.personas || '—';
+        document.getElementById('hd-fecha').value = btn.dataset.fecha;
+        document.getElementById('hd-gestor').value = btn.dataset.gestor;
+        document.getElementById('hd-campos-corregir').hidden = modo !== 'corregir';
+        document.getElementById('hd-ayuda-deshacer').hidden = modo !== 'deshacer';
+        document.getElementById('hd-ayuda-restaurar').hidden = modo !== 'restaurar';
+        document.getElementById('hd-btn-corregir').hidden = modo !== 'corregir';
+        document.getElementById('hd-btn-deshacer').hidden = modo !== 'deshacer';
+        document.getElementById('hd-btn-restaurar').hidden = modo !== 'restaurar';
+        nota.value = '';
+        nota.placeholder = modo === 'deshacer' ? 'Ej: el viaje no se hizo'
+            : modo === 'restaurar' ? 'Ej: se deshizo por error' : 'Ej: el viaje fue el 03/09 y quedó con otra fecha';
+        if (window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(modal).show();
+        } else {
+            modal.classList.add('show'); modal.style.display = 'block';
+        }
+    }
+
+    document.querySelectorAll('.hd-abrir').forEach(function (btn) {
+        btn.addEventListener('click', function () { abrir(btn); });
+    });
+    modal.addEventListener('shown.bs.modal', function () {
+        var campo = document.getElementById('hd-campos-corregir').hidden ? nota : document.getElementById('hd-fecha');
+        campo.focus();
+    });
+    modal.querySelector('.btn-close').addEventListener('click', function () {
+        if (!window.bootstrap) { modal.classList.remove('show'); modal.style.display = 'none'; }
+    });
+})();
+</script>
+{% endblock %}

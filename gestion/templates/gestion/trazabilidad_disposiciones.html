@@ -104,9 +104,14 @@
         <h2 class="mb-0">Disposiciones</h2>
         <div class="text-muted">Las órdenes cuyo residuo sigue sin disponer, en orden consecutivo</div>
     </div>
-    <a href="{% url 'gestion:trazabilidad_disposiciones_excel' %}{% querystring %}" class="btn btn-success">
-        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{% url 'gestion:historial_disposiciones' %}" class="btn btn-outline-primary">
+            <i class="bi bi-clock-history me-1"></i>Historial
+        </a>
+        <a href="{% url 'gestion:trazabilidad_disposiciones_excel' %}{% querystring %}" class="btn btn-success">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+        </a>
+    </div>
 </div>
 
 <div class="dz-tiles mb-4">

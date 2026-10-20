@@ -150,6 +150,8 @@ urlpatterns = [
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---
     path('disposiciones/', views.TrazabilidadDisposicionesView.as_view(), name='trazabilidad_disposiciones'),
     path('disposiciones/excel/', views.TrazabilidadDisposicionesExcelView.as_view(), name='trazabilidad_disposiciones_excel'),
+    # Historial: todo lo ya dispuesto, para revisarlo y corregirlo (solo administradores, oct-2026).
+    path('disposiciones/historial/', views.HistorialDisposicionesView.as_view(), name='historial_disposiciones'),
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),
