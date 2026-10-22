@@ -7222,8 +7222,13 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         self.acta(datetime.time(6, 0), datetime.time(15, 0))
         url = reverse('gestion:centro_control_persona', args=[ayudante.pk])
         params = {'anio': self.dia.year, 'mes': self.dia.month}
-        # Sin sus horas, las del acta (como antes).
-        self.assertEqual(self.client.get(url, params).context['horas']['total'], '9 h')
+        # Sin sus horas no hereda las del acta: sale «Sin horas» y no suma.
+        respuesta = self.client.get(url, params)
+        self.assertEqual(respuesta.context['servicios'][0]['horas'], 'Sin horas')
+        self.assertEqual(respuesta.context['servicios'][0]['duracion'], '')
+        self.assertEqual(respuesta.context['horas']['total'], '0 h')
+        self.assertEqual(respuesta.context['horas']['sin_hora'], 1)
+        self.assertContains(respuesta, 'Sin horas')
         self.recorrido.hora_inicio_ayudante = datetime.time(7, 0)
         self.recorrido.hora_fin_ayudante = datetime.time(11, 30)
         self.recorrido.save()

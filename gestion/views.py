@@ -5792,12 +5792,15 @@ def _datos_centro_control(persona, inicio, fin):
     for r in recorridos:
         acta = actas.get(r.pk)
         es_conductor = r.conductor_id == persona.pk
-        # Al AYUDANTE la oficina le anota sus propias horas (oct-2026): si las
-        # tiene, esas son las suyas. Si no, las del acta, como al conductor.
+        # Al AYUDANTE la oficina le anota sus propias horas (oct-2026): solo
+        # esas son las suyas. Sin ellas sale «Sin horas» y no suma: las del
+        # acta son del servicio, no de él (pedido de Santiago, oct-2026).
         desde, hasta = (None, None) if es_conductor else r.horas_de_ayudante(persona)
         if desde:
             horas = (f"{desde:%H:%M}–{hasta:%H:%M}" if hasta
                      else f"desde {desde:%H:%M}")
+        elif not es_conductor:
+            horas = 'Sin horas'
         else:
             # Las mismas horas del acta que muestra _horario_de; la hora
             # programada no es tiempo trabajado y no da duración.
