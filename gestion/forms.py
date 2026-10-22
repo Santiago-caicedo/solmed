@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Q
 from .roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR
+from .preoperacional import DICTAMEN_CHOICES, ESTADO_ITEM_CHOICES, items_de
 from .models import Banco, Bascula, ContactoProveedor, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.forms import UserCreationForm
@@ -67,7 +68,7 @@ class VehiculoForm(forms.ModelForm):
     class Meta:
         model = Vehiculo
         fields = [
-            'placa', 'marca', 'modelo', 'capacidad', 'estado',
+            'placa', 'marca', 'modelo', 'capacidad', 'estado', 'tipo',
             'archivo_tarjeta',
             'fecha_vencimiento_soat', 'archivo_soat',
             'fecha_vencimiento_tecnomecanica', 'archivo_tecnomecanica',
@@ -78,6 +79,7 @@ class VehiculoForm(forms.ModelForm):
             'modelo': forms.TextInput(attrs={'class': 'form-control'}),
             'capacidad': forms.TextInput(attrs={'class': 'form-control'}),
             'estado': forms.Select(attrs={'class': 'form-select'}),
+            'tipo': forms.Select(attrs={'class': 'form-select'}),
             'archivo_tarjeta': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
             'fecha_vencimiento_soat': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d'),
             'archivo_soat': forms.FileInput(attrs={'class': 'form-control', 'accept': 'application/pdf'}),
@@ -1648,3 +1650,53 @@ class OrdenHistoricaForm(forms.Form):
         if OrdenServicio.objects.filter(pk=numero).exists():
             raise forms.ValidationError(f"Ya existe la orden #{numero}.")
         return numero
+
+
+class PreoperacionalForm(forms.Form):
+    """
+    El PREOPERACIONAL del conductor (oct-2026, pedido de la SISO): un campo
+    B / M / N/A por cada ítem de la lista del tipo del vehículo, el dictamen
+    final y las observaciones. Las fotos de evidencia van aparte (FILES).
+    Las observaciones se exigen cuando hay algo que contar: un ítem malo o
+    el vehículo no apto.
+    """
+    dictamen = forms.ChoiceField(
+        choices=DICTAMEN_CHOICES, widget=forms.RadioSelect,
+        label="Dictamen final del vehículo")
+    observaciones = forms.CharField(
+        required=False, label="Observaciones / detalles de hallazgos",
+        widget=forms.Textarea(attrs={
+            'class': 'form-control', 'rows': 3,
+            'placeholder': 'Qué encontraste, dónde y qué tan grave es.'}))
+
+    def __init__(self, tipo, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.items = items_de(tipo)
+        for item in self.items:
+            self.fields[f"item_{item['numero']}"] = forms.ChoiceField(
+                choices=ESTADO_ITEM_CHOICES, widget=forms.RadioSelect,
+                label=item['texto'])
+
+    def secciones(self):
+        """[{'nombre', 'items': [{'numero', 'campo'}]}] para la plantilla."""
+        grupos = []
+        for item in self.items:
+            if not grupos or grupos[-1]['nombre'] != item['seccion']:
+                grupos.append({'nombre': item['seccion'], 'items': []})
+            grupos[-1]['items'].append(
+                {'numero': item['numero'], 'campo': self[f"item_{item['numero']}"]})
+        return grupos
+
+    def respuestas(self):
+        """[(item, estado)] de la lista, ya validado."""
+        return [(item, self.cleaned_data[f"item_{item['numero']}"])
+                for item in self.items]
+
+    def clean(self):
+        cleaned = super().clean()
+        hay_malos = any(cleaned.get(f"item_{i['numero']}") == 'M' for i in self.items)
+        if ((hay_malos or cleaned.get('dictamen') == 'NO_APTO')
+                and not (cleaned.get('observaciones') or '').strip()):
+            self.add_error('observaciones',
+                           "Cuenta qué encontraste: hay un ítem malo o el vehículo no está apto.")
+        return cleaned

@@ -34,6 +34,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from .models import ItemPreoperacional, Preoperacional
+from .preoperacional import items_de
 
 from .forms import (
     DocumentoPersonalForm, EncuestaConductorForm, OrdenHistoricaForm, PagoForm,
@@ -6470,7 +6472,7 @@ class TableroSoloAdministradoresTests(BaseCRM):
             'Planificadores': reverse('gestion:planificacion'),
             'Conductores': reverse('gestion:dashboard_conductor'),
             'Talento Humano': reverse('gestion:lista_personal'),
-            'SISO': reverse('gestion:sin_acceso'),
+            'SISO': reverse('gestion:pesv'),
             'Director Técnico': reverse('gestion:sin_acceso'),
         }
         for i, (rol, destino) in enumerate(destinos.items()):
@@ -6746,7 +6748,8 @@ class CuentasSinModulosTests(BaseCRM):
     aterrizan en esa pantalla (ver BasculasTests).
     """
 
-    CARGOS = ['Director Técnico', 'SISO', 'Soldador - Armador']
+    # La SISO salió de aquí en oct-2026: su casa es la carpeta del PESV.
+    CARGOS = ['Director Técnico', 'Soldador - Armador']
 
     def test_al_entrar_aterrizan_en_su_pantalla_y_no_en_un_error(self):
         for i, cargo in enumerate(self.CARGOS):
@@ -9200,3 +9203,353 @@ class MigracionSedesAPuntosTests(TransactionTestCase):
         foto = Foto.objects.get(archivo='ordenes_documentos/n.png')
         self.assertEqual(foto.punto.nombre, 'Sede Norte')
         self.assertIsNone(Foto.objects.get(archivo='ordenes_documentos/general.png').punto_id)
+
+
+
+# ============================================================
+#  PREOPERACIONAL DEL VEHÍCULO Y CARPETA DEL PESV (oct-2026)
+# ============================================================
+class PreoperacionalTests(BaseCRM):
+    """
+    El conductor revisa el vehículo ANTES de salir con la lista de chequeo
+    del tipo de su vehículo; el sistema pone el vehículo y el conductor.
+    Un hallazgo no frena el servicio: queda con alerta y avisa a gestión.
+    """
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())
+        # Un Hino: 9 ítems (el 6 es la batería).
+        self.camion.tipo = 'HINO'
+        self.camion.save()
+        self.admin = self.persona('admin', 'Administradores', 'Marta', 'Gil',
+                                  correo='gestion@solmed.co')
+        self.siso = self.persona('siso', 'SISO', 'Sara', 'Luna', correo='siso@solmed.co')
+        self.url = reverse('gestion:preoperacional', args=[self.recorrido.pk])
+        self.url_pdf = reverse('gestion:preoperacional_pdf', args=[self.recorrido.pk])
+        self.url_orden = reverse('gestion:detalle_orden_conductor', args=[self.orden.pk])
+
+    def respuestas(self, **cambios):
+        datos = {f'item_{n}': 'B' for n in range(1, 10)}
+        datos['dictamen'] = 'APTO'
+        datos.update(cambios)
+        return datos
+
+    def tarea_preoperacional(self):
+        tareas = self.client.get(self.url_orden).context['tareas']
+        return next(t for t in tareas if t['titulo_corto'] == 'el preoperacional')
+
+    def test_es_la_primera_tarea_del_conductor(self):
+        self.entrar(self.conductor)
+        tareas = self.client.get(self.url_orden).context['tareas']
+        self.assertEqual(tareas[0]['titulo_corto'], 'el preoperacional')
+        self.assertFalse(tareas[0]['hecha'])
+        self.assertTrue(tareas[0]['habilitada'])
+        self.assertEqual(tareas[0]['url'], self.url)
+
+    def test_sin_tipo_de_vehiculo_no_hay_lista_y_la_tarea_queda_bloqueada(self):
+        self.camion.tipo = ''
+        self.camion.save()
+        self.entrar(self.conductor)
+        tarea = self.tarea_preoperacional()
+        self.assertFalse(tarea['habilitada'])
+        self.assertIn('no tiene tipo registrado', tarea['detalle'])
+        respuesta = self.client.get(self.url)
+        self.assertRedirects(respuesta, self.url_orden)
+        self.assertEqual(self.client.post(self.url, self.respuestas()).status_code, 302)
+        self.assertFalse(Preoperacional.objects.exists())
+
+    def test_el_conductor_llena_la_lista_de_su_tipo_de_vehiculo(self):
+        self.entrar(self.conductor)
+        pantalla = self.client.get(self.url)
+        self.assertContains(pantalla, 'Camión Hino')
+        self.assertContains(pantalla, 'Batería (bornes limpios y soporte ajustado).')
+        self.assertContains(pantalla, self.camion.placa)
+        self.assertContains(pantalla, 'Carlos Pérez')
+        self.assertNotContains(pantalla, 'name="item_10"')
+
+        respuesta = self.client.post(self.url, self.respuestas(item_3='NA'))
+        self.assertRedirects(respuesta, self.url_orden)
+        pre = self.recorrido.preoperacional
+        self.assertEqual(pre.tipo_vehiculo, 'HINO')
+        self.assertTrue(pre.apto)
+        self.assertEqual(pre.diligenciado_por, self.conductor)
+        self.assertEqual(pre.items.count(), 9)
+        self.assertEqual(pre.items.get(numero=3).estado, 'NA')
+        self.assertEqual(pre.items.get(numero=6).texto, 'Batería (bornes limpios y soporte ajustado).')
+        self.assertEqual(pre.items.get(numero=6).seccion, 'Mecánica, frenos y rodamiento')
+        self.assertFalse(pre.tiene_hallazgos)
+        self.assertEqual(len(mail.outbox), 0, "sin hallazgos no se avisa a nadie")
+        tarea = self.tarea_preoperacional()
+        self.assertTrue(tarea['hecha'])
+        self.assertEqual(tarea['pdf'], self.url_pdf)
+
+    def test_faltar_una_respuesta_no_deja_guardar(self):
+        self.entrar(self.conductor)
+        datos = self.respuestas()
+        del datos['item_5']
+        respuesta = self.client.post(self.url, datos)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Preoperacional.objects.exists())
+
+    def test_un_item_malo_exige_observaciones_y_avisa_a_gestion(self):
+        self.entrar(self.conductor)
+        respuesta = self.client.post(self.url, self.respuestas(item_6='M'))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Cuenta qué encontraste')
+        self.assertFalse(Preoperacional.objects.exists())
+
+        respuesta = self.client.post(self.url, self.respuestas(
+            item_6='M', observaciones='Borne flojo, chispea al arrancar.'))
+        self.assertRedirects(respuesta, self.url_orden)
+        pre = self.recorrido.preoperacional
+        self.assertTrue(pre.apto)
+        self.assertTrue(pre.tiene_hallazgos)
+        self.assertEqual([i.numero for i in pre.items_malos], [6])
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(set(correo.to),
+                         {'gestion@solmed.co', 'siso@solmed.co', self.asesor.email})
+        self.assertIn(self.camion.placa, correo.subject)
+        self.assertIn('Batería', correo.body)
+        self.assertIn('Borne flojo', correo.body)
+        self.assertIn(self.url_pdf, correo.body)
+
+    def test_no_apto_queda_registrado_con_alerta_y_avisa(self):
+        self.entrar(self.conductor)
+        self.client.post(self.url, self.respuestas(
+            dictamen='NO_APTO', observaciones='Frenos sin presión.'))
+        pre = self.recorrido.preoperacional
+        self.assertFalse(pre.apto)
+        self.assertTrue(pre.tiene_hallazgos)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('No apto para operar', mail.outbox[0].body)
+        # El servicio sigue su curso: el conductor ve la orden con la alerta.
+        tarea = self.tarea_preoperacional()
+        self.assertTrue(tarea['hecha'])
+        self.assertIn('hallazgos', tarea['detalle'])
+
+    def test_las_fotos_de_los_hallazgos_se_guardan_y_salen_en_el_pdf(self):
+        self.entrar(self.conductor)
+        datos = self.respuestas(item_2='M', observaciones='Platón fisurado.')
+        datos['fotos'] = [imagen('fisura1.png'), imagen('fisura2.png')]
+        self.client.post(self.url, datos)
+        pre = self.recorrido.preoperacional
+        self.assertEqual(pre.fotos.count(), 2)
+        pdf = self.client.get(self.url_pdf)
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf['Content-Type'], 'application/pdf')
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+
+    def test_corregirlo_reescribe_la_lista_y_conserva_las_fotos(self):
+        self.entrar(self.conductor)
+        datos = self.respuestas()
+        datos['fotos'] = [imagen()]
+        self.client.post(self.url, datos)
+        self.client.post(self.url, self.respuestas(item_1='NA', item_9='M',
+                                                   observaciones='Extintor vencido.'))
+        pre = self.recorrido.preoperacional
+        self.assertEqual(pre.items.count(), 9)
+        self.assertEqual(pre.items.get(numero=1).estado, 'NA')
+        self.assertEqual(pre.items.get(numero=9).estado, 'M')
+        self.assertEqual(pre.fotos.count(), 1)
+        self.assertEqual(Preoperacional.objects.count(), 1)
+        # Al volver, la hoja trae lo guardado.
+        pantalla = self.client.get(self.url)
+        self.assertContains(pantalla, 'ya está registrado')
+        self.assertContains(pantalla, 'Extintor vencido.')
+
+    def test_el_pdf_lo_bajan_gestion_el_conductor_y_la_siso(self):
+        self.entrar(self.conductor)
+        self.client.post(self.url, self.respuestas())
+        for quien in (self.conductor, self.asesor, self.admin, self.siso):
+            with self.subTest(quien=quien.username):
+                self.entrar(quien)
+                self.assertEqual(self.client.get(self.url_pdf).status_code, 200)
+        otro = self.persona('otro', 'Conductores')
+        self.entrar(otro)
+        self.assertEqual(self.client.get(self.url_pdf).status_code, 404)
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.entrar(self.persona('talento', 'Talento Humano'))
+        self.assertEqual(self.client.get(self.url_pdf).status_code, 403)
+
+    def test_la_siso_tambien_baja_el_pdf_de_la_encuesta_de_cierre(self):
+        EncuestaConductor.objects.create(
+            recorrido=self.recorrido, presento_fatiga='NO', realizo_pausas_activas='SI',
+            molestias_fisicas='NO', tiempos_adecuados='SI', cabina_optima='SI',
+            zonas_seguras_descanso='SI', condicion_riesgo='NO')
+        self.entrar(self.siso)
+        url = reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_el_expediente_de_la_orden_muestra_el_preoperacional(self):
+        self.entrar(self.asesor)
+        url = reverse('gestion:detalle_orden', args=[self.orden.pk])
+        self.assertContains(self.client.get(url), 'Pendiente')
+        Preoperacional.objects.create(recorrido=self.recorrido, tipo_vehiculo='HINO',
+                                      dictamen='NO_APTO', observaciones='x')
+        pantalla = self.client.get(url)
+        self.assertContains(pantalla, 'Con hallazgos')
+        self.assertContains(pantalla, self.url_pdf)
+        # El asesor también puede corregirlo.
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_el_vehiculo_lleva_su_tipo_en_la_ficha_y_la_lista(self):
+        self.entrar(self.asesor)
+        self.assertContains(self.client.get(reverse('gestion:lista_vehiculos')), 'Camión Hino')
+        self.camion.tipo = ''
+        self.camion.save()
+        self.assertContains(self.client.get(reverse('gestion:lista_vehiculos')), 'Sin tipo')
+        pantalla = self.client.get(reverse('gestion:actualizar_vehiculo', args=[self.camion.pk]))
+        self.assertContains(pantalla, 'name="tipo"')
+        self.assertContains(pantalla, 'Vactor')
+
+
+class CarpetaPESVTests(BaseCRM):
+    """
+    La carpeta «Plan Estratégico de Seguridad Vial»: la SISO (y gestión)
+    ven los preoperacionales y las encuestas de cierre de CUALQUIER mes,
+    con su resumen, y los bajan en Excel. El tablero solo muestra el mes.
+    """
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())
+        self.camion.tipo = 'VOLQUETA'
+        self.camion.save()
+        self.siso = self.persona('siso', 'SISO', 'Sara', 'Luna')
+        self.admin = self.persona('admin', 'Administradores')
+        self.url = reverse('gestion:pesv')
+        self.hoy = timezone.localdate()
+        # Un segundo servicio hace tres meses, con otro camión y otro conductor.
+        self.otro_conductor = self.persona('cond2', 'Conductores', 'Luis', 'Mora')
+        self.otro_camion = self.vehiculo('XYZ789', tipo='CAMIONETA')
+        hace_tres_meses = (self.hoy.replace(day=15) - datetime.timedelta(days=80))
+        self.viejo = Recorrido.objects.create(
+            orden=self.orden, vehiculo=self.otro_camion, conductor=self.otro_conductor,
+            fecha_recorrido=hace_tres_meses)
+
+    def preoperacional(self, recorrido, dictamen='APTO', malos=()):
+        pre = Preoperacional.objects.create(
+            recorrido=recorrido, tipo_vehiculo=recorrido.vehiculo.tipo, dictamen=dictamen,
+            observaciones='obs' if (malos or dictamen != 'APTO') else '')
+        for n, item in enumerate(items_de(recorrido.vehiculo.tipo), start=1):
+            ItemPreoperacional.objects.create(
+                preoperacional=pre, numero=n, seccion=item['seccion'],
+                texto=item['texto'], estado='M' if n in malos else 'B')
+        return pre
+
+    def encuesta(self, recorrido, riesgo='NO'):
+        return EncuestaConductor.objects.create(
+            recorrido=recorrido, presento_fatiga='NO', realizo_pausas_activas='SI',
+            molestias_fisicas='NO', tiempos_adecuados='SI', cabina_optima='SI',
+            zonas_seguras_descanso='SI', condicion_riesgo=riesgo,
+            tipo_incidente='INCIDENTE_MENOR' if riesgo == 'SI' else '')
+
+    def test_quien_entra(self):
+        for quien in (self.siso, self.admin):
+            with self.subTest(quien=quien.username):
+                self.entrar(quien)
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+                self.assertEqual(self.client.get(reverse('gestion:pesv_excel')).status_code, 200)
+        for rol in ('Asesores', 'Conductores', 'Talento Humano', 'Planificadores',
+                    'Auxiliares Administrativas'):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'x{rol[:4].lower()}', rol))
+                self.assertEqual(self.client.get(self.url).status_code, 403)
+                self.assertEqual(self.client.get(reverse('gestion:pesv_excel')).status_code, 403)
+
+    def test_la_siso_aterriza_en_la_carpeta_y_la_ve_en_el_menu(self):
+        self.entrar(self.siso)
+        respuesta = self.client.get(reverse('gestion:dashboard_redirect'), follow=True)
+        self.assertEqual(respuesta.redirect_chain[-1][0], self.url)
+        self.assertContains(respuesta, 'Seguridad vial (PESV)')
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')),
+                               'Seguridad vial (PESV)')
+
+    def test_la_carpeta_muestra_el_mes_pedido_con_su_resumen(self):
+        self.preoperacional(self.recorrido, malos=(6, 7))
+        self.preoperacional(self.viejo, dictamen='NO_APTO')
+        self.encuesta(self.recorrido, riesgo='SI')
+        self.encuesta(self.viejo)
+        self.entrar(self.siso)
+
+        este_mes = self.client.get(self.url, {'anio': self.hoy.year, 'mes': self.hoy.month})
+        r = este_mes.context['resumen']
+        self.assertEqual((r['preoperacionales'], r['no_aptos'], r['items_malos'],
+                          r['encuestas'], r['casi_accidentes']), (1, 0, 2, 1, 1))
+        self.assertEqual([p.recorrido for p in este_mes.context['preoperacionales']],
+                         [self.recorrido])
+        self.assertContains(este_mes, 'Frenos de aire, purga de tanques y freno de ahogo.')
+        self.assertContains(este_mes, reverse('gestion:preoperacional_pdf', args=[self.recorrido.pk]))
+        self.assertContains(este_mes, reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk]))
+        # El otro servicio no está (la placa sí sale, en el desplegable del filtro).
+        self.assertNotContains(este_mes, reverse('gestion:preoperacional_pdf', args=[self.viejo.pk]))
+
+        viejo = self.client.get(self.url, {'anio': self.viejo.fecha_recorrido.year,
+                                           'mes': self.viejo.fecha_recorrido.month})
+        self.assertEqual(viejo.context['resumen']['no_aptos'], 1)
+        self.assertContains(viejo, 'XYZ789')
+
+        todo = self.client.get(self.url, {'anio': self.hoy.year, 'mes': 'todo'})
+        self.assertEqual(todo.context['resumen']['preoperacionales'],
+                         2 if self.viejo.fecha_recorrido.year == self.hoy.year else 1)
+
+    def test_se_filtra_por_vehiculo_conductor_y_solo_hallazgos(self):
+        self.preoperacional(self.recorrido)
+        self.viejo.fecha_recorrido = self.hoy
+        self.viejo.save()
+        self.preoperacional(self.viejo, malos=(1,))
+        self.entrar(self.admin)
+        params = {'anio': self.hoy.year, 'mes': self.hoy.month}
+        self.assertEqual(len(self.client.get(self.url, params).context['preoperacionales']), 2)
+        por_camion = self.client.get(self.url, {**params, 'vehiculo': self.otro_camion.pk})
+        self.assertEqual([p.recorrido for p in por_camion.context['preoperacionales']], [self.viejo])
+        por_conductor = self.client.get(self.url, {**params, 'conductor': self.conductor.pk})
+        self.assertEqual([p.recorrido for p in por_conductor.context['preoperacionales']],
+                         [self.recorrido])
+        hallazgos = self.client.get(self.url, {**params, 'ver': 'hallazgos'})
+        self.assertEqual([p.recorrido for p in hallazgos.context['preoperacionales']], [self.viejo])
+        # El resumen sigue siendo del periodo completo.
+        self.assertEqual(hallazgos.context['resumen']['preoperacionales'], 2)
+
+    def test_los_servicios_pasados_sin_preoperacional_se_reclaman(self):
+        self.entrar(self.siso)
+        respuesta = self.client.get(self.url, {'anio': self.viejo.fecha_recorrido.year,
+                                               'mes': self.viejo.fecha_recorrido.month})
+        self.assertEqual(respuesta.context['sin_preoperacional'], [self.viejo])
+        self.assertContains(respuesta, 'Servicios sin preoperacional')
+        self.preoperacional(self.viejo)
+        respuesta = self.client.get(self.url, {'anio': self.viejo.fecha_recorrido.year,
+                                               'mes': self.viejo.fecha_recorrido.month})
+        self.assertEqual(respuesta.context['sin_preoperacional'], [])
+
+    def test_el_excel_trae_el_resumen_y_las_hojas(self):
+        from openpyxl import load_workbook
+        self.preoperacional(self.recorrido, dictamen='NO_APTO', malos=(7,))
+        self.encuesta(self.recorrido)
+        self.entrar(self.siso)
+        excel = self.client.get(reverse('gestion:pesv_excel'),
+                                {'anio': self.hoy.year, 'mes': self.hoy.month})
+        self.assertEqual(excel.status_code, 200)
+        libro = load_workbook(io.BytesIO(excel.content))
+        self.assertEqual(libro.sheetnames, ['Resumen', 'Preoperacionales', 'Ítems malos',
+                                            'Encuestas de cierre', 'Sin preoperacional'])
+        resumen = {f[0]: f[1] for f in libro['Resumen'].iter_rows(values_only=True)}
+        self.assertEqual(resumen['Preoperacionales'], 1)
+        self.assertEqual(resumen['Vehículos no aptos'], 1)
+        self.assertEqual(resumen['Ítems en mal estado'], 1)
+        self.assertEqual(resumen['Encuestas de cierre'], 1)
+        fila = list(libro['Preoperacionales'].iter_rows(min_row=2, values_only=True))[0]
+        self.assertEqual(fila[3], self.camion.placa)
+        self.assertEqual(fila[6], 'No apto para operar')
+        self.assertEqual(fila[7], 1)
+        self.assertEqual(libro['Ítems malos']['G2'].value,
+                         'Frenos de aire, purga de tanques y freno de ahogo.')
+
+    def test_el_tablero_resume_los_preoperacionales_del_mes_y_enlaza_la_carpeta(self):
+        self.preoperacional(self.recorrido, dictamen='NO_APTO')
+        self.entrar(self.admin)
+        tablero = self.client.get(reverse('gestion:dashboard'))
+        self.assertEqual(tablero.context['pesv']['preoperacionales_mes'], 1)
+        self.assertEqual(tablero.context['pesv']['no_aptos_mes'], 1)
+        self.assertContains(tablero, self.url)

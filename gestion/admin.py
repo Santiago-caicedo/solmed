@@ -1,6 +1,6 @@
 # gestion/admin.py
 from django.contrib import admin
-from .models import Banco, Bascula, Cliente, ConceptoFactura, ContactoProveedor, AdjuntoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
+from .models import Banco, Bascula, Cliente, ConceptoFactura, ContactoProveedor, AdjuntoFactura, DisposicionOrden, EnvioCorreo, Factura, LineaFactura, MedidaACPM, NovedadOperacional, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, FotoPreoperacional, ItemPreoperacional, Preoperacional, Manifiesto, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, OrdenServicio
 
 
 @admin.register(DocumentoInterno)
@@ -38,8 +38,8 @@ class FiltroAceiteInline(admin.TabularInline):
 
 @admin.register(Vehiculo)
 class VehiculoAdmin(admin.ModelAdmin):
-    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado')
-    list_filter = ('estado', 'marca')
+    list_display = ('placa', 'marca', 'modelo', 'capacidad', 'estado', 'tipo')
+    list_filter = ('estado', 'tipo', 'marca')
     search_fields = ('placa', 'marca', 'modelo')
     inlines = [FiltroAceiteInline]
 
@@ -270,3 +270,22 @@ class FacturaAdmin(admin.ModelAdmin):
     search_fields = ('numero', 'numero_externo', 'cliente__nombre', 'corte_facturacion')
     inlines = [LineaFacturaInline, AdjuntoFacturaInline]
 
+
+
+class ItemPreoperacionalInline(admin.TabularInline):
+    model = ItemPreoperacional
+    extra = 0
+    readonly_fields = ('numero', 'seccion', 'texto')
+
+
+class FotoPreoperacionalInline(admin.TabularInline):
+    model = FotoPreoperacional
+    extra = 0
+
+
+@admin.register(Preoperacional)
+class PreoperacionalAdmin(admin.ModelAdmin):
+    list_display = ('recorrido', 'tipo_vehiculo', 'dictamen', 'diligenciado_por', 'fecha_diligenciamiento')
+    list_filter = ('dictamen', 'tipo_vehiculo')
+    search_fields = ('recorrido__orden__numero_orden', 'recorrido__vehiculo__placa')
+    inlines = [ItemPreoperacionalInline, FotoPreoperacionalInline]

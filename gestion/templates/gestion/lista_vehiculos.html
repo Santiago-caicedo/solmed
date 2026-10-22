@@ -17,6 +17,7 @@
             <th>Placa</th>
             <th>Marca y Modelo</th>
             <th>Capacidad</th>
+            <th>Tipo</th>
             <th>Estado</th>
             <th>Acciones</th>
         </tr>
@@ -32,6 +33,7 @@
             </td>
             <td>{{ vehiculo.marca }} {{ vehiculo.modelo }}</td>
             <td>{{ vehiculo.capacidad }}</td>
+            <td>{% if vehiculo.tipo %}{{ vehiculo.get_tipo_display }}{% else %}<span class="text-danger small" title="Sin tipo el conductor no puede hacer el preoperacional"><i class="bi bi-exclamation-circle me-1"></i>Sin tipo</span>{% endif %}</td>
             <td>
                 <span class="badge {% if vehiculo.estado == 'OPERATIVO' %}bg-success{% elif vehiculo.estado == 'MANTENIMIENTO' %}bg-warning text-dark{% else %}bg-dark{% endif %}">
                     {{ vehiculo.get_estado_display }}

@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from django.db.models import Max, Sum
 from django.utils import timezone
+from .preoperacional import DICTAMEN_CHOICES, ESTADO_ITEM_CHOICES, TIPOS_VEHICULO
 
 
 class Cliente(models.Model):
@@ -232,6 +233,12 @@ class Vehiculo(models.Model):
     modelo = models.CharField(max_length=50)
     capacidad = models.CharField(max_length=100, help_text="Ej: '3 toneladas', '20 m³'")
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='OPERATIVO')
+    # El TIPO decide qué lista de chequeo llena el conductor en el
+    # preoperacional (oct-2026, pedido de la SISO; ver preoperacional.py).
+    # Sin tipo, el conductor no puede hacer la revisión: la oficina lo pone.
+    tipo = models.CharField(
+        max_length=20, choices=TIPOS_VEHICULO, blank=True, default='',
+        verbose_name="Tipo de vehículo")
 
     # --- Documentos legales ---
     # Tarjeta de propiedad: solo se adjunta el PDF (no tiene vencimiento ni alerta).
@@ -1294,6 +1301,100 @@ class EncuestaConductor(models.Model):
         if recorrido.estado != 'COMPLETADO':
             recorrido.estado = 'COMPLETADO'
             recorrido.save()
+
+
+class Preoperacional(models.Model):
+    """
+    Inspección PREOPERACIONAL del vehículo (oct-2026, pedido de la SISO):
+    la llena el conductor antes de salir a cada servicio, con la lista de
+    chequeo del TIPO de su vehículo (ver preoperacional.py). El vehículo y el
+    conductor salen del recorrido; el conductor no los escribe.
+
+    Es evidencia del PESV junto con la encuesta de cierre: las dos viven en
+    la carpeta «Plan Estratégico de Seguridad Vial» para que la SISO lleve la
+    trazabilidad mes a mes. Un dictamen «No apto» o un ítem malo no frena el
+    servicio: queda registrado con alerta y se le avisa a gestión por correo.
+    """
+    recorrido = models.OneToOneField(
+        Recorrido, on_delete=models.CASCADE, related_name='preoperacional')
+    # Copia del tipo del vehículo al momento de la revisión: si la oficina
+    # lo cambia después, el registro sigue diciendo qué lista se llenó.
+    tipo_vehiculo = models.CharField(max_length=20, choices=TIPOS_VEHICULO)
+    dictamen = models.CharField(
+        max_length=10, choices=DICTAMEN_CHOICES, verbose_name="Dictamen final")
+    observaciones = models.TextField(
+        blank=True, verbose_name="Observaciones / detalles de hallazgos")
+    diligenciado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='preoperacionales_diligenciados')
+    fecha_diligenciamiento = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Preoperacional"
+        verbose_name_plural = "Preoperacionales"
+
+    def __str__(self):
+        return f"Preoperacional - Recorrido #{self.recorrido_id}"
+
+    @property
+    def apto(self):
+        return self.dictamen == 'APTO'
+
+    @property
+    def items_malos(self):
+        """Los ítems marcados como malos / deficientes."""
+        return [i for i in self.items.all() if i.estado == 'M']
+
+    @property
+    def tiene_hallazgos(self):
+        """True si no está apto o algún ítem salió malo (para avisos y la carpeta)."""
+        return not self.apto or bool(self.items_malos)
+
+    def secciones(self):
+        """Los ítems agrupados por sección, en orden, para la pantalla y el PDF."""
+        grupos = []
+        for item in self.items.all():
+            if not grupos or grupos[-1]['nombre'] != item.seccion:
+                grupos.append({'nombre': item.seccion, 'items': []})
+            grupos[-1]['items'].append(item)
+        return grupos
+
+
+class ItemPreoperacional(models.Model):
+    """
+    Un ítem de la lista de chequeo con su respuesta. Guarda el texto que
+    vio el conductor: si la SISO cambia la lista, el histórico no cambia.
+    """
+    preoperacional = models.ForeignKey(
+        Preoperacional, on_delete=models.CASCADE, related_name='items')
+    numero = models.PositiveSmallIntegerField()
+    seccion = models.CharField(max_length=120)
+    texto = models.CharField(max_length=255)
+    estado = models.CharField(max_length=2, choices=ESTADO_ITEM_CHOICES)
+
+    class Meta:
+        ordering = ['numero']
+        verbose_name = "Ítem del preoperacional"
+        verbose_name_plural = "Ítems del preoperacional"
+
+    def __str__(self):
+        return f"{self.numero}. {self.texto} [{self.estado}]"
+
+
+class FotoPreoperacional(models.Model):
+    """Foto de evidencia de un hallazgo del preoperacional (puede haber varias)."""
+    preoperacional = models.ForeignKey(
+        Preoperacional, on_delete=models.CASCADE, related_name='fotos')
+    archivo = models.ImageField(upload_to='preoperacionales/')
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['fecha_subida']
+        verbose_name = "Foto del preoperacional"
+        verbose_name_plural = "Fotos del preoperacional"
+
+    def __str__(self):
+        return f"Foto {self.pk} - Preoperacional #{self.preoperacional_id}"
 
 
 class TipoResiduo(models.Model):

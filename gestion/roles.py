@@ -26,6 +26,11 @@ GRUPOS_BASCULA = ('Asesores', 'Auxiliares Administrativas', 'Administrativo')
 # mismos cargos de oficina, decisión de Santiago. Borrar es solo de gestión.
 GRUPOS_DISPOSICION_FINAL = ('Asesores', 'Auxiliares Administrativas', 'Administrativo')
 
+# Quién entra a la carpeta del PESV (oct-2026): preoperacionales y encuestas
+# de cierre, mes a mes. La SISO estrena módulo con ella (antes su cuenta
+# existía solo por el expediente). Gestión también la ve.
+GRUPOS_PESV = ('SISO',)
+
 
 def es_de(nombres_grupos, grupos):
     """True si alguno de los grupos de la persona está en `grupos`."""

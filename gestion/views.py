@@ -1,6 +1,7 @@
 import calendar
 import json
 import re
+import io
 import mimetypes
 import os
 import unicodedata
@@ -33,9 +34,10 @@ from django.utils import timezone
 from django.db.models import Sum
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, GRUPOS_DISPOSICION_FINAL, es_de
+from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, GRUPOS_DISPOSICION_FINAL, GRUPOS_PESV, es_de
 from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
-from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
+from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
+from .preoperacional import nombre_tipo
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -43,7 +45,7 @@ from .renumeracion import reubicar_orden
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
 from .forms import ManifiestoHojaConductorForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, PreoperacionalForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, Factura, FotoRegistro, LineaFactura, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
@@ -146,6 +148,16 @@ class DisposicionFinalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
                 or user.groups.filter(name__in=GRUPOS_DISPOSICION_FINAL).exists())
 
 
+def _puede_ver_pesv(user):
+    """La carpeta del PESV: gestión y la SISO (GRUPOS_PESV)."""
+    return es_administrador(user) or user.groups.filter(name__in=GRUPOS_PESV).exists()
+
+
+class PESVRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return _puede_ver_pesv(self.request.user)
+
+
 class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     def test_func(self):
         return es_administrador(self.request.user)
@@ -157,6 +169,18 @@ SuperuserRequiredMixin = AdministradorRequiredMixin
 # Nombres cortos de los meses para las series de 12 meses del tablero.
 MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+# Cómo se nombra, en el tablero y en la carpeta del PESV, la respuesta de
+# cada pregunta de la encuesta de cierre que exige atención.
+ETIQUETAS_PESV = {
+    'presento_fatiga': 'Reportó fatiga o microsueños',
+    'realizo_pausas_activas': 'No hizo las pausas activas',
+    'molestias_fisicas': 'Reportó molestias físicas',
+    'tiempos_adecuados': 'Tiempos de ruta no realistas',
+    'cabina_optima': 'Cabina en mal estado',
+    'zonas_seguras_descanso': 'Sin zonas seguras de descanso',
+    'condicion_riesgo': 'Condición de riesgo o casi-accidente',
+}
 
 
 # --- Vista Principal (Dashboard) ---
@@ -268,15 +292,7 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         # en las demás (pausas activas, tiempos, cabina, zonas de descanso), NO.
         encuestas_mes = EncuestaConductor.objects.filter(fecha_diligenciamiento__date__gte=inicio_mes)
         total_encuestas = encuestas_mes.count()
-        etiquetas_pesv = {
-            'presento_fatiga': 'Reportó fatiga o microsueños',
-            'realizo_pausas_activas': 'No hizo las pausas activas',
-            'molestias_fisicas': 'Reportó molestias físicas',
-            'tiempos_adecuados': 'Tiempos de ruta no realistas',
-            'cabina_optima': 'Cabina en mal estado',
-            'zonas_seguras_descanso': 'Sin zonas seguras de descanso',
-            'condicion_riesgo': 'Condición de riesgo o casi-accidente',
-        }
+        etiquetas_pesv = ETIQUETAS_PESV
         pesv_preguntas = []
         for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
             respuesta_alerta = 'SI' if campo in EncuestaConductor.PREGUNTAS_ALERTA_SI else 'NO'
@@ -284,11 +300,19 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
                 'label': etiquetas_pesv[campo],
                 'total': encuestas_mes.filter(**{campo: respuesta_alerta}).count(),
             })
+        # Los preoperacionales del mes (oct-2026); el detalle y los meses
+        # anteriores viven en la carpeta del PESV.
+        preoperacionales_mes = list(
+            Preoperacional.objects.filter(fecha_diligenciamiento__date__gte=inicio_mes)
+            .prefetch_related('items'))
         context['pesv'] = {
             'encuestas_mes': total_encuestas,
             'preguntas': pesv_preguntas,
             'hallazgos': sum(p['total'] for p in pesv_preguntas),
             'casi_accidentes': encuestas_mes.filter(condicion_riesgo='SI').count(),
+            'preoperacionales_mes': len(preoperacionales_mes),
+            'no_aptos_mes': sum(1 for p in preoperacionales_mes if not p.apto),
+            'pre_con_hallazgos_mes': sum(1 for p in preoperacionales_mes if p.tiene_hallazgos),
         }
 
         # ================= FLOTA =================
@@ -1552,13 +1576,7 @@ class EncuestaConductorPDFView(LoginRequiredMixin, View):
     conductor de ESE recorrido. Nadie más.
     """
     def get(self, request, pk):
-        from django.core.exceptions import PermissionDenied
-        recorrido = get_object_or_404(Recorrido, pk=pk)
-        if not _puede_gestionar_manifiesto(request.user, recorrido):
-            # Otro conductor: 404 (no le decimos qué existe); el resto, 403.
-            if request.user.groups.filter(name='Conductores').exists():
-                raise Http404("Ese recorrido no es tuyo.")
-            raise PermissionDenied
+        recorrido = _recorrido_para_pdf_pesv(request, pk)
         encuesta = getattr(recorrido, 'encuesta_conductor', None)
         if encuesta is None:
             raise Http404("Este recorrido aún no tiene encuesta de cierre.")
@@ -1567,6 +1585,220 @@ class EncuestaConductorPDFView(LoginRequiredMixin, View):
             content_type='application/pdf')
         respuesta['Content-Disposition'] = (
             f'attachment; filename="encuesta_cierre_recorrido_{recorrido.pk}.pdf"')
+        return respuesta
+
+
+def _recorrido_para_pdf_pesv(request, pk):
+    """
+    El recorrido cuyo documento del PESV (encuesta o preoperacional) se va a
+    descargar, o el error que toca: lo bajan gestión, el conductor de ESE
+    recorrido y la SISO desde su carpeta (oct-2026). A otro conductor se le
+    dice que no existe (404); al resto, 403.
+    """
+    from django.core.exceptions import PermissionDenied
+    recorrido = get_object_or_404(Recorrido, pk=pk)
+    if not (_puede_gestionar_manifiesto(request.user, recorrido)
+            or _puede_ver_pesv(request.user)):
+        if request.user.groups.filter(name='Conductores').exists():
+            raise Http404("Ese recorrido no es tuyo.")
+        raise PermissionDenied
+    return recorrido
+
+
+# ============================================================
+#  PREOPERACIONAL DEL VEHÍCULO (PESV, oct-2026)
+# ============================================================
+
+def _pdf_preoperacional(preoperacional, request):
+    """
+    El preoperacional como PDF, generado al momento (no se guarda): el
+    diseño es el de la encuesta de cierre, que es su documento hermano del
+    PESV. Las fotos van embebidas para que el PDF no dependa del storage.
+    """
+    recorrido = preoperacional.recorrido
+    template = get_template('gestion/preoperacional_pdf.html')
+
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, "rb") as image_file:
+        logo_b64 = "data:image/png;base64," + base64.b64encode(image_file.read()).decode('utf-8')
+
+    fotos = []
+    for foto in preoperacional.fotos.all():
+        try:
+            with foto.archivo.open('rb') as fh:
+                contenido = fh.read()
+        except (OSError, ValueError):
+            continue
+        tipo = mimetypes.guess_type(foto.archivo.name)[0] or 'image/jpeg'
+        fotos.append(f"data:{tipo};base64," + base64.b64encode(contenido).decode('utf-8'))
+
+    html_string = template.render({
+        'pre': preoperacional,
+        'recorrido': recorrido,
+        'orden': recorrido.orden,
+        'logo_b64': logo_b64,
+        'fotos': fotos,
+        'secciones': preoperacional.secciones(),
+        'malos': preoperacional.items_malos,
+    })
+    html = HTML(string=html_string, base_url=request.build_absolute_uri())
+    return html.write_pdf()
+
+
+def _avisar_hallazgo_preoperacional(request, preoperacional):
+    """
+    Un preoperacional «No apto» o con ítems malos no frena el servicio
+    (decisión de Santiago, oct-2026): queda con alerta y se le avisa por
+    correo a gestión (administradores), a la SISO y al asesor de la orden.
+    Si el correo falla, el conductor no se entera: su registro ya quedó.
+    """
+    recorrido = preoperacional.recorrido
+    orden = recorrido.orden
+    personas = User.objects.filter(
+        Q(groups__name='Administradores') | Q(groups__name__in=GRUPOS_PESV)
+        | Q(pk=orden.asesor_id), is_active=True).distinct()
+    destinatarios = sorted({p.email for p in personas if p.email})
+    if not destinatarios:
+        return
+    conductor = recorrido.conductor
+    quien = (conductor.get_full_name() or conductor.username) if conductor else '—'
+    lineas = [
+        f"El preoperacional del vehículo {recorrido.vehiculo.placa} para la orden "
+        f"#{orden.numero_orden} ({orden.cliente.nombre}) del "
+        f"{recorrido.fecha_recorrido:%d/%m/%Y} tiene hallazgos.",
+        "",
+        f"Conductor: {quien}",
+        f"Dictamen: {preoperacional.get_dictamen_display()}",
+    ]
+    malos = preoperacional.items_malos
+    if malos:
+        lineas += ["", "Ítems en mal estado:"]
+        lineas += [f"- {i.numero}. {i.texto}" for i in malos]
+    if preoperacional.observaciones:
+        lineas += ["", "Observaciones del conductor:", preoperacional.observaciones]
+    lineas += [
+        "",
+        "PDF del preoperacional: " + request.build_absolute_uri(
+            reverse('gestion:preoperacional_pdf', kwargs={'pk': recorrido.pk})),
+        "",
+        "Este aviso lo envía el sistema de gestión SOLMED SAS.",
+    ]
+    EmailMessage(
+        subject=(f"Preoperacional con hallazgos · {recorrido.vehiculo.placa} · "
+                 f"Orden #{orden.numero_orden}"),
+        body="\n".join(lineas), from_email=settings.DEFAULT_FROM_EMAIL,
+        to=destinatarios,
+    ).send(fail_silently=True)
+
+
+class PreoperacionalView(LoginRequiredMixin, View):
+    """
+    El preoperacional que llena EL CONDUCTOR antes de salir a un servicio:
+    la lista de chequeo del tipo de su vehículo, el dictamen y las fotos de
+    los hallazgos. El vehículo y el conductor los pone el sistema. Entran el
+    conductor del recorrido, los asesores y gestión (pueden corregirlo).
+    Sin tipo en el vehículo no hay lista que llenar: se le dice al conductor
+    que lo pida a la oficina.
+    """
+    template_name = 'gestion/preoperacional.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
+            if not _puede_gestionar_manifiesto(request.user, recorrido):
+                messages.error(request, "No tienes permiso para llenar este preoperacional.")
+                return redirect('gestion:dashboard_redirect')
+            if not recorrido.vehiculo.tipo and not hasattr(recorrido, 'preoperacional'):
+                messages.error(
+                    request,
+                    f"El vehículo {recorrido.vehiculo.placa} no tiene tipo registrado: "
+                    "la oficina debe ponerlo en su ficha para poder hacer el preoperacional.")
+                return redirect(self._volver(request, recorrido))
+        return super().dispatch(request, *args, **kwargs)
+
+    @staticmethod
+    def _volver(request, recorrido):
+        """De vuelta a la orden: el conductor a su pantalla, gestión al expediente."""
+        if recorrido.conductor_id == request.user.id:
+            return reverse('gestion:detalle_orden_conductor', kwargs={'pk': recorrido.orden_id})
+        return reverse('gestion:detalle_orden', kwargs={'pk': recorrido.orden_id})
+
+    @staticmethod
+    def _tipo_de(recorrido):
+        """La lista que se llena: la ya guardada manda sobre la ficha del vehículo."""
+        existente = getattr(recorrido, 'preoperacional', None)
+        return existente.tipo_vehiculo if existente else recorrido.vehiculo.tipo
+
+    def _contexto(self, request, recorrido, form):
+        existente = getattr(recorrido, 'preoperacional', None)
+        return {
+            'recorrido': recorrido,
+            'form': form,
+            'tipo_nombre': nombre_tipo(self._tipo_de(recorrido)),
+            'ya_diligenciado': existente is not None,
+            'fotos': existente.fotos.all() if existente else [],
+            'url_volver': self._volver(request, recorrido),
+        }
+
+    def get(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        existente = getattr(recorrido, 'preoperacional', None)
+        initial = {}
+        if existente:
+            initial = {'dictamen': existente.dictamen,
+                       'observaciones': existente.observaciones,
+                       **{f'item_{i.numero}': i.estado for i in existente.items.all()}}
+        form = PreoperacionalForm(self._tipo_de(recorrido), initial=initial)
+        return render(request, self.template_name, self._contexto(request, recorrido, form))
+
+    def post(self, request, pk):
+        recorrido = get_object_or_404(Recorrido, pk=pk)
+        tipo = self._tipo_de(recorrido)
+        form = PreoperacionalForm(tipo, request.POST)
+        if not form.is_valid():
+            messages.error(request, "Revisa el preoperacional: faltan respuestas.")
+            return render(request, self.template_name, self._contexto(request, recorrido, form))
+
+        with transaction.atomic():
+            pre, creado = Preoperacional.objects.update_or_create(
+                recorrido=recorrido,
+                defaults={'tipo_vehiculo': tipo,
+                          'dictamen': form.cleaned_data['dictamen'],
+                          'observaciones': form.cleaned_data['observaciones'].strip(),
+                          'diligenciado_por': request.user})
+            # Corregirlo reescribe la lista completa: es un solo formulario.
+            pre.items.all().delete()
+            ItemPreoperacional.objects.bulk_create([
+                ItemPreoperacional(preoperacional=pre, numero=item['numero'],
+                                   seccion=item['seccion'], texto=item['texto'],
+                                   estado=estado)
+                for item, estado in form.respuestas()])
+            for foto in request.FILES.getlist('fotos'):
+                FotoPreoperacional.objects.create(preoperacional=pre, archivo=foto)
+
+        if pre.tiene_hallazgos:
+            _avisar_hallazgo_preoperacional(request, pre)
+            messages.warning(
+                request,
+                "Preoperacional registrado con hallazgos: la oficina ya fue avisada."
+                if creado else "Preoperacional corregido. La oficina fue avisada de los hallazgos.")
+        else:
+            messages.success(request, "Preoperacional registrado: vehículo apto para operar."
+                             if creado else "Preoperacional corregido.")
+        return redirect(self._volver(request, recorrido))
+
+
+class PreoperacionalPDFView(LoginRequiredMixin, View):
+    """El PDF del preoperacional: gestión, el conductor del recorrido y la SISO."""
+    def get(self, request, pk):
+        recorrido = _recorrido_para_pdf_pesv(request, pk)
+        pre = getattr(recorrido, 'preoperacional', None)
+        if pre is None:
+            raise Http404("Este recorrido aún no tiene preoperacional.")
+        respuesta = HttpResponse(_pdf_preoperacional(pre, request),
+                                 content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="preoperacional_recorrido_{recorrido.pk}.pdf"')
         return respuesta
 
 
@@ -3011,7 +3243,10 @@ def dashboard_redirect_view(request):
     if user.groups.filter(name__in=GRUPOS_BASCULA).exists():
         # Su único módulo: la cola de tiquetes de báscula.
         return redirect('gestion:basculas')
-    # Cargos sin módulo propio (Director Técnico, SISO, Soldador...): su
+    if user.groups.filter(name__in=GRUPOS_PESV).exists():
+        # La SISO vive en la carpeta del PESV (oct-2026).
+        return redirect('gestion:pesv')
+    # Cargos sin módulo propio (Director Técnico, Soldador...): su
     # cuenta existe por el expediente, no para operar el CRM.
     return redirect('gestion:sin_acceso')
     
@@ -3087,6 +3322,38 @@ def _tareas_servicio_conductor(orden, actas_formato, grupos_fotos):
         # Con un solo recorrido no hace falta repetir la fecha en cada tarea.
         return (' · ' + item['recorrido'].fecha_recorrido.strftime('%d/%m/%Y')
                 if varios else '')
+
+    # El preoperacional va primero: es la revisión del vehículo ANTES de
+    # salir (oct-2026, pedido de la SISO). Sin tipo en el vehículo no hay
+    # lista que llenar: la tarea se lo dice al conductor y queda bloqueada.
+    for item in actas_formato:
+        rec = item['recorrido']
+        pre = getattr(rec, 'preoperacional', None)
+        placa = rec.vehiculo.placa
+        con_tipo = bool(rec.vehiculo.tipo) or pre is not None
+        if pre is not None:
+            detalle = ('Registrado: vehículo apto para operar.' if pre.apto else
+                       'Registrado con hallazgos: la oficina ya fue avisada.')
+        elif con_tipo:
+            detalle = f'Revisa el {placa} punto por punto antes de salir.'
+        else:
+            detalle = (f'El vehículo {placa} no tiene tipo registrado: pídele a la '
+                       'oficina que lo ponga para poder hacer la revisión.')
+        tareas.append({
+            'titulo': 'Haz el preoperacional del vehículo' + fecha_de(item),
+            'titulo_corto': 'el preoperacional',
+            'detalle': detalle,
+            'icono': 'bi-clipboard2-check-fill',
+            'hecha': pre is not None,
+            'habilitada': con_tipo,
+            'url': (reverse('gestion:preoperacional', kwargs={'pk': rec.pk})
+                    if con_tipo else None),
+            'boton': 'Corregir' if pre is not None else 'Revisar',
+            'formulario': None,
+            'pdf': (reverse('gestion:preoperacional_pdf', kwargs={'pk': rec.pk})
+                    if pre is not None else None),
+            'pdf_texto': 'Ver tu preoperacional (PDF)',
+        })
 
     for item in actas_formato:
         rec, estado = item['recorrido'], item['estado']
@@ -5985,6 +6252,49 @@ class CentroControlPDFView(AdministradorRequiredMixin, View):
         return respuesta
 
 
+def _hoja_excel(libro, titulo, cabeceras, filas, anchos, fechas=()):
+    """
+    Una hoja de Excel con encabezados fijos, filtros, cebra y fechas de
+    verdad: la usan el centro de control y la carpeta del PESV.
+    """
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    hoja = libro.create_sheet(titulo)
+    borde = Side(style='thin', color='D6DDEA')
+    hoja.append(cabeceras)
+    for celda in hoja[1]:
+        celda.font = Font(bold=True, color='FFFFFF', size=10)
+        celda.fill = PatternFill('solid', fgColor=CentroControlExcelView.AZUL)
+        celda.alignment = Alignment(horizontal='center', vertical='center',
+                                    wrap_text=True)
+    hoja.row_dimensions[1].height = 26
+    for fila in filas:
+        hoja.append(fila)
+    for i, ancho in enumerate(anchos, start=1):
+        hoja.column_dimensions[get_column_letter(i)].width = ancho
+    for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
+        for celda in fila:
+            celda.border = Border(bottom=borde, left=borde, right=borde)
+            celda.alignment = Alignment(vertical='center', wrap_text=True)
+            if n % 2 == 0:                      # cebra: se lee mejor de corrido
+                celda.fill = PatternFill('solid', fgColor='F5F8FC')
+            # Las fechas van como FECHA de verdad, no como texto: así se
+            # ordenan y se filtran por rango en el mismo Excel.
+            if celda.column in fechas:
+                celda.number_format = 'DD/MM/YYYY'
+                celda.alignment = Alignment(horizontal='center', vertical='center')
+    hoja.sheet_view.showGridLines = False
+    hoja.freeze_panes = 'A2'
+    if filas:
+        hoja.auto_filter.ref = (
+            f"A1:{get_column_letter(len(cabeceras))}{len(filas) + 1}")
+    else:
+        hoja['A2'] = 'Sin registros en el periodo.'
+        hoja['A2'].font = Font(italic=True, color='7A8899')
+    return hoja
+
+
 class CentroControlExcelView(AdministradorRequiredMixin, View):
     """
     El mismo informe en Excel, una hoja por bloque (resumen, servicios,
@@ -5996,42 +6306,7 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
     AZUL_SUAVE = 'EDF1FA'
 
     def _hoja(self, libro, titulo, cabeceras, filas, anchos, fechas=()):
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-        from openpyxl.utils import get_column_letter
-
-        hoja = libro.create_sheet(titulo)
-        borde = Side(style='thin', color='D6DDEA')
-        hoja.append(cabeceras)
-        for celda in hoja[1]:
-            celda.font = Font(bold=True, color='FFFFFF', size=10)
-            celda.fill = PatternFill('solid', fgColor=self.AZUL)
-            celda.alignment = Alignment(horizontal='center', vertical='center',
-                                        wrap_text=True)
-        hoja.row_dimensions[1].height = 26
-        for fila in filas:
-            hoja.append(fila)
-        for i, ancho in enumerate(anchos, start=1):
-            hoja.column_dimensions[get_column_letter(i)].width = ancho
-        for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
-            for celda in fila:
-                celda.border = Border(bottom=borde, left=borde, right=borde)
-                celda.alignment = Alignment(vertical='center', wrap_text=True)
-                if n % 2 == 0:                      # cebra: se lee mejor de corrido
-                    celda.fill = PatternFill('solid', fgColor='F5F8FC')
-                # Las fechas van como FECHA de verdad, no como texto: así se
-                # ordenan y se filtran por rango en el mismo Excel.
-                if celda.column in fechas:
-                    celda.number_format = 'DD/MM/YYYY'
-                    celda.alignment = Alignment(horizontal='center', vertical='center')
-        hoja.sheet_view.showGridLines = False
-        hoja.freeze_panes = 'A2'
-        if filas:
-            hoja.auto_filter.ref = (
-                f"A1:{get_column_letter(len(cabeceras))}{len(filas) + 1}")
-        else:
-            hoja['A2'] = 'Sin registros en el periodo.'
-            hoja['A2'].font = Font(italic=True, color='7A8899')
-        return hoja
+        return _hoja_excel(libro, titulo, cabeceras, filas, anchos, fechas)
 
     def get(self, request, pk):
         from openpyxl import Workbook
@@ -9113,3 +9388,245 @@ class EnviarCertificadosView(AsesorRequiredMixin, View):
             messages.error(request, f"El servidor de correo rechazó el envío a {', '.join(fallidos)}. "
                                     f"Quedó registrado en el Centro de correos para reenviarlo.")
         return redirect(volver)
+
+
+# ============================================================
+#  CARPETA DEL PESV (oct-2026): preoperacionales y encuestas de cierre,
+#  mes a mes, para que la SISO lleve la trazabilidad y tome decisiones.
+#  El tablero solo muestra el mes en curso; aquí se ve cualquier periodo.
+# ============================================================
+
+def _entero_get(request, clave):
+    try:
+        return int(request.GET.get(clave) or 0)
+    except ValueError:
+        return 0
+
+
+def _datos_pesv(request):
+    """
+    Lo que la SISO revisa de un periodo: los preoperacionales y las encuestas
+    de cierre de los servicios de esas fechas (por la FECHA DEL SERVICIO, no
+    la del registro), con filtros por vehículo y conductor, el resumen del
+    periodo, los ítems que más fallan y los servicios ya pasados que salieron
+    SIN preoperacional. Es la misma fuente de la pantalla y del Excel.
+    """
+    anio, mes, inicio, fin, a_medida = _periodo_centro(request)
+    hoy = timezone.localdate()
+    vehiculo_id = _entero_get(request, 'vehiculo')
+    conductor_id = _entero_get(request, 'conductor')
+    solo_hallazgos = request.GET.get('ver') == 'hallazgos'
+
+    filtro = Q(recorrido__fecha_recorrido__range=(inicio, fin))
+    if vehiculo_id:
+        filtro &= Q(recorrido__vehiculo_id=vehiculo_id)
+    if conductor_id:
+        filtro &= Q(recorrido__conductor_id=conductor_id)
+    relacionados = ('recorrido', 'recorrido__vehiculo', 'recorrido__conductor',
+                    'recorrido__orden', 'recorrido__orden__cliente')
+    preoperacionales = list(
+        Preoperacional.objects.filter(filtro)
+        .select_related(*relacionados, 'diligenciado_por')
+        .prefetch_related('items')
+        .order_by('recorrido__fecha_recorrido', 'recorrido_id'))
+    encuestas = list(
+        EncuestaConductor.objects.filter(filtro).select_related(*relacionados)
+        .order_by('recorrido__fecha_recorrido', 'recorrido_id'))
+
+    # El resumen es del periodo completo, se muestre todo o solo lo que
+    # exige atención.
+    conteo_items = {}
+    for p in preoperacionales:
+        for i in p.items_malos:
+            conteo_items[i.texto] = conteo_items.get(i.texto, 0) + 1
+    items_fallados = sorted(
+        ({'texto': texto, 'total': total} for texto, total in conteo_items.items()),
+        key=lambda x: (-x['total'], x['texto']))[:8]
+    preguntas = []
+    for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
+        alerta = 'SI' if campo in EncuestaConductor.PREGUNTAS_ALERTA_SI else 'NO'
+        preguntas.append({'label': ETIQUETAS_PESV[campo],
+                          'total': sum(1 for e in encuestas if getattr(e, campo) == alerta)})
+    resumen = {
+        'preoperacionales': len(preoperacionales),
+        'no_aptos': sum(1 for p in preoperacionales if not p.apto),
+        'pre_con_hallazgos': sum(1 for p in preoperacionales if p.tiene_hallazgos),
+        'items_malos': sum(len(p.items_malos) for p in preoperacionales),
+        'encuestas': len(encuestas),
+        'enc_con_alertas': sum(1 for e in encuestas if e.tiene_alertas),
+        'casi_accidentes': sum(1 for e in encuestas if e.condicion_riesgo == 'SI'),
+        'hallazgos_encuestas': sum(p['total'] for p in preguntas),
+    }
+    if solo_hallazgos:
+        preoperacionales = [p for p in preoperacionales if p.tiene_hallazgos]
+        encuestas = [e for e in encuestas if e.tiene_alertas]
+
+    # Servicios ya pasados (hasta hoy) con conductor y sin preoperacional:
+    # lo que la SISO tiene que reclamar.
+    filtro_rec = Q(fecha_recorrido__range=(inicio, min(fin, hoy)),
+                   conductor__isnull=False, preoperacional__isnull=True)
+    if vehiculo_id:
+        filtro_rec &= Q(vehiculo_id=vehiculo_id)
+    if conductor_id:
+        filtro_rec &= Q(conductor_id=conductor_id)
+    sin_preoperacional = list(
+        Recorrido.objects.filter(filtro_rec)
+        .select_related('vehiculo', 'conductor', 'orden', 'orden__cliente')
+        .order_by('fecha_recorrido', 'id'))
+
+    # La regleta del año: cuántos registros (preoperacionales + encuestas)
+    # hubo cada mes, para saltar de mes.
+    conteo_meses = {}
+    for modelo in (Preoperacional, EncuestaConductor):
+        for fecha in (modelo.objects.filter(recorrido__fecha_recorrido__year=anio)
+                      .values_list('recorrido__fecha_recorrido', flat=True)):
+            conteo_meses[fecha.month] = conteo_meses.get(fecha.month, 0) + 1
+    meses = [{'numero': i + 1, 'nombre': nombre, 'total': conteo_meses.get(i + 1, 0),
+              'activo': (i + 1) == mes and not a_medida}
+             for i, nombre in enumerate(HistoricoClienteView.MESES)]
+    anios = {hoy.year, anio}
+    for modelo in (Preoperacional, EncuestaConductor):
+        anios.update(f.year for f in modelo.objects.values_list(
+            'recorrido__fecha_recorrido', flat=True))
+
+    # Los chips «Todo» / «Solo lo que exige atención» conservan el resto del filtro.
+    params = request.GET.copy()
+    params.pop('ver', None)
+    base = params.urlencode()
+
+    return {
+        'anio': anio, 'mes': mes, 'inicio': inicio, 'fin': fin, 'a_medida': a_medida,
+        'periodo': _etiqueta_periodo(anio, mes, inicio, fin, a_medida),
+        'meses': meses, 'anios': sorted(anios, reverse=True),
+        'url_todo': '?' + base,
+        'url_hallazgos': '?' + (base + '&' if base else '') + 'ver=hallazgos',
+        'vehiculo_id': vehiculo_id, 'conductor_id': conductor_id,
+        'solo_hallazgos': solo_hallazgos,
+        'vehiculos': Vehiculo.objects.order_by('placa'),
+        'conductores': (User.objects.filter(recorridos__isnull=False).distinct()
+                        .order_by('first_name', 'last_name', 'username')),
+        'preoperacionales': preoperacionales,
+        'encuestas': encuestas,
+        'sin_preoperacional': sin_preoperacional,
+        'items_fallados': items_fallados,
+        'preguntas': preguntas,
+        'resumen': resumen,
+        'sin_nada': not (preoperacionales or encuestas or sin_preoperacional),
+    }
+
+
+class CarpetaPESVView(PESVRequiredMixin, View):
+    """
+    La carpeta «Plan Estratégico de Seguridad Vial»: en un mes, en un año o
+    en un rango de fechas, los preoperacionales y las encuestas de cierre con
+    su PDF, el resumen del periodo, los ítems que más fallan y los servicios
+    que salieron sin preoperacional. SISO y gestión (GRUPOS_PESV).
+    """
+    template_name = 'gestion/pesv.html'
+
+    def get(self, request):
+        return render(request, self.template_name, _datos_pesv(request))
+
+
+class CarpetaPESVExcelView(PESVRequiredMixin, View):
+    """La carpeta del periodo en Excel: resumen, preoperacionales, ítems malos y encuestas."""
+
+    def get(self, request):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        datos = _datos_pesv(request)
+        libro = Workbook()
+        portada = libro.active
+        portada.title = 'Resumen'
+        portada.sheet_view.showGridLines = False
+        portada.column_dimensions['A'].width = 38
+        portada.column_dimensions['B'].width = 40
+        portada['A1'] = 'PLAN ESTRATÉGICO DE SEGURIDAD VIAL (PESV)'
+        portada['A1'].font = Font(bold=True, size=14, color=CentroControlExcelView.AZUL)
+        portada.merge_cells('A1:B1')
+        r = datos['resumen']
+        renglones = [
+            ('Periodo', datos['periodo']),
+            ('Generado', timezone.localtime().strftime('%d/%m/%Y %H:%M')),
+            ('Generado por', request.user.get_full_name() or request.user.username),
+            ('', ''),
+            ('Preoperacionales', r['preoperacionales']),
+            ('Vehículos no aptos', r['no_aptos']),
+            ('Preoperacionales con hallazgos', r['pre_con_hallazgos']),
+            ('Ítems en mal estado', r['items_malos']),
+            ('Servicios sin preoperacional', len(datos['sin_preoperacional'])),
+            ('', ''),
+            ('Encuestas de cierre', r['encuestas']),
+            ('Encuestas con respuestas que exigen atención', r['enc_con_alertas']),
+            ('Condiciones de riesgo o casi-accidentes', r['casi_accidentes']),
+            *[(f"Encuestas · {p['label']}", p['total']) for p in datos['preguntas']],
+            ('', ''),
+            *[(f"Ítem que falla · {i['texto']}", i['total']) for i in datos['items_fallados']],
+        ]
+        for etiqueta, valor in renglones:
+            portada.append([etiqueta, valor])
+        for fila in portada.iter_rows(min_row=2, max_col=1):
+            for celda in fila:
+                celda.font = Font(bold=True, color='51606E')
+                celda.fill = PatternFill('solid', fgColor=CentroControlExcelView.AZUL_SUAVE)
+                celda.alignment = Alignment(vertical='center', wrap_text=True)
+
+        def nombre(persona):
+            return (persona.get_full_name() or persona.username) if persona else '—'
+
+        def registrado(momento):
+            return timezone.localtime(momento).strftime('%d/%m/%Y %H:%M')
+
+        _hoja_excel(
+            libro, 'Preoperacionales',
+            ['Fecha', 'N° Orden', 'Cliente', 'Placa', 'Tipo de vehículo', 'Conductor',
+             'Dictamen', 'Ítems malos', 'Hallazgos', 'Observaciones', 'Registrado'],
+            [[p.recorrido.fecha_recorrido, p.recorrido.orden.numero_orden,
+              p.recorrido.orden.cliente.nombre, p.recorrido.vehiculo.placa,
+              nombre_tipo(p.tipo_vehiculo), nombre(p.recorrido.conductor),
+              p.get_dictamen_display(), len(p.items_malos),
+              '; '.join(f"{i.numero}. {i.texto}" for i in p.items_malos) or '—',
+              p.observaciones or '—', registrado(p.fecha_diligenciamiento)]
+             for p in datos['preoperacionales']],
+            [12, 11, 30, 10, 24, 24, 18, 10, 50, 40, 16], fechas=(1,))
+
+        _hoja_excel(
+            libro, 'Ítems malos',
+            ['Fecha', 'N° Orden', 'Placa', 'Conductor', 'N°', 'Sección', 'Ítem'],
+            [[p.recorrido.fecha_recorrido, p.recorrido.orden.numero_orden,
+              p.recorrido.vehiculo.placa, nombre(p.recorrido.conductor),
+              i.numero, i.seccion, i.texto]
+             for p in datos['preoperacionales'] for i in p.items_malos],
+            [12, 11, 10, 24, 6, 34, 60], fechas=(1,))
+
+        _hoja_excel(
+            libro, 'Encuestas de cierre',
+            ['Fecha', 'N° Orden', 'Cliente', 'Placa', 'Conductor',
+             *[ETIQUETAS_PESV[c] for c in EncuestaConductor.CAMPOS_PREGUNTAS],
+             'Tipo de evento', 'Descripción', 'Registrada'],
+            [[e.recorrido.fecha_recorrido, e.recorrido.orden.numero_orden,
+              e.recorrido.orden.cliente.nombre, e.recorrido.vehiculo.placa,
+              nombre(e.recorrido.conductor),
+              *['Sí' if resp['alerta'] else 'No' for resp in e.respuestas()],
+              e.get_tipo_incidente_display() if e.tipo_incidente else '—',
+              e.descripcion_incidente or '—', registrado(e.fecha_diligenciamiento)]
+             for e in datos['encuestas']],
+            [12, 11, 30, 10, 24, 16, 16, 16, 16, 16, 16, 16, 22, 40, 16], fechas=(1,))
+
+        _hoja_excel(
+            libro, 'Sin preoperacional',
+            ['Fecha', 'N° Orden', 'Cliente', 'Placa', 'Conductor', 'Estado'],
+            [[rec.fecha_recorrido, rec.orden.numero_orden, rec.orden.cliente.nombre,
+              rec.vehiculo.placa, nombre(rec.conductor), rec.get_estado_display()]
+             for rec in datos['sin_preoperacional']],
+            [12, 11, 30, 10, 24, 14], fechas=(1,))
+
+        salida = io.BytesIO()
+        libro.save(salida)
+        nombre_archivo = f"pesv-{datos['inicio']:%Y-%m-%d}_{datos['fin']:%Y-%m-%d}.xlsx"
+        respuesta = HttpResponse(
+            salida.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        respuesta['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+        return respuesta

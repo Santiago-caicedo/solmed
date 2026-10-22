@@ -84,7 +84,7 @@ importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
             <i class="bi {{ tarea.icono }}" aria-hidden="true"></i>{{ tarea.boton }}</a>
     {% endif %}
     {% if tarea.pdf %}
-        <a href="{{ tarea.pdf }}" class="oc-enlace"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>Ver tu encuesta (PDF)</a>
+        <a href="{{ tarea.pdf }}" class="oc-enlace"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>{{ tarea.pdf_texto|default:"Ver tu encuesta (PDF)" }}</a>
     {% endif %}
 
     {% if tarea.formulario == 'bascula' %}

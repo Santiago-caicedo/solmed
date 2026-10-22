@@ -310,9 +310,14 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
         <div class="card shadow">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5>Seguridad vial · este mes</h5>
-                <span class="eyebrow">{{ pesv.encuestas_mes }} encuesta{{ pesv.encuestas_mes|pluralize }}</span>
+                <a href="{% url 'gestion:pesv' %}" class="eyebrow" style="color:var(--steel)" title="Preoperacionales y encuestas de cierre de cualquier mes">Carpeta PESV →</a>
             </div>
             <div class="card-body">
+                {# Preoperacionales del mes (oct-2026) #}
+                <div class="db-ind"><span>Preoperacionales</span><span class="n">{{ pesv.preoperacionales_mes }}</span></div>
+                <div class="db-ind"><span>Vehículos no aptos</span><span class="n {% if pesv.no_aptos_mes %}malo{% else %}bueno{% endif %}">{{ pesv.no_aptos_mes }}</span></div>
+                <div class="db-ind"><span>Preoperacionales con hallazgos</span><span class="n {% if pesv.pre_con_hallazgos_mes %}malo{% else %}bueno{% endif %}">{{ pesv.pre_con_hallazgos_mes }}</span></div>
+                <p class="text-muted small mt-2 mb-1">Encuestas de cierre: {{ pesv.encuestas_mes }}</p>
                 {% if pesv.encuestas_mes %}
                     {% if pesv.hallazgos %}
                     <p class="text-muted small mb-2">Respuestas que exigen atención, por pregunta:</p>

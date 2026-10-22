@@ -30,6 +30,12 @@ urlpatterns = [
     # --- Encuesta de cierre del conductor (PESV + ambiental) ---
     path('recorrido/<int:pk>/encuesta-conductor/', views.EncuestaConductorView.as_view(), name='encuesta_conductor'),
     path('recorrido/<int:pk>/encuesta-pdf/', views.EncuestaConductorPDFView.as_view(), name='encuesta_conductor_pdf'),
+    # --- Preoperacional del vehículo (PESV): lo llena el conductor antes de salir ---
+    path('recorrido/<int:pk>/preoperacional/', views.PreoperacionalView.as_view(), name='preoperacional'),
+    path('recorrido/<int:pk>/preoperacional-pdf/', views.PreoperacionalPDFView.as_view(), name='preoperacional_pdf'),
+    # --- Carpeta del PESV: preoperacionales y encuestas de cierre, mes a mes (SISO y gestión) ---
+    path('pesv/', views.CarpetaPESVView.as_view(), name='pesv'),
+    path('pesv/excel/', views.CarpetaPESVExcelView.as_view(), name='pesv_excel'),
     # Página pública (sin login) que abre el cliente al escanear el QR.
     path('manifiesto-cliente/<uuid:token>/', views.EncuestaPublicaView.as_view(), name='encuesta_publica'),
 

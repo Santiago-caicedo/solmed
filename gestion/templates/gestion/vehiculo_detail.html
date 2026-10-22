@@ -19,6 +19,7 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
         <div class="vh-meta">
             <span class="vh-estado e-{{ vehiculo.estado|lower }}">{{ vehiculo.get_estado_display }}</span>
             <span><i class="bi bi-box-seam"></i>{{ vehiculo.capacidad }}</span>
+            <span><i class="bi bi-truck"></i>{% if vehiculo.tipo %}{{ vehiculo.get_tipo_display }}{% else %}Sin tipo de vehículo{% endif %}</span>
             <span><i class="bi bi-check2-circle"></i>{{ total_servicios_realizados }} servicio{{ total_servicios_realizados|pluralize }} completado{{ total_servicios_realizados|pluralize }}</span>
         </div>
     </div>

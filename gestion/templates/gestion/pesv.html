@@ -1,0 +1,231 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Seguridad vial (PESV) · {{ periodo }}{% endblock %}
+{% block content %}
+{# La carpeta del PESV: preoperacionales y encuestas de cierre de cualquier periodo, para la SISO. #}
+<style>
+.pv-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.pv-cab h2{ margin:0; display:flex; align-items:center; gap:.55rem; }
+.pv-cab h2 i{ color:var(--steel); }
+.pv-cab .sub{ color:var(--ink-2); font-size:.88rem; }
+
+.pv-filtros{ display:flex; gap:.6rem; flex-wrap:wrap; align-items:flex-end; background:var(--panel);
+    border:1px solid var(--line); border-radius:var(--r-md); padding:.8rem 1rem; margin-bottom:.8rem; }
+.pv-filtros .campo{ display:flex; flex-direction:column; gap:.2rem; }
+.pv-filtros label{ font-size:.72rem; color:var(--ink-2); margin:0; }
+.pv-filtros input[type=date]{ font-family:var(--mono); font-size:.82rem; }
+.pv-chips{ display:flex; gap:.35rem; flex-wrap:wrap; margin-left:auto; }
+.pv-chip{ font-size:.8rem; padding:.35rem .75rem; min-height:32px; display:inline-flex; align-items:center;
+    border:1px solid var(--line); border-radius:99px; background:var(--panel); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+.pv-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.pv-chip.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:500; }
+
+/* La regleta de meses del año: para saltar de mes */
+.pv-meses{ display:grid; grid-template-columns:repeat(12, minmax(0,1fr)); gap:.3rem; margin-bottom:1.25rem; }
+.pv-mes{ display:flex; flex-direction:column; align-items:center; gap:.15rem; padding:.4rem .2rem; border:1px solid var(--line);
+    border-radius:var(--r-sm); background:var(--panel); text-decoration:none; color:var(--ink-2); font-size:.74rem; }
+.pv-mes b{ font-family:var(--mono); font-size:.8rem; color:var(--ink); font-weight:600; }
+.pv-mes:hover{ background:var(--panel-2); color:var(--ink); }
+.pv-mes.act{ background:var(--steel); border-color:var(--steel); color:#fff; }
+.pv-mes.act b{ color:#fff; }
+.pv-mes.vacio b{ color:var(--ink-3); }
+
+/* Las cifras del periodo */
+.pv-cifras{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:.6rem; margin-bottom:1.25rem; }
+.pv-cifra{ background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .9rem; }
+.pv-cifra .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.pv-cifra .n{ font-family:var(--mono); font-size:1.6rem; font-weight:600; line-height:1.1; color:var(--ink); }
+.pv-cifra .n.malo{ color:#a02525; }
+.pv-cifra .n.bueno{ color:#3c5c12; }
+.pv-cifra .s{ font-size:.74rem; color:var(--ink-2); }
+
+.pv-dos{ display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.25rem; }
+@media (max-width:900px){ .pv-dos{ grid-template-columns:1fr; } }
+.pv-lista{ background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:.9rem 1rem; }
+.pv-lista h3{ font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-2); margin:0 0 .5rem; }
+.pv-ind{ display:flex; justify-content:space-between; gap:.6rem; padding:.3rem 0; border-top:1px solid var(--line); font-size:.86rem; }
+.pv-ind:first-of-type{ border-top:0; }
+.pv-ind .n{ font-family:var(--mono); font-weight:600; }
+.pv-ind .n.malo{ color:#a02525; }
+.pv-ind .n.bueno{ color:#3c5c12; }
+
+.pv-sec{ margin-bottom:1.5rem; }
+.pv-sec h3{ font-size:1rem; font-weight:600; margin:0 0 .5rem; display:flex; align-items:center; gap:.45rem; }
+.pv-sec h3 .cnt{ font-family:var(--mono); font-size:.78rem; color:var(--ink-3); font-weight:500; }
+.pv-tabla{ width:100%; border-collapse:separate; border-spacing:0; background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; font-size:.86rem; }
+.pv-tabla th{ text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); padding:.5rem .7rem; background:var(--panel-2); border-bottom:1px solid var(--line); white-space:nowrap; }
+.pv-tabla td{ padding:.5rem .7rem; border-bottom:1px solid var(--line); vertical-align:top; }
+.pv-tabla tr:last-child td{ border-bottom:0; }
+.pv-tabla .mono{ font-family:var(--mono); white-space:nowrap; }
+.pv-tabla .hal{ font-size:.8rem; color:var(--ink-2); }
+.pv-tabla a.pdf{ white-space:nowrap; }
+.pv-badge{ display:inline-block; font-size:.72rem; font-weight:600; padding:.15rem .5rem; border-radius:99px; white-space:nowrap; }
+.pv-badge.ok{ background:#eef4dd; color:#3c5c12; }
+.pv-badge.alerta{ background:#fdf3e0; color:#8a5a12; }
+.pv-badge.malo{ background:#fdecec; color:#a02525; }
+.pv-vacio{ text-align:center; padding:2rem 1rem; color:var(--ink-2); background:var(--panel); border:1px dashed var(--line); border-radius:var(--r-lg); }
+.pv-vacio i{ font-size:1.8rem; color:var(--ink-3); display:block; margin-bottom:.4rem; }
+@media (max-width:700px){
+    .pv-meses{ grid-template-columns:repeat(6, minmax(0,1fr)); }
+    .pv-tabla{ display:block; overflow-x:auto; }
+    .pv-chips{ margin-left:0; }
+}
+</style>
+
+<div class="pv-cab">
+    <div>
+        <h2><i class="bi bi-shield-check"></i>Plan Estratégico de Seguridad Vial (PESV)</h2>
+        <div class="sub">Preoperacionales y encuestas de cierre de los servicios · <b>{{ periodo }}</b></div>
+    </div>
+    <a href="{% url 'gestion:pesv_excel' %}?{{ request.GET.urlencode }}" class="btn btn-outline-primary">
+        <i class="bi bi-file-earmark-excel me-1"></i>Descargar Excel
+    </a>
+</div>
+
+<form method="get" class="pv-filtros" role="search" aria-label="Filtrar la carpeta">
+    <div class="campo">
+        <label for="pv-anio">Año</label>
+        <select name="anio" id="pv-anio" class="form-select form-select-sm">
+            {% for a in anios %}<option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="campo">
+        <label for="pv-mes">Mes</label>
+        <select name="mes" id="pv-mes" class="form-select form-select-sm">
+            <option value="todo" {% if not mes %}selected{% endif %}>Todo el año</option>
+            {% for m in meses %}<option value="{{ m.numero }}" {% if m.numero == mes %}selected{% endif %}>{{ m.nombre }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="campo">
+        <label for="pv-desde">O desde</label>
+        <input type="date" name="desde" id="pv-desde" value="{% if a_medida %}{{ inicio|date:'Y-m-d' }}{% endif %}" class="form-control form-control-sm">
+    </div>
+    <div class="campo">
+        <label for="pv-hasta">Hasta</label>
+        <input type="date" name="hasta" id="pv-hasta" value="{% if a_medida %}{{ fin|date:'Y-m-d' }}{% endif %}" class="form-control form-control-sm">
+    </div>
+    <div class="campo">
+        <label for="pv-vehiculo">Vehículo</label>
+        <select name="vehiculo" id="pv-vehiculo" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            {% for v in vehiculos %}<option value="{{ v.pk }}" {% if v.pk == vehiculo_id %}selected{% endif %}>{{ v.placa }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="campo">
+        <label for="pv-conductor">Conductor</label>
+        <select name="conductor" id="pv-conductor" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            {% for c in conductores %}<option value="{{ c.pk }}" {% if c.pk == conductor_id %}selected{% endif %}>{{ c.get_full_name|default:c.username }}</option>{% endfor %}
+        </select>
+    </div>
+    {% if solo_hallazgos %}<input type="hidden" name="ver" value="hallazgos">{% endif %}
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel me-1"></i>Ver</button>
+    <div class="pv-chips">
+        <a href="{{ url_todo }}" class="pv-chip {% if not solo_hallazgos %}act{% endif %}">Todo</a>
+        <a href="{{ url_hallazgos }}" class="pv-chip {% if solo_hallazgos %}act{% endif %}">Solo lo que exige atención</a>
+    </div>
+</form>
+
+<div class="pv-meses" aria-label="Meses de {{ anio }}">
+    {% for m in meses %}
+    <a href="?anio={{ anio }}&mes={{ m.numero }}{% if vehiculo_id %}&vehiculo={{ vehiculo_id }}{% endif %}{% if conductor_id %}&conductor={{ conductor_id }}{% endif %}{% if solo_hallazgos %}&ver=hallazgos{% endif %}"
+       class="pv-mes {% if m.activo %}act{% elif not m.total %}vacio{% endif %}" title="{{ m.nombre }} {{ anio }}: {{ m.total }} registro{{ m.total|pluralize }}">
+        <span>{{ m.nombre|slice:":3" }}</span><b>{{ m.total }}</b>
+    </a>
+    {% endfor %}
+</div>
+
+<div class="pv-cifras">
+    <div class="pv-cifra"><div class="k">Preoperacionales</div><div class="n">{{ resumen.preoperacionales }}</div><div class="s">registrados en el periodo</div></div>
+    <div class="pv-cifra"><div class="k">No aptos</div><div class="n {% if resumen.no_aptos %}malo{% else %}bueno{% endif %}">{{ resumen.no_aptos }}</div><div class="s">vehículos dictaminados no aptos</div></div>
+    <div class="pv-cifra"><div class="k">Ítems en mal estado</div><div class="n {% if resumen.items_malos %}malo{% else %}bueno{% endif %}">{{ resumen.items_malos }}</div><div class="s">en {{ resumen.pre_con_hallazgos }} preoperacional{{ resumen.pre_con_hallazgos|pluralize:"es" }}</div></div>
+    <div class="pv-cifra"><div class="k">Sin preoperacional</div><div class="n {% if sin_preoperacional %}malo{% else %}bueno{% endif %}">{{ sin_preoperacional|length }}</div><div class="s">servicios ya pasados sin revisión</div></div>
+    <div class="pv-cifra"><div class="k">Encuestas de cierre</div><div class="n">{{ resumen.encuestas }}</div><div class="s">{{ resumen.enc_con_alertas }} con respuestas que exigen atención</div></div>
+    <div class="pv-cifra"><div class="k">Casi-accidentes</div><div class="n {% if resumen.casi_accidentes %}malo{% else %}bueno{% endif %}">{{ resumen.casi_accidentes }}</div><div class="s">condiciones de riesgo reportadas</div></div>
+</div>
+
+<div class="pv-dos">
+    <div class="pv-lista">
+        <h3>Ítems que más fallan</h3>
+        {% for i in items_fallados %}
+        <div class="pv-ind"><span>{{ i.texto }}</span><span class="n malo">{{ i.total }}</span></div>
+        {% empty %}
+        <div class="text-muted small">Ningún ítem en mal estado en el periodo.</div>
+        {% endfor %}
+    </div>
+    <div class="pv-lista">
+        <h3>Encuestas de cierre · respuestas que exigen atención</h3>
+        {% for p in preguntas %}
+        <div class="pv-ind"><span>{{ p.label }}</span><span class="n {% if p.total %}malo{% else %}bueno{% endif %}">{{ p.total }}</span></div>
+        {% endfor %}
+    </div>
+</div>
+
+{% if sin_nada %}
+<div class="pv-vacio"><i class="bi bi-folder2-open" aria-hidden="true"></i>Nada registrado en este periodo{% if vehiculo_id or conductor_id %} con ese filtro{% endif %}.</div>
+{% endif %}
+
+{% if preoperacionales %}
+<div class="pv-sec">
+    <h3><i class="bi bi-clipboard2-check-fill" aria-hidden="true"></i>Preoperacionales <span class="cnt">{{ preoperacionales|length }}</span></h3>
+    <table class="pv-tabla">
+        <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Dictamen</th><th>Hallazgos</th><th>PDF</th></tr></thead>
+        <tbody>
+        {% for p in preoperacionales %}
+        <tr>
+            <td class="mono">{{ p.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
+            <td><a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a><div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
+            <td><span class="mono">{{ p.recorrido.vehiculo.placa }}</span><div class="hal">{{ p.get_tipo_vehiculo_display }}</div></td>
+            <td>{% if p.recorrido.conductor %}{{ p.recorrido.conductor.get_full_name|default:p.recorrido.conductor.username }}{% else %}—{% endif %}</td>
+            <td>{% if not p.apto %}<span class="pv-badge malo">No apto</span>{% elif p.items_malos %}<span class="pv-badge alerta">Apto con hallazgos</span>{% else %}<span class="pv-badge ok">Apto</span>{% endif %}</td>
+            <td>{% for i in p.items_malos %}<div class="hal">{{ i.numero }}. {{ i.texto }}</div>{% empty %}<span class="text-muted">—</span>{% endfor %}{% if p.observaciones %}<div class="hal"><i class="bi bi-chat-left-text me-1"></i>{{ p.observaciones|truncatechars:120 }}</div>{% endif %}</td>
+            <td><a href="{% url 'gestion:preoperacional_pdf' p.recorrido_id %}" class="btn btn-sm btn-outline-danger pdf"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if encuestas %}
+<div class="pv-sec">
+    <h3><i class="bi bi-clipboard-check" aria-hidden="true"></i>Encuestas de cierre <span class="cnt">{{ encuestas|length }}</span></h3>
+    <table class="pv-tabla">
+        <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Resultado</th><th>Respuestas que exigen atención</th><th>PDF</th></tr></thead>
+        <tbody>
+        {% for e in encuestas %}
+        <tr>
+            <td class="mono">{{ e.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
+            <td><a href="{% url 'gestion:detalle_orden' e.recorrido.orden_id %}">#{{ e.recorrido.orden.numero_orden }}</a><div class="hal">{{ e.recorrido.orden.cliente.nombre }}</div></td>
+            <td class="mono">{{ e.recorrido.vehiculo.placa }}</td>
+            <td>{% if e.recorrido.conductor %}{{ e.recorrido.conductor.get_full_name|default:e.recorrido.conductor.username }}{% else %}—{% endif %}</td>
+            <td>{% if e.condicion_riesgo == 'SI' %}<span class="pv-badge malo">Casi-accidente</span>{% elif e.tiene_alertas %}<span class="pv-badge alerta">Exige atención</span>{% else %}<span class="pv-badge ok">Sin novedad</span>{% endif %}</td>
+            <td>{% for r in e.respuestas %}{% if r.alerta %}<div class="hal">{{ r.numero }}. {{ r.pregunta|truncatechars:90 }}</div>{% endif %}{% endfor %}{% if e.condicion_riesgo == 'SI' %}<div class="hal"><b>{{ e.get_tipo_incidente_display }}</b>{% if e.descripcion_incidente %}: {{ e.descripcion_incidente|truncatechars:120 }}{% endif %}</div>{% endif %}{% if not e.tiene_alertas %}<span class="text-muted">—</span>{% endif %}</td>
+            <td><a href="{% url 'gestion:encuesta_conductor_pdf' e.recorrido_id %}" class="btn btn-sm btn-outline-danger pdf"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if sin_preoperacional %}
+<div class="pv-sec">
+    <h3><i class="bi bi-exclamation-triangle-fill" aria-hidden="true" style="color:#c47f12"></i>Servicios sin preoperacional <span class="cnt">{{ sin_preoperacional|length }}</span></h3>
+    <p class="text-muted small mb-2">Servicios ya pasados con conductor asignado en los que no se registró la revisión del vehículo.</p>
+    <table class="pv-tabla">
+        <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Estado</th></tr></thead>
+        <tbody>
+        {% for r in sin_preoperacional %}
+        <tr>
+            <td class="mono">{{ r.fecha_recorrido|date:"d/m/Y" }}</td>
+            <td><a href="{% url 'gestion:detalle_orden' r.orden_id %}">#{{ r.orden.numero_orden }}</a><div class="hal">{{ r.orden.cliente.nombre }}</div></td>
+            <td class="mono">{{ r.vehiculo.placa }}{% if not r.vehiculo.tipo %}<div class="hal text-danger">Sin tipo de vehículo</div>{% endif %}</td>
+            <td>{{ r.conductor.get_full_name|default:r.conductor.username }}</td>
+            <td>{{ r.get_estado_display }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

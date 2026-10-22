@@ -296,6 +296,22 @@ en el número pedido y las que estorben se corren un puesto.
                                 {% endif %}
                             </div>
                             <div class="rc-doc">
+                                <span class="rc-doc-label">Preoperacional</span>
+                                {% if recorrido.preoperacional %}
+                                    {% if recorrido.preoperacional.tiene_hallazgos %}
+                                    <span class="badge bg-warning text-dark me-1" title="No apto o con ítems en mal estado"><i class="bi bi-exclamation-triangle-fill me-1"></i>Con hallazgos</span>
+                                    {% else %}
+                                    <span class="badge bg-success me-1">Apto</span>
+                                    {% endif %}
+                                    <a href="{% url 'gestion:preoperacional_pdf' recorrido.pk %}" class="btn btn-outline-danger btn-sm"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a>
+                                    <a href="{% url 'gestion:preoperacional' recorrido.pk %}" class="btn btn-outline-secondary btn-sm" title="Corregir el preoperacional"><i class="bi bi-pen me-1"></i>Corregir</a>
+                                {% elif recorrido.vehiculo.tipo %}
+                                    <a href="{% url 'gestion:preoperacional' recorrido.pk %}" class="btn btn-warning btn-sm"><i class="bi bi-clipboard-x me-1"></i>Pendiente</a>
+                                {% else %}
+                                    <a href="{% url 'gestion:actualizar_vehiculo' recorrido.vehiculo.pk %}" class="text-danger small" title="Sin tipo el conductor no puede hacer el preoperacional"><i class="bi bi-exclamation-circle me-1"></i>El vehículo no tiene tipo</a>
+                                {% endif %}
+                            </div>
+                            <div class="rc-doc">
                                 <span class="rc-doc-label">Encuesta de cierre</span>
                                 {% if recorrido.encuesta_conductor %}
                                     {# El PDF se genera al momento de descargarlo (no se guarda) #}

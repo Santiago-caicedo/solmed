@@ -446,6 +446,14 @@
             </a>
         </li>
         {% endif %}
+        {% if ve_pesv %}
+        {# Carpeta del PESV: preoperacionales y encuestas de cierre, mes a mes (ver GRUPOS_PESV). #}
+        <li>
+            <a href="{% url 'gestion:pesv' %}" class="nav-link {% if request.path|slice:':10' == '/app/pesv/' %}active{% endif %}">
+                <i class="bi bi-shield-check"></i>Seguridad vial (PESV)
+            </a>
+        </li>
+        {% endif %}
         {% if es_asesor %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
