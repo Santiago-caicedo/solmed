@@ -9523,6 +9523,38 @@ class CarpetaPESVTests(BaseCRM):
                                                'mes': self.viejo.fecha_recorrido.month})
         self.assertEqual(respuesta.context['sin_preoperacional'], [])
 
+    def test_desde_la_carpeta_se_completa_un_preoperacional_aunque_el_servicio_este_cerrado(self):
+        self.viejo.estado = 'COMPLETADO'
+        self.viejo.save()
+        url = reverse('gestion:preoperacional', args=[self.viejo.pk])
+        periodo = {'anio': self.viejo.fecha_recorrido.year, 'mes': self.viejo.fecha_recorrido.month}
+        for quien in (self.siso, self.admin, self.persona('root', superusuario=True)):
+            with self.subTest(quien=quien.username):
+                Preoperacional.objects.all().delete()
+                self.entrar(quien)
+                carpeta = self.client.get(self.url, periodo)
+                self.assertContains(carpeta, url + '?volver=pesv')
+                self.assertEqual(self.client.get(url + '?volver=pesv').status_code, 200)
+                datos = {f'item_{n}': 'B' for n in range(1, 9)}
+                datos['dictamen'] = 'APTO'
+                respuesta = self.client.post(url + '?volver=pesv', datos)
+                self.assertRedirects(respuesta, self.url)
+                pre = self.viejo.preoperacional
+                self.assertEqual(pre.diligenciado_por, quien)
+                self.assertEqual(pre.items.count(), 8)
+                self.assertEqual(self.client.get(self.url, periodo).context['sin_preoperacional'], [])
+        # El PDF dice quién lo registró y la SISO lo baja.
+        self.entrar(self.siso)
+        pdf = self.client.get(reverse('gestion:preoperacional_pdf', args=[self.viejo.pk]))
+        self.assertEqual(pdf.status_code, 200)
+        # Sin tipo en el vehículo no hay botón: primero se le pone el tipo.
+        Preoperacional.objects.all().delete()
+        self.otro_camion.tipo = ''
+        self.otro_camion.save()
+        carpeta = self.client.get(self.url, periodo)
+        self.assertNotContains(carpeta, url + '?volver=pesv')
+        self.assertContains(carpeta, 'Ponle el tipo al vehículo primero')
+
     def test_el_excel_trae_el_resumen_y_las_hojas(self):
         from openpyxl import load_workbook
         self.preoperacional(self.recorrido, dictamen='NO_APTO', malos=(7,))

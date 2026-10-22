@@ -1696,16 +1696,19 @@ class PreoperacionalView(LoginRequiredMixin, View):
     El preoperacional que llena EL CONDUCTOR antes de salir a un servicio:
     la lista de chequeo del tipo de su vehículo, el dictamen y las fotos de
     los hallazgos. El vehículo y el conductor los pone el sistema. Entran el
-    conductor del recorrido, los asesores y gestión (pueden corregirlo).
-    Sin tipo en el vehículo no hay lista que llenar: se le dice al conductor
-    que lo pida a la oficina.
+    conductor del recorrido, los asesores y gestión (pueden corregirlo), y
+    la SISO desde su carpeta, para completar los que quedaron sin hacer
+    aunque el servicio ya esté cerrado (oct-2026). El PDF dice quién lo
+    registró. Sin tipo en el vehículo no hay lista que llenar: se le dice
+    al conductor que lo pida a la oficina.
     """
     template_name = 'gestion/preoperacional.html'
 
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
             recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
-            if not _puede_gestionar_manifiesto(request.user, recorrido):
+            if not (_puede_gestionar_manifiesto(request.user, recorrido)
+                    or _puede_ver_pesv(request.user)):
                 messages.error(request, "No tienes permiso para llenar este preoperacional.")
                 return redirect('gestion:dashboard_redirect')
             if not recorrido.vehiculo.tipo and not hasattr(recorrido, 'preoperacional'):
@@ -1718,9 +1721,16 @@ class PreoperacionalView(LoginRequiredMixin, View):
 
     @staticmethod
     def _volver(request, recorrido):
-        """De vuelta a la orden: el conductor a su pantalla, gestión al expediente."""
+        """
+        De vuelta: el conductor a su pantalla, gestión al expediente de la
+        orden y quien vino de la carpeta del PESV (?volver=pesv, o la SISO,
+        que no entra al expediente) a la carpeta.
+        """
         if recorrido.conductor_id == request.user.id:
             return reverse('gestion:detalle_orden_conductor', kwargs={'pk': recorrido.orden_id})
+        if (request.GET.get('volver') == 'pesv'
+                or not _puede_gestionar_manifiesto(request.user, recorrido)):
+            return reverse('gestion:pesv')
         return reverse('gestion:detalle_orden', kwargs={'pk': recorrido.orden_id})
 
     @staticmethod

@@ -173,7 +173,7 @@
         {% for p in preoperacionales %}
         <tr>
             <td class="mono">{{ p.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td><a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a><div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
+            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a>{% else %}#{{ p.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
             <td><span class="mono">{{ p.recorrido.vehiculo.placa }}</span><div class="hal">{{ p.get_tipo_vehiculo_display }}</div></td>
             <td>{% if p.recorrido.conductor %}{{ p.recorrido.conductor.get_full_name|default:p.recorrido.conductor.username }}{% else %}—{% endif %}</td>
             <td>{% if not p.apto %}<span class="pv-badge malo">No apto</span>{% elif p.items_malos %}<span class="pv-badge alerta">Apto con hallazgos</span>{% else %}<span class="pv-badge ok">Apto</span>{% endif %}</td>
@@ -195,7 +195,7 @@
         {% for e in encuestas %}
         <tr>
             <td class="mono">{{ e.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td><a href="{% url 'gestion:detalle_orden' e.recorrido.orden_id %}">#{{ e.recorrido.orden.numero_orden }}</a><div class="hal">{{ e.recorrido.orden.cliente.nombre }}</div></td>
+            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' e.recorrido.orden_id %}">#{{ e.recorrido.orden.numero_orden }}</a>{% else %}#{{ e.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ e.recorrido.orden.cliente.nombre }}</div></td>
             <td class="mono">{{ e.recorrido.vehiculo.placa }}</td>
             <td>{% if e.recorrido.conductor %}{{ e.recorrido.conductor.get_full_name|default:e.recorrido.conductor.username }}{% else %}—{% endif %}</td>
             <td>{% if e.condicion_riesgo == 'SI' %}<span class="pv-badge malo">Casi-accidente</span>{% elif e.tiene_alertas %}<span class="pv-badge alerta">Exige atención</span>{% else %}<span class="pv-badge ok">Sin novedad</span>{% endif %}</td>
@@ -211,17 +211,18 @@
 {% if sin_preoperacional %}
 <div class="pv-sec">
     <h3><i class="bi bi-exclamation-triangle-fill" aria-hidden="true" style="color:#c47f12"></i>Servicios sin preoperacional <span class="cnt">{{ sin_preoperacional|length }}</span></h3>
-    <p class="text-muted small mb-2">Servicios ya pasados con conductor asignado en los que no se registró la revisión del vehículo.</p>
+    <p class="text-muted small mb-2">Servicios ya pasados con conductor asignado en los que no se registró la revisión del vehículo. Desde aquí se puede registrar aunque el servicio ya esté cerrado; el PDF dice quién lo hizo.</p>
     <table class="pv-tabla">
-        <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Estado</th><th></th></tr></thead>
         <tbody>
         {% for r in sin_preoperacional %}
         <tr>
             <td class="mono">{{ r.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td><a href="{% url 'gestion:detalle_orden' r.orden_id %}">#{{ r.orden.numero_orden }}</a><div class="hal">{{ r.orden.cliente.nombre }}</div></td>
+            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' r.orden_id %}">#{{ r.orden.numero_orden }}</a>{% else %}#{{ r.orden.numero_orden }}{% endif %}<div class="hal">{{ r.orden.cliente.nombre }}</div></td>
             <td class="mono">{{ r.vehiculo.placa }}{% if not r.vehiculo.tipo %}<div class="hal text-danger">Sin tipo de vehículo</div>{% endif %}</td>
             <td>{{ r.conductor.get_full_name|default:r.conductor.username }}</td>
             <td>{{ r.get_estado_display }}</td>
+            <td>{% if r.vehiculo.tipo %}<a href="{% url 'gestion:preoperacional' r.pk %}?volver=pesv" class="btn btn-sm btn-primary pdf"><i class="bi bi-pencil-square me-1"></i>Registrar</a>{% else %}<span class="hal">Ponle el tipo al vehículo primero</span>{% endif %}</td>
         </tr>
         {% endfor %}
         </tbody>
