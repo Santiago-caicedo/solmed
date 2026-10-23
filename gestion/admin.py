@@ -289,3 +289,19 @@ class PreoperacionalAdmin(admin.ModelAdmin):
     list_filter = ('dictamen', 'tipo_vehiculo')
     search_fields = ('recorrido__orden__numero_orden', 'recorrido__vehiculo__placa')
     inlines = [ItemPreoperacionalInline, FotoPreoperacionalInline]
+
+
+from .models import ServicioVisita, VisitaTecnica  # noqa: E402
+
+
+class ServicioVisitaInline(admin.TabularInline):
+    model = ServicioVisita
+    extra = 0
+
+
+@admin.register(VisitaTecnica)
+class VisitaTecnicaAdmin(admin.ModelAdmin):
+    list_display = ('codigo', 'empresa', 'fecha_programada', 'ejecutivo', 'estado')
+    list_filter = ('estado',)
+    search_fields = ('empresa', 'nit', 'contacto', 'numero')
+    inlines = [ServicioVisitaInline]

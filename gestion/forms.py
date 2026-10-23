@@ -1700,3 +1700,166 @@ class PreoperacionalForm(forms.Form):
             self.add_error('observaciones',
                            "Cuenta qué encontraste: hay un ítem malo o el vehículo no está apto.")
         return cleaned
+
+
+
+# ============================================================
+#  VISITAS TÉCNICAS (oct-2026): formato GC-F-01 v03
+# ============================================================
+from .models import ServicioVisita, VisitaTecnica  # noqa: E402  (al final: el módulo ya cargó lo demás)
+
+
+def _texto(placeholder=''):
+    return forms.TextInput(attrs={'class': 'form-control', 'placeholder': placeholder})
+
+
+def _fecha():
+    return forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}, format='%Y-%m-%d')
+
+
+CAMPOS_SERVICIO_VISITA = ['area_proceso', 'servicio_requerido', 'residuo', 'caracteristicas',
+                          'cantidad_estimada', 'frecuencia', 'caracterizacion', 'destino',
+                          'condiciones_especiales']
+
+
+class VisitaProgramacionForm(forms.ModelForm):
+    """
+    Sección 1 del formato: la programación de la visita. La llena la oficina
+    antes de desplazarse. Si se elige un cliente registrado, lo que quede en
+    blanco de la empresa se copia de su ficha (ver la vista).
+    """
+    class Meta:
+        model = VisitaTecnica
+        fields = [
+            'fecha_solicitud', 'fecha_programada', 'hora_inicio', 'ejecutivo',
+            'cliente_acepta', 'medio_confirmacion', 'medio_otro',
+            'cliente', 'empresa', 'nit', 'actividad_economica', 'contacto', 'cargo_contacto',
+            'telefonos', 'email', 'direccion', 'sede_planta',
+            'persona_recibe', 'cargo_recibe', 'telefono_recibe', 'estado', 'observaciones_ingreso',
+        ]
+        widgets = {
+            'fecha_solicitud': _fecha(), 'fecha_programada': _fecha(),
+            'hora_inicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}, format='%H:%M'),
+            'ejecutivo': forms.Select(attrs={'class': 'form-select'}),
+            'cliente_acepta': forms.RadioSelect,
+            'medio_confirmacion': forms.RadioSelect,
+            'medio_otro': _texto('¿Cuál?'),
+            'cliente': forms.Select(attrs={'class': 'form-select'}),
+            'empresa': _texto('Razón social'), 'nit': _texto(), 'actividad_economica': _texto(),
+            'contacto': _texto(), 'cargo_contacto': _texto(), 'telefonos': _texto(), 'email': _texto(),
+            'direccion': _texto('Calle, número, barrio, ciudad'), 'sede_planta': _texto(),
+            'persona_recibe': _texto(), 'cargo_recibe': _texto(), 'telefono_recibe': _texto(),
+            'estado': forms.Select(attrs={'class': 'form-select'}),
+            'observaciones_ingreso': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['ejecutivo'].queryset = (
+            User.objects.filter(is_active=True)
+            .filter(Q(groups__name__in=['Asesores', 'Administradores']) | Q(is_superuser=True))
+            .distinct().order_by('first_name', 'last_name'))
+        self.fields['ejecutivo'].label_from_instance = lambda u: u.get_full_name() or u.username
+        self.fields['cliente'].queryset = Cliente.objects.order_by('nombre')
+        self.fields['cliente'].empty_label = 'Prospecto (aún no es cliente)'
+        self.fields['empresa'].required = False
+        for campo in ('cliente_acepta', 'medio_confirmacion'):
+            self.fields[campo].choices = [c for c in self.fields[campo].choices if c[0] != '']
+        # Desde aquí se programa, confirma, reprograma o cancela: «Realizada»
+        # la marca el ejecutivo al cerrar en campo.
+        realizada = self.instance.pk and self.instance.estado == 'REALIZADA'
+        self.fields['estado'].choices = [
+            c for c in VisitaTecnica.ESTADO_CHOICES if c[0] != 'REALIZADA' or realizada]
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('medio_confirmacion') == 'OTRO' and not (cleaned.get('medio_otro') or '').strip():
+            self.add_error('medio_otro', "Di cuál fue el medio de confirmación.")
+        empresa = (cleaned.get('empresa') or '').strip()
+        if not empresa and cleaned.get('cliente'):
+            empresa = cleaned['cliente'].nombre
+        if not empresa:
+            self.add_error('empresa', "Escribe la empresa o elige un cliente registrado.")
+        cleaned['empresa'] = empresa
+        return cleaned
+
+
+class VisitaCampoForm(forms.ModelForm):
+    """
+    Secciones 3 a 6 del formato: lo que el ejecutivo llena en la visita. Los
+    equipos requeridos se marcan varios y se guardan separados por coma.
+    """
+    equipos = forms.MultipleChoiceField(
+        choices=VisitaTecnica.EQUIPO_CHOICES, required=False,
+        widget=forms.CheckboxSelectMultiple, label="Equipos requeridos")
+
+    class Meta:
+        model = VisitaTecnica
+        fields = [
+            'altura_ingreso', 'ancho_ingreso', 'restricciones_ingreso', 'distancia_area',
+            'ubicacion_tanque', 'profundidad_succion', 'distancia_mangueras',
+            'disp_agua', 'disp_energia', 'espacio_maniobra', 'permisos_induccion', 'espacios_confinados',
+            'equipo_otro', 'personal_epp',
+            'ev_registro_autorizado', 'ev_fotos_accesos', 'ev_planos', 'ev_caracterizaciones',
+            'ev_documentos_pendientes', 'ev_no_verificables',
+            'alcance_preliminar', 'actividades_necesarias', 'info_confirmar_cliente',
+            'pendientes_ejecutivo', 'requerimientos_operaciones', 'fecha_cotizacion',
+            'fecha_seguimiento', 'recomendaciones', 'notas_adicionales',
+            'ejecutivo_realizo', 'representante_cliente', 'cargo_representante',
+            'val_constancia', 'val_entrega_operaciones', 'val_pendientes', 'fecha_cierre',
+            'entrega_operaciones_nombre', 'entrega_operaciones_cargo', 'fecha_entrega_operaciones',
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for nombre, campo in self.fields.items():
+            if isinstance(campo.widget, forms.Textarea):
+                campo.widget.attrs.update({'class': 'form-control', 'rows': 2})
+            elif isinstance(campo.widget, forms.DateInput):
+                campo.widget = _fecha()
+            elif isinstance(campo.widget, forms.TextInput):
+                campo.widget.attrs.update({'class': 'form-control'})
+            elif isinstance(campo.widget, forms.Select):
+                campo.widget = forms.RadioSelect(choices=[c for c in campo.choices if c[0] != ''])
+        if self.instance.pk and not self.is_bound:
+            self.fields['equipos'].initial = [c for c in self.instance.equipos_requeridos.split(',') if c]
+        definiciones = (VisitaTecnica.MEDIDAS + VisitaTecnica.DISPONIBILIDADES
+                        + VisitaTecnica.CONCLUSIONES + VisitaTecnica.EVIDENCIAS
+                        + VisitaTecnica.VALIDACIONES)
+        for nombre, etiqueta in definiciones:
+            self.fields[nombre].label = etiqueta
+
+    def clean(self):
+        cleaned = super().clean()
+        equipos = cleaned.get('equipos') or []
+        if 'OTRO' in equipos and not (cleaned.get('equipo_otro') or '').strip():
+            self.add_error('equipo_otro', "Di cuál es el otro equipo.")
+        return cleaned
+
+    def save(self, commit=True):
+        self.instance.equipos_requeridos = ','.join(self.cleaned_data.get('equipos') or [])
+        return super().save(commit)
+
+    def _grupo(self, definicion):
+        return [self[nombre] for nombre, _etiqueta in definicion]
+
+    def medidas(self):
+        return self._grupo(VisitaTecnica.MEDIDAS)
+
+    def disponibilidades(self):
+        return self._grupo(VisitaTecnica.DISPONIBILIDADES)
+
+    def evidencias(self):
+        return self._grupo(VisitaTecnica.EVIDENCIAS)
+
+    def conclusiones(self):
+        return self._grupo(VisitaTecnica.CONCLUSIONES)
+
+    def validaciones(self):
+        return self._grupo(VisitaTecnica.VALIDACIONES)
+
+
+ServicioVisitaFormSet = forms.inlineformset_factory(
+    VisitaTecnica, ServicioVisita, fields=CAMPOS_SERVICIO_VISITA, extra=1, can_delete=True,
+    widgets={n: forms.TextInput(attrs={'class': 'form-control'}) for n in CAMPOS_SERVICIO_VISITA},
+)

@@ -2816,3 +2816,266 @@ class CertificadoDisposicion(models.Model):
     @property
     def es_pdf(self):
         return self.nombre_archivo.lower().endswith('.pdf')
+
+
+# ============================================================
+#  VISITAS TÉCNICAS (oct-2026, pedido de la clienta): el formato GC-F-01
+#  versión 03. La oficina programa la visita (sección 1) y el ejecutivo
+#  comercial llena el resto en campo, desde el celular, con fotos y firmas.
+#  La empresa puede ser un cliente registrado o un prospecto que aún no
+#  existe en el sistema. La visita queda archivada con su PDF.
+# ============================================================
+
+class VisitaTecnica(models.Model):
+    ESTADO_CHOICES = [
+        ('PROGRAMADA', 'Programada'),
+        ('CONFIRMADA', 'Confirmada'),
+        ('REPROGRAMADA', 'Reprogramada'),
+        ('REALIZADA', 'Realizada'),
+        ('CANCELADA', 'Cancelada'),
+    ]
+    SI_NO_CHOICES = [('SI', 'Sí'), ('NO', 'No')]
+    SI_NO_CONFIRMAR_CHOICES = [('SI', 'Sí'), ('NO', 'No'), ('CONFIRMAR', 'Por confirmar')]
+    MEDIO_CHOICES = [
+        ('CORREO', 'Correo'), ('WHATSAPP', 'WhatsApp'), ('LLAMADA', 'Llamada'), ('OTRO', 'Otro'),
+    ]
+    EQUIPO_CHOICES = [
+        ('MINIVACTOR', 'Minivactor'), ('VACTOR', 'Vactor'), ('SISTEMA_VACIO', 'Sistema de vacío'),
+        ('VOLCO', 'Volco'), ('OTRO', 'Otro'),
+    ]
+    # Lo que el formato pide marcar en la sección 4 (evidencias y documentos).
+    EVIDENCIAS = (
+        ('ev_registro_autorizado', 'Registro fotográfico autorizado (puntos de intervención).'),
+        ('ev_fotos_accesos', 'Fotografías de accesos, equipos, tanques, residuos y área de trabajo.'),
+        ('ev_planos', 'Planos, fichas técnicas o información suministrada por el cliente.'),
+        ('ev_caracterizaciones', 'Caracterizaciones o análisis existentes.'),
+        ('ev_documentos_pendientes', 'Documentos pendientes por recibir.'),
+        ('ev_no_verificables', 'Observaciones que no puedan verificarse en la visita.'),
+    )
+    # La sección 3: las medidas (texto libre con su unidad) y las
+    # disponibilidades (Sí / No / Por confirmar).
+    MEDIDAS = (
+        ('altura_ingreso', 'Altura de ingreso (m)'),
+        ('ancho_ingreso', 'Ancho de ingreso (m)'),
+        ('restricciones_ingreso', 'Restricciones de ingreso'),
+        ('distancia_area', 'Distancia al área de trabajo (m)'),
+        ('ubicacion_tanque', 'Ubicación y dimensiones del tanque/pozo/trampa'),
+        ('profundidad_succion', 'Profundidad del punto de succión (m)'),
+        ('distancia_mangueras', 'Distancia de mangueras requerida (m)'),
+    )
+    DISPONIBILIDADES = (
+        ('disp_agua', 'Disponibilidad de agua'),
+        ('disp_energia', 'Disponibilidad de energía'),
+        ('espacio_maniobra', 'Espacio para maniobrar y estacionar'),
+        ('permisos_induccion', 'Permisos / inducción / documentación'),
+        ('espacios_confinados', 'Espacios confinados / trabajo en alturas'),
+    )
+    # La sección 5: conclusiones y compromisos (texto por renglón del formato).
+    CONCLUSIONES = (
+        ('alcance_preliminar', 'Alcance preliminar del servicio solicitado'),
+        ('actividades_necesarias', 'Actividades que se consideran necesarias'),
+        ('info_confirmar_cliente', 'Información que debe confirmar el cliente'),
+        ('pendientes_ejecutivo', 'Pendientes del ejecutivo comercial'),
+        ('requerimientos_operaciones', 'Requerimientos que debe validar operaciones / SST'),
+        ('recomendaciones', 'Recomendaciones y observaciones finales'),
+    )
+    # La sección 6: validación y entrega interna.
+    VALIDACIONES = (
+        ('val_constancia', 'Constancia de realización de la visita.'),
+        ('val_entrega_operaciones', 'Entrega de información a operaciones.'),
+        ('val_pendientes', 'Validación de pendientes antes de cotizar o programar.'),
+    )
+    PREFIJO = 'VT'
+
+    numero = models.PositiveIntegerField(unique=True, verbose_name="Consecutivo")
+    estado = models.CharField(max_length=15, choices=ESTADO_CHOICES, default='PROGRAMADA')
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='visitas_creadas')
+    creada_en = models.DateTimeField(auto_now_add=True)
+    realizada_en = models.DateTimeField(null=True, blank=True)
+
+    # --- 1. Programación de la visita (la oficina, antes de desplazarse) ---
+    fecha_solicitud = models.DateField(default=timezone.localdate, verbose_name="Fecha de solicitud")
+    fecha_programada = models.DateField(verbose_name="Fecha programada")
+    hora_inicio = models.TimeField(null=True, blank=True, verbose_name="Hora de inicio prevista")
+    ejecutivo = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='visitas_asignadas', verbose_name="Ejecutivo comercial responsable")
+    cliente_acepta = models.CharField(
+        max_length=2, choices=SI_NO_CHOICES, blank=True, verbose_name="¿El cliente acepta la visita técnica?")
+    medio_confirmacion = models.CharField(
+        max_length=10, choices=MEDIO_CHOICES, blank=True, verbose_name="Medio de confirmación")
+    medio_otro = models.CharField(max_length=100, blank=True, verbose_name="Otro medio")
+    # Si la empresa ya es cliente se enlaza; si es un prospecto, se escribe.
+    cliente = models.ForeignKey(
+        Cliente, on_delete=models.PROTECT, null=True, blank=True, related_name='visitas_tecnicas',
+        verbose_name="Cliente registrado")
+    empresa = models.CharField(max_length=200, verbose_name="Empresa")
+    nit = models.CharField(max_length=50, blank=True, verbose_name="NIT")
+    actividad_economica = models.CharField(max_length=200, blank=True, verbose_name="Actividad económica")
+    contacto = models.CharField(max_length=200, blank=True, verbose_name="Contacto")
+    cargo_contacto = models.CharField(max_length=150, blank=True, verbose_name="Cargo")
+    telefonos = models.CharField(max_length=100, blank=True, verbose_name="Teléfono(s)")
+    email = models.CharField(max_length=200, blank=True, verbose_name="E-mail")
+    direccion = models.CharField(max_length=255, blank=True, verbose_name="Dirección de la visita (exacta)")
+    sede_planta = models.CharField(max_length=150, blank=True, verbose_name="Sede / Planta")
+    persona_recibe = models.CharField(max_length=200, blank=True, verbose_name="Persona que recibirá al ejecutivo")
+    cargo_recibe = models.CharField(max_length=150, blank=True, verbose_name="Cargo")
+    telefono_recibe = models.CharField(max_length=100, blank=True, verbose_name="Teléfono de contacto")
+    observaciones_ingreso = models.TextField(
+        blank=True, verbose_name="Observaciones / Restricciones para el ingreso")
+
+    # --- 3. Condiciones de acceso y operación ---
+    altura_ingreso = models.CharField(max_length=50, blank=True)
+    ancho_ingreso = models.CharField(max_length=50, blank=True)
+    restricciones_ingreso = models.CharField(max_length=255, blank=True)
+    distancia_area = models.CharField(max_length=50, blank=True)
+    ubicacion_tanque = models.CharField(max_length=255, blank=True)
+    profundidad_succion = models.CharField(max_length=50, blank=True)
+    distancia_mangueras = models.CharField(max_length=50, blank=True)
+    disp_agua = models.CharField(max_length=10, choices=SI_NO_CONFIRMAR_CHOICES, blank=True)
+    disp_energia = models.CharField(max_length=10, choices=SI_NO_CONFIRMAR_CHOICES, blank=True)
+    espacio_maniobra = models.CharField(max_length=10, choices=SI_NO_CONFIRMAR_CHOICES, blank=True)
+    permisos_induccion = models.CharField(max_length=10, choices=SI_NO_CONFIRMAR_CHOICES, blank=True)
+    espacios_confinados = models.CharField(max_length=10, choices=SI_NO_CONFIRMAR_CHOICES, blank=True)
+    # Varios equipos: se guardan sus códigos separados por coma.
+    equipos_requeridos = models.CharField(max_length=100, blank=True, verbose_name="Equipos requeridos")
+    equipo_otro = models.CharField(max_length=100, blank=True, verbose_name="Otro equipo")
+    personal_epp = models.TextField(blank=True, verbose_name="Personal y EPP / controles especiales")
+
+    # --- 4. Evidencias y documentos (las fotos van en FotoVisita) ---
+    ev_registro_autorizado = models.BooleanField(default=False)
+    ev_fotos_accesos = models.BooleanField(default=False)
+    ev_planos = models.BooleanField(default=False)
+    ev_caracterizaciones = models.BooleanField(default=False)
+    ev_documentos_pendientes = models.BooleanField(default=False)
+    ev_no_verificables = models.BooleanField(default=False)
+
+    # --- 5. Conclusiones y compromisos ---
+    alcance_preliminar = models.TextField(blank=True)
+    actividades_necesarias = models.TextField(blank=True)
+    info_confirmar_cliente = models.TextField(blank=True)
+    pendientes_ejecutivo = models.TextField(blank=True)
+    requerimientos_operaciones = models.TextField(blank=True)
+    fecha_cotizacion = models.DateField(null=True, blank=True, verbose_name="Fecha comprometida para entregar cotización")
+    fecha_seguimiento = models.DateField(null=True, blank=True, verbose_name="Fecha de seguimiento comercial")
+    recomendaciones = models.TextField(blank=True)
+    notas_adicionales = models.TextField(blank=True, verbose_name="Notas adicionales")
+
+    # --- 6. Validación y entrega interna ---
+    ejecutivo_realizo = models.CharField(max_length=200, blank=True, verbose_name="Nombre del ejecutivo que realizó la visita")
+    representante_cliente = models.CharField(max_length=200, blank=True, verbose_name="Nombre del representante del cliente")
+    cargo_representante = models.CharField(max_length=150, blank=True, verbose_name="Cargo del representante del cliente")
+    val_constancia = models.BooleanField(default=False)
+    val_entrega_operaciones = models.BooleanField(default=False)
+    val_pendientes = models.BooleanField(default=False)
+    fecha_cierre = models.DateField(null=True, blank=True, verbose_name="Fecha de cierre del registro")
+
+    # --- Firmas ---
+    firma_ejecutivo = models.ImageField(upload_to='visitas/firmas/', blank=True, null=True)
+    firma_cliente = models.ImageField(upload_to='visitas/firmas/', blank=True, null=True)
+    sello_cliente = models.ImageField(upload_to='visitas/sellos/', blank=True, null=True, verbose_name="Sello / logo del cliente")
+    entrega_operaciones_nombre = models.CharField(max_length=200, blank=True, verbose_name="Entrega a operaciones · nombre")
+    entrega_operaciones_cargo = models.CharField(max_length=150, blank=True, verbose_name="Entrega a operaciones · cargo")
+    fecha_entrega_operaciones = models.DateField(null=True, blank=True, verbose_name="Entrega a operaciones · fecha")
+
+    class Meta:
+        ordering = ['-fecha_programada', '-numero']
+        verbose_name = "Visita técnica"
+        verbose_name_plural = "Visitas técnicas"
+
+    def __str__(self):
+        return f"{self.codigo} · {self.empresa}"
+
+    def save(self, *args, **kwargs):
+        # Consecutivo propio: el siguiente al mayor que exista.
+        if self.numero is None:
+            ultimo = VisitaTecnica.objects.aggregate(m=Max('numero'))['m'] or 0
+            self.numero = ultimo + 1
+        super().save(*args, **kwargs)
+
+    @property
+    def codigo(self):
+        return f"{self.PREFIJO}-{self.numero:04d}"
+
+    @property
+    def realizada(self):
+        return self.estado == 'REALIZADA'
+
+    @property
+    def abierta(self):
+        """Todavía se puede trabajar en campo: ni realizada ni cancelada."""
+        return self.estado not in ('REALIZADA', 'CANCELADA')
+
+    def equipos_lista(self):
+        """Los equipos marcados, con nombre, para pantalla y PDF."""
+        nombres = dict(self.EQUIPO_CHOICES)
+        lista = [nombres[c] for c in self.equipos_requeridos.split(',') if c in nombres]
+        if 'OTRO' in self.equipos_requeridos.split(',') and self.equipo_otro:
+            lista[lista.index('Otro')] = f"Otro: {self.equipo_otro}"
+        return lista
+
+    def _filas(self, definicion):
+        return [{'campo': campo, 'etiqueta': etiqueta, 'valor': getattr(self, campo)}
+                for campo, etiqueta in definicion]
+
+    def medidas(self):
+        return self._filas(self.MEDIDAS)
+
+    def disponibilidades(self):
+        nombres = dict(self.SI_NO_CONFIRMAR_CHOICES)
+        return [{**f, 'texto': nombres.get(f['valor'], '')} for f in self._filas(self.DISPONIBILIDADES)]
+
+    def evidencias(self):
+        return self._filas(self.EVIDENCIAS)
+
+    def conclusiones(self):
+        return self._filas(self.CONCLUSIONES)
+
+    def validaciones(self):
+        return self._filas(self.VALIDACIONES)
+
+    def medio_texto(self):
+        if self.medio_confirmacion == 'OTRO':
+            return f"Otro: {self.medio_otro}" if self.medio_otro else 'Otro'
+        return self.get_medio_confirmacion_display() if self.medio_confirmacion else ''
+
+
+class ServicioVisita(models.Model):
+    """Una fila de la sección 2 del formato: lo que operaciones debe saber del servicio."""
+    visita = models.ForeignKey(VisitaTecnica, on_delete=models.CASCADE, related_name='servicios')
+    area_proceso = models.CharField(max_length=150, blank=True, verbose_name="Área o proceso")
+    servicio_requerido = models.CharField(max_length=200, blank=True, verbose_name="Servicio requerido")
+    residuo = models.CharField(max_length=200, blank=True, verbose_name="Residuo (nombre y origen)")
+    caracteristicas = models.CharField(max_length=200, blank=True, verbose_name="Características")
+    cantidad_estimada = models.CharField(max_length=100, blank=True, verbose_name="Cantidad estimada")
+    frecuencia = models.CharField(max_length=100, blank=True, verbose_name="Frecuencia")
+    caracterizacion = models.CharField(max_length=150, blank=True, verbose_name="Caracterización")
+    destino = models.CharField(max_length=150, blank=True, verbose_name="Destino")
+    condiciones_especiales = models.CharField(max_length=200, blank=True, verbose_name="Condiciones especiales")
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Servicio de la visita"
+        verbose_name_plural = "Servicios de la visita"
+
+    def __str__(self):
+        return f"{self.servicio_requerido or self.residuo or '—'} ({self.visita.codigo})"
+
+
+class FotoVisita(models.Model):
+    """Foto de la visita: accesos, equipos, tanques, residuos o área de trabajo."""
+    visita = models.ForeignKey(VisitaTecnica, on_delete=models.CASCADE, related_name='fotos')
+    archivo = models.ImageField(upload_to='visitas/fotos/')
+    nota = models.CharField(max_length=255, blank=True, help_text="Qué área o equipo muestra")
+    subida_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    subida_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['subida_en']
+        verbose_name = "Foto de la visita"
+        verbose_name_plural = "Fotos de la visita"
+
+    def __str__(self):
+        return f"Foto {self.pk} · {self.visita.codigo}"

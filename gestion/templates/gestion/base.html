@@ -455,6 +455,12 @@
         </li>
         {% endif %}
         {% if es_asesor %}
+        {# Visitas técnicas (formato GC-F-01 v03, oct-2026): antes de cotizar y programar. #}
+        <li>
+            <a href="{% url 'gestion:lista_visitas' %}" class="nav-link {% if request.path|slice:':13' == '/app/visitas/' %}active{% endif %}">
+                <i class="bi bi-clipboard2-pulse"></i>Visitas técnicas
+            </a>
+        </li>
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar-plus"></i>Programación

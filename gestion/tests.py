@@ -9610,3 +9610,221 @@ class CarpetaPESVTests(BaseCRM):
         self.assertEqual(tablero.context['pesv']['preoperacionales_mes'], 1)
         self.assertEqual(tablero.context['pesv']['no_aptos_mes'], 1)
         self.assertContains(tablero, self.url)
+
+
+
+# ============================================================
+#  VISITAS TÉCNICAS (oct-2026): formato GC-F-01 v03
+# ============================================================
+class VisitasTecnicasTests(BaseCRM):
+    """
+    La oficina programa la visita (sección 1) y el ejecutivo la llena en
+    campo (2 a 6, fotos y firmas) hasta marcarla realizada. Queda con su PDF.
+    """
+
+    def setUp(self):
+        from .models import VisitaTecnica
+        self.VisitaTecnica = VisitaTecnica
+        self.cli = self.cliente()
+        self.asesor = self.persona('asesor', 'Asesores', 'Ana', 'Ruiz')
+        self.admin = self.persona('admin', 'Administradores', 'Marta', 'Gil')
+        self.entrar(self.asesor)
+        self.hoy = timezone.localdate()
+
+    def datos_programacion(self, **cambios):
+        datos = {
+            'fecha_solicitud': self.hoy.isoformat(), 'fecha_programada': self.hoy.isoformat(),
+            'hora_inicio': '09:30', 'ejecutivo': self.asesor.pk, 'cliente_acepta': 'SI',
+            'medio_confirmacion': 'WHATSAPP', 'medio_otro': '', 'cliente': '',
+            'empresa': 'Lácteos del Valle', 'nit': '901111222', 'actividad_economica': 'Alimentos',
+            'contacto': 'Pedro Pinto', 'cargo_contacto': 'Jefe de planta', 'telefonos': '3001234567',
+            'email': 'pedro@lacteos.co', 'direccion': 'Km 3 vía Cali', 'sede_planta': 'Planta 1',
+            'persona_recibe': 'Pedro Pinto', 'cargo_recibe': 'Jefe de planta', 'telefono_recibe': '3001234567',
+            'estado': 'PROGRAMADA', 'observaciones_ingreso': 'Llevar casco.',
+        }
+        datos.update(cambios)
+        return datos
+
+    def programar(self, **cambios):
+        respuesta = self.client.post(reverse('gestion:crear_visita'), self.datos_programacion(**cambios))
+        self.assertEqual(respuesta.status_code, 302, getattr(respuesta, 'context', None) and respuesta.context['form'].errors)
+        return self.VisitaTecnica.objects.latest('numero')
+
+    def datos_campo(self, n_servicios=1, **cambios):
+        datos = {
+            'srv-TOTAL_FORMS': str(n_servicios), 'srv-INITIAL_FORMS': '0',
+            'srv-MIN_NUM_FORMS': '0', 'srv-MAX_NUM_FORMS': '1000',
+            'altura_ingreso': '4.2', 'ancho_ingreso': '3.5', 'restricciones_ingreso': 'Portón estrecho',
+            'distancia_area': '60', 'ubicacion_tanque': 'Patio trasero, 3x2 m', 'profundidad_succion': '2.5',
+            'distancia_mangueras': '40', 'disp_agua': 'SI', 'disp_energia': 'NO', 'espacio_maniobra': 'CONFIRMAR',
+            'permisos_induccion': 'SI', 'espacios_confinados': 'NO', 'equipos': ['VACTOR', 'OTRO'],
+            'equipo_otro': 'Grúa', 'personal_epp': 'Arnés y línea de vida.',
+            'ev_planos': 'on', 'alcance_preliminar': 'Succión de trampa de grasa.',
+            'actividades_necesarias': 'Lavado posterior.', 'info_confirmar_cliente': 'Volumen real.',
+            'pendientes_ejecutivo': 'Cotizar', 'requerimientos_operaciones': 'Permiso de alturas.',
+            'fecha_cotizacion': (self.hoy + datetime.timedelta(days=3)).isoformat(),
+            'fecha_seguimiento': '', 'recomendaciones': 'Programar en la mañana.', 'notas_adicionales': '',
+            'ejecutivo_realizo': 'Ana Ruiz', 'representante_cliente': '', 'cargo_representante': '',
+            'val_constancia': 'on', 'fecha_cierre': '', 'entrega_operaciones_nombre': '',
+            'entrega_operaciones_cargo': '', 'fecha_entrega_operaciones': '',
+        }
+        for i in range(n_servicios):
+            datos.update({
+                f'srv-{i}-id': '', f'srv-{i}-area_proceso': f'Área {i + 1}', f'srv-{i}-servicio_requerido': 'Succión',
+                f'srv-{i}-residuo': 'Lodo de trampa de grasa', f'srv-{i}-caracteristicas': 'Viscoso',
+                f'srv-{i}-cantidad_estimada': '5 m³', f'srv-{i}-frecuencia': 'Mensual',
+                f'srv-{i}-caracterizacion': 'Conocida', f'srv-{i}-destino': 'Disposición',
+                f'srv-{i}-condiciones_especiales': 'Olores',
+            })
+        datos.update(cambios)
+        return datos
+
+    def test_quien_entra_y_el_menu(self):
+        url = reverse('gestion:lista_visitas')
+        for quien in (self.asesor, self.admin):
+            with self.subTest(quien=quien.username):
+                self.entrar(quien)
+                respuesta = self.client.get(url)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertContains(respuesta, 'Visitas técnicas')
+        for rol in ('Conductores', 'Talento Humano', 'SISO', 'Planificadores'):
+            with self.subTest(rol=rol):
+                self.entrar(self.persona(f'x{rol[:4].lower()}', rol))
+                self.assertEqual(self.client.get(url).status_code, 403)
+                self.assertEqual(self.client.get(reverse('gestion:crear_visita')).status_code, 403)
+
+    def test_se_programa_una_visita_a_un_prospecto_con_su_consecutivo(self):
+        visita = self.programar()
+        self.assertEqual(visita.codigo, 'VT-0001')
+        self.assertEqual(visita.creada_por, self.asesor)
+        self.assertIsNone(visita.cliente)
+        self.assertEqual(visita.empresa, 'Lácteos del Valle')
+        self.assertEqual(visita.hora_inicio, datetime.time(9, 30))
+        self.assertEqual(self.programar(empresa='Otra S.A.S.').codigo, 'VT-0002')
+        # Medio «Otro» exige decir cuál; sin empresa ni cliente no se programa.
+        respuesta = self.client.post(reverse('gestion:crear_visita'),
+                                     self.datos_programacion(medio_confirmacion='OTRO'))
+        self.assertContains(respuesta, 'Di cuál fue el medio')
+        respuesta = self.client.post(reverse('gestion:crear_visita'), self.datos_programacion(empresa=''))
+        self.assertContains(respuesta, 'Escribe la empresa o elige un cliente')
+        self.assertEqual(self.VisitaTecnica.objects.count(), 2)
+
+    def test_un_cliente_registrado_llena_lo_que_falte_de_su_ficha(self):
+        visita = self.programar(cliente=self.cli.pk, empresa='', nit='', direccion='', email='')
+        self.assertEqual(visita.cliente, self.cli)
+        self.assertEqual(visita.empresa, self.cli.nombre)
+        self.assertEqual(visita.nit, self.cli.identificacion)
+        self.assertEqual(visita.direccion, self.cli.direccion)
+        self.assertEqual(visita.email, self.cli.email)
+        detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertContains(detalle, 'Ficha del cliente')
+        self.assertContains(detalle, 'VT-0001')
+
+    def test_la_lista_filtra_por_estado_ejecutivo_y_busca(self):
+        a = self.programar()
+        b = self.programar(empresa='Curtiembres Norte', estado='CONFIRMADA', ejecutivo=self.admin.pk)
+        url = reverse('gestion:lista_visitas')
+        def codigos(**params):
+            return [v.codigo for v in self.client.get(url, params).context['visitas']]
+        self.assertEqual(set(codigos()), {a.codigo, b.codigo})
+        self.assertEqual(codigos(estado='CONFIRMADA'), [b.codigo])
+        self.assertEqual(codigos(ejecutivo=self.admin.pk), [b.codigo])
+        self.assertEqual(codigos(q='VT-0001'), [a.codigo])
+        self.assertEqual(codigos(q='curtiembres'), [b.codigo])
+        self.assertEqual(codigos(estado='loquesea'), codigos())
+        self.assertContains(self.client.get(url), 'Prospecto')
+
+    def test_en_campo_se_guarda_por_partes_y_se_cierra_con_la_firma_del_cliente(self):
+        visita = self.programar()
+        url = reverse('gestion:campo_visita', args=[visita.pk])
+        pantalla = self.client.get(url)
+        self.assertContains(pantalla, 'Información técnica del servicio')
+        self.assertContains(pantalla, 'value="Ana Ruiz"', msg_prefix="el ejecutivo viene puesto")
+        self.assertContains(pantalla, 'value="Pedro Pinto"', msg_prefix="quien recibe viene puesto")
+
+        # Guardar y seguir después: no cierra la visita.
+        datos = self.datos_campo(n_servicios=2, seguir='1')
+        datos['fotos'] = [imagen('acceso.png')]
+        respuesta = self.client.post(url, datos)
+        self.assertRedirects(respuesta, url)
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'PROGRAMADA')
+        self.assertEqual(visita.servicios.count(), 2)
+        self.assertEqual(visita.servicios.first().area_proceso, 'Área 1')
+        self.assertEqual(visita.equipos_requeridos, 'VACTOR,OTRO')
+        self.assertEqual(visita.equipos_lista(), ['Vactor', 'Otro: Grúa'])
+        self.assertEqual(visita.disp_agua, 'SI')
+        self.assertTrue(visita.ev_planos)
+        self.assertFalse(visita.ev_fotos_accesos)
+        self.assertEqual(visita.fotos.count(), 1)
+        self.assertEqual(visita.fecha_cotizacion, self.hoy + datetime.timedelta(days=3))
+
+        # Marcarla realizada exige el representante del cliente y su firma.
+        ids = [s.pk for s in visita.servicios.all()]
+        base = self.datos_campo(n_servicios=2, **{'srv-INITIAL_FORMS': '2', 'srv-0-id': ids[0], 'srv-1-id': ids[1]})
+        respuesta = self.client.post(url, {**base, 'marcar_realizada': '1'})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'quién atendió la visita')
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'PROGRAMADA')
+
+        respuesta = self.client.post(url, {
+            **base, 'marcar_realizada': '1', 'representante_cliente': 'Pedro Pinto',
+            'cargo_representante': 'Jefe de planta', 'firma_cliente_data': firma_data_uri(),
+            'firma_ejecutivo_data': firma_data_uri(), 'srv-1-DELETE': 'on'})
+        self.assertRedirects(respuesta, reverse('gestion:detalle_visita', args=[visita.pk]))
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'REALIZADA')
+        self.assertIsNotNone(visita.realizada_en)
+        self.assertEqual(visita.fecha_cierre, self.hoy)
+        self.assertTrue(visita.firma_cliente)
+        self.assertTrue(visita.firma_ejecutivo)
+        self.assertEqual(visita.servicios.count(), 1, "la segunda fila se quitó")
+        self.assertFalse(visita.abierta)
+
+        detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertContains(detalle, 'Realizada')
+        self.assertContains(detalle, 'Otro: Grúa')
+        self.assertContains(detalle, 'Corregir lo levantado')
+        pdf = self.client.get(reverse('gestion:visita_pdf', args=[visita.pk]))
+        self.assertEqual(pdf.status_code, 200)
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+
+    def test_una_firma_que_no_es_png_no_se_guarda(self):
+        visita = self.programar()
+        url = reverse('gestion:campo_visita', args=[visita.pk])
+        respuesta = self.client.post(url, {
+            **self.datos_campo(), 'marcar_realizada': '1', 'representante_cliente': 'Pedro',
+            'firma_cliente_data': 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'falta la firma del cliente')
+        visita.refresh_from_db()
+        self.assertFalse(visita.firma_cliente)
+        self.assertEqual(visita.estado, 'PROGRAMADA')
+
+    def test_el_estado_se_cambia_desde_el_detalle_menos_a_realizada(self):
+        visita = self.programar()
+        url = reverse('gestion:estado_visita', args=[visita.pk])
+        self.client.post(url, {'estado': 'CONFIRMADA'})
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA')
+        self.client.post(url, {'estado': 'REALIZADA'})
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA', "«Realizada» se marca en campo")
+        self.client.post(url, {'estado': 'CANCELADA'})
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CANCELADA')
+        self.assertNotContains(self.client.get(reverse('gestion:lista_visitas')), 'En campo')
+
+    def test_las_fotos_se_quitan_desde_la_hoja_de_campo(self):
+        visita = self.programar()
+        url = reverse('gestion:campo_visita', args=[visita.pk])
+        datos = self.datos_campo(seguir='1')
+        datos['fotos'] = [imagen('a.png'), imagen('b.png')]
+        self.client.post(url, datos)
+        foto = visita.fotos.first()
+        self.assertEqual(visita.fotos.count(), 2)
+        respuesta = self.client.post(reverse('gestion:eliminar_foto_visita', args=[visita.pk, foto.pk]),
+                                     {'volver': url})
+        self.assertRedirects(respuesta, url)
+        self.assertEqual(visita.fotos.count(), 1)

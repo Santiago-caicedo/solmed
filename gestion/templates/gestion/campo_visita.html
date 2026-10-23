@@ -1,0 +1,325 @@
+{% extends "gestion/base.html" %}
+{% load static %}
+{% block title %}{{ visita.codigo }} · En campo{% endblock %}
+{% block content %}
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{% include 'gestion/partials/_pesv_estilos.html' %}
+{% comment %}
+La hoja de campo de la visita técnica (secciones 2 a 6 y firmas del formato
+GC-F-01 v03): la llena el ejecutivo comercial desde el celular, con el mismo
+diseño de la hoja del servicio. Se puede guardar por partes; «Guardar y
+marcar realizada» cierra la visita (exige representante del cliente y su
+firma).
+{% endcomment %}
+<style>
+.cd{ max-width:760px; }
+.vc-srv{ border:1px solid var(--line); border-radius:12px; padding:.8rem .85rem; margin-bottom:.6rem; background:var(--panel-2); position:relative; }
+.vc-srv .num{ font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin-bottom:.4rem; display:flex; justify-content:space-between; align-items:center; }
+.vc-srv .quitar{ background:none; border:0; color:var(--err); font-size:.85rem; font-weight:600; padding:0; }
+.vc-srv .grilla{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+.vc-srv .grilla .ancho{ grid-column:1 / -1; }
+.vc-srv .campo label{ font-size:.76rem; }
+.vc-srv [name$="-DELETE"]{ display:none; }
+.vc-srv.borrada{ display:none; }
+.vc-chk{ display:flex; align-items:flex-start; gap:.7rem; padding:.7rem .85rem; border:1px solid var(--line); border-radius:12px; background:var(--panel); margin-bottom:.5rem; cursor:pointer; font-weight:500; line-height:1.3; }
+.vc-chk input{ width:22px; height:22px; flex-shrink:0; margin-top:.05rem; accent-color:var(--brand-600); }
+.vc-chk:has(input:checked){ border-color:var(--brand-600); background:var(--brand-tint); }
+/* Los equipos (varios): Django los renderiza <div><div><label><input>…</label></div></div> */
+.vc-equipos > div{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+.vc-equipos label{ display:flex; align-items:center; gap:.5rem; padding:.6rem .75rem; border:1px solid var(--line); border-radius:10px; background:var(--panel-2); margin:0; cursor:pointer; font-weight:600; font-size:.9rem; }
+.vc-equipos input{ width:20px; height:20px; accent-color:var(--brand-600); }
+.vc-equipos label:has(input:checked){ border-color:var(--brand-600); background:var(--brand-tint); }
+.vc-fila{ display:grid; grid-template-columns:1fr; gap:.6rem; }
+.vc-fila .campo{ margin:0; }
+@media (min-width:560px){ .vc-fila.dos{ grid-template-columns:1fr 1fr; } }
+.vc-firma{ border:1.5px dashed #cdd4dd; border-radius:10px; background:#fff; overflow:hidden; }
+.vc-firma canvas{ display:block; width:100%; height:180px; touch-action:none; cursor:crosshair; }
+.vc-firma-actual{ border:1px solid var(--line); border-radius:10px; background:#fff; padding:.4rem; text-align:center; margin-bottom:.5rem; }
+.vc-firma-actual img{ max-height:90px; }
+.vc-fotos{ display:grid; grid-template-columns:repeat(auto-fill, minmax(110px,1fr)); gap:.5rem; margin-bottom:.7rem; }
+.vc-foto{ position:relative; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel-2); }
+.vc-foto img{ width:100%; height:90px; object-fit:cover; display:block; }
+.vc-foto form{ position:absolute; top:4px; right:4px; }
+.vc-foto button{ width:28px; height:28px; border-radius:50%; border:0; background:rgba(0,0,0,.55); color:#fff; font-size:.8rem; }
+.hj-pie.dos{ grid-template-columns:1fr; }
+.hj-pie .cd-btn.sec{ background:var(--panel); }
+</style>
+
+<div class="cd">
+    <a class="cd-volver" href="{% url 'gestion:detalle_visita' visita.pk %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>La visita</a>
+    <header class="cd-cab">
+        <div class="fecha">{{ visita.codigo }} · {{ visita.fecha_programada|date:"j \d\e F"|capfirst }}{% if visita.hora_inicio %} · {{ visita.hora_inicio|time:"g:i a" }}{% endif %}</div>
+        <h1>Visita técnica en campo</h1>
+        <p>Llena lo que levantes en la visita. Puedes guardar por partes.</p>
+    </header>
+
+    <div class="pe-datos" aria-label="Datos de la visita">
+        <div><span class="k">Empresa</span><span class="v">{{ visita.empresa }}</span></div>
+        <div><span class="k">Dirección</span><span class="v">{{ visita.direccion|default:"—" }}{% if visita.sede_planta %} · {{ visita.sede_planta }}{% endif %}</span></div>
+        <div><span class="k">Recibe</span><span class="v">{{ visita.persona_recibe|default:visita.contacto|default:"—" }}{% if visita.telefono_recibe %} · {{ visita.telefono_recibe }}{% endif %}</span></div>
+        <div><span class="k">Estado</span><span class="v">{{ visita.get_estado_display }}</span></div>
+    </div>
+
+    {% if not visita.abierta %}
+    <div class="pe-aviso info"><i class="bi bi-info-circle-fill" aria-hidden="true"></i>Esta visita ya está {{ visita.get_estado_display|lower }}. Puedes corregir lo levantado.</div>
+    {% endif %}
+    {% if form.errors or formset.errors %}
+    <div class="pe-aviso error"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>Revisa lo marcado: falta algo.
+        <ul class="mb-0 mt-1 small">{% for field in form %}{% for e in field.errors %}<li>{{ field.label }}: {{ e }}</li>{% endfor %}{% endfor %}{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    <form method="post" id="form-campo" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        {# ---------- 2. Información técnica del servicio ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-droplet-half" aria-hidden="true"></i><span class="t">2 · Información técnica del servicio</span><span class="s">qué se debe hacer</span></div>
+            <div class="cuerpo">
+                <p class="ayuda">Una tarjeta por cada área o residuo. Operaciones programa con esto.</p>
+                {{ formset.management_form }}
+                {% for e in formset.non_form_errors %}<div class="campo"><div class="err">{{ e }}</div></div>{% endfor %}
+                <div id="vc-servicios">
+                    {% for f in formset %}
+                    <div class="vc-srv" data-srv>
+                        {{ f.id }}{{ f.DELETE }}
+                        <div class="num"><span>Servicio <span class="idx">{{ forloop.counter }}</span></span><button type="button" class="quitar" data-quitar>Quitar</button></div>
+                        <div class="grilla">
+                            <div class="campo"><label for="{{ f.area_proceso.id_for_label }}">Área o proceso</label>{{ f.area_proceso }}</div>
+                            <div class="campo"><label for="{{ f.servicio_requerido.id_for_label }}">Servicio requerido</label>{{ f.servicio_requerido }}</div>
+                            <div class="campo ancho"><label for="{{ f.residuo.id_for_label }}">Residuo (nombre y origen)</label>{{ f.residuo }}</div>
+                            <div class="campo"><label for="{{ f.caracteristicas.id_for_label }}">Características</label>{{ f.caracteristicas }}</div>
+                            <div class="campo"><label for="{{ f.cantidad_estimada.id_for_label }}">Cantidad estimada</label>{{ f.cantidad_estimada }}</div>
+                            <div class="campo"><label for="{{ f.frecuencia.id_for_label }}">Frecuencia</label>{{ f.frecuencia }}</div>
+                            <div class="campo"><label for="{{ f.caracterizacion.id_for_label }}">Caracterización</label>{{ f.caracterizacion }}</div>
+                            <div class="campo"><label for="{{ f.destino.id_for_label }}">Destino</label>{{ f.destino }}</div>
+                            <div class="campo"><label for="{{ f.condiciones_especiales.id_for_label }}">Condiciones especiales</label>{{ f.condiciones_especiales }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <template id="vc-srv-plantilla">
+                    <div class="vc-srv" data-srv>
+                        {{ formset.empty_form.id }}{{ formset.empty_form.DELETE }}
+                        <div class="num"><span>Servicio <span class="idx"></span></span><button type="button" class="quitar" data-quitar>Quitar</button></div>
+                        <div class="grilla">
+                            <div class="campo"><label>Área o proceso</label>{{ formset.empty_form.area_proceso }}</div>
+                            <div class="campo"><label>Servicio requerido</label>{{ formset.empty_form.servicio_requerido }}</div>
+                            <div class="campo ancho"><label>Residuo (nombre y origen)</label>{{ formset.empty_form.residuo }}</div>
+                            <div class="campo"><label>Características</label>{{ formset.empty_form.caracteristicas }}</div>
+                            <div class="campo"><label>Cantidad estimada</label>{{ formset.empty_form.cantidad_estimada }}</div>
+                            <div class="campo"><label>Frecuencia</label>{{ formset.empty_form.frecuencia }}</div>
+                            <div class="campo"><label>Caracterización</label>{{ formset.empty_form.caracterizacion }}</div>
+                            <div class="campo"><label>Destino</label>{{ formset.empty_form.destino }}</div>
+                            <div class="campo"><label>Condiciones especiales</label>{{ formset.empty_form.condiciones_especiales }}</div>
+                        </div>
+                    </div>
+                </template>
+                <button type="button" class="cd-btn sec w-100" id="vc-agregar"><i class="bi bi-plus-circle" aria-hidden="true"></i>Añadir otro servicio o residuo</button>
+            </div>
+        </div>
+
+        {# ---------- 3. Condiciones de acceso y operación ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-truck" aria-hidden="true"></i><span class="t">3 · Condiciones de acceso y operación</span><span class="s">para cotizar y programar</span></div>
+            <div class="cuerpo">
+                <div class="vc-fila dos">
+                    {% for c in form.medidas %}<div class="campo"><label for="{{ c.id_for_label }}">{{ c.label }}</label>{{ c }}</div>{% endfor %}
+                </div>
+                <div class="pe-lista mt-3">
+                    {% for c in form.disponibilidades %}
+                    <div class="pe-q" data-q><span class="num" aria-hidden="true"><i class="bi bi-question-lg"></i></span><div class="tx">{{ c.label }}</div><div class="pe-opc tres">{{ c }}</div></div>
+                    {% endfor %}
+                </div>
+                <div class="campo mt-3"><label>Equipos requeridos</label><div class="vc-equipos">{{ form.equipos }}</div></div>
+                <div class="campo mt-2 {% if form.equipo_otro.errors %}error{% endif %}"><label for="{{ form.equipo_otro.id_for_label }}">Otro equipo</label>{{ form.equipo_otro }}{% for e in form.equipo_otro.errors %}<div class="err">{{ e }}</div>{% endfor %}</div>
+                <div class="campo mt-2"><label for="{{ form.personal_epp.id_for_label }}">Personal y EPP / controles especiales</label>{{ form.personal_epp }}</div>
+            </div>
+        </div>
+
+        {# ---------- 4. Evidencias y documentos ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-camera-fill" aria-hidden="true"></i><span class="t">4 · Evidencias y documentos</span></div>
+            <div class="cuerpo">
+                {% for c in form.evidencias %}<label class="vc-chk">{{ c }}<span>{{ c.label }}</span></label>{% endfor %}
+                <p class="ayuda mt-3 mb-2"><strong>Fotos:</strong> deben identificar claramente el área o equipo al que corresponden.</p>
+                {% if fotos %}
+                <div class="vc-fotos">
+                    {% for f in fotos %}
+                    <div class="vc-foto"><a href="{{ f.archivo.url }}" target="_blank" rel="noopener"><img src="{{ f.archivo.url }}" alt="Foto {{ forloop.counter }}"></a>
+                        <form method="post" action="{% url 'gestion:eliminar_foto_visita' visita.pk f.pk %}">{% csrf_token %}<input type="hidden" name="volver" value="{% url 'gestion:campo_visita' visita.pk %}"><button type="submit" title="Quitar esta foto" aria-label="Quitar esta foto"><i class="bi bi-x-lg"></i></button></form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <input type="file" name="fotos" accept="image/*" capture="environment" multiple hidden class="pe-entrada">
+                <input type="file" name="fotos" accept="image/*" multiple hidden class="pe-entrada">
+                <div class="pe-subir">
+                    <button type="button" class="cd-btn sec" data-abrir="0"><i class="bi bi-camera-fill" aria-hidden="true"></i>Tomar foto</button>
+                    <button type="button" class="cd-btn sec" data-abrir="1"><i class="bi bi-images" aria-hidden="true"></i>Galería</button>
+                </div>
+                <div class="pe-elegidas" id="pe-elegidas"></div>
+            </div>
+        </div>
+
+        {# ---------- 5. Conclusiones y compromisos ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-journal-check" aria-hidden="true"></i><span class="t">5 · Conclusiones y compromisos</span></div>
+            <div class="cuerpo">
+                <div class="vc-fila">
+                    {% for c in form.conclusiones %}<div class="campo"><label for="{{ c.id_for_label }}">{{ c.label }}</label>{{ c }}</div>{% endfor %}
+                </div>
+                <div class="vc-fila dos mt-2">
+                    <div class="campo"><label for="{{ form.fecha_cotizacion.id_for_label }}">{{ form.fecha_cotizacion.label }}</label>{{ form.fecha_cotizacion }}</div>
+                    <div class="campo"><label for="{{ form.fecha_seguimiento.id_for_label }}">{{ form.fecha_seguimiento.label }}</label>{{ form.fecha_seguimiento }}</div>
+                </div>
+                <div class="campo mt-2"><label for="{{ form.notas_adicionales.id_for_label }}">Notas adicionales</label>{{ form.notas_adicionales }}</div>
+            </div>
+        </div>
+
+        {# ---------- 6. Validación y entrega interna ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-patch-check" aria-hidden="true"></i><span class="t">6 · Validación y entrega interna</span></div>
+            <div class="cuerpo">
+                <div class="vc-fila dos">
+                    <div class="campo"><label for="{{ form.ejecutivo_realizo.id_for_label }}">{{ form.ejecutivo_realizo.label }}</label>{{ form.ejecutivo_realizo }}</div>
+                    <div class="campo {% if form.representante_cliente.errors %}error{% endif %}"><label for="{{ form.representante_cliente.id_for_label }}">{{ form.representante_cliente.label }}</label>{{ form.representante_cliente }}{% for e in form.representante_cliente.errors %}<div class="err">{{ e }}</div>{% endfor %}</div>
+                    <div class="campo"><label for="{{ form.cargo_representante.id_for_label }}">{{ form.cargo_representante.label }}</label>{{ form.cargo_representante }}</div>
+                    <div class="campo"><label for="{{ form.fecha_cierre.id_for_label }}">{{ form.fecha_cierre.label }}</label>{{ form.fecha_cierre }}</div>
+                </div>
+                <div class="mt-3">{% for c in form.validaciones %}<label class="vc-chk">{{ c }}<span>{{ c.label }}</span></label>{% endfor %}</div>
+                <p class="ayuda mt-2 mb-0"><i class="bi bi-info-circle me-1"></i>La firma del cliente sirve como constancia de la visita y de la información revisada, sin que implique aceptación de una cotización o contratación del servicio.</p>
+            </div>
+        </div>
+
+        {# ---------- Firmas ---------- #}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-pen" aria-hidden="true"></i><span class="t">Firmas</span><span class="s">en pantalla</span></div>
+            <div class="cuerpo">
+                <div class="campo"><label>Representante del cliente</label>
+                    {% if visita.firma_cliente %}<div class="vc-firma-actual"><img src="{{ visita.firma_cliente.url }}" alt="Firma actual del cliente"><div class="small text-muted">Firma guardada · dibuja otra para reemplazarla</div></div>{% endif %}
+                    <div class="vc-firma"><canvas id="pad-cliente"></canvas></div>
+                    <input type="hidden" name="firma_cliente_data" id="firma-cliente-data">
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-limpiar="pad-cliente"><i class="bi bi-eraser-fill me-1"></i>Limpiar</button>
+                </div>
+                <div class="campo mt-3"><label>Ejecutivo comercial SOLMED</label>
+                    {% if visita.firma_ejecutivo %}<div class="vc-firma-actual"><img src="{{ visita.firma_ejecutivo.url }}" alt="Firma actual del ejecutivo"><div class="small text-muted">Firma guardada · dibuja otra para reemplazarla</div></div>{% endif %}
+                    <div class="vc-firma"><canvas id="pad-ejecutivo"></canvas></div>
+                    <input type="hidden" name="firma_ejecutivo_data" id="firma-ejecutivo-data">
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-limpiar="pad-ejecutivo"><i class="bi bi-eraser-fill me-1"></i>Limpiar</button>
+                </div>
+                <div class="vc-fila dos mt-3">
+                    <div class="campo"><label for="{{ form.entrega_operaciones_nombre.id_for_label }}">Entrega a operaciones · nombre</label>{{ form.entrega_operaciones_nombre }}</div>
+                    <div class="campo"><label for="{{ form.entrega_operaciones_cargo.id_for_label }}">Entrega a operaciones · cargo</label>{{ form.entrega_operaciones_cargo }}</div>
+                    <div class="campo"><label for="{{ form.fecha_entrega_operaciones.id_for_label }}">Entrega a operaciones · fecha</label>{{ form.fecha_entrega_operaciones }}</div>
+                    <div class="campo"><label for="sello">Sello / logo del cliente (foto)</label>
+                        {% if visita.sello_cliente %}<div class="small text-muted mb-1"><a href="{{ visita.sello_cliente.url }}" target="_blank" rel="noopener">Ver el sello guardado</a> · sube otro para reemplazarlo</div>{% endif %}
+                        <input type="file" name="sello_cliente" id="sello" accept="image/*" class="form-control"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hj-pie dos">
+            {% if visita.abierta %}
+            <button type="submit" name="marcar_realizada" value="1" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar y marcar realizada</button>
+            <button type="submit" name="seguir" value="1" class="cd-btn sec"><i class="bi bi-save" aria-hidden="true"></i>Guardar y seguir después</button>
+            {% else %}
+            <button type="submit" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar la corrección</button>
+            {% endif %}
+            <a class="volver" href="{% url 'gestion:detalle_visita' visita.pk %}">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+{# La librería de la firma se sirve desde NUESTROS estáticos (igual que la del acta). #}
+<script src="{% static 'js/signature_pad.umd.min.js' %}"></script>
+<script>
+(function () {
+    var form = document.getElementById('form-campo');
+    if (!form) return;
+
+    // ---- Servicios (sección 2): añadir y quitar tarjetas del formset ----
+    var lista = document.getElementById('vc-servicios');
+    var plantilla = document.getElementById('vc-srv-plantilla');
+    var total = form.querySelector('[name="srv-TOTAL_FORMS"]');
+    function renumerar() {
+        var n = 0;
+        lista.querySelectorAll('[data-srv]').forEach(function (t) {
+            if (t.classList.contains('borrada')) return;
+            n++; var idx = t.querySelector('.idx'); if (idx) idx.textContent = n;
+        });
+    }
+    function engancharQuitar(tarjeta) {
+        var boton = tarjeta.querySelector('[data-quitar]');
+        boton.addEventListener('click', function () {
+            var borrar = tarjeta.querySelector('[name$="-DELETE"]');
+            if (borrar) { borrar.checked = true; tarjeta.classList.add('borrada'); }
+            else { tarjeta.remove(); }
+            renumerar();
+        });
+    }
+    lista.querySelectorAll('[data-srv]').forEach(engancharQuitar);
+    document.getElementById('vc-agregar').addEventListener('click', function () {
+        var i = parseInt(total.value, 10);
+        var html = plantilla.innerHTML.replace(/__prefix__/g, i);
+        var caja = document.createElement('div'); caja.innerHTML = html.trim();
+        var tarjeta = caja.firstElementChild;
+        lista.appendChild(tarjeta); total.value = i + 1;
+        engancharQuitar(tarjeta); renumerar();
+        var primero = tarjeta.querySelector('input[type=text]'); if (primero) primero.focus();
+    });
+    renumerar();
+
+    // ---- Disponibilidades: pinta la opción elegida (respaldo sin :has()) ----
+    form.querySelectorAll('.pe-opc').forEach(function (grupo) {
+        function pintar() {
+            grupo.querySelectorAll('input[type=radio]').forEach(function (radio) {
+                var opcion = radio.closest('label') ? radio.closest('label').parentElement : null;
+                if (!opcion) return;
+                opcion.className = opcion.className.replace(/\bon-\S+/g, '').trim();
+                if (radio.checked) opcion.classList.add('on-' + radio.value);
+            });
+            var q = grupo.closest('[data-q]'); if (q) q.classList.toggle('on', !!grupo.querySelector('input:checked'));
+        }
+        grupo.addEventListener('change', pintar); pintar();
+    });
+
+    // ---- Fotos: cámara o galería, se suben al guardar ----
+    var entradas = form.querySelectorAll('.pe-entrada');
+    var resumen = document.getElementById('pe-elegidas');
+    form.querySelectorAll('[data-abrir]').forEach(function (boton) {
+        boton.addEventListener('click', function () { entradas[parseInt(boton.getAttribute('data-abrir'), 10)].click(); });
+    });
+    entradas.forEach(function (entrada) {
+        entrada.addEventListener('change', function () {
+            var n = 0; entradas.forEach(function (e) { n += e.files.length; });
+            resumen.textContent = n ? (n + (n === 1 ? ' foto elegida' : ' fotos elegidas') + ' · se suben al guardar') : '';
+        });
+    });
+
+    // ---- Firmas: dos pads; al enviar, la que tenga trazos va como PNG ----
+    var pads = {};
+    ['pad-cliente', 'pad-ejecutivo'].forEach(function (id) {
+        var canvas = document.getElementById(id);
+        var pad = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
+        var anchoAnterior = 0;
+        function ajustar() {
+            if (canvas.offsetWidth === anchoAnterior || !canvas.offsetWidth) return;
+            anchoAnterior = canvas.offsetWidth;
+            var trazos = pad.toData(); var ratio = Math.max(window.devicePixelRatio || 1, 1);
+            canvas.width = canvas.offsetWidth * ratio; canvas.height = canvas.offsetHeight * ratio;
+            canvas.getContext('2d').scale(ratio, ratio); pad.fromData(trazos);
+        }
+        window.addEventListener('resize', ajustar); ajustar();
+        pads[id] = pad;
+    });
+    form.querySelectorAll('[data-limpiar]').forEach(function (b) {
+        b.addEventListener('click', function () { pads[b.getAttribute('data-limpiar')].clear(); });
+    });
+    form.addEventListener('submit', function () {
+        document.getElementById('firma-cliente-data').value = pads['pad-cliente'].isEmpty() ? '' : pads['pad-cliente'].toDataURL('image/png');
+        document.getElementById('firma-ejecutivo-data').value = pads['pad-ejecutivo'].isEmpty() ? '' : pads['pad-ejecutivo'].toDataURL('image/png');
+    });
+})();
+</script>
+{% endblock %}

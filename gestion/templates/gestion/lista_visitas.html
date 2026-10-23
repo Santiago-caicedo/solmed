@@ -1,0 +1,102 @@
+{% extends "gestion/base.html" %}
+{% block title %}Visitas técnicas{% endblock %}
+{% block content %}
+{# Visitas técnicas (formato GC-F-01 v03, oct-2026): la oficina programa, el ejecutivo llena en campo. #}
+<style>
+.vt-chips{ display:flex; gap:.35rem; flex-wrap:wrap; }
+.vt-chip{ font-size:.8rem; padding:.3rem .7rem; min-height:31px; display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--line);
+    border-radius:99px; background:var(--panel); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+.vt-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.vt-chip.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:500; }
+.vt-chip .n{ font-family:var(--mono); font-size:.72rem; opacity:.8; }
+.vt-estado{ font-size:.74rem; font-weight:600; padding:.2rem .55rem; border-radius:99px; white-space:nowrap; }
+.vt-estado.PROGRAMADA{ background:var(--steel-tint); color:var(--steel-600); }
+.vt-estado.CONFIRMADA{ background:var(--brand-tint); color:var(--brand-700); }
+.vt-estado.REPROGRAMADA{ background:var(--warn-tint); color:#7a4e05; }
+.vt-estado.REALIZADA{ background:#eef4dd; color:#3c5c12; }
+.vt-estado.CANCELADA{ background:var(--panel-2); color:var(--ink-3); text-decoration:line-through; }
+.vt-fecha{ font-family:var(--mono); white-space:nowrap; }
+.vt-fecha.hoy{ color:var(--brand-700); font-weight:600; }
+.vt-fecha.vencida{ color:#a02525; }
+.vt-prospecto{ font-size:.72rem; color:var(--ink-3); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-0">Visitas técnicas</h1>
+        <small class="text-muted">Formato GC-F-01 · la oficina programa y el ejecutivo la llena en campo · {{ n_total }} en total</small>
+    </div>
+    <a href="{% url 'gestion:crear_visita' %}" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Programar visita</a>
+</div>
+
+<div class="card shadow mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label mb-1" for="q">Buscar</label>
+                <input type="search" name="q" id="q" class="form-control form-control-sm" value="{{ q }}" placeholder="VT-0001, empresa, NIT, contacto o dirección">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label mb-1" for="ejecutivo">Ejecutivo</label>
+                <select name="ejecutivo" id="ejecutivo" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for e in ejecutivos %}<option value="{{ e.pk }}" {% if ejecutivo == e.pk|stringformat:"s" %}selected{% endif %}>{{ e.get_full_name|default:e.username }}</option>{% endfor %}
+                </select>
+            </div>
+            <input type="hidden" name="estado" value="{{ estado }}">
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+                {% if q or estado or ejecutivo %}<a href="{% url 'gestion:lista_visitas' %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+            </div>
+            <div class="col-12">
+                <div class="vt-chips">
+                    <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if ejecutivo %}ejecutivo={{ ejecutivo }}{% endif %}" class="vt-chip {% if not estado %}act{% endif %}">Todas <span class="n">{{ n_total }}</span></a>
+                    {% for clave, nombre, n in estados %}
+                    <a href="?estado={{ clave }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if ejecutivo %}&ejecutivo={{ ejecutivo }}{% endif %}" class="vt-chip {% if estado == clave %}act{% endif %}">{{ nombre }} <span class="n">{{ n }}</span></a>
+                    {% endfor %}
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-body p-0">
+        {% if visitas %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr><th>Visita</th><th>Fecha</th><th>Empresa</th><th>Contacto</th><th>Ejecutivo</th><th>Estado</th><th class="text-end">Acciones</th></tr>
+                </thead>
+                <tbody>
+                {% for v in visitas %}
+                <tr>
+                    <td><a href="{% url 'gestion:detalle_visita' v.pk %}" class="fw-semibold">{{ v.codigo }}</a></td>
+                    <td>
+                        <span class="vt-fecha {% if v.fecha_programada == hoy %}hoy{% elif v.fecha_programada < hoy and v.abierta %}vencida{% endif %}">{{ v.fecha_programada|date:"d/m/Y" }}</span>
+                        {% if v.hora_inicio %}<div class="small text-muted">{{ v.hora_inicio|time:"g:i a" }}</div>{% endif %}
+                    </td>
+                    <td>
+                        {{ v.empresa }}
+                        <div class="vt-prospecto">{% if v.cliente %}<i class="bi bi-building-check me-1"></i>Cliente registrado{% else %}<i class="bi bi-building me-1"></i>Prospecto{% endif %}{% if v.sede_planta %} · {{ v.sede_planta }}{% endif %}</div>
+                    </td>
+                    <td>{{ v.contacto|default:"—" }}{% if v.telefonos %}<div class="small text-muted">{{ v.telefonos }}</div>{% endif %}</td>
+                    <td>{% if v.ejecutivo %}{{ v.ejecutivo.get_full_name|default:v.ejecutivo.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                    <td><span class="vt-estado {{ v.estado }}">{{ v.get_estado_display }}</span></td>
+                    <td class="text-end">
+                        {% if v.abierta %}<a href="{% url 'gestion:campo_visita' v.pk %}" class="btn btn-sm btn-success" title="Llenar en campo"><i class="bi bi-phone me-1"></i>En campo</a>{% endif %}
+                        <a href="{% url 'gestion:detalle_visita' v.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-folder2-open me-1"></i>Ver</a>
+                        <a href="{% url 'gestion:visita_pdf' v.pk %}" class="btn btn-sm btn-outline-danger" title="PDF del formato"><i class="bi bi-file-earmark-pdf-fill"></i></a>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include 'gestion/partials/_paginacion.html' with etiqueta="visitas" %}
+        {% else %}
+        <p class="text-muted p-4 mb-0">{% if q or estado or ejecutivo %}Ninguna visita con ese filtro.{% else %}Todavía no hay visitas técnicas. Programa la primera.{% endif %}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

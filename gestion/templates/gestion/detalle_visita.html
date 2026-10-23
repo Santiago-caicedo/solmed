@@ -1,0 +1,156 @@
+{% extends "gestion/base.html" %}
+{% block title %}{{ visita.codigo }} · {{ visita.empresa }}{% endblock %}
+{% block content %}
+{# La visita completa: programación, lo levantado en campo, fotos, firmas y su PDF. #}
+<style>
+.dv-cab{ display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.dv-cab h1{ margin:0; display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+.dv-cab .sub{ color:var(--ink-2); }
+.vt-estado{ font-size:.78rem; font-weight:600; padding:.25rem .65rem; border-radius:99px; white-space:nowrap; vertical-align:middle; }
+.vt-estado.PROGRAMADA{ background:var(--steel-tint); color:var(--steel-600); }
+.vt-estado.CONFIRMADA{ background:var(--brand-tint); color:var(--brand-700); }
+.vt-estado.REPROGRAMADA{ background:var(--warn-tint); color:#7a4e05; }
+.vt-estado.REALIZADA{ background:#eef4dd; color:#3c5c12; }
+.vt-estado.CANCELADA{ background:var(--panel-2); color:var(--ink-3); }
+.dv-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:.6rem 1.2rem; }
+.dv-grid .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.dv-grid .v{ font-weight:500; color:var(--ink); }
+.dv-grid .v.vacio{ color:var(--ink-3); font-weight:400; }
+.dv-sec{ margin-bottom:1rem; }
+.dv-sec .card-header{ display:flex; align-items:center; gap:.5rem; }
+.dv-sec .card-header .n{ width:26px; height:26px; border-radius:50%; background:var(--steel); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:.78rem; font-weight:700; }
+.dv-sec .card-header h5{ margin:0; }
+.dv-check{ display:flex; align-items:center; gap:.5rem; padding:.25rem 0; font-size:.9rem; }
+.dv-check i.si{ color:var(--brand-600); } .dv-check i.no{ color:var(--ink-3); }
+.dv-texto{ white-space:pre-line; }
+.dv-fotos{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:.6rem; }
+.dv-fotos a{ display:block; border:1px solid var(--line); border-radius:var(--r-sm); overflow:hidden; background:var(--panel-2); }
+.dv-fotos img{ width:100%; height:120px; object-fit:cover; display:block; }
+.dv-fotos .nota{ font-size:.74rem; padding:.3rem .45rem; color:var(--ink-2); }
+.dv-firmas{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:1rem; }
+.dv-firma{ border:1px solid var(--line); border-radius:var(--r-sm); padding:.6rem; text-align:center; background:var(--panel); }
+.dv-firma img{ max-height:90px; max-width:100%; }
+.dv-firma .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.3rem; }
+.dv-firma .sin{ color:var(--ink-3); font-size:.85rem; padding:1.4rem 0; }
+.dv-tabla td, .dv-tabla th{ font-size:.84rem; }
+</style>
+
+<nav class="small mb-2"><a href="{% url 'gestion:lista_visitas' %}" class="text-decoration-none">Visitas técnicas</a> › {{ visita.codigo }}</nav>
+<div class="dv-cab">
+    <div>
+        <h1>{{ visita.codigo }} <span class="vt-estado {{ visita.estado }}">{{ visita.get_estado_display }}</span></h1>
+        <div class="sub">
+            <strong>{{ visita.empresa }}</strong>{% if visita.nit %} · NIT {{ visita.nit }}{% endif %}
+            · {{ visita.fecha_programada|date:"l j \d\e F \d\e Y"|capfirst }}{% if visita.hora_inicio %} · {{ visita.hora_inicio|time:"g:i a" }}{% endif %}
+            {% if visita.cliente %}· <a href="{% url 'gestion:ficha_cliente' visita.cliente.pk %}">Ficha del cliente</a>{% else %}· <span class="text-muted">Prospecto</span>{% endif %}
+        </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        {% if visita.abierta %}<a href="{% url 'gestion:campo_visita' visita.pk %}" class="btn btn-success"><i class="bi bi-phone me-1"></i>Llenar en campo</a>
+        {% else %}<a href="{% url 'gestion:campo_visita' visita.pk %}" class="btn btn-outline-secondary"><i class="bi bi-pen me-1"></i>Corregir lo levantado</a>{% endif %}
+        <a href="{% url 'gestion:editar_visita' visita.pk %}" class="btn btn-outline-secondary"><i class="bi bi-calendar-event me-1"></i>Programación</a>
+        <a href="{% url 'gestion:visita_pdf' visita.pk %}" class="btn btn-outline-danger"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a>
+        {% if visita.estado != 'REALIZADA' %}
+        <form method="post" action="{% url 'gestion:estado_visita' visita.pk %}" class="d-flex gap-1">
+            {% csrf_token %}
+            <select name="estado" class="form-select form-select-sm" aria-label="Cambiar estado">
+                {% for clave, nombre in estados %}<option value="{{ clave }}" {% if clave == visita.estado %}selected{% endif %}>{{ nombre }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-primary text-nowrap">Cambiar</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card shadow dv-sec">
+    <div class="card-header"><span class="n">1</span><h5>Programación de la visita técnica</h5>
+        <span class="ms-auto small text-muted">Programó {{ visita.creada_por.get_full_name|default:visita.creada_por.username }} · {{ visita.creada_en|date:"d/m/Y H:i" }}</span></div>
+    <div class="card-body">
+        <div class="dv-grid">
+            <div><div class="k">Fecha de solicitud</div><div class="v">{{ visita.fecha_solicitud|date:"d/m/Y" }}</div></div>
+            <div><div class="k">Fecha programada</div><div class="v">{{ visita.fecha_programada|date:"d/m/Y" }}{% if visita.hora_inicio %} · {{ visita.hora_inicio|time:"g:i a" }}{% endif %}</div></div>
+            <div><div class="k">Ejecutivo comercial</div><div class="v {% if not visita.ejecutivo %}vacio{% endif %}">{% if visita.ejecutivo %}{{ visita.ejecutivo.get_full_name|default:visita.ejecutivo.username }}{% else %}Sin asignar{% endif %}</div></div>
+            <div><div class="k">¿Acepta la visita?</div><div class="v {% if not visita.cliente_acepta %}vacio{% endif %}">{{ visita.get_cliente_acepta_display|default:"—" }}{% if visita.medio_texto %} · {{ visita.medio_texto }}{% endif %}</div></div>
+            <div><div class="k">Actividad económica</div><div class="v {% if not visita.actividad_economica %}vacio{% endif %}">{{ visita.actividad_economica|default:"—" }}</div></div>
+            <div><div class="k">Contacto</div><div class="v {% if not visita.contacto %}vacio{% endif %}">{{ visita.contacto|default:"—" }}{% if visita.cargo_contacto %} · {{ visita.cargo_contacto }}{% endif %}</div></div>
+            <div><div class="k">Teléfono(s) · e-mail</div><div class="v {% if not visita.telefonos and not visita.email %}vacio{% endif %}">{{ visita.telefonos|default:"" }}{% if visita.telefonos and visita.email %} · {% endif %}{{ visita.email|default:"" }}{% if not visita.telefonos and not visita.email %}—{% endif %}</div></div>
+            <div><div class="k">Dirección de la visita</div><div class="v {% if not visita.direccion %}vacio{% endif %}">{{ visita.direccion|default:"—" }}{% if visita.sede_planta %} · {{ visita.sede_planta }}{% endif %}</div></div>
+            <div><div class="k">Persona que recibe</div><div class="v {% if not visita.persona_recibe %}vacio{% endif %}">{{ visita.persona_recibe|default:"—" }}{% if visita.cargo_recibe %} · {{ visita.cargo_recibe }}{% endif %}{% if visita.telefono_recibe %} · {{ visita.telefono_recibe }}{% endif %}</div></div>
+        </div>
+        {% if visita.observaciones_ingreso %}<div class="mt-3"><div class="k small text-muted text-uppercase">Observaciones / restricciones para el ingreso</div><div class="dv-texto">{{ visita.observaciones_ingreso }}</div></div>{% endif %}
+    </div>
+</div>
+
+<div class="card shadow dv-sec">
+    <div class="card-header"><span class="n">2</span><h5>Información técnica del servicio</h5></div>
+    <div class="card-body p-0">
+        {% if visita.servicios.all %}
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0 dv-tabla">
+            <thead><tr><th>Área o proceso</th><th>Servicio requerido</th><th>Residuo</th><th>Características</th><th>Cantidad</th><th>Frecuencia</th><th>Caracterización</th><th>Destino</th><th>Condiciones especiales</th></tr></thead>
+            <tbody>{% for s in visita.servicios.all %}<tr><td>{{ s.area_proceso }}</td><td>{{ s.servicio_requerido }}</td><td>{{ s.residuo }}</td><td>{{ s.caracteristicas }}</td><td>{{ s.cantidad_estimada }}</td><td>{{ s.frecuencia }}</td><td>{{ s.caracterizacion }}</td><td>{{ s.destino }}</td><td>{{ s.condiciones_especiales }}</td></tr>{% endfor %}</tbody>
+        </table></div>
+        {% else %}<p class="text-muted p-3 mb-0">Todavía no se ha levantado en campo.</p>{% endif %}
+    </div>
+</div>
+
+<div class="card shadow dv-sec">
+    <div class="card-header"><span class="n">3</span><h5>Condiciones de acceso y operación</h5></div>
+    <div class="card-body">
+        <div class="dv-grid">
+            {% for m in visita.medidas %}<div><div class="k">{{ m.etiqueta }}</div><div class="v {% if not m.valor %}vacio{% endif %}">{{ m.valor|default:"—" }}</div></div>{% endfor %}
+            {% for d in visita.disponibilidades %}<div><div class="k">{{ d.etiqueta }}</div><div class="v {% if not d.valor %}vacio{% endif %}">{{ d.texto|default:"—" }}</div></div>{% endfor %}
+            <div><div class="k">Equipos requeridos</div><div class="v {% if not visita.equipos_lista %}vacio{% endif %}">{{ visita.equipos_lista|join:", "|default:"—" }}</div></div>
+        </div>
+        {% if visita.personal_epp %}<div class="mt-3"><div class="small text-muted text-uppercase">Personal y EPP / controles especiales</div><div class="dv-texto">{{ visita.personal_epp }}</div></div>{% endif %}
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-4"><div class="card shadow dv-sec h-100">
+        <div class="card-header"><span class="n">4</span><h5>Evidencias y documentos</h5></div>
+        <div class="card-body">
+            {% for e in visita.evidencias %}<div class="dv-check"><i class="bi {% if e.valor %}bi-check-square-fill si{% else %}bi-square no{% endif %}"></i>{{ e.etiqueta }}</div>{% endfor %}
+            {% if visita.fotos.all %}
+            <div class="dv-fotos mt-3">
+                {% for f in visita.fotos.all %}<a href="{{ f.archivo.url }}" target="_blank" rel="noopener"><img src="{{ f.archivo.url }}" alt="Foto {{ forloop.counter }}" loading="lazy">{% if f.nota %}<div class="nota">{{ f.nota }}</div>{% endif %}</a>{% endfor %}
+            </div>
+            {% else %}<p class="text-muted small mt-3 mb-0">Sin fotos.</p>{% endif %}
+        </div>
+    </div></div>
+    <div class="col-lg-4"><div class="card shadow dv-sec h-100">
+        <div class="card-header"><span class="n">5</span><h5>Conclusiones y compromisos</h5></div>
+        <div class="card-body">
+            {% for c in visita.conclusiones %}<div class="mb-2"><div class="small text-muted text-uppercase">{{ c.etiqueta }}</div><div class="dv-texto {% if not c.valor %}text-muted{% endif %}">{{ c.valor|default:"—" }}</div></div>{% endfor %}
+            <div class="dv-grid mt-2">
+                <div><div class="k">Fecha comprometida para cotización</div><div class="v {% if not visita.fecha_cotizacion %}vacio{% endif %}">{{ visita.fecha_cotizacion|date:"d/m/Y"|default:"—" }}</div></div>
+                <div><div class="k">Fecha de seguimiento comercial</div><div class="v {% if not visita.fecha_seguimiento %}vacio{% endif %}">{{ visita.fecha_seguimiento|date:"d/m/Y"|default:"—" }}</div></div>
+            </div>
+            {% if visita.notas_adicionales %}<div class="mt-2"><div class="small text-muted text-uppercase">Notas adicionales</div><div class="dv-texto">{{ visita.notas_adicionales }}</div></div>{% endif %}
+        </div>
+    </div></div>
+    <div class="col-lg-4"><div class="card shadow dv-sec h-100">
+        <div class="card-header"><span class="n">6</span><h5>Validación y entrega interna</h5></div>
+        <div class="card-body">
+            <div class="dv-grid mb-2">
+                <div><div class="k">Ejecutivo que realizó la visita</div><div class="v {% if not visita.ejecutivo_realizo %}vacio{% endif %}">{{ visita.ejecutivo_realizo|default:"—" }}</div></div>
+                <div><div class="k">Representante del cliente</div><div class="v {% if not visita.representante_cliente %}vacio{% endif %}">{{ visita.representante_cliente|default:"—" }}{% if visita.cargo_representante %} · {{ visita.cargo_representante }}{% endif %}</div></div>
+                <div><div class="k">Fecha de cierre del registro</div><div class="v {% if not visita.fecha_cierre %}vacio{% endif %}">{{ visita.fecha_cierre|date:"d/m/Y"|default:"—" }}</div></div>
+            </div>
+            {% for v in visita.validaciones %}<div class="dv-check"><i class="bi {% if v.valor %}bi-check-square-fill si{% else %}bi-square no{% endif %}"></i>{{ v.etiqueta }}</div>{% endfor %}
+            {% if visita.realizada_en %}<div class="small text-muted mt-2">Marcada realizada el {{ visita.realizada_en|date:"d/m/Y H:i" }}.</div>{% endif %}
+        </div>
+    </div></div>
+</div>
+
+<div class="card shadow dv-sec mt-3">
+    <div class="card-header"><i class="bi bi-pen"></i><h5>Firmas</h5></div>
+    <div class="card-body">
+        <div class="dv-firmas">
+            <div class="dv-firma">{% if visita.firma_ejecutivo %}<img src="{{ visita.firma_ejecutivo.url }}" alt="Firma del ejecutivo">{% else %}<div class="sin">Sin firma</div>{% endif %}<div class="k">Ejecutivo comercial SOLMED</div><div class="small">{{ visita.ejecutivo_realizo|default:"" }}</div></div>
+            <div class="dv-firma">{% if visita.firma_cliente %}<img src="{{ visita.firma_cliente.url }}" alt="Firma del cliente">{% else %}<div class="sin">Sin firma</div>{% endif %}<div class="k">Representante del cliente</div><div class="small">{{ visita.representante_cliente|default:"" }}</div></div>
+            <div class="dv-firma"><div class="sin" style="padding:.6rem 0">{{ visita.entrega_operaciones_nombre|default:"—" }}{% if visita.entrega_operaciones_cargo %}<br><small>{{ visita.entrega_operaciones_cargo }}</small>{% endif %}{% if visita.fecha_entrega_operaciones %}<br><small>{{ visita.fecha_entrega_operaciones|date:"d/m/Y" }}</small>{% endif %}</div><div class="k">Entrega a operaciones</div></div>
+            <div class="dv-firma">{% if visita.sello_cliente %}<img src="{{ visita.sello_cliente.url }}" alt="Sello del cliente">{% else %}<div class="sin">Sin sello</div>{% endif %}<div class="k">Sello / logo del cliente</div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}

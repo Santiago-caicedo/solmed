@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Visita técnica {{ visita.codigo }}</title>
+    <style>
+        /* El formato GC-F-01 v03 (verde y azul SOLMED), con lo registrado en el sistema. */
+        @page { size: letter portrait; margin: 0.45in 0.5in; }
+        body { font-family: "Helvetica", Arial, sans-serif; font-size: 8.2pt; color: #1c2416; line-height: 1.3; }
+        table { border-collapse: collapse; width: 100%; }
+        td, th { vertical-align: top; }
+
+        .cab { width: 100%; border: 1.2px solid #2C4D9E; border-radius: 8px; overflow: hidden; margin-bottom: 7px; }
+        .cab td { vertical-align: middle; padding: 6px 8px; }
+        .cab .logo img { height: 40px; }
+        .cab .tit { background: #2C4D9E; color: #fff; text-align: center; font-size: 15pt; font-weight: bold; letter-spacing: .5px; }
+        .cab .meta { width: 150px; font-size: 7.4pt; }
+        .cab .meta div { display: flex; justify-content: space-between; border-bottom: 0.6px solid #cdd6e6; padding: 1px 0; }
+        .cab .meta b { color: #2C4D9E; }
+
+        .sec { border: 1.2px solid #2C4D9E; border-radius: 7px; overflow: hidden; margin-bottom: 7px; page-break-inside: avoid; }
+        .sec.verde { border-color: #5E8C1B; }
+        .sec-h { background: #2C4D9E; color: #fff; padding: 4px 8px; display: flex; align-items: center; gap: 8px; }
+        .sec.verde .sec-h { background: #5E8C1B; }
+        .sec-h .n { width: 18px; height: 18px; border-radius: 50%; background: #fff; color: #2C4D9E; font-weight: bold; font-size: 9pt; text-align: center; line-height: 18px; display: inline-block; }
+        .sec.verde .sec-h .n { color: #5E8C1B; }
+        .sec-h .t { font-weight: bold; font-size: 9.2pt; text-transform: uppercase; letter-spacing: .3px; }
+        .sec-h .s { font-size: 7pt; opacity: .9; }
+        .sec-h .cons { margin-left: auto; font-size: 7.4pt; }
+        .sec-h .cons span { background: #fff; color: #C00000; font-weight: bold; padding: 1px 8px; border-radius: 4px; font-size: 9pt; margin-left: 4px; }
+        .sec-b { padding: 5px 8px; }
+
+        .f td { padding: 2.5px 6px 2.5px 0; }
+        .l { color: #2C4D9E; font-weight: bold; white-space: nowrap; font-size: 7.6pt; }
+        .v { border-bottom: 0.7px solid #9aa9c9; min-height: 10px; }
+        .v.vacio { color: #9aa3b3; }
+        .chk { display: inline-block; width: 9px; height: 9px; border: 1px solid #2C4D9E; border-radius: 2px; margin-right: 3px; vertical-align: -1px; text-align: center; font-size: 7.5pt; line-height: 9px; }
+        .chk.on { background: #2C4D9E; color: #fff; }
+        .ops span { margin-right: 9px; white-space: nowrap; }
+
+        .grid th, .grid td { border: 0.7px solid #2C4D9E; padding: 3px 4px; font-size: 7.2pt; }
+        .grid th { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; }
+        .grid td { height: 15px; }
+
+        .tres { width: 100%; }
+        .tres > tbody > tr > td { width: 33.33%; padding: 0 3px 0 0; }
+        .tres > tbody > tr > td:last-child { padding-right: 0; }
+        .fila { padding: 2px 0; border-bottom: 0.6px dotted #c4cde0; font-size: 7.4pt; }
+        .fila .txt { white-space: pre-line; }
+        .nota { background: #EDF1FA; border-radius: 5px; padding: 4px 6px; font-size: 7pt; color: #2C4D9E; margin-top: 5px; }
+
+        .fotos td { width: 25%; padding: 3px; text-align: center; }
+        .fotos img { max-width: 100%; max-height: 150px; border: 0.7px solid #9aa9c9; border-radius: 3px; }
+        .fotos .pie { font-size: 6.8pt; color: #555; }
+
+        .firmas td { width: 25%; padding: 4px 6px; vertical-align: bottom; height: 70px; }
+        .firmas .caja { border-top: 0.8px solid #1c2416; padding-top: 2px; font-size: 7.2pt; }
+        .firmas img { max-height: 48px; max-width: 100%; display: block; margin: 0 auto 2px; }
+        .firmas .rol { color: #2C4D9E; font-weight: bold; }
+        .sello { border: 1px dashed #2C4D9E; border-radius: 5px; height: 60px; text-align: center; color: #2C4D9E; font-size: 7pt; line-height: 60px; }
+        .sello img { max-height: 56px; max-width: 100%; vertical-align: middle; }
+
+        .pie { margin-top: 8px; background: #2C4D9E; color: #fff; text-align: center; font-size: 8pt; font-style: italic; padding: 4px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <table class="cab">
+        <tr>
+            <td class="logo" style="width:150px;">{% if logo_b64 %}<img src="{{ logo_b64 }}" alt="SOLMED">{% endif %}</td>
+            <td class="tit">VISITA TÉCNICA</td>
+            <td class="meta">
+                <div><b>Código:</b><span>GC-F-01</span></div>
+                <div><b>Versión:</b><span>03</span></div>
+                <div><b>Fecha:</b><span>01/07/2025</span></div>
+            </td>
+        </tr>
+    </table>
+
+    {# ---------- 1 ---------- #}
+    <div class="sec verde">
+        <div class="sec-h"><span class="n">1</span><div><div class="t">Programación de la visita técnica</div><div class="s">Esta sección se diligencia antes de desplazarse al cliente.</div></div>
+            <div class="cons">CONSECUTIVO: <span>{{ visita.codigo }}</span></div></div>
+        <div class="sec-b">
+            <table class="f">
+                <tr>
+                    <td class="l">Fecha de solicitud:</td><td class="v">{{ visita.fecha_solicitud|date:"d/m/Y" }}</td>
+                    <td class="l">Fecha programada:</td><td class="v">{{ visita.fecha_programada|date:"d/m/Y" }}</td>
+                    <td class="l">Hora de inicio prevista:</td><td class="v">{% if visita.hora_inicio %}{{ visita.hora_inicio|time:"g:i a" }}{% endif %}</td>
+                </tr>
+                <tr>
+                    <td class="l">Ejecutivo comercial responsable:</td><td class="v" colspan="2">{% if visita.ejecutivo %}{{ visita.ejecutivo.get_full_name|default:visita.ejecutivo.username }}{% endif %}</td>
+                    <td class="l">¿El cliente acepta la visita técnica?</td>
+                    <td colspan="2" class="ops"><span><span class="chk {% if visita.cliente_acepta == 'SI' %}on{% endif %}">{% if visita.cliente_acepta == 'SI' %}✓{% endif %}</span>Sí</span><span><span class="chk {% if visita.cliente_acepta == 'NO' %}on{% endif %}">{% if visita.cliente_acepta == 'NO' %}✓{% endif %}</span>No</span>
+                        &nbsp; Medio: {% for clave, nombre in visita.MEDIO_CHOICES %}<span><span class="chk {% if visita.medio_confirmacion == clave %}on{% endif %}">{% if visita.medio_confirmacion == clave %}✓{% endif %}</span>{{ nombre }}{% if clave == 'OTRO' and visita.medio_otro %}: {{ visita.medio_otro }}{% endif %}</span>{% endfor %}</td>
+                </tr>
+                <tr>
+                    <td class="l">Empresa:</td><td class="v" colspan="2">{{ visita.empresa }}</td>
+                    <td class="l">NIT:</td><td class="v">{{ visita.nit }}</td>
+                    <td class="v"><span class="l">Actividad económica:</span> {{ visita.actividad_economica }}</td>
+                </tr>
+                <tr>
+                    <td class="l">Contacto:</td><td class="v">{{ visita.contacto }}</td>
+                    <td class="l">Cargo:</td><td class="v">{{ visita.cargo_contacto }}</td>
+                    <td class="l">Teléfono(s):</td><td class="v">{{ visita.telefonos }}</td>
+                </tr>
+                <tr>
+                    <td class="l">E-mail:</td><td class="v" colspan="5">{{ visita.email }}</td>
+                </tr>
+                <tr>
+                    <td class="l">Dirección de la visita (exacta):</td><td class="v" colspan="3">{{ visita.direccion }}</td>
+                    <td class="l">Sede / Planta:</td><td class="v">{{ visita.sede_planta }}</td>
+                </tr>
+                <tr>
+                    <td class="l">Persona que recibirá al ejecutivo:</td><td class="v">{{ visita.persona_recibe }}</td>
+                    <td class="l">Cargo:</td><td class="v">{{ visita.cargo_recibe }}</td>
+                    <td class="l">Teléfono de contacto:</td><td class="v">{{ visita.telefono_recibe }}</td>
+                </tr>
+                <tr>
+                    <td class="l">Estado:</td>
+                    <td colspan="2" class="ops">{% for clave, nombre in visita.ESTADO_CHOICES %}<span><span class="chk {% if visita.estado == clave %}on{% endif %}">{% if visita.estado == clave %}✓{% endif %}</span>{{ nombre }}</span>{% endfor %}</td>
+                    <td class="l">Observaciones / Restricciones para el ingreso:</td><td class="v" colspan="2">{{ visita.observaciones_ingreso|linebreaksbr }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    {# ---------- 2 ---------- #}
+    <div class="sec">
+        <div class="sec-h"><span class="n">2</span><div><div class="t">Información técnica del servicio</div><div class="s">Información clave para que operaciones conozca qué se debe hacer.</div></div></div>
+        <div class="sec-b">
+            <table class="grid">
+                <thead><tr><th>Área o proceso</th><th>Servicio requerido</th><th>Residuo<br>(nombre y origen)</th><th>Características</th><th>Cantidad estimada</th><th>Frecuencia</th><th>Caracterización</th><th>Destino</th><th>Condiciones especiales</th></tr></thead>
+                <tbody>
+                    {% for s in servicios %}<tr><td>{{ s.area_proceso }}</td><td>{{ s.servicio_requerido }}</td><td>{{ s.residuo }}</td><td>{{ s.caracteristicas }}</td><td>{{ s.cantidad_estimada }}</td><td>{{ s.frecuencia }}</td><td>{{ s.caracterizacion }}</td><td>{{ s.destino }}</td><td>{{ s.condiciones_especiales }}</td></tr>{% endfor %}
+                    {% for _ in filas_vacias %}<tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# ---------- 3 ---------- #}
+    <div class="sec verde">
+        <div class="sec-h"><span class="n">3</span><div><div class="t">Condiciones de acceso y operación</div><div class="s">Fundamental para cotizar y programar el vehículo y equipo adecuado.</div></div></div>
+        <div class="sec-b">
+            <table><tr>
+                <td style="width:48%; padding-right:8px;">
+                    <table class="f">{% for m in visita.medidas %}<tr><td class="l">{{ m.etiqueta }}:</td><td class="v">{{ m.valor }}</td></tr>{% endfor %}</table>
+                </td>
+                <td>
+                    <table class="f">
+                        {% for d in visita.disponibilidades %}
+                        <tr><td class="l">{{ d.etiqueta }}:</td><td class="ops">{% for clave, nombre in visita.SI_NO_CONFIRMAR_CHOICES %}<span><span class="chk {% if d.valor == clave %}on{% endif %}">{% if d.valor == clave %}✓{% endif %}</span>{{ nombre }}</span>{% endfor %}</td></tr>
+                        {% endfor %}
+                        <tr><td class="l">Equipos requeridos:</td><td class="ops">{% for clave, nombre in visita.EQUIPO_CHOICES %}<span><span class="chk {% if clave in visita.equipos_requeridos %}on{% endif %}">{% if clave in visita.equipos_requeridos %}✓{% endif %}</span>{{ nombre }}{% if clave == 'OTRO' and visita.equipo_otro %}: {{ visita.equipo_otro }}{% endif %}</span>{% endfor %}</td></tr>
+                        <tr><td class="l">Personal y EPP / controles especiales:</td><td class="v">{{ visita.personal_epp|linebreaksbr }}</td></tr>
+                    </table>
+                </td>
+            </tr></table>
+        </div>
+    </div>
+
+    {# ---------- 4 · 5 · 6 ---------- #}
+    <table class="tres"><tr>
+        <td>
+            <div class="sec">
+                <div class="sec-h"><span class="n">4</span><div><div class="t">Evidencias y documentos</div><div class="s">Registro fotográfico y documentos.</div></div></div>
+                <div class="sec-b">
+                    {% for e in visita.evidencias %}<div class="fila"><span class="chk {% if e.valor %}on{% endif %}">{% if e.valor %}✓{% endif %}</span>{{ e.etiqueta }}</div>{% endfor %}
+                    <div class="nota">Las fotografías deben identificar claramente el área o equipo al que corresponden y almacenarse junto con el consecutivo de la visita.{% if fotos %} <b>{{ fotos|length }} foto{{ fotos|length|pluralize }} adjunta{{ fotos|length|pluralize }}</b> (ver anexo).{% endif %}</div>
+                </div>
+            </div>
+        </td>
+        <td>
+            <div class="sec verde">
+                <div class="sec-h"><span class="n">5</span><div><div class="t">Conclusiones y compromisos</div><div class="s">Para la cotización, programación y seguimiento.</div></div></div>
+                <div class="sec-b">
+                    {% for c in visita.conclusiones %}<div class="fila"><span class="chk {% if c.valor %}on{% endif %}">{% if c.valor %}✓{% endif %}</span><b>{{ c.etiqueta }}.</b>{% if c.valor %} <span class="txt">{{ c.valor }}</span>{% endif %}</div>{% endfor %}
+                    <div class="fila"><span class="chk {% if visita.fecha_cotizacion %}on{% endif %}">{% if visita.fecha_cotizacion %}✓{% endif %}</span><b>Fecha comprometida para entregar cotización:</b> {{ visita.fecha_cotizacion|date:"d/m/Y" }}</div>
+                    <div class="fila"><span class="chk {% if visita.fecha_seguimiento %}on{% endif %}">{% if visita.fecha_seguimiento %}✓{% endif %}</span><b>Fecha de seguimiento comercial:</b> {{ visita.fecha_seguimiento|date:"d/m/Y" }}</div>
+                    <div class="nota" style="background:#eef4dd; color:#3c5c12;"><b>Notas adicionales:</b> <span class="txt">{{ visita.notas_adicionales|linebreaksbr }}</span></div>
+                </div>
+            </div>
+        </td>
+        <td>
+            <div class="sec">
+                <div class="sec-h"><span class="n">6</span><div><div class="t">Validación y entrega interna</div><div class="s">Cierre de la visita.</div></div></div>
+                <div class="sec-b">
+                    <div class="fila"><span class="chk {% if visita.ejecutivo_realizo %}on{% endif %}">{% if visita.ejecutivo_realizo %}✓{% endif %}</span><b>Ejecutivo que realizó la visita:</b> {{ visita.ejecutivo_realizo }}</div>
+                    <div class="fila"><span class="chk {% if visita.representante_cliente %}on{% endif %}">{% if visita.representante_cliente %}✓{% endif %}</span><b>Representante del cliente:</b> {{ visita.representante_cliente }}</div>
+                    <div class="fila"><span class="chk {% if visita.cargo_representante %}on{% endif %}">{% if visita.cargo_representante %}✓{% endif %}</span><b>Cargo del representante:</b> {{ visita.cargo_representante }}</div>
+                    {% for v in visita.validaciones %}<div class="fila"><span class="chk {% if v.valor %}on{% endif %}">{% if v.valor %}✓{% endif %}</span>{{ v.etiqueta }}</div>{% endfor %}
+                    <div class="fila"><span class="chk {% if visita.fecha_cierre %}on{% endif %}">{% if visita.fecha_cierre %}✓{% endif %}</span><b>Fecha de cierre del registro:</b> {{ visita.fecha_cierre|date:"d/m/Y" }}</div>
+                    <div class="nota">La firma del cliente puede servir como constancia de la visita y de la información revisada, sin que implique aceptación de una cotización o contratación del servicio.</div>
+                </div>
+            </div>
+        </td>
+    </tr></table>
+
+    {# ---------- Firmas ---------- #}
+    <div class="sec">
+        <div class="sec-h"><div class="t">Firmas</div></div>
+        <div class="sec-b">
+            <table class="firmas"><tr>
+                <td><div class="caja">{% if firma_ejecutivo %}<img src="{{ firma_ejecutivo }}" alt="">{% endif %}<div class="rol">Ejecutivo comercial SOLMED</div>Nombre: {{ visita.ejecutivo_realizo }}<br>Fecha: {{ visita.fecha_cierre|date:"d/m/Y" }}</div></td>
+                <td><div class="caja">{% if firma_cliente %}<img src="{{ firma_cliente }}" alt="">{% endif %}<div class="rol">Representante del cliente</div>Nombre: {{ visita.representante_cliente }}<br>Cargo: {{ visita.cargo_representante }}<br>Fecha: {{ visita.fecha_cierre|date:"d/m/Y" }}</div></td>
+                <td><div class="caja"><div class="rol">Entrega a operaciones</div>Nombre: {{ visita.entrega_operaciones_nombre }}<br>Cargo: {{ visita.entrega_operaciones_cargo }}<br>Fecha: {{ visita.fecha_entrega_operaciones|date:"d/m/Y" }}</div></td>
+                <td><div class="rol" style="font-size:7.2pt; color:#2C4D9E; font-weight:bold; margin-bottom:2px;">Sello / Logo del cliente</div><div class="sello">{% if sello_cliente %}<img src="{{ sello_cliente }}" alt="">{% else %}SELLO CLIENTE{% endif %}</div></td>
+            </tr></table>
+        </div>
+    </div>
+
+    <div class="pie">Juntos por un ambiente más limpio y sostenible</div>
+
+    {% if fotos %}
+    <div style="page-break-before: always;"></div>
+    <div class="sec">
+        <div class="sec-h"><div class="t">Anexo · Registro fotográfico</div><div class="cons">{{ visita.codigo }} · {{ visita.empresa }}</div></div>
+        <div class="sec-b">
+            <table class="fotos"><tr>
+                {% for f in fotos %}
+                <td><img src="{{ f.src }}" alt="Foto {{ forloop.counter }}"><div class="pie" style="background:none; color:#555; margin:0; padding:1px;">{{ forloop.counter }}. {{ f.nota|default:"" }}</div></td>
+                {% if forloop.counter|divisibleby:4 and not forloop.last %}</tr><tr>{% endif %}
+                {% endfor %}
+            </tr></table>
+        </div>
+    </div>
+    {% endif %}
+</body>
+</html>

@@ -1,6 +1,6 @@
 # gestion/urls.py
 from django.urls import path
-from . import views
+from . import views, visitas
 
 app_name = 'gestion'
 
@@ -33,6 +33,15 @@ urlpatterns = [
     # --- Preoperacional del vehículo (PESV): lo llena el conductor antes de salir ---
     path('recorrido/<int:pk>/preoperacional/', views.PreoperacionalView.as_view(), name='preoperacional'),
     path('recorrido/<int:pk>/preoperacional-pdf/', views.PreoperacionalPDFView.as_view(), name='preoperacional_pdf'),
+    # --- Visitas técnicas (formato GC-F-01 v03): la oficina programa, el ejecutivo llena en campo ---
+    path('visitas/', visitas.ListaVisitasView.as_view(), name='lista_visitas'),
+    path('visitas/nueva/', visitas.ProgramarVisitaView.as_view(), name='crear_visita'),
+    path('visitas/<int:pk>/', visitas.DetalleVisitaView.as_view(), name='detalle_visita'),
+    path('visitas/<int:pk>/programacion/', visitas.ProgramarVisitaView.as_view(), name='editar_visita'),
+    path('visitas/<int:pk>/campo/', visitas.CampoVisitaView.as_view(), name='campo_visita'),
+    path('visitas/<int:pk>/estado/', visitas.CambiarEstadoVisitaView.as_view(), name='estado_visita'),
+    path('visitas/<int:pk>/fotos/<int:foto_pk>/eliminar/', visitas.EliminarFotoVisitaView.as_view(), name='eliminar_foto_visita'),
+    path('visitas/<int:pk>/pdf/', visitas.VisitaPDFView.as_view(), name='visita_pdf'),
     # --- Carpeta del PESV: preoperacionales y encuestas de cierre, mes a mes (SISO y gestión) ---
     path('pesv/', views.CarpetaPESVView.as_view(), name='pesv'),
     path('pesv/excel/', views.CarpetaPESVExcelView.as_view(), name='pesv_excel'),

@@ -1,0 +1,81 @@
+{% extends "gestion/base.html" %}
+{% block title %}{% if visita %}{{ visita.codigo }} · Programación{% else %}Programar visita técnica{% endif %}{% endblock %}
+{% block content %}
+{# Sección 1 del formato GC-F-01: la programación de la visita, que llena la oficina antes de desplazarse. #}
+<style>
+.fv-sec{ font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--steel-600); margin:1.4rem 0 .6rem; display:flex; align-items:center; gap:.4rem; }
+.fv-sec:first-child{ margin-top:0; }
+.fv-radios > div{ display:flex; gap:.4rem; flex-wrap:wrap; }
+.fv-radios label{ display:inline-flex; align-items:center; gap:.35rem; padding:.35rem .75rem; border:1px solid var(--line); border-radius:99px; cursor:pointer; margin:0; font-size:.88rem; background:var(--panel); }
+.fv-radios input[type=radio]{ margin:0; }
+.fv-radios label:has(input:checked){ background:var(--steel); border-color:var(--steel); color:#fff; }
+</style>
+
+<nav class="small mb-2"><a href="{% url 'gestion:lista_visitas' %}" class="text-decoration-none">Visitas técnicas</a>{% if visita %} › <a href="{% url 'gestion:detalle_visita' visita.pk %}" class="text-decoration-none">{{ visita.codigo }}</a>{% endif %}</nav>
+<div class="card shadow">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">{% if visita %}{{ visita.codigo }} · Programación de la visita{% else %}Programar visita técnica{% endif %}</h4>
+        <span class="text-muted small">Sección 1 · se diligencia antes de desplazarse al cliente</span>
+    </div>
+    <div class="card-body p-4">
+        <form method="post" novalidate>
+            {% csrf_token %}
+            {% if form.errors %}
+            <div class="alert alert-danger">
+                <strong><i class="bi bi-exclamation-triangle-fill me-1"></i>Revisa el formulario:</strong>
+                <ul class="mb-0">
+                    {% for field in form %}{% for error in field.errors %}<li>{{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+                    {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+            <div class="fv-sec"><i class="bi bi-calendar-event"></i>Fechas y responsable</div>
+            <div class="row g-3">
+                <div class="col-md-3"><label class="form-label" for="{{ form.fecha_solicitud.id_for_label }}">Fecha de solicitud</label>{{ form.fecha_solicitud }}</div>
+                <div class="col-md-3"><label class="form-label" for="{{ form.fecha_programada.id_for_label }}">Fecha programada <span class="text-danger">*</span></label>{{ form.fecha_programada }}</div>
+                <div class="col-md-2"><label class="form-label" for="{{ form.hora_inicio.id_for_label }}">Hora de inicio</label>{{ form.hora_inicio }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.ejecutivo.id_for_label }}">Ejecutivo comercial responsable</label>{{ form.ejecutivo }}</div>
+            </div>
+
+            <div class="fv-sec"><i class="bi bi-chat-dots"></i>Confirmación con el cliente</div>
+            <div class="row g-3">
+                <div class="col-md-4"><label class="form-label d-block">¿El cliente acepta la visita técnica?</label><div class="fv-radios">{{ form.cliente_acepta }}</div></div>
+                <div class="col-md-5"><label class="form-label d-block">Medio de confirmación</label><div class="fv-radios">{{ form.medio_confirmacion }}</div></div>
+                <div class="col-md-3"><label class="form-label" for="{{ form.medio_otro.id_for_label }}">Otro medio</label>{{ form.medio_otro }}</div>
+            </div>
+
+            <div class="fv-sec"><i class="bi bi-building"></i>Empresa</div>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="{{ form.cliente.id_for_label }}">Cliente registrado</label>{{ form.cliente }}
+                    <div class="form-text">Si ya es cliente, elígelo: lo que dejes en blanco se toma de su ficha. Si es un prospecto, escribe sus datos.</div>
+                </div>
+                <div class="col-md-6"><label class="form-label" for="{{ form.empresa.id_for_label }}">Empresa</label>{{ form.empresa }}</div>
+                <div class="col-md-3"><label class="form-label" for="{{ form.nit.id_for_label }}">NIT</label>{{ form.nit }}</div>
+                <div class="col-md-5"><label class="form-label" for="{{ form.actividad_economica.id_for_label }}">Actividad económica</label>{{ form.actividad_economica }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.email.id_for_label }}">E-mail</label>{{ form.email }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.contacto.id_for_label }}">Contacto</label>{{ form.contacto }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.cargo_contacto.id_for_label }}">Cargo</label>{{ form.cargo_contacto }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.telefonos.id_for_label }}">Teléfono(s)</label>{{ form.telefonos }}</div>
+            </div>
+
+            <div class="fv-sec"><i class="bi bi-geo-alt"></i>La visita</div>
+            <div class="row g-3">
+                <div class="col-md-8"><label class="form-label" for="{{ form.direccion.id_for_label }}">Dirección de la visita (exacta)</label>{{ form.direccion }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.sede_planta.id_for_label }}">Sede / Planta</label>{{ form.sede_planta }}</div>
+                <div class="col-md-5"><label class="form-label" for="{{ form.persona_recibe.id_for_label }}">Persona que recibirá al ejecutivo</label>{{ form.persona_recibe }}</div>
+                <div class="col-md-3"><label class="form-label" for="{{ form.cargo_recibe.id_for_label }}">Cargo</label>{{ form.cargo_recibe }}</div>
+                <div class="col-md-4"><label class="form-label" for="{{ form.telefono_recibe.id_for_label }}">Teléfono de contacto</label>{{ form.telefono_recibe }}</div>
+                <div class="col-md-3"><label class="form-label" for="{{ form.estado.id_for_label }}">Estado</label>{{ form.estado }}</div>
+                <div class="col-md-9"><label class="form-label" for="{{ form.observaciones_ingreso.id_for_label }}">Observaciones / Restricciones para el ingreso</label>{{ form.observaciones_ingreso }}</div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <a href="{% if visita %}{% url 'gestion:detalle_visita' visita.pk %}{% else %}{% url 'gestion:lista_visitas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>{% if visita %}Guardar cambios{% else %}Programar la visita{% endif %}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
