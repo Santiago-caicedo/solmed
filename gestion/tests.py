@@ -3286,6 +3286,29 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(len(respuesta.context['sedes']), 1)
         self.assertNotContains(respuesta, 'id="ff-sede"')
 
+    def test_la_lista_se_filtra_por_pendientes_de_emitir_emitidas_y_enviadas(self):
+        """«Pendiente por emitir» = sin factura electrónica realizada (oct-2026)."""
+        url = reverse('gestion:lista_facturas')
+        pendiente = Factura.objects.create(cliente=self.cli)
+        emitida = Factura.objects.create(cliente=self.cli, numero_externo='FE-77',
+                                         fe_realizada_en=timezone.now(), fe_realizada_por=self.admin)
+        enviada = Factura.objects.create(cliente=self.cli, estado='ENVIADA',
+                                         fe_realizada_en=timezone.now(), fe_realizada_por=self.admin)
+        def numeros(**params):
+            return {f.numero for f in self.client.get(url, params).context['facturas']}
+        self.assertEqual(numeros(), {pendiente.numero, emitida.numero, enviada.numero})
+        self.assertEqual(numeros(ver='por_emitir'), {pendiente.numero})
+        self.assertEqual(numeros(ver='emitidas'), {emitida.numero, enviada.numero})
+        self.assertEqual(numeros(ver='enviadas'), {enviada.numero})
+        self.assertEqual(numeros(ver='cualquiercosa'), numeros(), "un filtro inválido muestra todas")
+        # El buscador respeta el filtro, y la pantalla ofrece los chips y las cifras.
+        self.assertEqual(numeros(ver='emitidas', q='FE-77'), {emitida.numero})
+        self.assertEqual(numeros(ver='por_emitir', q='FE-77'), set())
+        respuesta = self.client.get(url, {'ver': 'por_emitir'})
+        self.assertContains(respuesta, 'Pendientes por emitir')
+        self.assertContains(respuesta, 'href="?ver=por_emitir"')
+        self.assertEqual(respuesta.context['n_sin_electronica'], 1)
+
     # ---- Órdenes por preliquidar: la alerta y su tabla (oct-2026) ----
 
     def test_la_alerta_cuenta_las_ordenes_sin_preliquidar_de_todo_el_historial(self):

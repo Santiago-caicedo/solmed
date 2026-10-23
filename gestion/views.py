@@ -7830,13 +7830,29 @@ def _correo_facturacion_de(cliente):
 
 
 class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
-    """Las facturas internas, la más reciente arriba, con buscador por número o cliente."""
+    """
+    Las facturas internas, la más reciente arriba, con buscador por número o
+    cliente y el filtro «ver» (oct-2026): las pendientes por emitir (sin
+    factura electrónica), las ya emitidas o las enviadas al cliente.
+    """
     model = Factura
     template_name = 'gestion/lista_facturas.html'
     context_object_name = 'facturas'
+    # Cómo se filtra cada vista y cómo se nombra en los chips.
+    VISTAS = {
+        'todas': ('Todas', Q()),
+        'por_emitir': ('Pendientes por emitir', Q(fe_realizada_en__isnull=True)),
+        'emitidas': ('Con factura electrónica', Q(fe_realizada_en__isnull=False)),
+        'enviadas': ('Enviadas al cliente', Q(estado='ENVIADA')),
+    }
+
+    def _ver(self):
+        ver = self.request.GET.get('ver', 'todas')
+        return ver if ver in self.VISTAS else 'todas'
 
     def get_queryset(self):
-        qs = Factura.objects.select_related('cliente', 'fe_realizada_por', 'principal').prefetch_related('lineas')
+        qs = (Factura.objects.select_related('cliente', 'fe_realizada_por', 'principal')
+              .prefetch_related('lineas').filter(self.VISTAS[self._ver()][1]))
         q = self.request.GET.get('q', '').strip()
         if q:
             numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('F-', '').lstrip('0')
@@ -7849,6 +7865,8 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['q'] = self.request.GET.get('q', '').strip()
+        context['ver'] = self._ver()
+        context['vistas'] = [(clave, nombre) for clave, (nombre, _f) in self.VISTAS.items()]
         context['n_total'] = Factura.objects.count()
         context['n_enviadas'] = Factura.objects.filter(estado='ENVIADA').count()
         # Cuántas ya tienen hecha la factura electrónica (marcada como realizada).

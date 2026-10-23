@@ -5,7 +5,15 @@
 {# Facturación interna: la factura se arma con las órdenes del cliente y su PDF se transcribe al software de facturación electrónica. #}
 <style>
 .fc-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
-.fc-tile{ padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-sm); background:var(--panel); }
+.fc-tile{ display:block; padding:.7rem .85rem; border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-sm); background:var(--panel); color:inherit; text-decoration:none; }
+a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
+.fc-tile.pendiente{ border-left-color:var(--warn); }
+.fc-tile.act{ box-shadow:0 0 0 2px var(--steel); }
+.fc-chips{ display:flex; gap:.35rem; flex-wrap:wrap; }
+.fc-chip{ font-size:.8rem; padding:.3rem .7rem; min-height:31px; display:inline-flex; align-items:center; border:1px solid var(--line);
+    border-radius:99px; background:var(--panel); color:var(--ink-2); text-decoration:none; white-space:nowrap; }
+.fc-chip:hover{ background:var(--panel-2); color:var(--ink); }
+.fc-chip.act{ background:var(--steel); border-color:var(--steel); color:#fff; font-weight:500; }
 .fc-tile .v{ font-family:var(--mono); font-size:1.5rem; font-weight:600; line-height:1.1; color:var(--ink); }
 .fc-tile .k{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
 .fc-cod{ font-family:var(--mono); font-weight:600; }
@@ -53,11 +61,12 @@
 <div class="fc-al-dia" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Todas las órdenes están preliquidadas.</div>
 {% endif %}
 
+{# Cada cifra es también el filtro de la tabla (oct-2026). #}
 <div class="fc-tiles mb-4">
-    <div class="fc-tile"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></div>
-    <div class="fc-tile"><div class="v">{{ n_electronica }}</div><div class="k">Con factura electrónica</div></div>
-    <div class="fc-tile"><div class="v">{{ n_sin_electronica }}</div><div class="k">Sin factura electrónica</div></div>
-    <div class="fc-tile"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></div>
+    <a href="?ver=todas" class="fc-tile {% if ver == 'todas' %}act{% endif %}"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></a>
+    <a href="?ver=por_emitir" class="fc-tile pendiente {% if ver == 'por_emitir' %}act{% endif %}"><div class="v">{{ n_sin_electronica }}</div><div class="k">Pendientes por emitir</div></a>
+    <a href="?ver=emitidas" class="fc-tile {% if ver == 'emitidas' %}act{% endif %}"><div class="v">{{ n_electronica }}</div><div class="k">Con factura electrónica</div></a>
+    <a href="?ver=enviadas" class="fc-tile {% if ver == 'enviadas' %}act{% endif %}"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></a>
 </div>
 
 <div class="card shadow">
@@ -69,8 +78,16 @@
                        placeholder="SMS-0001, cliente o número electrónico">
             </div>
             <div class="col-auto">
+                <input type="hidden" name="ver" value="{{ ver }}">
                 <button class="btn btn-sm btn-primary"><i class="bi bi-search me-1"></i>Buscar</button>
-                {% if q %}<a href="{% url 'gestion:lista_facturas' %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+                {% if q or ver != 'todas' %}<a href="{% url 'gestion:lista_facturas' %}" class="btn btn-sm btn-link px-1">Limpiar</a>{% endif %}
+            </div>
+            <div class="col-12 col-md-auto ms-md-auto">
+                <div class="fc-chips" role="group" aria-label="Qué facturas ver">
+                    {% for clave, nombre in vistas %}
+                    <a href="?ver={{ clave }}{% if q %}&q={{ q|urlencode }}{% endif %}" class="fc-chip {% if ver == clave %}act{% endif %}" {% if ver == clave %}aria-current="true"{% endif %}>{{ nombre }}</a>
+                    {% endfor %}
+                </div>
             </div>
         </form>
     </div>
