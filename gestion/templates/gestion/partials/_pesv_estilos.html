@@ -1,0 +1,95 @@
+{% comment %}
+Estilos compartidos de las dos hojas del PESV que llena el conductor: la
+encuesta de cierre y el preoperacional (oct-2026). Van encima de
+_conductor_estilos.html y copian la hoja del servicio: tarjetas .hj-sec con
+su cabecera, campos grandes y el botón principal fijo abajo. Prefijo pe-.
+{% endcomment %}
+<style>
+.hj-sec{ background:var(--panel); border:1px solid var(--line); border-radius:14px; margin-bottom:.9rem; overflow:hidden; }
+.hj-sec > .cab{ display:flex; align-items:center; gap:.6rem; padding:.85rem 1rem; border-bottom:1px solid var(--line-2); }
+.hj-sec > .cab i{ color:var(--steel); font-size:1.15rem; }
+.hj-sec > .cab .t{ font-weight:700; font-size:1.02rem; }
+.hj-sec > .cab .s{ margin-left:auto; font-family:var(--mono); font-size:.78rem; color:var(--ink-3); text-align:right; white-space:nowrap; }
+.hj-sec > .cuerpo{ padding:1rem; }
+.hj-sec .ayuda{ font-size:.9rem; color:var(--ink-2); margin:0 0 .8rem; }
+.cd .form-control, .cd .form-select{ font-size:16px; padding:.65rem .75rem; min-height:48px; border-radius:10px; }
+.cd textarea.form-control{ min-height:110px; }
+.campo label{ display:block; font-size:.85rem; font-weight:600; color:var(--ink-2); margin-bottom:.3rem; }
+.campo .err{ color:var(--err); font-size:.82rem; margin-top:.3rem; }
+
+/* Los datos que pone el sistema (placa, conductor…): se consultan, no se escriben */
+.pe-datos{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:.5rem .9rem;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:.8rem 1rem; margin-bottom:.9rem; }
+.pe-datos .k{ display:block; font-family:var(--mono); font-size:.68rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); }
+.pe-datos .v{ display:block; font-weight:700; font-size:1rem; color:var(--ink); line-height:1.25; }
+.pe-datos .v.mono{ font-family:var(--mono); }
+
+/* Avisos arriba de la hoja */
+.pe-aviso{ display:flex; gap:.55rem; align-items:flex-start; font-size:.95rem; line-height:1.4; margin:0 0 .9rem;
+    padding:.7rem .85rem; border-radius:12px; }
+.pe-aviso i{ font-size:1.1rem; flex-shrink:0; margin-top:.05rem; }
+.pe-aviso.info{ background:var(--steel-tint); color:var(--steel-600); }
+.pe-aviso.error{ background:var(--err-tint); color:var(--err); border:1px solid var(--err-line); }
+
+/* Una pregunta o ítem = una tarjeta táctil: número, texto y sus botones */
+.pe-lista{ display:grid; grid-template-columns:1fr; gap:.55rem; }
+.pe-q{ display:grid; grid-template-columns:auto 1fr; gap:.3rem .75rem; align-items:start;
+    border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:.75rem .85rem; }
+.pe-q.on{ border-color:var(--brand-600); box-shadow:0 0 0 1px var(--brand-600); }
+.pe-q.error{ border-color:var(--err-line); background:var(--err-tint); }
+.pe-q .num{ width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    background:var(--panel-2); color:var(--ink-2); font-family:var(--mono); font-size:.9rem; font-weight:700; }
+.pe-q.on .num{ background:var(--brand-600); color:#fff; }
+.pe-q .tx{ font-weight:600; font-size:1rem; color:var(--ink); line-height:1.3; align-self:center; }
+.pe-q .err{ color:var(--err); font-size:.82rem; font-weight:500; margin-top:.25rem; }
+.pe-q .pe-opc{ grid-column:1 / -1; }
+
+/* Los botones de respuesta. Django (>=4) renderiza RadioSelect como
+   <div><div><label><input> Sí</label></div>...</div>: todo apunta a esos div. */
+.pe-opc > div{ display:grid; gap:.5rem; }
+.pe-opc.dos > div{ grid-template-columns:1fr 1fr; }
+.pe-opc.tres > div{ grid-template-columns:1fr 1fr 1fr; }
+.pe-opc label{ display:flex; align-items:center; justify-content:center; gap:.35rem; min-height:48px; padding:.5rem .6rem;
+    cursor:pointer; margin:0; border:1.5px solid var(--line); border-radius:10px; background:var(--panel-2);
+    color:var(--ink-2); font-weight:700; font-size:.95rem; text-align:center; line-height:1.2;
+    transition:background .12s ease,border-color .12s ease,color .12s ease; }
+.pe-opc input[type=radio]{ position:absolute; opacity:0; width:0; height:0; }
+.pe-opc label:hover{ border-color:#b9c3ce; }
+.pe-opc label:focus-within{ outline:3px solid var(--brand); outline-offset:2px; }
+/* Elegida: el color dice qué se marcó. :has() pinta directo; la clase .on-X es el respaldo del JS. */
+.pe-opc label:has(input:checked), .pe-opc [class*="on-"] label{ background:var(--steel); border-color:var(--steel); color:#fff; }
+.pe-opc label:has(input[value="B"]:checked), .pe-opc .on-B label{ background:var(--brand-600); border-color:var(--brand-600); }
+.pe-opc label:has(input[value="M"]:checked), .pe-opc .on-M label{ background:#c47f12; border-color:#c47f12; }
+.pe-opc label:has(input[value="NA"]:checked), .pe-opc .on-NA label{ background:var(--ink-2); border-color:var(--ink-2); }
+.pe-opc label:has(input[value="APTO"]:checked), .pe-opc .on-APTO label{ background:var(--brand-600); border-color:var(--brand-600); }
+.pe-opc label:has(input[value="NO_APTO"]:checked), .pe-opc .on-NO_APTO label{ background:#a02525; border-color:#a02525; }
+
+/* El dictamen: dos botones grandes */
+.pe-dictamen .pe-opc label{ min-height:60px; font-size:1.02rem; }
+.pe-dictamen .ayuda{ margin:.7rem 0 0; }
+
+/* Sección que exige atención (detalle del evento) */
+.hj-sec.pe-alerta{ border-color:var(--warn-line); }
+.hj-sec.pe-alerta > .cab{ background:var(--warn-tint); }
+.hj-sec.pe-alerta > .cab i{ color:var(--warn); }
+
+/* Fotos de evidencia */
+.pe-fotos{ display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.7rem; }
+.pe-fotos a{ display:inline-flex; align-items:center; gap:.35rem; min-height:40px; padding:.3rem .7rem; font-size:.9rem;
+    font-weight:600; border:1px solid var(--line); border-radius:10px; background:var(--panel-2); text-decoration:none; color:var(--ink); }
+.pe-subir{ display:grid; grid-template-columns:1fr 1fr; gap:.55rem; }
+.pe-elegidas{ font-size:.9rem; color:var(--brand-700); font-weight:600; margin-top:.5rem; }
+
+/* Botón principal fijo abajo, al alcance del pulgar (igual que la hoja del servicio) */
+.hj-pie{ position:sticky; bottom:0; z-index:5; margin:1rem -1rem 0; padding:.75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, var(--canvas) 70%, rgba(237,240,244,0)); display:grid; gap:.4rem; }
+.hj-pie .volver{ text-align:center; min-height:44px; display:flex; align-items:center; justify-content:center; color:var(--ink-2); font-weight:600; text-decoration:none; }
+
+@media (min-width:640px){
+    .pe-q{ grid-template-columns:auto 1fr auto; }
+    .pe-q .pe-opc{ grid-column:auto; align-self:center; }
+    .pe-opc.dos label{ min-width:84px; }
+    .pe-opc.tres label{ min-width:78px; }
+    .pe-q .err{ grid-column:2; }
+}
+</style>

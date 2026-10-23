@@ -6673,12 +6673,13 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
             zonas_seguras_descanso='SI', condicion_riesgo='NO')
         url = reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk])
 
-        for usuario in (self.root, self.admin, self.asesor, self.conductor):
+        # La SISO sí lo baja desde su carpeta del PESV (oct-2026).
+        for usuario in (self.root, self.admin, self.asesor, self.conductor, self.siso):
             with self.subTest(usuario=usuario.username):
                 self.entrar(usuario)
                 self.assertEqual(self.client.get(url).status_code, 200)
 
-        for usuario in (self.planificador, self.siso, self.talento):
+        for usuario in (self.planificador, self.talento):
             with self.subTest(usuario=usuario.username):
                 self.entrar(usuario)
                 self.assertEqual(self.client.get(url).status_code, 403)
@@ -9539,7 +9540,8 @@ class CarpetaPESVTests(BaseCRM):
                 datos['dictamen'] = 'APTO'
                 respuesta = self.client.post(url + '?volver=pesv', datos)
                 self.assertRedirects(respuesta, self.url)
-                pre = self.viejo.preoperacional
+                # No por self.viejo.preoperacional: el OneToOne queda cacheado en la instancia.
+                pre = Preoperacional.objects.get(recorrido=self.viejo)
                 self.assertEqual(pre.diligenciado_por, quien)
                 self.assertEqual(pre.items.count(), 8)
                 self.assertEqual(self.client.get(self.url, periodo).context['sin_preoperacional'], [])
