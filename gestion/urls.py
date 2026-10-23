@@ -108,7 +108,6 @@ urlpatterns = [
     # Cuentas que existen solo por su expediente: entran, pero no operan.
     path('sin-acceso/', views.SinAccesoView.as_view(), name='sin_acceso'),
     path('mis-recorridos/', views.MisRecorridosView.as_view(), name='mis_recorridos'),
-    path('historial/', views.HistorialConductorView.as_view(), name='historial_conductor'),
     path('conductor/orden/<int:pk>/', views.OrdenConductorDetailView.as_view(), name='detalle_orden_conductor'),
     path('planificacion/', views.PlanificacionView.as_view(), name='planificacion'),
 

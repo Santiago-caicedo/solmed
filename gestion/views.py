@@ -1449,11 +1449,16 @@ class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
 # --- HELPERS COMPARTIDOS PARA EL MANIFIESTO ---
 
 def _puede_gestionar_manifiesto(user, recorrido):
-    """Solo el conductor asignado, un Asesor o un superusuario pueden llenar el manifiesto."""
+    """
+    Quién llena el acta y los demás pasos del servicio: gestión (admins y
+    asesores) siempre; el conductor asignado solo si el recorrido es de HOY
+    (oct-2026: el conductor no ve ni toca servicios de otros días).
+    """
     return (
         es_administrador(user)
         or user.groups.filter(name='Asesores').exists()
-        or recorrido.conductor_id == user.id
+        or (recorrido.conductor_id == user.id
+            and recorrido.fecha_recorrido == timezone.localdate())
     )
 
 
@@ -3198,25 +3203,20 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         """
-        La casa del conductor (oct-2026, rediseño «muy sencillo»): lo de hoy en
-        tarjetas grandes, lo que le quedó pendiente de días anteriores, y lo
-        que viene. Reemplaza también a «Mis recorridos», que repetía lo mismo.
+        La casa del conductor (oct-2026, rediseño «muy sencillo»): SOLO los
+        servicios de hoy, en tarjetas grandes. Ni los de días anteriores ni los
+        que vienen (decisión de Santiago, oct-2026: el conductor no ve su
+        historial). Reemplaza también a «Mis recorridos», que repetía lo mismo.
         """
         context = super().get_context_data(**kwargs)
-        mios = (Recorrido.objects.filter(conductor=self.request.user)
-                .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
-                                'vehiculo', 'manifiesto', 'encuesta_conductor'))
-        abiertos = ('PROGRAMADO', 'EN_CURSO')
         hoy = timezone.localdate()
         context['hoy'] = hoy
-        context['tarjetas_hoy'] = [_tarjeta_conductor(r) for r in
-                                   mios.filter(fecha_recorrido=hoy).order_by('orden__fecha_creacion')]
-        context['tarjetas_atrasadas'] = [
+        context['tarjetas_hoy'] = [
             _tarjeta_conductor(r) for r in
-            mios.filter(fecha_recorrido__lt=hoy, estado__in=abiertos).order_by('fecha_recorrido')[:20]]
-        context['proximos'] = [
-            _tarjeta_conductor(r, con_tareas=False) for r in
-            mios.filter(fecha_recorrido__gt=hoy, estado__in=abiertos).order_by('fecha_recorrido')[:30]]
+            _recorridos_del_conductor_hoy(self.request.user)
+            .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
+                            'vehiculo', 'manifiesto', 'encuesta_conductor')
+            .order_by('orden__fecha_creacion')]
         return context
     
 
@@ -3274,21 +3274,12 @@ class MisRecorridosView(ConductorRequiredMixin, View):
 
 
 # --- HISTORIAL DEL CONDUCTOR ---
-class HistorialConductorView(ConductorRequiredMixin, PaginadoMixin, ListView):
+def _recorridos_del_conductor_hoy(user):
     """
-    Historial de TODOS los recorridos del conductor (los más recientes primero).
-    Surface también las encuestas de cierre pendientes para que pueda completarlas.
+    Lo único que el conductor ve y trabaja: sus recorridos de HOY. El
+    historial de órdenes no es suyo (decisión de Santiago, oct-2026).
     """
-    model = Recorrido
-    template_name = 'gestion/historial_conductor.html'
-    context_object_name = 'recorridos'
-    paginate_by = 25
-
-    def get_queryset(self):
-        return Recorrido.objects.filter(
-            conductor=self.request.user
-        ).select_related('orden', 'orden__cliente', 'vehiculo', 'manifiesto',
-                         'encuesta_conductor').order_by('-fecha_recorrido')
+    return Recorrido.objects.filter(conductor=user, fecha_recorrido=timezone.localdate())
 
 
 def _tarjeta_conductor(recorrido, con_tareas=True):
@@ -3471,17 +3462,18 @@ class OrdenConductorDetailView(ConductorRequiredMixin, DetailView):
     context_object_name = 'orden'
 
     def get_queryset(self):
-        # Restringe el acceso a las órdenes propias del conductor.
+        # Solo las órdenes propias del conductor, y solo las de HOY: las de
+        # otros días no existen para él (oct-2026).
         return OrdenServicio.objects.filter(
-            recorridos__conductor=self.request.user
+            recorridos__in=_recorridos_del_conductor_hoy(self.request.user)
         ).distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Solo los recorridos de esta orden asignados a este conductor.
-        mis_recorridos = self.object.recorridos.filter(
-            conductor=self.request.user
-        ).select_related('vehiculo').order_by('-fecha_recorrido')
+        # Solo los recorridos de hoy de esta orden asignados a este conductor.
+        mis_recorridos = (_recorridos_del_conductor_hoy(self.request.user)
+                          .filter(orden=self.object)
+                          .select_related('vehiculo').order_by('-fecha_recorrido'))
         context['mis_recorridos'] = mis_recorridos
         # Acta(s) en formato documento (igual al PDF) para la pestaña del conductor.
         context['actas_formato'] = _actas_formato(mis_recorridos)

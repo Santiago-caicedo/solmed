@@ -2,18 +2,13 @@
 {% block title %}Mi jornada{% endblock %}
 {% block content %}
 {% include 'gestion/partials/_conductor_estilos.html' %}
-{# La casa del conductor: lo de hoy, lo que quedó pendiente y lo que viene. Un botón por servicio. #}
+{# La casa del conductor: SOLO lo de hoy (oct-2026: no ve días anteriores ni los que vienen). Un botón por servicio. #}
 <div class="cd">
     <header class="cd-cab">
         <div class="fecha">{{ hoy|date:"l j \d\e F"|lower|capfirst }}</div>
         <h1>Hola, {{ user.first_name|default:user.username }}</h1>
         <p>{% with n=tarjetas_hoy|length %}{% if n %}Hoy tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }}.{% else %}Hoy no tienes servicios.{% endif %}{% endwith %}</p>
     </header>
-
-    {% if tarjetas_atrasadas %}
-    <h2 class="cd-sec">Te quedó pendiente <span class="n">{{ tarjetas_atrasadas|length }}</span></h2>
-    {% for t in tarjetas_atrasadas %}{% include 'gestion/partials/_tarjeta_servicio_conductor.html' with atrasada=True %}{% endfor %}
-    {% endif %}
 
     <h2 class="cd-sec">Hoy</h2>
     {% for t in tarjetas_hoy %}
@@ -22,22 +17,5 @@
     <div class="cd-vacio"><i class="bi bi-cup-hot" aria-hidden="true"></i>No tienes servicios para hoy.</div>
     {% endfor %}
 
-    <h2 class="cd-sec">Próximos días {% if proximos %}<span class="n">{{ proximos|length }}</span>{% endif %}</h2>
-    {% if proximos %}
-    <div class="cd-lista">
-        {% for t in proximos %}
-        <a class="cd-fila" href="{% url 'gestion:detalle_orden_conductor' t.orden.pk %}">
-            <span class="cd-dia" aria-hidden="true"><span class="d">{{ t.recorrido.fecha_recorrido|date:"j" }}</span><span class="m">{{ t.recorrido.fecha_recorrido|date:"b" }}</span></span>
-            <span class="tx">
-                <span class="t">{{ t.orden.direccion_servicio|default:"Sin dirección" }}</span>
-                <span class="s">{{ t.recorrido.fecha_recorrido|date:"l"|capfirst }}{% if t.hora %} · {{ t.hora|time:"g:i a" }}{% endif %} · <span class="mono">Orden #{{ t.orden.numero_orden }}{% if t.recorrido.vehiculo %} · {{ t.recorrido.vehiculo.placa }}{% endif %}</span></span>
-            </span>
-            <i class="bi bi-chevron-right" aria-hidden="true"></i>
-        </a>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="cd-vacio">Todavía no tienes servicios programados.</div>
-    {% endif %}
 </div>
 {% endblock %}

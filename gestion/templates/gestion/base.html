@@ -383,12 +383,7 @@
                 <i class="bi bi-house-door-fill"></i>Mi jornada
             </a>
         </li>
-        {# «Mis recorridos» se fundió con «Mi jornada» (oct-2026): repetía lo mismo. #}
-        <li>
-            <a href="{% url 'gestion:historial_conductor' %}" class="nav-link {% if 'historial' in request.path %}active{% endif %}">
-                <i class="bi bi-clock-history"></i>Historial
-            </a>
-        </li>
+        {# «Mis recorridos» se fundió con «Mi jornada» y el «Historial» se quitó (oct-2026): el conductor solo ve lo de hoy. #}
         {% endif %}
 
         {% if es_asesor or es_conductor %}

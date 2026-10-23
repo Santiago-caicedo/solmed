@@ -4638,8 +4638,11 @@ class ExperienciaDelConductorTests(BaseCRM):
                     if 'encuesta' in t['titulo'].lower()][0]
         self.assertTrue(encuesta['habilitada'])
 
-    def test_mi_jornada_trae_solo_lo_suyo_hoy_lo_pendiente_y_lo_que_viene(self):
-        """«Mis recorridos» se fundió aquí (oct-2026)."""
+    def test_mi_jornada_trae_solo_lo_suyo_de_hoy(self):
+        """
+        «Mis recorridos» se fundió aquí (oct-2026) y después se quitó el
+        historial: el conductor no ve días anteriores ni los que vienen.
+        """
         hoy = timezone.localdate()
         otro_conductor = self.persona('conductor2', 'Conductores')
         Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('AJE111'),
@@ -4653,10 +4656,24 @@ class ExperienciaDelConductorTests(BaseCRM):
         respuesta = self.client.get(reverse('gestion:dashboard_conductor'))
         pks = lambda clave: [t['recorrido'].pk for t in respuesta.context[clave]]
         self.assertEqual(pks('tarjetas_hoy'), [self.recorrido.pk])
-        self.assertEqual(pks('tarjetas_atrasadas'), [viejo.pk], "el cerrado no; el de otro conductor tampoco")
-        self.assertEqual(pks('proximos'), [manana.pk])
-        self.assertNotIn(cerrado.pk, pks('tarjetas_atrasadas'))
-        self.assertContains(respuesta, 'Te quedó pendiente')
+        self.assertNotIn('tarjetas_atrasadas', respuesta.context)
+        self.assertNotIn('proximos', respuesta.context)
+        self.assertNotContains(respuesta, 'Te quedó pendiente')
+        self.assertNotContains(respuesta, 'Próximos días')
+        self.assertNotContains(respuesta, 'OLD111')
+        self.assertNotContains(respuesta, 'NEW111')
+        self.assertNotContains(respuesta, 'Historial')
+        # Ni por la URL: una orden solo de otros días no existe para él, y el
+        # acta de un recorrido viejo (o de mañana) tampoco se le abre.
+        otra = OrdenServicio.objects.create(cliente=self.cli, asesor=self.asesor,
+                                            direccion_servicio='Cll 9', descripcion='vieja')
+        Recorrido.objects.create(orden=otra, vehiculo=self.vehiculo('OLD333'), conductor=self.conductor,
+                                 fecha_recorrido=hoy - datetime.timedelta(days=1))
+        self.assertEqual(self.client.get(reverse('gestion:detalle_orden_conductor', args=[otra.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step', args=[viejo.pk, 'paso3'])).status_code, 302)
+        self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step', args=[manana.pk, 'paso3'])).status_code, 302)
+        self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step', args=[self.recorrido.pk, 'paso3'])).status_code, 200)
+        del cerrado
         # Cada tarjeta dice qué falta, con las mismas tareas de la orden, y cómo llegar.
         tarjeta = respuesta.context['tarjetas_hoy'][0]
         self.assertIn('los datos del servicio', tarjeta['faltan'])
@@ -4665,14 +4682,6 @@ class ExperienciaDelConductorTests(BaseCRM):
         self.assertContains(respuesta, 'Abrir servicio')
         self.assertRedirects(self.client.get(reverse('gestion:mis_recorridos')),
                              reverse('gestion:dashboard_conductor'))
-
-    def test_el_historial_si_trae_todos_sus_recorridos(self):
-        Recorrido.objects.create(
-            orden=self.orden, vehiculo=self.vehiculo('OLD111'),
-            conductor=self.conductor,
-            fecha_recorrido=timezone.localdate() - datetime.timedelta(days=3))
-        recorridos = self.client.get(reverse('gestion:historial_conductor')).context['recorridos']
-        self.assertEqual(len(recorridos), 2)
 
     def test_el_tiquete_de_bascula_ya_no_es_tarea_del_conductor(self):
         """Oct-2026: lo sube la oficina desde Básculas; el conductor ni lo ve ni lo puede subir."""
@@ -6721,7 +6730,6 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
         self.entrar(self.conductor)
         for url in (reverse('gestion:detalle_orden_conductor', args=[self.orden.pk]),
                     reverse('gestion:dashboard_conductor'),
-                    reverse('gestion:historial_conductor'),
                     reverse('gestion:firmar_manifiesto_step',
                             args=[self.recorrido.pk, 'paso3']),
                     reverse('gestion:manifiesto_qr', args=[self.recorrido.pk])):
