@@ -48,8 +48,25 @@
             <div class="fv-sec"><i class="bi bi-building"></i>Empresa</div>
             <div class="row g-3">
                 <div class="col-md-6">
-                    <label class="form-label" for="{{ form.cliente.id_for_label }}">Cliente registrado</label>{{ form.cliente }}
-                    <div class="form-text">Si ya es cliente, elígelo: lo que dejes en blanco se toma de su ficha. Si es un prospecto, escribe sus datos.</div>
+                    <label class="form-label" for="{{ form.cliente.id_for_label }}">¿Ya es cliente?</label>
+                    {% comment %}
+                    El desplegable se arma a mano para agrupar: «No cliente» (prospecto)
+                    y «Ya es cliente» (todas las empresas). Al elegir un cliente, sus
+                    datos se copian a la hoja de una vez (JS abajo).
+                    {% endcomment %}
+                    <select name="cliente" id="{{ form.cliente.id_for_label }}" class="form-select">
+                        <optgroup label="No cliente">
+                            <option value="" {% if not form.cliente.value %}selected{% endif %}>Prospecto (aún no es cliente)</option>
+                        </optgroup>
+                        <optgroup label="Ya es cliente">
+                            {% for c in clientes %}
+                            <option value="{{ c.pk }}" {% if form.cliente.value|stringformat:"s" == c.pk|stringformat:"s" %}selected{% endif %}
+                                    data-nombre="{{ c.nombre }}" data-nit="{{ c.nit }}" data-contacto="{{ c.contacto }}" data-cargo="{{ c.cargo }}"
+                                    data-telefonos="{{ c.telefonos }}" data-email="{{ c.email }}" data-direccion="{{ c.direccion }}">{{ c.nombre }}{% if c.nit %} · NIT {{ c.nit }}{% endif %}</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                    <div class="form-text">Si ya es cliente, elígelo y sus datos se llenan solos. Si es un prospecto, escribe sus datos.</div>
                 </div>
                 <div class="col-md-6"><label class="form-label" for="{{ form.empresa.id_for_label }}">Empresa</label>{{ form.empresa }}</div>
                 <div class="col-md-3"><label class="form-label" for="{{ form.nit.id_for_label }}">NIT</label>{{ form.nit }}</div>
@@ -78,4 +95,25 @@
         </form>
     </div>
 </div>
+
+<script>
+// Al elegir un cliente registrado, la hoja se llena con los datos de su ficha.
+(function () {
+    var select = document.getElementById('{{ form.cliente.id_for_label }}');
+    if (!select) return;
+    var campos = {
+        nombre: 'id_empresa', nit: 'id_nit', contacto: 'id_contacto', cargo: 'id_cargo_contacto',
+        telefonos: 'id_telefonos', email: 'id_email', direccion: 'id_direccion'
+    };
+    select.addEventListener('change', function () {
+        var opcion = select.options[select.selectedIndex];
+        if (!opcion.value) return;
+        Object.keys(campos).forEach(function (dato) {
+            var campo = document.getElementById(campos[dato]);
+            var valor = opcion.getAttribute('data-' + dato) || '';
+            if (campo && valor) campo.value = valor;
+        });
+    });
+})();
+</script>
 {% endblock %}

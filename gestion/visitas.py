@@ -89,18 +89,37 @@ class ProgramarVisitaView(AsesorRequiredMixin, View):
     def _visita(self, pk):
         return get_object_or_404(VisitaTecnica, pk=pk) if pk else None
 
+    @staticmethod
+    def _clientes():
+        """
+        Los clientes registrados con lo que la hoja se llena sola al elegir uno
+        (razón social, NIT, contacto, teléfono, correo, dirección), para el
+        desplegable «Ya es cliente» (pedido de Santiago, oct-2026).
+        """
+        from .models import Cliente
+        return [{
+            'pk': c.pk, 'nombre': c.nombre, 'nit': c.identificacion or '',
+            'contacto': c.persona_contacto or '', 'cargo': c.cargo_contacto or '',
+            'telefonos': ' / '.join(t for t in (c.telefono_celular, c.telefono_fijo, c.telefono) if t),
+            'email': c.email or '',
+            'direccion': ', '.join(d for d in (c.direccion, c.ciudad) if d),
+        } for c in Cliente.objects.order_by('nombre')]
+
+    def _contexto(self, form, visita):
+        return {'form': form, 'visita': visita, 'clientes': self._clientes()}
+
     def get(self, request, pk=None):
         visita = self._visita(pk)
         initial = {} if visita else {'ejecutivo': request.user.pk}
         form = VisitaProgramacionForm(instance=visita, initial=initial)
-        return render(request, self.template_name, {'form': form, 'visita': visita})
+        return render(request, self.template_name, self._contexto(form, visita))
 
     def post(self, request, pk=None):
         visita = self._visita(pk)
         form = VisitaProgramacionForm(request.POST, instance=visita)
         if not form.is_valid():
             messages.error(request, "Revisa el formulario.")
-            return render(request, self.template_name, {'form': form, 'visita': visita})
+            return render(request, self.template_name, self._contexto(form, visita))
         nueva = form.save(commit=False)
         if visita is None:
             nueva.creada_por = request.user

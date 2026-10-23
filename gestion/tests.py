@@ -9719,6 +9719,13 @@ class VisitasTecnicasTests(BaseCRM):
         detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
         self.assertContains(detalle, 'Ficha del cliente')
         self.assertContains(detalle, 'VT-0001')
+        # El desplegable agrupa «No cliente» (prospecto) y «Ya es cliente», con
+        # los datos de cada uno para llenar la hoja al elegirlo.
+        hoja = self.client.get(reverse('gestion:editar_visita', args=[visita.pk]))
+        self.assertContains(hoja, '<optgroup label="No cliente">')
+        self.assertContains(hoja, '<optgroup label="Ya es cliente">')
+        self.assertContains(hoja, f'data-nit="{self.cli.identificacion}"')
+        self.assertContains(hoja, f'value="{self.cli.pk}" selected')
 
     def test_la_lista_filtra_por_estado_ejecutivo_y_busca(self):
         a = self.programar()
