@@ -9375,6 +9375,7 @@ class PreoperacionalTests(BaseCRM):
         self.client.post(self.url, datos)
         pre = self.recorrido.preoperacional
         self.assertEqual(pre.fotos.count(), 2)
+        self.entrar(self.siso)  # el PDF ya no lo baja el conductor (oct-2026)
         pdf = self.client.get(self.url_pdf)
         self.assertEqual(pdf.status_code, 200)
         self.assertEqual(pdf['Content-Type'], 'application/pdf')
