@@ -77,14 +77,11 @@ importa a DÓNDE va y QUÉ hace, no para quién es el contrato.
     <span class="t">{{ tarea.titulo }}</span>
     <span class="s">{{ tarea.detalle }}</span>
 
-    {% if tarea.url and tarea.habilitada or tarea.formulario or tarea.pdf %}
+    {% if tarea.url and tarea.habilitada or tarea.formulario %}
     <div class="abajo">
     {% if tarea.url and tarea.habilitada %}
         <a href="{{ tarea.url }}" class="cd-btn {% if tarea.hecha %}sec{% else %}ok{% endif %}">
             <i class="bi {{ tarea.icono }}" aria-hidden="true"></i>{{ tarea.boton }}</a>
-    {% endif %}
-    {% if tarea.pdf %}
-        <a href="{{ tarea.pdf }}" class="oc-enlace"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>{{ tarea.pdf_texto|default:"Ver tu encuesta (PDF)" }}</a>
     {% endif %}
 
     {% if tarea.formulario == 'bascula' %}

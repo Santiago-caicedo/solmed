@@ -1036,14 +1036,25 @@ class EncuestaDeCierreTests(BaseCRM):
         self.assertEqual(len(respuestas), 7)
         self.assertEqual(respuestas[0]['respuesta'], '—')
 
-    def test_el_conductor_solo_baja_el_pdf_de_sus_recorridos(self):
+    def test_el_conductor_no_baja_el_pdf_de_la_encuesta_solo_ve_sus_respuestas(self):
+        """Ni el suyo ni el de otro (oct-2026): en pantalla sí ve lo que respondió."""
         self.firmar()
         EncuestaConductor.objects.create(
             recorrido=self.recorrido, **self.RESPUESTAS_LIMPIAS)
+        url_pdf = reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk])
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.get(url_pdf).status_code, 403)
+        pantalla = self.client.get(reverse('gestion:encuesta_conductor', args=[self.recorrido.pk]))
+        self.assertContains(pantalla, 'Ya respondiste esta encuesta')
+        tareas = self.client.get(reverse('gestion:detalle_orden_conductor',
+                                         args=[self.orden.pk])).context['tareas']
+        encuesta = next(t for t in tareas if t['titulo_corto'] == 'tu encuesta de cierre')
+        self.assertEqual(encuesta['boton'], 'Ver tus respuestas')
+        self.assertEqual(encuesta['url'], reverse('gestion:encuesta_conductor', args=[self.recorrido.pk]))
+        self.assertNotIn('pdf', encuesta)
         intruso = self.persona('conductor2', 'Conductores')
         self.entrar(intruso)
-        self.assertEqual(self.client.get(reverse(
-            'gestion:encuesta_conductor_pdf', args=[self.recorrido.pk])).status_code, 404)
+        self.assertEqual(self.client.get(url_pdf).status_code, 403)
 
     def test_sin_encuesta_no_hay_pdf_que_descargar(self):
         self.entrar(self.asesor)
@@ -1258,12 +1269,14 @@ class AccesoPorRolTests(BaseCRM):
         self.assertFalse(contexto['es_asesor'])
         self.assertFalse(contexto['es_administrador'])
 
-    def test_el_calendario_no_le_muestra_al_conductor_recorridos_ajenos(self):
+    def test_el_calendario_ya_no_es_del_conductor(self):
+        """Se le quitó junto con el historial (oct-2026): ni la pantalla ni el feed."""
         datos = self.servicio_completo()
-        otro = self.persona('conductor9', 'Conductores')
-        self.entrar(otro)
-        eventos = self.client.get(reverse('gestion:feed_calendario')).json()
-        self.assertEqual(eventos, [])
+        self.entrar(datos['conductor'])
+        self.assertEqual(self.client.get(reverse('gestion:feed_calendario')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('gestion:calendario')).status_code, 403)
+        menu = self.client.get(reverse('gestion:dashboard_conductor')).content.decode()
+        self.assertNotIn(f'href="{reverse("gestion:calendario")}"', menu)
 
     def test_el_feed_del_calendario_exige_sesion(self):
         respuesta = self.client.get(reverse('gestion:feed_calendario'))
@@ -6667,8 +6680,6 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
         for usuario in (self.planificador, self.talento, self.siso, self.conductor):
             self.entrar(usuario)
             for nombre, url in self.pantallas().items():
-                if usuario is self.conductor and nombre == 'calendario':
-                    continue      # el conductor conserva SU calendario
                 with self.subTest(usuario=usuario.username, pantalla=nombre):
                     self.assertEqual(self.client.get(url).status_code, 403)
 
@@ -6705,19 +6716,18 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
             zonas_seguras_descanso='SI', condicion_riesgo='NO')
         url = reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk])
 
-        # La SISO sí lo baja desde su carpeta del PESV (oct-2026).
-        for usuario in (self.root, self.admin, self.asesor, self.conductor, self.siso):
+        # La SISO sí lo baja desde su carpeta del PESV (oct-2026); el conductor
+        # ya no (solo ve sus respuestas en pantalla).
+        for usuario in (self.root, self.admin, self.asesor, self.siso):
             with self.subTest(usuario=usuario.username):
                 self.entrar(usuario)
                 self.assertEqual(self.client.get(url).status_code, 200)
 
-        for usuario in (self.planificador, self.talento):
+        for usuario in (self.planificador, self.talento, self.conductor,
+                        self.persona('conductor9', 'Conductores')):
             with self.subTest(usuario=usuario.username):
                 self.entrar(usuario)
                 self.assertEqual(self.client.get(url).status_code, 403)
-
-        self.entrar(self.persona('conductor9', 'Conductores'))
-        self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_el_planificador_conserva_su_tablero_de_planificacion(self):
         """Excepción acordada: el rol existe para repartir camiones y conductores."""
@@ -6742,14 +6752,8 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
         self.entrar(self.asesor)
         self.assertEqual(len(self.client.get(url).json()), 1)
 
-        self.entrar(self.conductor)
-        self.assertEqual(len(self.client.get(url).json()), 1, "los suyos sí")
-
-        otro_conductor = self.persona('conductor9', 'Conductores')
-        self.entrar(otro_conductor)
-        self.assertEqual(self.client.get(url).json(), [])
-
-        for usuario in (self.planificador, self.siso, self.talento):
+        # El conductor ya no tiene calendario (oct-2026).
+        for usuario in (self.planificador, self.siso, self.talento, self.conductor):
             with self.subTest(usuario=usuario.username):
                 self.entrar(usuario)
                 self.assertEqual(self.client.get(url).status_code, 403)
@@ -9313,7 +9317,11 @@ class PreoperacionalTests(BaseCRM):
         self.assertEqual(len(mail.outbox), 0, "sin hallazgos no se avisa a nadie")
         tarea = self.tarea_preoperacional()
         self.assertTrue(tarea['hecha'])
-        self.assertEqual(tarea['pdf'], self.url_pdf)
+        # Sin PDF para el conductor: vuelve a entrar a ver sus respuestas.
+        self.assertNotIn('pdf', tarea)
+        self.assertEqual(tarea['boton'], 'Ver tus respuestas')
+        self.assertEqual(tarea['url'], self.url)
+        self.assertContains(self.client.get(self.url), 'ya está registrado')
 
     def test_faltar_una_respuesta_no_deja_guardar(self):
         self.entrar(self.conductor)
@@ -9390,16 +9398,19 @@ class PreoperacionalTests(BaseCRM):
         self.assertContains(pantalla, 'ya está registrado')
         self.assertContains(pantalla, 'Extintor vencido.')
 
-    def test_el_pdf_lo_bajan_gestion_el_conductor_y_la_siso(self):
+    def test_el_pdf_lo_bajan_gestion_y_la_siso_pero_no_el_conductor(self):
         self.entrar(self.conductor)
         self.client.post(self.url, self.respuestas())
-        for quien in (self.conductor, self.asesor, self.admin, self.siso):
+        for quien in (self.asesor, self.admin, self.siso):
             with self.subTest(quien=quien.username):
                 self.entrar(quien)
                 self.assertEqual(self.client.get(self.url_pdf).status_code, 200)
+        # El conductor no descarga el PDF (oct-2026): ni el suyo ni el de otro.
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.get(self.url_pdf).status_code, 403)
         otro = self.persona('otro', 'Conductores')
         self.entrar(otro)
-        self.assertEqual(self.client.get(self.url_pdf).status_code, 404)
+        self.assertEqual(self.client.get(self.url_pdf).status_code, 403)
         self.assertEqual(self.client.get(self.url).status_code, 302)
         self.entrar(self.persona('talento', 'Talento Humano'))
         self.assertEqual(self.client.get(self.url_pdf).status_code, 403)

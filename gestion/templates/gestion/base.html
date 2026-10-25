@@ -386,10 +386,10 @@
         {# «Mis recorridos» se fundió con «Mi jornada» y el «Historial» se quitó (oct-2026): el conductor solo ve lo de hoy. #}
         {% endif %}
 
-        {% if es_asesor or es_conductor %}
+        {% if es_asesor %}
         {% comment %}
-        El calendario muestra órdenes y placas: lo ven gestión y el conductor
-        (a él su feed solo le devuelve SUS recorridos).
+        El calendario muestra órdenes y placas: lo ve gestión. Al conductor se
+        le quitó (oct-2026): su casa es «Mi jornada» con lo de hoy.
         {% endcomment %}
         <li class="nav-section">Operación</li>
         <li>

@@ -1576,9 +1576,8 @@ def _pdf_encuesta_conductor(encuesta, request):
 class EncuestaConductorPDFView(LoginRequiredMixin, View):
     """
     Descarga el PDF de la encuesta de cierre de un recorrido, generado al
-    momento. El documento lleva el número de orden y el nombre del cliente,
-    así que lo bajan GESTIÓN (superusuario, Administradores, Asesores) y el
-    conductor de ESE recorrido. Nadie más.
+    momento. Lo bajan GESTIÓN (superusuario, Administradores, Asesores) y la
+    SISO. El conductor no: él solo ve sus respuestas en pantalla (oct-2026).
     """
     def get(self, request, pk):
         recorrido = _recorrido_para_pdf_pesv(request, pk)
@@ -1596,16 +1595,15 @@ class EncuestaConductorPDFView(LoginRequiredMixin, View):
 def _recorrido_para_pdf_pesv(request, pk):
     """
     El recorrido cuyo documento del PESV (encuesta o preoperacional) se va a
-    descargar, o el error que toca: lo bajan gestión, el conductor de ESE
-    recorrido y la SISO desde su carpeta (oct-2026). A otro conductor se le
-    dice que no existe (404); al resto, 403.
+    descargar, o el error que toca: lo bajan gestión (admins y asesores) y la
+    SISO desde su carpeta. El CONDUCTOR no: él solo ve sus respuestas en
+    pantalla (decisión de Santiago, oct-2026). A todos los demás, 403.
     """
     from django.core.exceptions import PermissionDenied
     recorrido = get_object_or_404(Recorrido, pk=pk)
-    if not (_puede_gestionar_manifiesto(request.user, recorrido)
-            or _puede_ver_pesv(request.user)):
-        if request.user.groups.filter(name='Conductores').exists():
-            raise Http404("Ese recorrido no es tuyo.")
+    user = request.user
+    if not (es_administrador(user) or user.groups.filter(name='Asesores').exists()
+            or _puede_ver_pesv(user)):
         raise PermissionDenied
     return recorrido
 
@@ -1804,7 +1802,7 @@ class PreoperacionalView(LoginRequiredMixin, View):
 
 
 class PreoperacionalPDFView(LoginRequiredMixin, View):
-    """El PDF del preoperacional: gestión, el conductor del recorrido y la SISO."""
+    """El PDF del preoperacional: gestión y la SISO (el conductor no, oct-2026)."""
     def get(self, request, pk):
         recorrido = _recorrido_para_pdf_pesv(request, pk)
         pre = getattr(recorrido, 'preoperacional', None)
@@ -3051,22 +3049,18 @@ class EliminarRecorridoView(AsesorRequiredMixin, View):
 @login_required
 def feed_calendario(request):
     """
-    Eventos del calendario. La agenda completa es de gestión; el conductor solo
-    recibe SUS recorridos, y ningún otro rol recibe nada (las órdenes, los
-    clientes y las placas son información de gestión — decisión del usuario,
-    ago-2026).
+    Eventos del calendario. La agenda es SOLO de gestión: ningún otro rol
+    recibe nada (las órdenes, los clientes y las placas son información de
+    gestión — decisión del usuario, ago-2026). El conductor tampoco: se le
+    quitó el calendario junto con el historial (oct-2026), su casa es «Mi
+    jornada» con lo de hoy.
     """
     user = request.user
     es_gestion = es_administrador(user) or user.groups.filter(name='Asesores').exists()
-    es_conductor = user.groups.filter(name='Conductores').exists()
-    if not (es_gestion or es_conductor):
+    if not es_gestion:
         return JsonResponse({'error': 'Sin acceso al calendario.'}, status=403)
 
-    if es_gestion:
-        recorridos = Recorrido.objects.all()
-    else:
-        # El conductor, solo lo suyo.
-        recorridos = Recorrido.objects.filter(conductor=user)
+    recorridos = Recorrido.objects.all()
 
     recorridos = recorridos.exclude(
         orden__estado_orden='CANCELADA'
@@ -3094,14 +3088,12 @@ def feed_calendario(request):
 
 class CalendarioView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
     """
-    Agenda de servicios. Muestra órdenes y placas, así que la ven gestión
-    (superusuario, Administradores, Asesores) y el CONDUCTOR, que en su feed
-    solo recibe SUS recorridos (ver feed_calendario).
+    Agenda de servicios. Muestra órdenes y placas, así que la ve solo gestión
+    (superusuario, Administradores, Asesores). El conductor ya no (oct-2026).
     """
     def test_func(self):
         user = self.request.user
-        return (es_administrador(user)
-                or user.groups.filter(name__in=('Asesores', 'Conductores')).exists())
+        return es_administrador(user) or user.groups.filter(name='Asesores').exists()
 
     template_name = 'gestion/calendario.html'
 
@@ -3349,11 +3341,10 @@ def _tareas_servicio_conductor(orden, actas_formato, grupos_fotos):
             'habilitada': con_tipo,
             'url': (reverse('gestion:preoperacional', kwargs={'pk': rec.pk})
                     if con_tipo else None),
-            'boton': 'Corregir' if pre is not None else 'Revisar',
+            # Hecho, vuelve a entrar a VER sus respuestas (sin PDF: el
+            # conductor no descarga documentos, oct-2026).
+            'boton': 'Ver tus respuestas' if pre is not None else 'Revisar',
             'formulario': None,
-            'pdf': (reverse('gestion:preoperacional_pdf', kwargs={'pk': rec.pk})
-                    if pre is not None else None),
-            'pdf_texto': 'Ver tu preoperacional (PDF)',
         })
 
     for item in actas_formato:
@@ -3438,13 +3429,12 @@ def _tareas_servicio_conductor(orden, actas_formato, grupos_fotos):
             'icono': 'bi-clipboard-check',
             'hecha': con_encuesta,
             'habilitada': estado == 'FIRMADA',
+            # Ya respondida, vuelve a entrar a VER sus respuestas (sin PDF:
+            # el conductor no descarga documentos, oct-2026).
             'url': (reverse('gestion:encuesta_conductor', kwargs={'pk': rec.pk})
-                    if estado == 'FIRMADA' and not con_encuesta else None),
-            'boton': 'Responder',
+                    if estado == 'FIRMADA' else None),
+            'boton': 'Ver tus respuestas' if con_encuesta else 'Responder',
             'formulario': None,
-            # Ya respondida, el conductor puede ver su PDF (antes estaba en el historial).
-            'pdf': (reverse('gestion:encuesta_conductor_pdf', kwargs={'pk': rec.pk})
-                    if con_encuesta else None),
         })
     return tareas
 
