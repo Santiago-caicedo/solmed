@@ -94,14 +94,12 @@
                 </div>
                 <div class="fa-fotos">
                     {% for foto in g.fotos %}
-                    {% with quien=foto.subido_por.get_full_name|default:foto.subido_por.username %}
                     <a class="fa-foto" href="{{ foto.archivo.url }}" target="_blank" rel="noopener"
-                       title="{% if foto.punto %}{{ foto.punto.nombre }} · {% endif %}{% if foto.subido_por %}Subió {{ quien }} · {% endif %}{{ foto.subido_en|date:'d/m/Y H:i' }}">
+                       title="{% if foto.punto %}{{ foto.punto.nombre }} · {% endif %}{% if foto.quien %}Subió {{ foto.quien }} · {% endif %}{{ foto.subido_en|date:'d/m/Y H:i' }}">
                         {% if foto.es_imagen %}<img src="{{ foto.archivo.url }}" alt="{{ foto.punto.nombre|default:'Foto del servicio' }}" loading="lazy">
                         {% else %}<span class="archivo"><i class="bi bi-file-earmark"></i></span>{% endif %}
                         <div class="pie">{{ foto.punto.nombre|default:"General" }}</div>
                     </a>
-                    {% endwith %}
                     {% endfor %}
                 </div>
             </div>

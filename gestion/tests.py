@@ -10146,6 +10146,16 @@ class FotosServiciosTests(BaseCRM):
         self.assertEqual(n(f'?desde={manana.isoformat()}'), 0)
         self.assertEqual(n(f'?hasta={self.programacion.fecha.isoformat()}'), 2)
 
+    def test_una_foto_vieja_sin_quien_la_subio_no_rompe_la_pantalla(self):
+        """En producción explotaba: «Failed lookup for key [username] in None» (oct-2026)."""
+        from .models import FotoRegistro
+        vieja = FotoRegistro.objects.create(orden=self.orden, archivo=imagen('vieja.png'))
+        respuesta = self.client.get(self.galeria)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.context['n_fotos'], 3)
+        self.assertContains(respuesta, vieja.archivo.url)
+        self.assertContains(respuesta, 'Subió')
+
     def test_sin_fotos_lo_dice(self):
         from .models import FotoRegistro
         FotoRegistro.objects.all().delete()

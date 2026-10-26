@@ -6939,6 +6939,10 @@ def _fotos_servicios(desde=None, hasta=None, cliente='', orden='', persona=None,
     dias = []
     for foto in fotos:
         foto.es_imagen = foto.archivo.name.lower().endswith(_EXT_IMAGEN)
+        # Quién la subió, ya en texto: las fotos viejas no lo tienen (None), y
+        # la plantilla no puede pedirle `.username` a None en un filtro.
+        quien = foto.subido_por
+        foto.quien = (quien.get_full_name() or quien.username) if quien else ''
         if not dias or dias[-1]['fecha'] != foto.dia:
             dias.append({'fecha': foto.dia, 'grupos': [], 'n': 0})
         dia = dias[-1]
