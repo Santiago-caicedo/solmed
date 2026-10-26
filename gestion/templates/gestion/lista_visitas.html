@@ -1,7 +1,7 @@
 {% extends "gestion/base.html" %}
 {% block title %}Visitas técnicas{% endblock %}
 {% block content %}
-{# Visitas técnicas (formato GC-F-01 v03, oct-2026): la oficina programa, el ejecutivo llena en campo. #}
+{# Visitas técnicas (formato GC-F-01 v03, oct-2026): la oficina la solicita, el cliente la aprueba por correo, el ejecutivo la llena en campo y el cliente la firma con QR. #}
 <style>
 .vt-chips{ display:flex; gap:.35rem; flex-wrap:wrap; }
 .vt-chip{ font-size:.8rem; padding:.3rem .7rem; min-height:31px; display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--line);
@@ -24,7 +24,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
         <h1 class="mb-0">Visitas técnicas</h1>
-        <small class="text-muted">Formato GC-F-01 · la oficina programa y el ejecutivo la llena en campo · {{ n_total }} en total</small>
+        <small class="text-muted">Formato GC-F-01 · la oficina solicita, el cliente aprueba y firma, el ejecutivo la llena en campo · {{ n_total }} en total</small>
     </div>
     <a href="{% url 'gestion:crear_visita' %}" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Solicitar visita</a>
 </div>
@@ -95,7 +95,7 @@
         </div>
         {% include 'gestion/partials/_paginacion.html' with etiqueta="visitas" %}
         {% else %}
-        <p class="text-muted p-4 mb-0">{% if q or estado or ejecutivo %}Ninguna visita con ese filtro.{% else %}Todavía no hay visitas técnicas. Programa la primera.{% endif %}</p>
+        <p class="text-muted p-4 mb-0">{% if q or estado or ejecutivo %}Ninguna visita con ese filtro.{% else %}Todavía no hay visitas técnicas. Solicita la primera.{% endif %}</p>
         {% endif %}
     </div>
 </div>

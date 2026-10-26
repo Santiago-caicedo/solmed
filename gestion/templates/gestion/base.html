@@ -117,6 +117,15 @@
     }
     .sidebar .nav-link i{ margin-right:.7rem; width:18px; font-size:1rem; color:#6f7c8b; transition:color .14s ease; }
     .sidebar .nav-link:hover i,.sidebar .nav-link.active i{ color:var(--brand); }
+    /* Grupo desplegable del menú (p. ej. «Fotos»): el botón y sus opciones */
+    .sidebar .nav-grupo{ width:100%; background:none; border:0; text-align:left; cursor:pointer; }
+    .sidebar .nav-grupo .flecha{ margin:0 0 0 auto; width:auto; font-size:.75rem; transition:transform .18s ease; }
+    .sidebar .nav-grupo[aria-expanded="true"] .flecha{ transform:rotate(90deg); }
+    .sidebar .nav-grupo.dentro{ color:#fff; }
+    .sidebar .nav-grupo.dentro > i:first-child{ color:var(--brand); }
+    .sidebar .nav-sub{ list-style:none; padding:0 0 .15rem 1.6rem; margin:0; }
+    .sidebar .nav-sub .nav-link{ font-size:.82rem; padding:.4rem .8rem; }
+    .sidebar .nav-sub .nav-link.active::before{ left:-.6rem; }
 
     .sidebar-footer{ flex-shrink:0; border-top:1px solid var(--rail-line); padding:.5rem .55rem .8rem; }
     .user-info{ display:flex; align-items:center; gap:.65rem; padding:.55rem .6rem .5rem; color:#cfd6df; }
@@ -466,16 +475,28 @@
                 <i class="bi bi-clipboard-data"></i>Órdenes de servicio
             </a>
         </li>
+        {# Una sola entrada «Fotos» que se despliega (pedido de Santiago, oct-2026). Abierta si se está en una de sus pantallas. #}
+        {% with en_fotos=request.path|slice:':11' %}
         <li>
-            <a href="{% url 'gestion:fotos_ayudantes' %}" class="nav-link {% if 'fotos-ayudantes' in request.path %}active{% endif %}">
-                <i class="bi bi-images"></i>Fotos de ayudantes
-            </a>
+            <button type="button" class="nav-link nav-grupo {% if en_fotos == '/app/fotos-' %}dentro{% endif %}"
+                    data-bs-toggle="collapse" data-bs-target="#menuFotos"
+                    aria-expanded="{% if en_fotos == '/app/fotos-' %}true{% else %}false{% endif %}" aria-controls="menuFotos">
+                <i class="bi bi-images"></i>Fotos<i class="bi bi-chevron-right flecha" aria-hidden="true"></i>
+            </button>
+            <ul class="nav-sub collapse {% if en_fotos == '/app/fotos-' %}show{% endif %}" id="menuFotos">
+                <li>
+                    <a href="{% url 'gestion:fotos_ayudantes' %}" class="nav-link {% if 'fotos-ayudantes' in request.path %}active{% endif %}">
+                        <i class="bi bi-person-badge"></i>Fotos de ayudantes
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'gestion:fotos_servicios' %}" class="nav-link {% if 'fotos-servicios' in request.path %}active{% endif %}">
+                        <i class="bi bi-camera"></i>Fotos de servicios
+                    </a>
+                </li>
+            </ul>
         </li>
-        <li>
-            <a href="{% url 'gestion:fotos_servicios' %}" class="nav-link {% if 'fotos-servicios' in request.path %}active{% endif %}">
-                <i class="bi bi-camera"></i>Fotos de servicios
-            </a>
-        </li>
+        {% endwith %}
         <li>
             <a href="{% url 'gestion:centro_correos' %}" class="nav-link {% if '/correos' in request.path %}active{% endif %}">
                 <i class="bi bi-envelope-paper"></i>Centro de correos
@@ -614,7 +635,8 @@
     function close(){ sb.classList.remove('open'); bd.classList.remove('show'); }
     btn.addEventListener('click', open);
     bd.addEventListener('click', close);
-    sb.querySelectorAll('.nav-link').forEach(function(a){ a.addEventListener('click', close); });
+    // Desplegar un grupo (p. ej. «Fotos») no cierra el menú: solo los enlaces.
+    sb.querySelectorAll('.nav-link:not(.nav-grupo)').forEach(function(a){ a.addEventListener('click', close); });
 })();
 // Asterisco rojo en los campos obligatorios.
 // Se marca desde el navegador y no plantilla por plantilla: el atributo

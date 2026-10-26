@@ -10108,6 +10108,14 @@ class FotosServiciosTests(BaseCRM):
         respuesta = self.client.get(self.galeria)
         self.assertEqual(respuesta.status_code, 200)
         self.assertContains(respuesta, f'href="{self.galeria}"')
+        # Las dos pantallas de fotos van dentro de una sola entrada «Fotos»
+        # que se despliega; en una de ellas, el grupo ya viene abierto.
+        self.assertContains(respuesta, 'id="menuFotos"')
+        self.assertContains(respuesta, 'nav-sub collapse show')
+        self.assertContains(respuesta, f'href="{reverse("gestion:fotos_ayudantes")}"')
+        afuera = self.client.get(reverse('gestion:lista_visitas'))
+        self.assertContains(afuera, 'id="menuFotos"')
+        self.assertNotContains(afuera, 'nav-sub collapse show')
         for persona in (self.conductor, self.persona('th', 'Talento Humano', 'Tere', 'Humana'),
                         self.persona('siso', 'SISO', 'Sara', 'Luna')):
             with self.subTest(persona=persona.username):
