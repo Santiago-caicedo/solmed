@@ -17,6 +17,7 @@ carpeta temporal que se borra al terminar (ver `medios_temporales`).
 """
 import base64
 import datetime
+import uuid
 import glob
 import io
 import json
@@ -9660,15 +9661,41 @@ class VisitasTecnicasTests(BaseCRM):
             'contacto': 'Pedro Pinto', 'cargo_contacto': 'Jefe de planta', 'telefonos': '3001234567',
             'email': 'pedro@lacteos.co', 'direccion': 'Km 3 vía Cali', 'sede_planta': 'Planta 1',
             'persona_recibe': 'Pedro Pinto', 'cargo_recibe': 'Jefe de planta', 'telefono_recibe': '3001234567',
-            'estado': 'PROGRAMADA', 'observaciones_ingreso': 'Llevar casco.',
+            'observaciones_ingreso': 'Llevar casco.',
         }
         datos.update(cambios)
         return datos
 
     def programar(self, **cambios):
         respuesta = self.client.post(reverse('gestion:crear_visita'), self.datos_programacion(**cambios))
-        self.assertEqual(respuesta.status_code, 302, getattr(respuesta, 'context', None) and respuesta.context['form'].errors)
+        if respuesta.status_code != 302:
+            contexto = respuesta.context
+            detalle = (contexto['form'].errors if contexto and 'form' in contexto
+                       else respuesta.content.decode()[:800])
+            self.fail(f'La visita no se guardo ({respuesta.status_code}): {detalle}')
         return self.VisitaTecnica.objects.latest('numero')
+
+    def publico(self):
+        """Un navegador sin sesión: el cliente, que entra solo con su enlace."""
+        return self.client_class()
+
+    def aprobar(self, visita, nombre='Pedro Pinto', cargo='Jefe de planta'):
+        """El cliente aprueba la solicitud desde su enlace; deja el buzón limpio."""
+        respuesta = self.publico().post(reverse('gestion:aprobar_visita', args=[visita.token_aprobacion]),
+                                        {'accion': 'aprobar', 'nombre': nombre, 'cargo': cargo})
+        self.assertEqual(respuesta.status_code, 200)
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA')
+        mail.outbox.clear()
+        return visita
+
+    def firmar(self, visita, nombre='Pedro Pinto', cargo='Jefe de planta', firma=None):
+        """El cliente firma desde su enlace (el token de firma nace si no existe)."""
+        token = visita.asegurar_token_firma()
+        respuesta = self.publico().post(reverse('gestion:firmar_visita', args=[token]),
+                                        {'nombre': nombre, 'cargo': cargo, 'signature_data': firma or firma_data_uri()})
+        visita.refresh_from_db()
+        return respuesta
 
     def datos_campo(self, n_servicios=1, **cambios):
         datos = {
@@ -9749,7 +9776,7 @@ class VisitasTecnicasTests(BaseCRM):
 
     def test_la_lista_filtra_por_estado_ejecutivo_y_busca(self):
         a = self.programar()
-        b = self.programar(empresa='Curtiembres Norte', estado='CONFIRMADA', ejecutivo=self.admin.pk)
+        b = self.aprobar(self.programar(empresa='Curtiembres Norte', ejecutivo=self.admin.pk))
         url = reverse('gestion:lista_visitas')
         def codigos(**params):
             return [v.codigo for v in self.client.get(url, params).context['visitas']]
@@ -9764,6 +9791,9 @@ class VisitasTecnicasTests(BaseCRM):
     def test_en_campo_se_guarda_por_partes_y_se_cierra_con_la_firma_del_cliente(self):
         visita = self.programar()
         url = reverse('gestion:campo_visita', args=[visita.pk])
+        # Sin la aprobación del cliente no hay hoja de campo.
+        self.assertRedirects(self.client.get(url), reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.aprobar(visita)
         pantalla = self.client.get(url)
         self.assertContains(pantalla, 'Información técnica del servicio')
         self.assertContains(pantalla, 'value="Ana Ruiz"', msg_prefix="el ejecutivo viene puesto")
@@ -9775,7 +9805,7 @@ class VisitasTecnicasTests(BaseCRM):
         respuesta = self.client.post(url, datos)
         self.assertRedirects(respuesta, url)
         visita.refresh_from_db()
-        self.assertEqual(visita.estado, 'PROGRAMADA')
+        self.assertEqual(visita.estado, 'CONFIRMADA')
         self.assertEqual(visita.servicios.count(), 2)
         self.assertEqual(visita.servicios.first().area_proceso, 'Área 1')
         self.assertEqual(visita.equipos_requeridos, 'VACTOR,OTRO')
@@ -9786,65 +9816,263 @@ class VisitasTecnicasTests(BaseCRM):
         self.assertEqual(visita.fotos.count(), 1)
         self.assertEqual(visita.fecha_cotizacion, self.hoy + datetime.timedelta(days=3))
 
-        # Marcarla realizada exige el representante del cliente y su firma.
+        # «Guardar y pasar a la firma del cliente»: guarda y lleva al QR. La
+        # visita sigue aprobada (abierta) hasta que el cliente firme.
         ids = [s.pk for s in visita.servicios.all()]
         base = self.datos_campo(n_servicios=2, **{'srv-INITIAL_FORMS': '2', 'srv-0-id': ids[0], 'srv-1-id': ids[1]})
-        respuesta = self.client.post(url, {**base, 'marcar_realizada': '1'})
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertContains(respuesta, 'quién atendió la visita')
+        respuesta = self.client.post(url, {**base, 'a_firma': '1', 'firma_ejecutivo_data': firma_data_uri(),
+                                           'srv-1-DELETE': 'on'})
+        self.assertRedirects(respuesta, reverse('gestion:firma_visita', args=[visita.pk]))
         visita.refresh_from_db()
-        self.assertEqual(visita.estado, 'PROGRAMADA')
-
-        respuesta = self.client.post(url, {
-            **base, 'marcar_realizada': '1', 'representante_cliente': 'Pedro Pinto',
-            'cargo_representante': 'Jefe de planta', 'firma_cliente_data': firma_data_uri(),
-            'firma_ejecutivo_data': firma_data_uri(), 'srv-1-DELETE': 'on'})
-        self.assertRedirects(respuesta, reverse('gestion:detalle_visita', args=[visita.pk]))
-        visita.refresh_from_db()
-        self.assertEqual(visita.estado, 'REALIZADA')
-        self.assertIsNotNone(visita.realizada_en)
-        self.assertEqual(visita.fecha_cierre, self.hoy)
-        self.assertTrue(visita.firma_cliente)
+        self.assertEqual(visita.estado, 'CONFIRMADA')
         self.assertTrue(visita.firma_ejecutivo)
         self.assertEqual(visita.servicios.count(), 1, "la segunda fila se quitó")
+
+        # La pantalla del QR crea el token de firma: OTRO, distinto del de aprobación.
+        qr = self.client.get(reverse('gestion:firma_visita', args=[visita.pk]))
+        self.assertEqual(qr.status_code, 200)
+        visita.refresh_from_db()
+        self.assertIsNotNone(visita.token_firma)
+        self.assertNotEqual(visita.token_firma, visita.token_aprobacion)
+        url_firma = reverse('gestion:firmar_visita', args=[visita.token_firma])
+        self.assertContains(qr, url_firma)
+        self.assertContains(qr, 'Esperando la firma del cliente')
+        self.assertEqual(self.client.get(reverse('gestion:estado_firma_visita', args=[visita.pk])).json(),
+                         {'firmada': False})
+
+        # El cliente, sin usuario, ve el resumen de lo levantado y firma.
+        publico = self.publico()
+        pagina = publico.get(url_firma)
+        self.assertEqual(pagina.status_code, 200)
+        self.assertContains(pagina, 'Lácteos del Valle')
+        self.assertContains(pagina, 'Succión de trampa de grasa.')
+        self.assertContains(pagina, 'Área 1')
+        sin_firma = publico.post(url_firma, {'nombre': 'Pedro Pinto'})
+        self.assertContains(sin_firma, 'Falta la firma')
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA')
+
+        respuesta = self.firmar(visita)
+        self.assertContains(respuesta, 'Gracias por su tiempo')
+        self.assertEqual(visita.estado, 'REALIZADA')
+        self.assertIsNotNone(visita.realizada_en)
+        self.assertIsNotNone(visita.firmada_en)
+        self.assertEqual(visita.fecha_cierre, self.hoy)
+        self.assertEqual(visita.representante_cliente, 'Pedro Pinto')
+        self.assertEqual(visita.cargo_representante, 'Jefe de planta')
+        self.assertTrue(visita.firma_cliente)
+        self.assertTrue(visita.val_constancia)
         self.assertFalse(visita.abierta)
+        # La oficina se entera, y el enlace de firma queda gastado.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('firmó la visita', mail.outbox[0].subject)
+        self.assertIn(self.asesor.email, mail.outbox[0].to)
+        self.assertContains(publico.get(url_firma), 'ya fue firmada')
+        self.assertEqual(self.client.get(reverse('gestion:estado_firma_visita', args=[visita.pk])).json(),
+                         {'firmada': True})
 
         detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
         self.assertContains(detalle, 'Realizada')
         self.assertContains(detalle, 'Otro: Grúa')
         self.assertContains(detalle, 'Corregir lo levantado')
+        self.assertContains(detalle, 'Firmada en línea')
         pdf = self.client.get(reverse('gestion:visita_pdf', args=[visita.pk]))
         self.assertEqual(pdf.status_code, 200)
         self.assertTrue(pdf.content.startswith(b'%PDF'))
 
     def test_una_firma_que_no_es_png_no_se_guarda(self):
-        visita = self.programar()
-        url = reverse('gestion:campo_visita', args=[visita.pk])
-        respuesta = self.client.post(url, {
-            **self.datos_campo(), 'marcar_realizada': '1', 'representante_cliente': 'Pedro',
-            'firma_cliente_data': 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='})
+        visita = self.aprobar(self.programar())
+        respuesta = self.firmar(visita, firma='data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=')
         self.assertEqual(respuesta.status_code, 200)
-        self.assertContains(respuesta, 'falta la firma del cliente')
-        visita.refresh_from_db()
+        self.assertContains(respuesta, 'Falta la firma')
         self.assertFalse(visita.firma_cliente)
-        self.assertEqual(visita.estado, 'PROGRAMADA')
+        self.assertEqual(visita.estado, 'CONFIRMADA')
 
     def test_el_estado_se_cambia_desde_el_detalle_menos_a_realizada(self):
         visita = self.programar()
+        token = visita.token_aprobacion
+        mail.outbox.clear()
         url = reverse('gestion:estado_visita', args=[visita.pk])
+        # La oficina puede darla por aprobada a mano (el cliente aceptó por teléfono).
         self.client.post(url, {'estado': 'CONFIRMADA'})
         visita.refresh_from_db()
         self.assertEqual(visita.estado, 'CONFIRMADA')
+        self.assertIn('oficina', visita.aprobada_por)
+        self.assertEqual(visita.cliente_acepta, 'SI')
         self.client.post(url, {'estado': 'REALIZADA'})
         visita.refresh_from_db()
-        self.assertEqual(visita.estado, 'CONFIRMADA', "«Realizada» se marca en campo")
+        self.assertEqual(visita.estado, 'CONFIRMADA', "«Realizada» la pone la firma del cliente")
+        # Reprogramar borra la aprobación, renueva el enlace y reenvía la solicitud.
+        self.client.post(url, {'estado': 'REPROGRAMADA'})
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'REPROGRAMADA')
+        self.assertIsNone(visita.aprobada_en)
+        self.assertEqual(visita.aprobada_por, '')
+        self.assertNotEqual(visita.token_aprobacion, token)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(str(visita.token_aprobacion), mail.outbox[0].body)
+        self.assertEqual(self.publico().get(reverse('gestion:aprobar_visita', args=[token])).status_code, 404)
         self.client.post(url, {'estado': 'CANCELADA'})
         visita.refresh_from_db()
         self.assertEqual(visita.estado, 'CANCELADA')
         self.assertNotContains(self.client.get(reverse('gestion:lista_visitas')), 'En campo')
+        self.assertContains(self.publico().get(reverse('gestion:aprobar_visita', args=[visita.token_aprobacion])),
+                            'fue cancelada')
+
+    def test_al_solicitar_la_visita_el_cliente_recibe_el_correo_con_su_enlace(self):
+        visita = self.programar()
+        self.assertEqual(visita.estado, 'PROGRAMADA')
+        self.assertIsNotNone(visita.solicitud_enviada_en)
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(correo.to, ['pedro@lacteos.co'])
+        self.assertIn('Solicitud de visita técnica VT-0001', correo.subject)
+        url = reverse('gestion:aprobar_visita', args=[visita.token_aprobacion])
+        self.assertIn(url, correo.body)
+        self.assertIn('Hora de ingreso: 9:30', correo.body)
+        html = correo.alternatives[0][0]
+        self.assertIn(url, html)
+        self.assertIn('Ver y aprobar la visita', html)
+        # El detalle muestra la aprobación pendiente, el enlace, y deja reenviar.
+        detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertContains(detalle, 'Pendiente de aprobación')
+        self.assertContains(detalle, 'Reenviar la solicitud')
+        self.assertContains(detalle, url)
+        self.client.post(reverse('gestion:reenviar_solicitud_visita', args=[visita.pk]))
+        self.assertEqual(len(mail.outbox), 2)
+        # Sin correo del cliente no se manda nada y se avisa.
+        mail.outbox.clear()
+        otra = self.programar(email='', empresa='Sin Correo S.A.')
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIsNone(otra.solicitud_enviada_en)
+        self.assertContains(self.client.get(reverse('gestion:detalle_visita', args=[otra.pk])), 'no tiene correo')
+
+    def test_la_hora_de_ingreso_es_obligatoria(self):
+        respuesta = self.client.post(reverse('gestion:crear_visita'), self.datos_programacion(hora_inicio=''))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.context['form'].errors['hora_inicio'])
+        self.assertEqual(self.VisitaTecnica.objects.count(), 0)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_el_cliente_aprueba_desde_su_enlace_y_el_enlace_se_gasta(self):
+        visita = self.programar()
+        mail.outbox.clear()
+        publico = self.publico()
+        url = reverse('gestion:aprobar_visita', args=[visita.token_aprobacion])
+        pagina = publico.get(url)
+        self.assertEqual(pagina.status_code, 200)
+        for texto in ('Lácteos del Valle', '9:30', 'Km 3 vía Cali', 'Ana Ruiz', 'Llevar casco.', 'Aprobar la visita'):
+            self.assertContains(pagina, texto)
+        # Sin nombre no se aprueba.
+        respuesta = publico.post(url, {'accion': 'aprobar', 'nombre': ''})
+        self.assertContains(respuesta, 'Escribe tu nombre')
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'PROGRAMADA')
+        respuesta = publico.post(url, {'accion': 'aprobar', 'nombre': 'Luisa Mora', 'cargo': 'Gerente'})
+        self.assertContains(respuesta, 'quedó aprobada')
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA')
+        self.assertTrue(visita.aprobada)
+        self.assertEqual(visita.aprobada_por, 'Luisa Mora')
+        self.assertEqual(visita.cargo_aprobo, 'Gerente')
+        self.assertIsNotNone(visita.aprobada_en)
+        self.assertEqual(visita.cliente_acepta, 'SI')
+        self.assertEqual(visita.medio_confirmacion, 'CORREO')
+        # La oficina se entera.
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('aprobó la visita VT-0001', mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[0].to, [self.asesor.email])
+        # El enlace ya no sirve para nada más, y un token inventado no abre nada.
+        self.assertContains(publico.get(url), 'ya fue aprobada')
+        publico.post(url, {'accion': 'cambio', 'comentario': 'tarde'})
+        visita.refresh_from_db()
+        self.assertEqual(visita.comentario_cliente, '')
+        self.assertEqual(publico.get(reverse('gestion:aprobar_visita', args=[uuid.uuid4()])).status_code, 404)
+        # Ahora sí: la lista ofrece «En campo» y el detalle muestra quién aprobó.
+        self.assertContains(self.client.get(reverse('gestion:lista_visitas')), 'En campo')
+        detalle = self.client.get(reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertContains(detalle, 'Luisa Mora')
+        self.assertContains(detalle, 'Firma del cliente')
+
+    def test_el_cliente_pide_otra_fecha_y_la_oficina_se_entera(self):
+        visita = self.programar()
+        mail.outbox.clear()
+        publico = self.publico()
+        url = reverse('gestion:aprobar_visita', args=[visita.token_aprobacion])
+        respuesta = publico.post(url, {'accion': 'cambio', 'nombre': 'Pedro Pinto', 'comentario': ''})
+        self.assertContains(respuesta, 'qué fecha u hora te sirve')
+        respuesta = publico.post(url, {'accion': 'cambio', 'nombre': 'Pedro Pinto',
+                                       'comentario': 'Mejor el viernes en la tarde.'})
+        self.assertContains(respuesta, 'Recibimos su comentario')
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'PROGRAMADA', "sigue pendiente: la oficina reprograma")
+        self.assertEqual(visita.comentario_cliente, 'Mejor el viernes en la tarde.')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('pide otra fecha', mail.outbox[0].subject)
+        self.assertIn('Mejor el viernes en la tarde.', mail.outbox[0].body)
+        self.assertContains(self.client.get(reverse('gestion:detalle_visita', args=[visita.pk])),
+                            'Mejor el viernes en la tarde.')
+        # El enlace sigue vivo: puede aprobar después.
+        self.assertContains(publico.get(url), 'Aprobar la visita')
+
+    def test_cambiar_la_fecha_o_la_hora_pide_la_aprobacion_de_nuevo(self):
+        visita = self.aprobar(self.programar())
+        token = visita.token_aprobacion
+        url = reverse('gestion:editar_visita', args=[visita.pk])
+        # Corregir otra cosa no toca la aprobación ni manda correos.
+        self.client.post(url, self.datos_programacion(sede_planta='Planta 2'))
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'CONFIRMADA')
+        self.assertEqual(visita.token_aprobacion, token)
+        self.assertEqual(len(mail.outbox), 0)
+        # Cambiar la hora de ingreso sí: reprogramada, enlace nuevo, correo nuevo.
+        self.client.post(url, self.datos_programacion(hora_inicio='14:00'))
+        visita.refresh_from_db()
+        self.assertEqual(visita.estado, 'REPROGRAMADA')
+        self.assertTrue(visita.pendiente_aprobacion)
+        self.assertIsNone(visita.aprobada_en)
+        self.assertEqual(visita.aprobada_por, '')
+        self.assertNotEqual(visita.token_aprobacion, token)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Nueva fecha', mail.outbox[0].alternatives[0][0])
+        self.assertIn('2:00', mail.outbox[0].body)
+        # Mientras tanto no se trabaja en campo, y el enlace viejo murió.
+        self.assertRedirects(self.client.get(reverse('gestion:campo_visita', args=[visita.pk])),
+                             reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertEqual(self.publico().get(reverse('gestion:aprobar_visita', args=[token])).status_code, 404)
+        self.aprobar(visita)
+        self.assertEqual(self.client.get(reverse('gestion:campo_visita', args=[visita.pk])).status_code, 200)
+
+    def test_el_enlace_de_firma_se_manda_al_correo_y_es_distinto_del_de_aprobacion(self):
+        visita = self.aprobar(self.programar())
+        url_qr = reverse('gestion:firma_visita', args=[visita.pk])
+        self.client.get(url_qr)
+        visita.refresh_from_db()
+        self.assertNotEqual(visita.token_firma, visita.token_aprobacion)
+        # El token de aprobación NO firma, y el de firma NO aprueba.
+        self.assertEqual(self.publico().get(reverse('gestion:firmar_visita', args=[visita.token_aprobacion])).status_code, 404)
+        self.assertEqual(self.publico().get(reverse('gestion:aprobar_visita', args=[visita.token_firma])).status_code, 404)
+        respuesta = self.client.post(url_qr)
+        self.assertRedirects(respuesta, url_qr)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['pedro@lacteos.co'])
+        self.assertIn(reverse('gestion:firmar_visita', args=[visita.token_firma]), mail.outbox[0].body)
+        self.assertIn('Firma de la visita técnica', mail.outbox[0].subject)
+        # Las páginas públicas no exigen sesión; la del QR sí.
+        anonimo = self.publico()
+        self.assertEqual(anonimo.get(url_qr).status_code, 302)
+        self.assertEqual(anonimo.get(reverse('gestion:firmar_visita', args=[visita.token_firma])).status_code, 200)
+
+    def test_sin_aprobacion_no_hay_firma_ni_campo(self):
+        visita = self.programar()
+        self.assertRedirects(self.client.get(reverse('gestion:firma_visita', args=[visita.pk])),
+                             reverse('gestion:detalle_visita', args=[visita.pk]))
+        self.assertNotContains(self.client.get(reverse('gestion:lista_visitas')), 'En campo')
+        self.assertContains(self.client.get(reverse('gestion:detalle_visita', args=[visita.pk])),
+                            'cuando el cliente apruebe')
 
     def test_las_fotos_se_quitan_desde_la_hoja_de_campo(self):
-        visita = self.programar()
+        visita = self.aprobar(self.programar())
         url = reverse('gestion:campo_visita', args=[visita.pk])
         datos = self.datos_campo(seguir='1')
         datos['fotos'] = [imagen('a.png'), imagen('b.png')]
@@ -9855,3 +10083,70 @@ class VisitasTecnicasTests(BaseCRM):
                                      {'volver': url})
         self.assertRedirects(respuesta, url)
         self.assertEqual(visita.fotos.count(), 1)
+
+
+class FotosServiciosTests(BaseCRM):
+    """
+    «Fotos de servicios» (oct-2026, pedido de Santiago): el registro
+    fotográfico de todas las órdenes en una sola pantalla, por día y orden,
+    como «Fotos de ayudantes». Solo gestión y asesores.
+    """
+
+    def setUp(self):
+        from .models import FotoRegistro, PuntoRegistro
+        datos = self.servicio_completo()
+        self.__dict__.update(datos)
+        self.punto = PuntoRegistro.objects.create(cliente=self.orden.cliente, nombre='Trampa de grasa cocina')
+        self.foto = FotoRegistro.objects.create(orden=self.orden, punto=self.punto,
+                                                archivo=imagen('trampa.png'), subido_por=self.conductor)
+        self.general = FotoRegistro.objects.create(orden=self.orden, archivo=archivo('soporte.pdf'),
+                                                   subido_por=self.asesor)
+        self.galeria = reverse('gestion:fotos_servicios')
+        self.entrar(self.asesor)
+
+    def test_es_de_gestion_y_esta_en_el_menu(self):
+        respuesta = self.client.get(self.galeria)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, f'href="{self.galeria}"')
+        for persona in (self.conductor, self.persona('th', 'Talento Humano', 'Tere', 'Humana'),
+                        self.persona('siso', 'SISO', 'Sara', 'Luna')):
+            with self.subTest(persona=persona.username):
+                self.entrar(persona)
+                self.assertEqual(self.client.get(self.galeria).status_code, 403)
+
+    def test_lista_por_dia_y_orden_con_cliente_placa_punto_y_quien_subio(self):
+        respuesta = self.client.get(self.galeria)
+        contenido = respuesta.content.decode()
+        self.assertEqual(respuesta.context['n_fotos'], 2)
+        self.assertEqual(respuesta.context['n_ordenes'], 1)
+        dia = respuesta.context['dias'][0]
+        self.assertEqual(dia['fecha'], self.programacion.fecha, "el día es el de la programación")
+        self.assertIn(f'Orden #{self.orden.numero_orden}', contenido)
+        self.assertIn(self.orden.cliente.nombre, contenido)
+        self.assertIn(self.recorrido.vehiculo.placa, contenido)
+        self.assertIn('Trampa de grasa cocina', contenido)
+        self.assertIn(self.foto.archivo.url, contenido)
+        self.assertIn(self.general.archivo.url, contenido)
+        self.assertIn('bi-file-earmark', contenido, "lo que no es imagen sale como archivo")
+
+    def test_los_filtros(self):
+        def n(consulta):
+            return self.client.get(self.galeria + consulta).context['n_fotos']
+
+        self.assertEqual(n(f'?persona={self.conductor.pk}'), 1)
+        self.assertEqual(n(f'?persona={self.asesor.pk}'), 1)
+        self.assertEqual(n('?persona=basura'), 2)
+        self.assertEqual(n('?punto=trampa'), 1)
+        self.assertEqual(n(f'?orden={self.orden.numero_orden}'), 2)
+        self.assertEqual(n(f'?orden=%23{self.orden.numero_orden}'), 2, "acepta el número con #")
+        self.assertEqual(n('?orden=999999'), 0)
+        self.assertEqual(n('?cliente=nadie'), 0)
+        self.assertEqual(n(f'?cliente={self.orden.cliente.nombre[:5]}'), 2)
+        manana = self.programacion.fecha + datetime.timedelta(days=1)
+        self.assertEqual(n(f'?desde={manana.isoformat()}'), 0)
+        self.assertEqual(n(f'?hasta={self.programacion.fecha.isoformat()}'), 2)
+
+    def test_sin_fotos_lo_dice(self):
+        from .models import FotoRegistro
+        FotoRegistro.objects.all().delete()
+        self.assertContains(self.client.get(self.galeria), 'No se subieron fotos de servicios')

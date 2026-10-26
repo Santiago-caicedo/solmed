@@ -1,7 +1,7 @@
 {% extends "gestion/base.html" %}
 {% block title %}{% if visita %}{{ visita.codigo }} · Programación{% else %}Programar visita técnica{% endif %}{% endblock %}
 {% block content %}
-{# Sección 1 del formato GC-F-01: la programación de la visita, que llena la oficina antes de desplazarse. #}
+{# Sección 1 del formato GC-F-01: la SOLICITUD de la visita, que llena la oficina. Al guardarla, el cliente recibe el correo con su enlace para aprobarla. #}
 <style>
 .fv-sec{ font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--steel-600); margin:1.4rem 0 .6rem; display:flex; align-items:center; gap:.4rem; }
 .fv-sec:first-child{ margin-top:0; }
@@ -14,8 +14,8 @@
 <nav class="small mb-2"><a href="{% url 'gestion:lista_visitas' %}" class="text-decoration-none">Visitas técnicas</a>{% if visita %} › <a href="{% url 'gestion:detalle_visita' visita.pk %}" class="text-decoration-none">{{ visita.codigo }}</a>{% endif %}</nav>
 <div class="card shadow">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h4 class="mb-0">{% if visita %}{{ visita.codigo }} · Programación de la visita{% else %}Programar visita técnica{% endif %}</h4>
-        <span class="text-muted small">Sección 1 · se diligencia antes de desplazarse al cliente</span>
+        <h4 class="mb-0">{% if visita %}{{ visita.codigo }} · Programación de la visita{% else %}Solicitar visita técnica{% endif %}</h4>
+        <span class="text-muted small">Sección 1 · al guardar, el cliente recibe la solicitud en su correo para aprobarla</span>
     </div>
     <div class="card-body p-4">
         <form method="post" novalidate>
@@ -34,11 +34,12 @@
             <div class="row g-3">
                 <div class="col-md-3"><label class="form-label" for="{{ form.fecha_solicitud.id_for_label }}">Fecha de solicitud</label>{{ form.fecha_solicitud }}</div>
                 <div class="col-md-3"><label class="form-label" for="{{ form.fecha_programada.id_for_label }}">Fecha programada <span class="text-danger">*</span></label>{{ form.fecha_programada }}</div>
-                <div class="col-md-2"><label class="form-label" for="{{ form.hora_inicio.id_for_label }}">Hora de inicio</label>{{ form.hora_inicio }}</div>
+                <div class="col-md-2"><label class="form-label" for="{{ form.hora_inicio.id_for_label }}">Hora de ingreso <span class="text-danger">*</span></label>{{ form.hora_inicio }}</div>
                 <div class="col-md-4"><label class="form-label" for="{{ form.ejecutivo.id_for_label }}">Ejecutivo comercial responsable</label>{{ form.ejecutivo }}</div>
             </div>
 
             <div class="fv-sec"><i class="bi bi-chat-dots"></i>Confirmación con el cliente</div>
+            <div class="form-text mb-1">Se marca solo cuando el cliente aprueba desde el enlace de su correo. Si confirmó por otro medio (llamada, WhatsApp), márcalo aquí y pon la visita como aprobada desde su detalle.</div>
             <div class="row g-3">
                 <div class="col-md-4"><label class="form-label d-block">¿El cliente acepta la visita técnica?</label><div class="fv-radios">{{ form.cliente_acepta }}</div></div>
                 <div class="col-md-5"><label class="form-label d-block">Medio de confirmación</label><div class="fv-radios">{{ form.medio_confirmacion }}</div></div>
@@ -84,13 +85,12 @@
                 <div class="col-md-5"><label class="form-label" for="{{ form.persona_recibe.id_for_label }}">Persona que recibirá al ejecutivo</label>{{ form.persona_recibe }}</div>
                 <div class="col-md-3"><label class="form-label" for="{{ form.cargo_recibe.id_for_label }}">Cargo</label>{{ form.cargo_recibe }}</div>
                 <div class="col-md-4"><label class="form-label" for="{{ form.telefono_recibe.id_for_label }}">Teléfono de contacto</label>{{ form.telefono_recibe }}</div>
-                <div class="col-md-3"><label class="form-label" for="{{ form.estado.id_for_label }}">Estado</label>{{ form.estado }}</div>
-                <div class="col-md-9"><label class="form-label" for="{{ form.observaciones_ingreso.id_for_label }}">Observaciones / Restricciones para el ingreso</label>{{ form.observaciones_ingreso }}</div>
+                <div class="col-md-12"><label class="form-label" for="{{ form.observaciones_ingreso.id_for_label }}">Observaciones / Restricciones para el ingreso</label>{{ form.observaciones_ingreso }}</div>
             </div>
 
             <div class="d-flex justify-content-end gap-2 mt-4">
                 <a href="{% if visita %}{% url 'gestion:detalle_visita' visita.pk %}{% else %}{% url 'gestion:lista_visitas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
-                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>{% if visita %}Guardar cambios{% else %}Programar la visita{% endif %}</button>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>{% if visita %}Guardar cambios{% else %}Solicitar la visita y avisar al cliente{% endif %}</button>
             </div>
         </form>
     </div>

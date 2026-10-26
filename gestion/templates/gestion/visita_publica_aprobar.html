@@ -1,0 +1,49 @@
+{% extends "gestion/visita_publica_base.html" %}
+{% block title %}Aprobar la visita técnica{% endblock %}
+{% block titulo %}Solicitud de visita técnica{% endblock %}
+{% block cuerpo %}
+{# El cliente ve los detalles de la visita y la aprueba con su nombre, o pide otra fecha. #}
+{% if error %}<div class="ep-error"><i class="bi bi-exclamation-circle me-1"></i>{{ error }}</div>{% endif %}
+
+<div class="ep-card" style="margin-top:1.2rem;">
+    <h2>Detalles de la visita</h2>
+    <p class="ep-sec" style="margin-top:-.4rem;">SOLMED SAS solicita realizar una visita técnica en sus instalaciones para conocer el servicio que requiere. Revise los datos y apruébela abajo.</p>
+    <div class="ep-det">
+        {% for etiqueta, valor in detalles %}{% if valor %}
+        <div class="{% if etiqueta == 'Dirección' or etiqueta == 'Observaciones de ingreso' or etiqueta == 'Fecha de la visita' %}ancho{% endif %}">
+            <div class="k">{{ etiqueta }}</div>
+            <div class="v {% if etiqueta == 'Fecha de la visita' or etiqueta == 'Hora de ingreso' %}grande{% endif %}">{{ valor }}</div>
+        </div>
+        {% endif %}{% endfor %}
+    </div>
+</div>
+
+<form method="post" id="form-aprobar">
+    {% csrf_token %}
+    <div class="ep-card">
+        <h2>Su aprobación</h2>
+        <div class="mb-3">
+            <label for="id_nombre" class="form-label" style="font-weight:600; font-size:.9rem;">Nombre de quien aprueba <span class="text-danger">*</span></label>
+            <input type="text" name="nombre" id="id_nombre" class="form-control form-control-lg" value="{{ nombre }}" required autocomplete="name">
+        </div>
+        <div class="mb-3">
+            <label for="id_cargo" class="form-label" style="font-weight:600; font-size:.9rem;">Cargo</label>
+            <input type="text" name="cargo" id="id_cargo" class="form-control" value="{{ cargo }}" autocomplete="organization-title">
+        </div>
+        <div class="d-grid ep-enviar">
+            <button type="submit" name="accion" value="aprobar" class="btn btn-success"><i class="bi bi-check2-circle me-1"></i> Aprobar la visita</button>
+        </div>
+    </div>
+
+    <div class="ep-card">
+        <details class="ep-cambio" {% if comentario %}open{% endif %}>
+            <summary><i class="bi bi-chevron-right me-1"></i>¿No le sirve la fecha o la hora? Pida un cambio</summary>
+            <div class="mt-3">
+                <label for="id_comentario" class="form-label" style="font-weight:600; font-size:.9rem;">Cuéntenos qué fecha u hora le sirve</label>
+                <textarea name="comentario" id="id_comentario" class="form-control" rows="3">{{ comentario }}</textarea>
+                <button type="submit" name="accion" value="cambio" formnovalidate class="btn btn-outline-secondary mt-2"><i class="bi bi-calendar2-x me-1"></i>Pedir otra fecha</button>
+            </div>
+        </details>
+    </div>
+</form>
+{% endblock %}

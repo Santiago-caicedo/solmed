@@ -26,7 +26,7 @@
         <h1 class="mb-0">Visitas técnicas</h1>
         <small class="text-muted">Formato GC-F-01 · la oficina programa y el ejecutivo la llena en campo · {{ n_total }} en total</small>
     </div>
-    <a href="{% url 'gestion:crear_visita' %}" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Programar visita</a>
+    <a href="{% url 'gestion:crear_visita' %}" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Solicitar visita</a>
 </div>
 
 <div class="card shadow mb-3">
@@ -84,7 +84,7 @@
                     <td>{% if v.ejecutivo %}{{ v.ejecutivo.get_full_name|default:v.ejecutivo.username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td><span class="vt-estado {{ v.estado }}">{{ v.get_estado_display }}</span></td>
                     <td class="text-end">
-                        {% if v.abierta %}<a href="{% url 'gestion:campo_visita' v.pk %}" class="btn btn-sm btn-success" title="Llenar en campo"><i class="bi bi-phone me-1"></i>En campo</a>{% endif %}
+                        {% if v.aprobada %}<a href="{% url 'gestion:campo_visita' v.pk %}" class="btn btn-sm btn-success" title="Llenar en campo"><i class="bi bi-phone me-1"></i>En campo</a>{% endif %}
                         <a href="{% url 'gestion:detalle_visita' v.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-folder2-open me-1"></i>Ver</a>
                         <a href="{% url 'gestion:visita_pdf' v.pk %}" class="btn btn-sm btn-outline-danger" title="PDF del formato"><i class="bi bi-file-earmark-pdf-fill"></i></a>
                     </td>

@@ -1,0 +1,55 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Visita técnica{% endblock %} — SOLMED</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    {% comment %}
+    Las páginas PÚBLICAS de la visita técnica (el cliente, sin usuario): la
+    aprobación de la solicitud y la firma. Mismo diseño que la encuesta y
+    firma del acta de servicio.
+    {% endcomment %}
+    <style>
+        :root{ --brand:#9CBE30; --brand-600:#5E8C1B; --steel:#215E8C; --ink:#111A24; --ink-2:#51606E; --ink-3:#8A97A5; --line:#DCE1E8; }
+        body{ margin:0; background:#EDF0F4; color:var(--ink); font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif; padding-bottom:3rem; }
+        .ep-top{ background:linear-gradient(160deg,#16222F,#0A111A); color:#fff; padding:1.2rem 1rem 1.6rem; text-align:center; }
+        .ep-top img{ max-height:44px; background:#fff; border-radius:8px; padding:5px 12px; }
+        .ep-top h1{ font-size:1.25rem; font-weight:700; margin:.7rem 0 .15rem; }
+        .ep-top .sub{ color:#a7b2be; font-size:.88rem; }
+        .ep-wrap{ max-width:640px; margin:-0.8rem auto 0; padding:0 .8rem; }
+        .ep-card{ background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 2px 10px rgba(15,23,35,.06); padding:1rem 1.1rem; margin-bottom:.9rem; }
+        .ep-card h2{ font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3); font-weight:600; margin:0 0 .8rem; }
+        .ep-det{ display:grid; grid-template-columns:1fr; gap:.55rem; }
+        .ep-det .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+        .ep-det .v{ font-weight:600; font-size:.98rem; line-height:1.35; white-space:pre-line; }
+        .ep-det .v.grande{ font-size:1.15rem; color:var(--steel); }
+        @media (min-width:520px){ .ep-det{ grid-template-columns:1fr 1fr; } .ep-det .ancho{ grid-column:1 / -1; } }
+        .ep-error{ background:#fdecec; border:1px solid #f3b9b9; color:#8a1f1f; border-radius:8px; padding:.7rem .9rem; margin-top:1.2rem; font-weight:600; }
+        .ep-enviar .btn{ padding:.85rem; font-weight:700; font-size:1.05rem; }
+        .ep-sec{ color:var(--ink-2); font-size:.86rem; }
+        .firma-caja{ border:1.5px dashed #cdd4dd; border-radius:10px; background:#fff; overflow:hidden; }
+        #signature-pad{ display:block; width:100%; height:200px; touch-action:none; cursor:crosshair; }
+        .ep-tabla td, .ep-tabla th{ font-size:.82rem; padding:.3rem .4rem; }
+        .ep-nota{ font-size:.8rem; color:var(--ink-2); background:#F7F9FB; border:1px solid #E9EDF2; border-radius:8px; padding:.6rem .8rem; }
+        details.ep-cambio summary{ cursor:pointer; font-weight:600; color:var(--steel); list-style:none; }
+        details.ep-cambio summary::-webkit-details-marker{ display:none; }
+        details.ep-cambio summary i{ transition:transform .15s; }
+        details.ep-cambio[open] summary i{ transform:rotate(90deg); }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+<div class="ep-top">
+    <img src="{% static 'images/logo-solmed.png' %}" alt="SOLMED">
+    <h1>{% block titulo %}Visita técnica{% endblock %}</h1>
+    <div class="sub">{% block sub %}{{ visita.codigo }} &middot; {{ visita.empresa }}{% endblock %}</div>
+</div>
+<div class="ep-wrap">
+    {% block cuerpo %}{% endblock %}
+    <p class="text-center text-muted mt-3" style="font-size:.78rem;">SOLMED SAS &middot; Juntos por un ambiente más limpio y sostenible.</p>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

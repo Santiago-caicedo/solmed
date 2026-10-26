@@ -42,6 +42,13 @@ urlpatterns = [
     path('visitas/<int:pk>/estado/', visitas.CambiarEstadoVisitaView.as_view(), name='estado_visita'),
     path('visitas/<int:pk>/fotos/<int:foto_pk>/eliminar/', visitas.EliminarFotoVisitaView.as_view(), name='eliminar_foto_visita'),
     path('visitas/<int:pk>/pdf/', visitas.VisitaPDFView.as_view(), name='visita_pdf'),
+    path('visitas/<int:pk>/reenviar-solicitud/', visitas.ReenviarSolicitudVisitaView.as_view(), name='reenviar_solicitud_visita'),
+    path('visitas/<int:pk>/firma/', visitas.FirmaVisitaView.as_view(), name='firma_visita'),
+    path('visitas/<int:pk>/firma/estado.json', visitas.EstadoFirmaVisitaView.as_view(), name='estado_firma_visita'),
+    # Las páginas del CLIENTE (sin usuario): aprobar la solicitud y firmar la
+    # visita, cada una con su propio token de un solo uso.
+    path('visita/aprobar/<uuid:token>/', visitas.AprobarVisitaPublicaView.as_view(), name='aprobar_visita'),
+    path('visita/firmar/<uuid:token>/', visitas.FirmarVisitaPublicaView.as_view(), name='firmar_visita'),
     # --- Carpeta del PESV: preoperacionales y encuestas de cierre, mes a mes (SISO y gestión) ---
     path('pesv/', views.CarpetaPESVView.as_view(), name='pesv'),
     path('pesv/excel/', views.CarpetaPESVExcelView.as_view(), name='pesv_excel'),
@@ -171,6 +178,7 @@ urlpatterns = [
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),
     # Las fotos de todos los ayudantes por día, sin abrir cada orden (oct-2026).
     path('fotos-ayudantes/', views.FotosAyudantesView.as_view(), name='fotos_ayudantes'),
+    path('fotos-servicios/', views.FotosServiciosView.as_view(), name='fotos_servicios'),
     path('personal/<int:pk>/centro/', views.CentroControlPersonaView.as_view(), name='centro_control_persona'),
     path('personal/<int:pk>/centro/pdf/', views.CentroControlPDFView.as_view(), name='centro_control_pdf'),
     path('personal/<int:pk>/centro/excel/', views.CentroControlExcelView.as_view(), name='centro_control_excel'),

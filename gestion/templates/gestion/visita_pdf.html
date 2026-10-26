@@ -85,13 +85,14 @@
                 <tr>
                     <td class="l">Fecha de solicitud:</td><td class="v">{{ visita.fecha_solicitud|date:"d/m/Y" }}</td>
                     <td class="l">Fecha programada:</td><td class="v">{{ visita.fecha_programada|date:"d/m/Y" }}</td>
-                    <td class="l">Hora de inicio prevista:</td><td class="v">{% if visita.hora_inicio %}{{ visita.hora_inicio|time:"g:i a" }}{% endif %}</td>
+                    <td class="l">Hora de ingreso:</td><td class="v">{% if visita.hora_inicio %}{{ visita.hora_inicio|time:"g:i a" }}{% endif %}</td>
                 </tr>
                 <tr>
                     <td class="l">Ejecutivo comercial responsable:</td><td class="v" colspan="2">{% if visita.ejecutivo %}{{ visita.ejecutivo.get_full_name|default:visita.ejecutivo.username }}{% endif %}</td>
                     <td class="l">¿El cliente acepta la visita técnica?</td>
                     <td colspan="2" class="ops"><span><span class="chk {% if visita.cliente_acepta == 'SI' %}on{% endif %}">{% if visita.cliente_acepta == 'SI' %}✓{% endif %}</span>Sí</span><span><span class="chk {% if visita.cliente_acepta == 'NO' %}on{% endif %}">{% if visita.cliente_acepta == 'NO' %}✓{% endif %}</span>No</span>
-                        &nbsp; Medio: {% for clave, nombre in visita.MEDIO_CHOICES %}<span><span class="chk {% if visita.medio_confirmacion == clave %}on{% endif %}">{% if visita.medio_confirmacion == clave %}✓{% endif %}</span>{{ nombre }}{% if clave == 'OTRO' and visita.medio_otro %}: {{ visita.medio_otro }}{% endif %}</span>{% endfor %}</td>
+                        &nbsp; Medio: {% for clave, nombre in visita.MEDIO_CHOICES %}<span><span class="chk {% if visita.medio_confirmacion == clave %}on{% endif %}">{% if visita.medio_confirmacion == clave %}✓{% endif %}</span>{{ nombre }}{% if clave == 'OTRO' and visita.medio_otro %}: {{ visita.medio_otro }}{% endif %}</span>{% endfor %}
+                        {% if visita.aprobada_por %}<div style="font-size:7pt; color:#555; margin-top:1px;">Aprobó: {{ visita.aprobada_por }}{% if visita.cargo_aprobo %} ({{ visita.cargo_aprobo }}){% endif %} · {{ visita.aprobada_en|date:"d/m/Y H:i" }}</div>{% endif %}</td>
                 </tr>
                 <tr>
                     <td class="l">Empresa:</td><td class="v" colspan="2">{{ visita.empresa }}</td>
@@ -202,7 +203,7 @@
         <div class="sec-b">
             <table class="firmas"><tr>
                 <td><div class="caja">{% if firma_ejecutivo %}<img src="{{ firma_ejecutivo }}" alt="">{% endif %}<div class="rol">Ejecutivo comercial SOLMED</div>Nombre: {{ visita.ejecutivo_realizo }}<br>Fecha: {{ visita.fecha_cierre|date:"d/m/Y" }}</div></td>
-                <td><div class="caja">{% if firma_cliente %}<img src="{{ firma_cliente }}" alt="">{% endif %}<div class="rol">Representante del cliente</div>Nombre: {{ visita.representante_cliente }}<br>Cargo: {{ visita.cargo_representante }}<br>Fecha: {{ visita.fecha_cierre|date:"d/m/Y" }}</div></td>
+                <td><div class="caja">{% if firma_cliente %}<img src="{{ firma_cliente }}" alt="">{% endif %}<div class="rol">Representante del cliente</div>Nombre: {{ visita.representante_cliente }}<br>Cargo: {{ visita.cargo_representante }}<br>Fecha: {{ visita.fecha_cierre|date:"d/m/Y" }}{% if visita.firmada_en %}<br><span style="color:#555;">Firmada en línea el {{ visita.firmada_en|date:"d/m/Y H:i" }}</span>{% endif %}</div></td>
                 <td><div class="caja"><div class="rol">Entrega a operaciones</div>Nombre: {{ visita.entrega_operaciones_nombre }}<br>Cargo: {{ visita.entrega_operaciones_cargo }}<br>Fecha: {{ visita.fecha_entrega_operaciones|date:"d/m/Y" }}</div></td>
                 <td><div class="rol" style="font-size:7.2pt; color:#2C4D9E; font-weight:bold; margin-bottom:2px;">Sello / Logo del cliente</div><div class="sello">{% if sello_cliente %}<img src="{{ sello_cliente }}" alt="">{% else %}SELLO CLIENTE{% endif %}</div></td>
             </tr></table>

@@ -1735,7 +1735,7 @@ class VisitaProgramacionForm(forms.ModelForm):
             'cliente_acepta', 'medio_confirmacion', 'medio_otro',
             'cliente', 'empresa', 'nit', 'actividad_economica', 'contacto', 'cargo_contacto',
             'telefonos', 'email', 'direccion', 'sede_planta',
-            'persona_recibe', 'cargo_recibe', 'telefono_recibe', 'estado', 'observaciones_ingreso',
+            'persona_recibe', 'cargo_recibe', 'telefono_recibe', 'observaciones_ingreso',
         ]
         widgets = {
             'fecha_solicitud': _fecha(), 'fecha_programada': _fecha(),
@@ -1749,7 +1749,6 @@ class VisitaProgramacionForm(forms.ModelForm):
             'contacto': _texto(), 'cargo_contacto': _texto(), 'telefonos': _texto(), 'email': _texto(),
             'direccion': _texto('Calle, número, barrio, ciudad'), 'sede_planta': _texto(),
             'persona_recibe': _texto(), 'cargo_recibe': _texto(), 'telefono_recibe': _texto(),
-            'estado': forms.Select(attrs={'class': 'form-select'}),
             'observaciones_ingreso': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
 
@@ -1763,13 +1762,12 @@ class VisitaProgramacionForm(forms.ModelForm):
         self.fields['cliente'].queryset = Cliente.objects.order_by('nombre')
         self.fields['cliente'].empty_label = 'Prospecto (aún no es cliente)'
         self.fields['empresa'].required = False
+        # La hora de ingreso va en la solicitud que recibe el cliente (oct-2026).
+        self.fields['hora_inicio'].required = True
         for campo in ('cliente_acepta', 'medio_confirmacion'):
             self.fields[campo].choices = [c for c in self.fields[campo].choices if c[0] != '']
-        # Desde aquí se programa, confirma, reprograma o cancela: «Realizada»
-        # la marca el ejecutivo al cerrar en campo.
-        realizada = self.instance.pk and self.instance.estado == 'REALIZADA'
-        self.fields['estado'].choices = [
-            c for c in VisitaTecnica.ESTADO_CHOICES if c[0] != 'REALIZADA' or realizada]
+        # El estado NO se escribe aquí: lo mueve el flujo (la aprobación del
+        # cliente, su firma) o el cambio de estado desde el detalle.
 
     def clean(self):
         cleaned = super().clean()

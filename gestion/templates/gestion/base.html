@@ -472,6 +472,11 @@
             </a>
         </li>
         <li>
+            <a href="{% url 'gestion:fotos_servicios' %}" class="nav-link {% if 'fotos-servicios' in request.path %}active{% endif %}">
+                <i class="bi bi-camera"></i>Fotos de servicios
+            </a>
+        </li>
+        <li>
             <a href="{% url 'gestion:centro_correos' %}" class="nav-link {% if '/correos' in request.path %}active{% endif %}">
                 <i class="bi bi-envelope-paper"></i>Centro de correos
             </a>

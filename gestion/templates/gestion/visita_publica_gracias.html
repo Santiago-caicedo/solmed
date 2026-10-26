@@ -1,0 +1,33 @@
+{% extends "gestion/visita_publica_base.html" %}
+{% block title %}Visita técnica{% endblock %}
+{% block titulo %}{% if modo == 'firmada' or modo == 'ya_firmada' %}Firma de la visita técnica{% else %}Solicitud de visita técnica{% endif %}{% endblock %}
+{% block cuerpo %}
+{# Lo que ve el cliente al terminar (o si vuelve a abrir un enlace ya usado). #}
+<div class="ep-card text-center" style="margin-top:1.2rem; padding:2rem 1.2rem;">
+    {% if modo == 'aprobada' %}
+        <i class="bi bi-check2-circle text-success" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">¡Gracias! La visita quedó aprobada</h3>
+        <p class="text-muted mb-0">Lo esperamos el <strong>{{ visita.fecha_programada|date:"l j \d\e F" }}</strong>{% if visita.hora_inicio %} a las <strong>{{ visita.hora_inicio|time:"g:i a" }}</strong>{% endif %}. Si algo cambia, comuníquese con su ejecutivo comercial.</p>
+    {% elif modo == 'cambio' %}
+        <i class="bi bi-calendar2-check text-primary" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">Recibimos su comentario</h3>
+        <p class="text-muted mb-0">Su ejecutivo comercial se comunicará con usted para acordar otra fecha. Cuando quede programada, recibirá una nueva solicitud en su correo.</p>
+    {% elif modo == 'ya_aprobada' %}
+        <i class="bi bi-info-circle text-secondary" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">Esta visita ya fue aprobada</h3>
+        <p class="text-muted mb-0">No es necesario volver a hacerlo. Este enlace ya cumplió su función.</p>
+    {% elif modo == 'firmada' %}
+        <i class="bi bi-check2-circle text-success" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">¡Gracias por su tiempo!</h3>
+        <p class="text-muted mb-0">Su firma quedó registrada como constancia de la visita. Ya puede cerrar esta página.</p>
+    {% elif modo == 'ya_firmada' %}
+        <i class="bi bi-info-circle text-secondary" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">Esta visita ya fue firmada</h3>
+        <p class="text-muted mb-0">El proceso ya se completó. Este enlace ya cumplió su función.</p>
+    {% else %}
+        <i class="bi bi-x-circle text-secondary" style="font-size:3.5rem;"></i>
+        <h3 class="mt-2">Esta visita fue cancelada</h3>
+        <p class="text-muted mb-0">Si tiene dudas, comuníquese con SOLMED SAS.</p>
+    {% endif %}
+</div>
+{% endblock %}

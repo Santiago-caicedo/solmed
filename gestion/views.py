@@ -6892,6 +6892,114 @@ class FotosAyudantesView(AsesorRequiredMixin, View):
         })
 
 
+# ============================================================
+#  FOTOS DE SERVICIOS (oct-2026, pedido de Santiago)
+#  Como «Fotos de ayudantes», pero con el registro fotográfico de las
+#  órdenes: todo lo que se subió de los servicios, por día, sin abrir
+#  orden por orden.
+# ============================================================
+
+_EXT_IMAGEN = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif')
+
+
+def _fotos_servicios(desde=None, hasta=None, cliente='', orden='', persona=None, punto=''):
+    """
+    Las fotos del registro fotográfico, agrupadas por día del servicio (del
+    más reciente al más viejo) y, dentro del día, por orden. El día es el de
+    la programación que originó la orden; si la orden es manual, el día en
+    que se subió la foto. Cada grupo sabe su cliente y sus placas.
+    """
+    from django.db.models.functions import Coalesce, TruncDate
+    fotos = (FotoRegistro.objects
+             .select_related('orden__cliente', 'punto', 'subido_por')
+             .annotate(dia=Coalesce('orden__programacion_origen__fecha', TruncDate('subido_en')))
+             .order_by('-dia', '-orden_id', 'punto__nombre', 'subido_en', 'pk'))
+    if desde:
+        fotos = fotos.filter(dia__gte=desde)
+    if hasta:
+        fotos = fotos.filter(dia__lte=hasta)
+    if cliente:
+        fotos = fotos.filter(orden__cliente__nombre__icontains=cliente)
+    if orden:
+        fotos = fotos.filter(orden_id=orden)
+    if persona is not None:
+        fotos = fotos.filter(subido_por=persona)
+    if punto:
+        fotos = fotos.filter(punto__nombre__icontains=punto)
+
+    fotos = list(fotos)
+    # Las placas de cada orden, de una sola consulta.
+    placas = {}
+    for orden_id, placa in (Recorrido.objects.filter(orden_id__in={f.orden_id for f in fotos})
+                            .order_by('fecha_recorrido', 'pk')
+                            .values_list('orden_id', 'vehiculo__placa')):
+        if placa and placa not in placas.setdefault(orden_id, []):
+            placas[orden_id].append(placa)
+
+    dias = []
+    for foto in fotos:
+        foto.es_imagen = foto.archivo.name.lower().endswith(_EXT_IMAGEN)
+        if not dias or dias[-1]['fecha'] != foto.dia:
+            dias.append({'fecha': foto.dia, 'grupos': [], 'n': 0})
+        dia = dias[-1]
+        if not dia['grupos'] or dia['grupos'][-1]['orden'].pk != foto.orden_id:
+            dia['grupos'].append({'orden': foto.orden, 'cliente': foto.orden.cliente,
+                                  'placas': placas.get(foto.orden_id, []), 'fotos': []})
+        dia['grupos'][-1]['fotos'].append(foto)
+        dia['n'] += 1
+    return dias
+
+
+class FotosServiciosView(AsesorRequiredMixin, View):
+    """
+    Pantalla general «Fotos de servicios» (oct-2026, pedido de Santiago): el
+    registro fotográfico de todas las órdenes, por día, sin abrir orden por
+    orden. Se filtra por fechas del servicio, cliente, número de orden, punto
+    y quién subió la foto. Por defecto muestra los últimos 30 días. Gestión y
+    asesores, igual que «Fotos de ayudantes».
+    """
+    template_name = 'gestion/fotos_servicios.html'
+
+    def get(self, request):
+        from django.utils.dateparse import parse_date
+        hoy = timezone.localdate()
+        filtros = {
+            'desde': (request.GET.get('desde') or '').strip(),
+            'hasta': (request.GET.get('hasta') or '').strip(),
+            'cliente': (request.GET.get('cliente') or '').strip(),
+            'orden': (request.GET.get('orden') or '').strip().lstrip('#'),
+            'persona': (request.GET.get('persona') or '').strip(),
+            'punto': (request.GET.get('punto') or '').strip(),
+        }
+        if not filtros['orden'].isdigit():
+            filtros['orden'] = ''
+        desde = parse_date(filtros['desde'])
+        hasta = parse_date(filtros['hasta'])
+        # Sin fechas ni búsqueda puntual: los últimos 30 días.
+        if (desde is None and hasta is None and not filtros['cliente']
+                and not filtros['orden'] and not filtros['punto']):
+            desde = hoy - datetime.timedelta(days=30)
+        filtros['desde'] = desde.isoformat() if desde else ''
+        filtros['hasta'] = hasta.isoformat() if hasta else ''
+        persona = (User.objects.filter(pk=filtros['persona']).first()
+                   if filtros['persona'].isdigit() else None)
+        if persona is None:
+            filtros['persona'] = ''
+        dias = _fotos_servicios(desde=desde, hasta=hasta, cliente=filtros['cliente'],
+                                orden=filtros['orden'], persona=persona, punto=filtros['punto'])
+        quienes = User.objects.filter(
+            pk__in=FotoRegistro.objects.exclude(subido_por=None).values('subido_por')
+        ).order_by('first_name', 'last_name', 'username')
+        return render(request, self.template_name, {
+            'dias': dias,
+            'n_fotos': sum(d['n'] for d in dias),
+            'n_ordenes': sum(len(d['grupos']) for d in dias),
+            'filtros': filtros,
+            'quienes': quienes,
+            'hoy': hoy,
+        })
+
+
 class EditarCuentaPersonaView(PersonalRequiredMixin, View):
     """Edita la cuenta (usuario, nombre, correo, rol, estado) y el perfil de datos."""
     template_name = 'gestion/form_persona.html'

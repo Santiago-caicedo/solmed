@@ -1,0 +1,108 @@
+{% extends "gestion/base.html" %}
+{% block title %}{{ visita.codigo }} · Firma del cliente{% endblock %}
+{% block content %}
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{# La firma del cliente en la visita técnica: el QR que escanea, el enlace para mandárselo y la espera hasta que firme (igual que el acta). #}
+<style>
+.qr-caja{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1.25rem 1rem; text-align:center; }
+.qr-caja .instr{ font-size:1.05rem; line-height:1.45; margin:0 0 1rem; }
+.qr-img{ width:min(280px, 100%); aspect-ratio:1; border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; }
+.qr-espera{ display:flex; align-items:center; justify-content:center; gap:.5rem; color:var(--steel); font-weight:600; margin-top:.9rem; }
+.qr-espera .spinner-border{ width:1.1rem; height:1.1rem; }
+.qr-aviso{ display:flex; gap:.6rem; align-items:flex-start; background:var(--warn-tint); border:1px solid var(--warn-line); color:#6b4504; border-radius:12px; padding:.85rem .9rem; margin-bottom:1rem; text-align:left; }
+.qr-aviso > i{ color:var(--warn); font-size:1.15rem; margin-top:.05rem; }
+.qr-aviso .cd-btn{ margin-top:.6rem; min-height:46px; }
+.qr-compartir{ display:grid; gap:.55rem; margin-top:1rem; }
+.qr-enlace{ display:flex; gap:.5rem; }
+.qr-enlace input{ flex:1; min-width:0; font-size:.85rem; min-height:46px; border-radius:10px; }
+.qr-nota{ font-size:.8rem; color:var(--ink-3); margin-top:.6rem; }
+.qr-ok{ text-align:center; padding:1.5rem .5rem; }
+.qr-ok i{ font-size:4rem; color:var(--ok); }
+.qr-ok h2{ font-size:1.4rem; font-weight:700; margin:.4rem 0; }
+</style>
+
+<div class="cd">
+    <a class="cd-volver" href="{% url 'gestion:campo_visita' visita.pk %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>La hoja de campo</a>
+    <header class="cd-cab">
+        <div class="fecha">{{ visita.codigo }} · {{ visita.empresa }}</div>
+        <h1>Firma del cliente</h1>
+    </header>
+
+    <div id="estado-espera" {% if firmada %}style="display:none;"{% endif %}>
+        {% if sin_datos %}
+        <div class="qr-aviso" role="note"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+            <div><strong>Todavía no hay nada levantado en campo.</strong> El cliente firma como constancia de lo revisado: llena primero la hoja.
+                <a href="{% url 'gestion:campo_visita' visita.pk %}" class="cd-btn ok"><i class="bi bi-pen-fill" aria-hidden="true"></i>Llenar la hoja de campo</a></div>
+        </div>
+        {% endif %}
+
+        <div class="qr-caja">
+            <p class="instr">Muéstrale este código al cliente: lo escanea con su celular, <strong>revisa el resumen y firma</strong>. Con su firma la visita queda realizada.</p>
+            <img src="{{ qr_b64 }}" alt="Código QR para que el cliente firme" class="qr-img">
+            <div class="qr-espera" role="status"><span class="spinner-border" aria-hidden="true"></span>Esperando la firma del cliente…</div>
+        </div>
+
+        {# Si no puede escanear: por WhatsApp, por correo, copiado o abierto aquí mismo. #}
+        <div class="qr-compartir">
+            <a href="https://wa.me/?text={{ url_publica|urlencode }}" target="_blank" rel="noopener" class="cd-btn sec">
+                <i class="bi bi-whatsapp" aria-hidden="true" style="color:#1f8f4e"></i>Enviar por WhatsApp</a>
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" class="cd-btn sec w-100" {% if not visita.email %}disabled title="La visita no tiene correo del cliente"{% endif %}>
+                    <i class="bi bi-envelope" aria-hidden="true"></i>Enviar al correo{% if visita.email %} ({{ visita.email }}){% endif %}</button>
+            </form>
+            <div class="qr-enlace">
+                <label class="visually-hidden" for="enlace-firma">Enlace para el cliente</label>
+                <input type="text" id="enlace-firma" class="form-control" readonly value="{{ url_publica }}" onclick="this.select();">
+                <button type="button" class="cd-btn sec" id="btn-copiar-enlace"><i class="bi bi-clipboard" aria-hidden="true"></i>Copiar</button>
+            </div>
+            <a href="{{ url_publica }}" class="cd-btn sec" target="_blank" rel="noopener"><i class="bi bi-phone" aria-hidden="true"></i>Que firme en este celular</a>
+        </div>
+        <p class="qr-nota">El enlace es de un solo uso: deja de servir cuando el cliente firma. Es distinto del enlace con el que aprobó la visita.</p>
+    </div>
+
+    <div id="estado-firmado" {% if not firmada %}style="display:none;"{% endif %}>
+        <div class="qr-ok" role="status">
+            <i class="bi bi-check-circle-fill" aria-hidden="true"></i>
+            <h2>¡El cliente firmó!</h2>
+            <p class="text-muted">La visita {{ visita.codigo }} quedó realizada.</p>
+        </div>
+        <a href="{% url 'gestion:detalle_visita' visita.pk %}" class="cd-btn pri">Ver la visita<i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+        <a href="{% url 'gestion:visita_pdf' visita.pk %}" class="cd-btn sec mt-2"><i class="bi bi-file-earmark-pdf-fill" aria-hidden="true"></i>Descargar el PDF</a>
+    </div>
+</div>
+
+<script>
+    (function () {
+        var boton = document.getElementById('btn-copiar-enlace');
+        var campo = document.getElementById('enlace-firma');
+        if (!boton || !campo) return;
+        boton.addEventListener('click', function () {
+            var listo = function () {
+                boton.innerHTML = '<i class="bi bi-check2"></i>Copiado';
+                setTimeout(function () { boton.innerHTML = '<i class="bi bi-clipboard"></i>Copiar'; }, 2000);
+            };
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(campo.value).then(listo, function () { campo.select(); document.execCommand('copy'); listo(); });
+            } else { campo.select(); document.execCommand('copy'); listo(); }
+        });
+    })();
+    {% if not firmada %}
+    (function () {
+        var estadoUrl = "{% url 'gestion:estado_firma_visita' visita.pk %}";
+        var intervalo = setInterval(function () {
+            fetch(estadoUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.firmada) {
+                        clearInterval(intervalo);
+                        document.getElementById('estado-espera').style.display = 'none';
+                        document.getElementById('estado-firmado').style.display = 'block';
+                    }
+                })
+                .catch(function () { /* reintenta en el siguiente ciclo */ });
+        }, 4000);
+    })();
+    {% endif %}
+</script>
+{% endblock %}

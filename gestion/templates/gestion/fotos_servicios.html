@@ -1,0 +1,115 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Fotos de servicios{% endblock %}
+{% block content %}
+{# El registro fotográfico de todas las órdenes, por día de servicio, sin abrir orden por orden #}
+{# (pedido de Santiago, oct-2026). Hermana de «Fotos de ayudantes». Por defecto los últimos 30 días. #}
+<style>
+.fa-filtros .form-label{ font-size:.74rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-3); }
+.fa-dia{ margin-bottom:1.1rem; }
+.fa-dia-cab{ display:flex; align-items:baseline; gap:.5rem; margin-bottom:.5rem; padding-bottom:.3rem; border-bottom:1px solid var(--line-2,#eef1f5); }
+.fa-dia-cab .f{ font-family:var(--mono,monospace); font-weight:600; font-size:.9rem; color:var(--ink,#1a2230); }
+.fa-dia-cab .n{ font-size:.74rem; color:var(--ink-3,#8a94a3); }
+.fa-grupo{ display:flex; flex-wrap:wrap; gap:.6rem; align-items:flex-start; padding:.45rem .6rem; border-radius:8px; }
+.fa-grupo + .fa-grupo{ margin-top:.3rem; }
+.fa-grupo:hover{ background:var(--panel-2,#f6f8fb); }
+.fa-quien{ flex:0 0 190px; font-size:.8rem; line-height:1.35; }
+.fa-quien .o a{ text-decoration:none; font-family:var(--mono,monospace); font-weight:600; }
+.fa-quien .c{ color:var(--ink-2,#5b6470); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fa-quien .placa{ display:inline-block; font-family:var(--mono,monospace); font-size:.68rem; letter-spacing:.06em; padding:.05rem .4rem; border-radius:4px; background:var(--g-800,#2c3545); color:#fff; margin-right:.2rem; }
+.fa-fotos{ display:flex; flex-wrap:wrap; gap:.5rem; flex:1 1 0; }
+.fa-foto{ width:106px; text-decoration:none; }
+.fa-foto img, .fa-foto .archivo{ width:106px; height:84px; object-fit:cover; display:block; border-radius:8px;
+    border:1px solid var(--line,#e6e9ee); transition:transform .12s ease, box-shadow .12s ease; }
+.fa-foto .archivo{ display:flex; align-items:center; justify-content:center; background:var(--panel-2,#f6f8fb); color:var(--ink-3,#8a94a3); font-size:2rem; }
+.fa-foto:hover img, .fa-foto:hover .archivo{ transform:scale(1.03); box-shadow:0 4px 14px rgba(15,23,35,.18); }
+.fa-foto .pie{ font-size:.66rem; line-height:1.25; color:var(--ink-2,#5b6470); text-align:center; margin-top:.25rem;
+    overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+@media (max-width: 575px){ .fa-quien{ flex-basis:100%; } }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">Fotos de servicios</h2>
+        <div class="text-muted">El registro fotográfico de las órdenes, por día de servicio. Cada foto lleva a su orden.</div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header">
+        <form method="get" class="row g-2 align-items-end fa-filtros">
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1" for="desde">Desde</label>
+                <input type="date" name="desde" id="desde" class="form-control form-control-sm" value="{{ filtros.desde }}" max="{{ hoy|date:'Y-m-d' }}">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1" for="hasta">Hasta</label>
+                <input type="date" name="hasta" id="hasta" class="form-control form-control-sm" value="{{ filtros.hasta }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="cliente">Cliente</label>
+                <input type="text" name="cliente" id="cliente" class="form-control form-control-sm" value="{{ filtros.cliente }}" placeholder="Crepes">
+            </div>
+            <div class="col-6 col-md-1">
+                <label class="form-label mb-1" for="orden">Orden</label>
+                <input type="text" name="orden" id="orden" class="form-control form-control-sm" value="{{ filtros.orden }}" placeholder="#" inputmode="numeric">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-1" for="punto">Punto</label>
+                <input type="text" name="punto" id="punto" class="form-control form-control-sm" value="{{ filtros.punto }}" placeholder="Trampa de grasa">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label mb-1" for="persona">Subió</label>
+                <select name="persona" id="persona" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for p in quienes %}
+                    <option value="{{ p.pk }}" {% if filtros.persona == p.pk|stringformat:'s' %}selected{% endif %}>{{ p.get_full_name|default:p.username }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-sm btn-primary w-100"><i class="bi bi-funnel me-1"></i>Ver</button>
+            </div>
+            {% if filtros.persona or filtros.cliente or filtros.orden or filtros.punto or filtros.hasta %}
+            <div class="col-12"><a href="{% url 'gestion:fotos_servicios' %}" class="btn btn-sm btn-link px-0">Limpiar filtros</a></div>
+            {% endif %}
+        </form>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            {% if n_fotos %}{{ n_fotos }} foto{{ n_fotos|pluralize }} de {{ n_ordenes }} orden{{ n_ordenes|pluralize:"es" }} en {{ dias|length }} día{{ dias|length|pluralize }}{% else %}Sin fotos{% endif %}{% if filtros.desde and filtros.hasta %} del {{ filtros.desde }} al {{ filtros.hasta }}{% elif filtros.desde %} desde el {{ filtros.desde }}{% elif filtros.hasta %} hasta el {{ filtros.hasta }}{% endif %}{% if filtros.persona or filtros.cliente or filtros.orden or filtros.punto %} con ese filtro{% endif %}.
+        </p>
+
+        {% for dia in dias %}
+        <div class="fa-dia">
+            <div class="fa-dia-cab">
+                <span class="f">{{ dia.fecha|date:"l d/m/Y" }}</span>
+                <span class="n">{{ dia.n }} foto{{ dia.n|pluralize }}</span>
+            </div>
+            {% for g in dia.grupos %}
+            <div class="fa-grupo">
+                <div class="fa-quien">
+                    <div class="o"><a href="{% url 'gestion:detalle_orden' g.orden.pk %}">Orden #{{ g.orden.numero_orden }}</a></div>
+                    <div class="c" title="{{ g.cliente.nombre }}">{{ g.cliente.nombre }}</div>
+                    {% if g.placas %}<div>{% for placa in g.placas %}<span class="placa">{{ placa }}</span>{% endfor %}</div>{% endif %}
+                </div>
+                <div class="fa-fotos">
+                    {% for foto in g.fotos %}
+                    {% with quien=foto.subido_por.get_full_name|default:foto.subido_por.username %}
+                    <a class="fa-foto" href="{{ foto.archivo.url }}" target="_blank" rel="noopener"
+                       title="{% if foto.punto %}{{ foto.punto.nombre }} · {% endif %}{% if foto.subido_por %}Subió {{ quien }} · {% endif %}{{ foto.subido_en|date:'d/m/Y H:i' }}">
+                        {% if foto.es_imagen %}<img src="{{ foto.archivo.url }}" alt="{{ foto.punto.nombre|default:'Foto del servicio' }}" loading="lazy">
+                        {% else %}<span class="archivo"><i class="bi bi-file-earmark"></i></span>{% endif %}
+                        <div class="pie">{{ foto.punto.nombre|default:"General" }}</div>
+                    </a>
+                    {% endwith %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% empty %}
+        <p class="text-muted mb-0">No se subieron fotos de servicios en ese rango.</p>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

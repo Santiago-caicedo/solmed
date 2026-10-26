@@ -2827,10 +2827,14 @@ class CertificadoDisposicion(models.Model):
 # ============================================================
 
 class VisitaTecnica(models.Model):
+    # El ciclo (oct-2026): se SOLICITA (programada) → el cliente la APRUEBA
+    # desde el enlace de su correo (confirmada) → se levanta en campo → el
+    # cliente la FIRMA desde otro enlace (realizada). Si cambia la fecha u
+    # hora, vuelve a pendiente (reprogramada) hasta que apruebe de nuevo.
     ESTADO_CHOICES = [
-        ('PROGRAMADA', 'Programada'),
-        ('CONFIRMADA', 'Confirmada'),
-        ('REPROGRAMADA', 'Reprogramada'),
+        ('PROGRAMADA', 'Pendiente de aprobación'),
+        ('CONFIRMADA', 'Aprobada por el cliente'),
+        ('REPROGRAMADA', 'Reprogramada · pendiente de aprobación'),
         ('REALIZADA', 'Realizada'),
         ('CANCELADA', 'Cancelada'),
     ]
@@ -2897,7 +2901,7 @@ class VisitaTecnica(models.Model):
     # --- 1. Programación de la visita (la oficina, antes de desplazarse) ---
     fecha_solicitud = models.DateField(default=timezone.localdate, verbose_name="Fecha de solicitud")
     fecha_programada = models.DateField(verbose_name="Fecha programada")
-    hora_inicio = models.TimeField(null=True, blank=True, verbose_name="Hora de inicio prevista")
+    hora_inicio = models.TimeField(null=True, blank=True, verbose_name="Hora de ingreso")
     ejecutivo = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
         related_name='visitas_asignadas', verbose_name="Ejecutivo comercial responsable")
@@ -2979,6 +2983,21 @@ class VisitaTecnica(models.Model):
     entrega_operaciones_cargo = models.CharField(max_length=150, blank=True, verbose_name="Entrega a operaciones · cargo")
     fecha_entrega_operaciones = models.DateField(null=True, blank=True, verbose_name="Entrega a operaciones · fecha")
 
+    # --- Aprobación del cliente (oct-2026) ---
+    # La solicitud le llega por correo con un enlace de un solo uso; al
+    # aprobarla queda CONFIRMADA y ahí sí se trabaja en campo.
+    token_aprobacion = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    solicitud_enviada_en = models.DateTimeField(null=True, blank=True)
+    aprobada_en = models.DateTimeField(null=True, blank=True)
+    aprobada_por = models.CharField(max_length=200, blank=True, verbose_name="Quién aprobó por el cliente")
+    cargo_aprobo = models.CharField(max_length=150, blank=True)
+    comentario_cliente = models.TextField(blank=True, verbose_name="Comentario del cliente a la solicitud")
+    # --- Firma del cliente al cerrar: OTRO token, distinto del de aprobación ---
+    # Nace solo cuando el ejecutivo termina en campo: el enlace de la solicitud
+    # no sirve para firmar, ni el de la firma existe antes de la visita.
+    token_firma = models.UUIDField(null=True, blank=True, editable=False, unique=True)
+    firmada_en = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ['-fecha_programada', '-numero']
         verbose_name = "Visita técnica"
@@ -3004,8 +3023,37 @@ class VisitaTecnica(models.Model):
 
     @property
     def abierta(self):
-        """Todavía se puede trabajar en campo: ni realizada ni cancelada."""
+        """Todavía no terminó: ni realizada ni cancelada."""
         return self.estado not in ('REALIZADA', 'CANCELADA')
+
+    @property
+    def aprobada(self):
+        return self.estado == 'CONFIRMADA'
+
+    @property
+    def pendiente_aprobacion(self):
+        return self.estado in ('PROGRAMADA', 'REPROGRAMADA')
+
+    @property
+    def en_campo_permitido(self):
+        """Solo con la aprobación del cliente se levanta la visita (y se corrige después)."""
+        return self.estado in ('CONFIRMADA', 'REALIZADA')
+
+    def reiniciar_aprobacion(self):
+        """Cambió la fecha u hora: la aprobación anterior ya no vale y el enlace se renueva."""
+        self.token_aprobacion = uuid.uuid4()
+        self.aprobada_en = None
+        self.aprobada_por = ''
+        self.cargo_aprobo = ''
+        self.cliente_acepta = ''
+        self.solicitud_enviada_en = None
+
+    def asegurar_token_firma(self):
+        """El token con el que el cliente firma; se crea la primera vez que se pide."""
+        if not self.token_firma:
+            self.token_firma = uuid.uuid4()
+            self.save(update_fields=['token_firma'])
+        return self.token_firma
 
     def equipos_lista(self):
         """Los equipos marcados, con nombre, para pantalla y PDF."""

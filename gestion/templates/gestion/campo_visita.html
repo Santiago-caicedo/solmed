@@ -5,11 +5,11 @@
 {% include 'gestion/partials/_conductor_estilos.html' %}
 {% include 'gestion/partials/_pesv_estilos.html' %}
 {% comment %}
-La hoja de campo de la visita técnica (secciones 2 a 6 y firmas del formato
-GC-F-01 v03): la llena el ejecutivo comercial desde el celular, con el mismo
-diseño de la hoja del servicio. Se puede guardar por partes; «Guardar y
-marcar realizada» cierra la visita (exige representante del cliente y su
-firma).
+La hoja de campo de la visita técnica (secciones 2 a 6 y la firma del
+ejecutivo, formato GC-F-01 v03): la llena el ejecutivo comercial desde el
+celular, con el mismo diseño de la hoja del servicio. Se puede guardar por
+partes; «Guardar y pasar a la firma del cliente» lleva al QR con el que el
+cliente firma desde su celular (eso la marca realizada).
 {% endcomment %}
 <style>
 .cd{ max-width:760px; }
@@ -197,10 +197,8 @@ firma).
             <div class="cab"><i class="bi bi-pen" aria-hidden="true"></i><span class="t">Firmas</span><span class="s">en pantalla</span></div>
             <div class="cuerpo">
                 <div class="campo"><label>Representante del cliente</label>
-                    {% if visita.firma_cliente %}<div class="vc-firma-actual"><img src="{{ visita.firma_cliente.url }}" alt="Firma actual del cliente"><div class="small text-muted">Firma guardada · dibuja otra para reemplazarla</div></div>{% endif %}
-                    <div class="vc-firma"><canvas id="pad-cliente"></canvas></div>
-                    <input type="hidden" name="firma_cliente_data" id="firma-cliente-data">
-                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-limpiar="pad-cliente"><i class="bi bi-eraser-fill me-1"></i>Limpiar</button>
+                    {% if visita.firma_cliente %}<div class="vc-firma-actual"><img src="{{ visita.firma_cliente.url }}" alt="Firma del cliente"><div class="small text-muted">Firmó {{ visita.representante_cliente }}{% if visita.firmada_en %} el {{ visita.firmada_en|date:"d/m/Y H:i" }}{% endif %}</div></div>
+                    {% else %}<p class="ayuda mb-0"><i class="bi bi-qr-code me-1"></i>El cliente firma desde su celular, con el QR, al terminar: botón «Guardar y pasar a la firma del cliente».</p>{% endif %}
                 </div>
                 <div class="campo mt-3"><label>Ejecutivo comercial SOLMED</label>
                     {% if visita.firma_ejecutivo %}<div class="vc-firma-actual"><img src="{{ visita.firma_ejecutivo.url }}" alt="Firma actual del ejecutivo"><div class="small text-muted">Firma guardada · dibuja otra para reemplazarla</div></div>{% endif %}
@@ -221,7 +219,7 @@ firma).
 
         <div class="hj-pie dos">
             {% if visita.abierta %}
-            <button type="submit" name="marcar_realizada" value="1" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar y marcar realizada</button>
+            <button type="submit" name="a_firma" value="1" class="cd-btn ok"><i class="bi bi-qr-code" aria-hidden="true"></i>Guardar y pasar a la firma del cliente</button>
             <button type="submit" name="seguir" value="1" class="cd-btn sec"><i class="bi bi-save" aria-hidden="true"></i>Guardar y seguir después</button>
             {% else %}
             <button type="submit" class="cd-btn ok"><i class="bi bi-check-lg" aria-hidden="true"></i>Guardar la corrección</button>
@@ -297,9 +295,10 @@ firma).
         });
     });
 
-    // ---- Firmas: dos pads; al enviar, la que tenga trazos va como PNG ----
+    // ---- Firma del ejecutivo: al enviar, si tiene trazos va como PNG ----
+    // (la del cliente ya no se toma aquí: la hace él desde su celular con el QR)
     var pads = {};
-    ['pad-cliente', 'pad-ejecutivo'].forEach(function (id) {
+    ['pad-ejecutivo'].forEach(function (id) {
         var canvas = document.getElementById(id);
         var pad = new SignaturePad(canvas, { backgroundColor: 'rgb(255, 255, 255)' });
         var anchoAnterior = 0;
@@ -317,7 +316,6 @@ firma).
         b.addEventListener('click', function () { pads[b.getAttribute('data-limpiar')].clear(); });
     });
     form.addEventListener('submit', function () {
-        document.getElementById('firma-cliente-data').value = pads['pad-cliente'].isEmpty() ? '' : pads['pad-cliente'].toDataURL('image/png');
         document.getElementById('firma-ejecutivo-data').value = pads['pad-ejecutivo'].isEmpty() ? '' : pads['pad-ejecutivo'].toDataURL('image/png');
     });
 })();
