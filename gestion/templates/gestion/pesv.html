@@ -62,6 +62,15 @@
 .pv-badge.ok{ background:#eef4dd; color:#3c5c12; }
 .pv-badge.alerta{ background:#fdf3e0; color:#8a5a12; }
 .pv-badge.malo{ background:#fdecec; color:#a02525; }
+/* Las pestañas de las listas (oct-2026): una lista a la vez, paginada */
+.pv-tabs{ display:flex; gap:.3rem; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-bottom:.9rem; }
+.pv-tab{ display:inline-flex; align-items:center; gap:.45rem; padding:.55rem .95rem; margin-bottom:-1px; border:1px solid transparent;
+    border-radius:var(--r-sm) var(--r-sm) 0 0; color:var(--ink-2); text-decoration:none; font-weight:500; font-size:.9rem; }
+.pv-tab:hover{ color:var(--ink); background:var(--panel-2); }
+.pv-tab.act{ background:var(--panel); border-color:var(--line); border-bottom-color:var(--panel); color:var(--ink); }
+.pv-tab .cnt{ font-family:var(--mono); font-size:.75rem; padding:.05rem .45rem; border-radius:99px; background:var(--panel-2); color:var(--ink-2); }
+.pv-tab.act .cnt{ background:var(--steel); color:#fff; }
+.pv-tab .cnt.malo{ background:#fdecec; color:#a02525; }
 .pv-vacio{ text-align:center; padding:2rem 1rem; color:var(--ink-2); background:var(--panel); border:1px dashed var(--line); border-radius:var(--r-lg); }
 .pv-vacio i{ font-size:1.8rem; color:var(--ink-3); display:block; margin-bottom:.4rem; }
 @media (max-width:700px){
@@ -118,6 +127,7 @@
         </select>
     </div>
     {% if solo_hallazgos %}<input type="hidden" name="ver" value="hallazgos">{% endif %}
+    <input type="hidden" name="pestana" value="{{ pestana }}">
     <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel me-1"></i>Ver</button>
     <div class="pv-chips">
         <a href="{{ url_todo }}" class="pv-chip {% if not solo_hallazgos %}act{% endif %}">Todo</a>
@@ -127,7 +137,7 @@
 
 <div class="pv-meses" aria-label="Meses de {{ anio }}">
     {% for m in meses %}
-    <a href="?anio={{ anio }}&mes={{ m.numero }}{% if vehiculo_id %}&vehiculo={{ vehiculo_id }}{% endif %}{% if conductor_id %}&conductor={{ conductor_id }}{% endif %}{% if solo_hallazgos %}&ver=hallazgos{% endif %}"
+    <a href="?anio={{ anio }}&mes={{ m.numero }}{% if vehiculo_id %}&vehiculo={{ vehiculo_id }}{% endif %}{% if conductor_id %}&conductor={{ conductor_id }}{% endif %}{% if solo_hallazgos %}&ver=hallazgos{% endif %}&pestana={{ pestana }}"
        class="pv-mes {% if m.activo %}act{% elif not m.total %}vacio{% endif %}" title="{{ m.nombre }} {{ anio }}: {{ m.total }} registro{{ m.total|pluralize }}">
         <span>{{ m.nombre|slice:":3" }}</span><b>{{ m.total }}</b>
     </a>
@@ -138,7 +148,7 @@
     <div class="pv-cifra"><div class="k">Preoperacionales</div><div class="n">{{ resumen.preoperacionales }}</div><div class="s">registrados en el periodo</div></div>
     <div class="pv-cifra"><div class="k">No aptos</div><div class="n {% if resumen.no_aptos %}malo{% else %}bueno{% endif %}">{{ resumen.no_aptos }}</div><div class="s">vehículos dictaminados no aptos</div></div>
     <div class="pv-cifra"><div class="k">Ítems en mal estado</div><div class="n {% if resumen.items_malos %}malo{% else %}bueno{% endif %}">{{ resumen.items_malos }}</div><div class="s">en {{ resumen.pre_con_hallazgos }} preoperacional{{ resumen.pre_con_hallazgos|pluralize:"es" }}</div></div>
-    <div class="pv-cifra"><div class="k">Sin preoperacional</div><div class="n {% if sin_preoperacional %}malo{% else %}bueno{% endif %}">{{ sin_preoperacional|length }}</div><div class="s">servicios ya pasados sin revisión</div></div>
+    <div class="pv-cifra"><div class="k">Sin preoperacional</div><div class="n {% if resumen.sin_preoperacional %}malo{% else %}bueno{% endif %}">{{ resumen.sin_preoperacional }}</div><div class="s">servicios ya pasados sin revisión</div></div>
     <div class="pv-cifra"><div class="k">Encuestas de cierre</div><div class="n">{{ resumen.encuestas }}</div><div class="s">{{ resumen.enc_con_alertas }} con respuestas que exigen atención</div></div>
     <div class="pv-cifra"><div class="k">Casi-accidentes</div><div class="n {% if resumen.casi_accidentes %}malo{% else %}bueno{% endif %}">{{ resumen.casi_accidentes }}</div><div class="s">condiciones de riesgo reportadas</div></div>
 </div>
@@ -162,11 +172,19 @@
 
 {% if sin_nada %}
 <div class="pv-vacio"><i class="bi bi-folder2-open" aria-hidden="true"></i>Nada registrado en este periodo{% if vehiculo_id or conductor_id %} con ese filtro{% endif %}.</div>
-{% endif %}
+{% else %}
+{# Una lista a la vez, paginada: así la carpeta no trae todo el periodo de golpe (oct-2026). #}
+<nav class="pv-tabs" aria-label="Qué ver">
+    {% for p in pestanas %}
+    <a href="{{ p.url }}" class="pv-tab {% if p.activa %}act{% endif %}" {% if p.activa %}aria-current="page"{% endif %}>
+        {{ p.nombre }} <span class="cnt {% if p.clave == 'sin' and p.total %}malo{% endif %}">{{ p.total }}</span>
+    </a>
+    {% endfor %}
+</nav>
 
-{% if preoperacionales %}
+{% if pestana == 'pre' %}
 <div class="pv-sec">
-    <h3><i class="bi bi-clipboard2-check-fill" aria-hidden="true"></i>Preoperacionales <span class="cnt">{{ preoperacionales|length }}</span></h3>
+    {% if preoperacionales %}
     <table class="pv-tabla">
         <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Dictamen</th><th>Hallazgos</th><th>PDF</th></tr></thead>
         <tbody>
@@ -183,12 +201,13 @@
         {% endfor %}
         </tbody>
     </table>
+    {% else %}<div class="pv-vacio"><i class="bi bi-clipboard2-check" aria-hidden="true"></i>Sin preoperacionales {% if solo_hallazgos %}con hallazgos {% endif %}en este periodo.</div>{% endif %}
 </div>
 {% endif %}
 
-{% if encuestas %}
+{% if pestana == 'enc' %}
 <div class="pv-sec">
-    <h3><i class="bi bi-clipboard-check" aria-hidden="true"></i>Encuestas de cierre <span class="cnt">{{ encuestas|length }}</span></h3>
+    {% if encuestas %}
     <table class="pv-tabla">
         <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Resultado</th><th>Respuestas que exigen atención</th><th>PDF</th></tr></thead>
         <tbody>
@@ -205,12 +224,13 @@
         {% endfor %}
         </tbody>
     </table>
+    {% else %}<div class="pv-vacio"><i class="bi bi-clipboard-check" aria-hidden="true"></i>Sin encuestas de cierre {% if solo_hallazgos %}que exijan atención {% endif %}en este periodo.</div>{% endif %}
 </div>
 {% endif %}
 
-{% if sin_preoperacional %}
+{% if pestana == 'sin' %}
 <div class="pv-sec">
-    <h3><i class="bi bi-exclamation-triangle-fill" aria-hidden="true" style="color:#c47f12"></i>Servicios sin preoperacional <span class="cnt">{{ sin_preoperacional|length }}</span></h3>
+    {% if sin_preoperacional %}
     <p class="text-muted small mb-2">Servicios ya pasados con conductor asignado en los que no se registró la revisión del vehículo. Desde aquí se puede registrar aunque el servicio ya esté cerrado; el PDF dice quién lo hizo.</p>
     <table class="pv-tabla">
         <thead><tr><th>Fecha</th><th>Orden</th><th>Vehículo</th><th>Conductor</th><th>Estado</th><th></th></tr></thead>
@@ -227,6 +247,10 @@
         {% endfor %}
         </tbody>
     </table>
+    {% else %}<div class="pv-vacio"><i class="bi bi-check2-circle" aria-hidden="true"></i>Todos los servicios ya pasados del periodo tienen su preoperacional.</div>{% endif %}
 </div>
+{% endif %}
+
+{% if page_obj.paginator.count %}{% include 'gestion/partials/_paginacion.html' with etiqueta="registros" %}{% endif %}
 {% endif %}
 {% endblock %}

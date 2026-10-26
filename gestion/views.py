@@ -9632,19 +9632,56 @@ def _entero_get(request, clave):
         return 0
 
 
-def _datos_pesv(request):
+PESV_POR_PAGINA = 25
+PESV_PESTANAS = (
+    ('pre', 'Preoperacionales'),
+    ('enc', 'Encuestas de cierre'),
+    ('sin', 'Sin preoperacional'),
+)
+
+
+def _q_alerta_encuesta():
+    """
+    Las encuestas con alguna respuesta que exige atención, como consulta (la
+    misma regla de EncuestaConductor.respuestas: «Sí» en fatiga, molestias y
+    condición de riesgo; «No» en las demás).
+    """
+    q = Q()
+    for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
+        q |= Q(**{campo: _respuesta_alerta(campo)})
+    return q
+
+
+def _respuesta_alerta(campo):
+    return 'SI' if campo in EncuestaConductor.PREGUNTAS_ALERTA_SI else 'NO'
+
+
+# Un preoperacional con hallazgos: no apto o con algún ítem en mal estado.
+Q_HALLAZGO_PREOPERACIONAL = ~Q(dictamen='APTO') | Q(items__estado='M')
+
+
+def _datos_pesv(request, completo=False):
     """
     Lo que la SISO revisa de un periodo: los preoperacionales y las encuestas
     de cierre de los servicios de esas fechas (por la FECHA DEL SERVICIO, no
     la del registro), con filtros por vehículo y conductor, el resumen del
     periodo, los ítems que más fallan y los servicios ya pasados que salieron
     SIN preoperacional. Es la misma fuente de la pantalla y del Excel.
+
+    Rendimiento (oct-2026, pedido de Santiago): las cifras se calculan con
+    conteos en la base, sin traer cada registro, y la pantalla solo carga la
+    PÁGINA de la pestaña abierta (preoperacionales, encuestas o sin
+    preoperacional), de a PESV_POR_PAGINA. Con `completo` (el Excel) se
+    traen las tres listas enteras.
     """
     anio, mes, inicio, fin, a_medida = _periodo_centro(request)
     hoy = timezone.localdate()
     vehiculo_id = _entero_get(request, 'vehiculo')
     conductor_id = _entero_get(request, 'conductor')
     solo_hallazgos = request.GET.get('ver') == 'hallazgos'
+    pestana = request.GET.get('pestana')
+    if pestana not in dict(PESV_PESTANAS):
+        pestana = 'pre'
 
     filtro = Q(recorrido__fecha_recorrido__range=(inicio, fin))
     if vehiculo_id:
@@ -9653,42 +9690,19 @@ def _datos_pesv(request):
         filtro &= Q(recorrido__conductor_id=conductor_id)
     relacionados = ('recorrido', 'recorrido__vehiculo', 'recorrido__conductor',
                     'recorrido__orden', 'recorrido__orden__cliente')
-    preoperacionales = list(
-        Preoperacional.objects.filter(filtro)
-        .select_related(*relacionados, 'diligenciado_por')
-        .prefetch_related('items')
-        .order_by('recorrido__fecha_recorrido', 'recorrido_id'))
-    encuestas = list(
-        EncuestaConductor.objects.filter(filtro).select_related(*relacionados)
-        .order_by('recorrido__fecha_recorrido', 'recorrido_id'))
+    pre_periodo = Preoperacional.objects.filter(filtro)
+    enc_periodo = EncuestaConductor.objects.filter(filtro)
 
-    # El resumen es del periodo completo, se muestre todo o solo lo que
-    # exige atención.
-    conteo_items = {}
-    for p in preoperacionales:
-        for i in p.items_malos:
-            conteo_items[i.texto] = conteo_items.get(i.texto, 0) + 1
-    items_fallados = sorted(
-        ({'texto': texto, 'total': total} for texto, total in conteo_items.items()),
-        key=lambda x: (-x['total'], x['texto']))[:8]
-    preguntas = []
-    for campo in EncuestaConductor.CAMPOS_PREGUNTAS:
-        alerta = 'SI' if campo in EncuestaConductor.PREGUNTAS_ALERTA_SI else 'NO'
-        preguntas.append({'label': ETIQUETAS_PESV[campo],
-                          'total': sum(1 for e in encuestas if getattr(e, campo) == alerta)})
-    resumen = {
-        'preoperacionales': len(preoperacionales),
-        'no_aptos': sum(1 for p in preoperacionales if not p.apto),
-        'pre_con_hallazgos': sum(1 for p in preoperacionales if p.tiene_hallazgos),
-        'items_malos': sum(len(p.items_malos) for p in preoperacionales),
-        'encuestas': len(encuestas),
-        'enc_con_alertas': sum(1 for e in encuestas if e.tiene_alertas),
-        'casi_accidentes': sum(1 for e in encuestas if e.condicion_riesgo == 'SI'),
-        'hallazgos_encuestas': sum(p['total'] for p in preguntas),
-    }
-    if solo_hallazgos:
-        preoperacionales = [p for p in preoperacionales if p.tiene_hallazgos]
-        encuestas = [e for e in encuestas if e.tiene_alertas]
+    # --- El resumen: del periodo completo, con conteos en la base ---
+    malos = ItemPreoperacional.objects.filter(preoperacional__in=pre_periodo, estado='M')
+    items_fallados = list(malos.values('texto').annotate(total=Count('pk'))
+                          .order_by('-total', 'texto')[:8])
+    q_alerta = _q_alerta_encuesta()
+    conteos_preguntas = enc_periodo.aggregate(**{
+        campo: Count('pk', filter=Q(**{campo: _respuesta_alerta(campo)}))
+        for campo in EncuestaConductor.CAMPOS_PREGUNTAS})
+    preguntas = [{'label': ETIQUETAS_PESV[campo], 'total': conteos_preguntas[campo]}
+                 for campo in EncuestaConductor.CAMPOS_PREGUNTAS]
 
     # Servicios ya pasados (hasta hoy) con conductor y sin preoperacional:
     # lo que la SISO tiene que reclamar.
@@ -9698,49 +9712,104 @@ def _datos_pesv(request):
         filtro_rec &= Q(vehiculo_id=vehiculo_id)
     if conductor_id:
         filtro_rec &= Q(conductor_id=conductor_id)
-    sin_preoperacional = list(
-        Recorrido.objects.filter(filtro_rec)
-        .select_related('vehiculo', 'conductor', 'orden', 'orden__cliente')
-        .order_by('fecha_recorrido', 'id'))
+    sin_qs = (Recorrido.objects.filter(filtro_rec)
+              .select_related('vehiculo', 'conductor', 'orden', 'orden__cliente')
+              .order_by('fecha_recorrido', 'id'))
+
+    pre_conteos = pre_periodo.aggregate(
+        total=Count('pk', distinct=True),
+        no_aptos=Count('pk', filter=~Q(dictamen='APTO'), distinct=True),
+        con_hallazgos=Count('pk', filter=Q_HALLAZGO_PREOPERACIONAL, distinct=True))
+    enc_conteos = enc_periodo.aggregate(
+        total=Count('pk'), con_alertas=Count('pk', filter=q_alerta),
+        casi=Count('pk', filter=Q(condicion_riesgo='SI')))
+    resumen = {
+        'preoperacionales': pre_conteos['total'],
+        'no_aptos': pre_conteos['no_aptos'],
+        'pre_con_hallazgos': pre_conteos['con_hallazgos'],
+        'items_malos': malos.count(),
+        'encuestas': enc_conteos['total'],
+        'enc_con_alertas': enc_conteos['con_alertas'],
+        'casi_accidentes': enc_conteos['casi'],
+        'hallazgos_encuestas': sum(p['total'] for p in preguntas),
+        'sin_preoperacional': sin_qs.count(),
+    }
+
+    # --- Las listas: con «solo lo que exige atención», solo esas ---
+    pre_qs, enc_qs = pre_periodo, enc_periodo
+    if solo_hallazgos:
+        pre_qs = pre_qs.filter(pk__in=pre_periodo.filter(Q_HALLAZGO_PREOPERACIONAL).values('pk'))
+        enc_qs = enc_qs.filter(q_alerta)
+    pre_qs = (pre_qs.select_related(*relacionados, 'diligenciado_por')
+              .prefetch_related('items').order_by('recorrido__fecha_recorrido', 'recorrido_id'))
+    enc_qs = enc_qs.select_related(*relacionados).order_by('recorrido__fecha_recorrido', 'recorrido_id')
+    totales = {
+        'pre': resumen['pre_con_hallazgos'] if solo_hallazgos else resumen['preoperacionales'],
+        'enc': resumen['enc_con_alertas'] if solo_hallazgos else resumen['encuestas'],
+        'sin': resumen['sin_preoperacional'],
+    }
+
+    pagina = None
+    if completo:
+        preoperacionales, encuestas, sin_preoperacional = list(pre_qs), list(enc_qs), list(sin_qs)
+    else:
+        lista = {'pre': pre_qs, 'enc': enc_qs, 'sin': sin_qs}[pestana]
+        pagina = Paginator(lista, PESV_POR_PAGINA).get_page(request.GET.get('page'))
+        objetos = list(pagina.object_list)
+        preoperacionales = objetos if pestana == 'pre' else []
+        encuestas = objetos if pestana == 'enc' else []
+        sin_preoperacional = objetos if pestana == 'sin' else []
 
     # La regleta del año: cuántos registros (preoperacionales + encuestas)
     # hubo cada mes, para saltar de mes.
     conteo_meses = {}
     for modelo in (Preoperacional, EncuestaConductor):
-        for fecha in (modelo.objects.filter(recorrido__fecha_recorrido__year=anio)
-                      .values_list('recorrido__fecha_recorrido', flat=True)):
-            conteo_meses[fecha.month] = conteo_meses.get(fecha.month, 0) + 1
+        for fila in (modelo.objects.filter(recorrido__fecha_recorrido__year=anio)
+                     .values('recorrido__fecha_recorrido__month').annotate(n=Count('pk'))):
+            numero = fila['recorrido__fecha_recorrido__month']
+            conteo_meses[numero] = conteo_meses.get(numero, 0) + fila['n']
     meses = [{'numero': i + 1, 'nombre': nombre, 'total': conteo_meses.get(i + 1, 0),
               'activo': (i + 1) == mes and not a_medida}
              for i, nombre in enumerate(HistoricoClienteView.MESES)]
     anios = {hoy.year, anio}
     for modelo in (Preoperacional, EncuestaConductor):
-        anios.update(f.year for f in modelo.objects.values_list(
-            'recorrido__fecha_recorrido', flat=True))
+        anios.update(modelo.objects.values_list('recorrido__fecha_recorrido__year', flat=True).distinct())
 
-    # Los chips «Todo» / «Solo lo que exige atención» conservan el resto del filtro.
-    params = request.GET.copy()
-    params.pop('ver', None)
-    base = params.urlencode()
+    # Los chips «Todo» / «Solo lo que exige atención» y las pestañas
+    # conservan el resto del filtro (y vuelven a la página 1).
+    def sin(*claves):
+        params = request.GET.copy()
+        for clave in claves:
+            params.pop(clave, None)
+        texto = params.urlencode()
+        return '?' + (texto + '&' if texto else '')
+    base = sin('ver', 'page')
+    pestanas = [{'clave': clave, 'nombre': nombre, 'total': totales[clave],
+                 'url': sin('pestana', 'page') + f'pestana={clave}', 'activa': clave == pestana}
+                for clave, nombre in PESV_PESTANAS]
 
     return {
         'anio': anio, 'mes': mes, 'inicio': inicio, 'fin': fin, 'a_medida': a_medida,
         'periodo': _etiqueta_periodo(anio, mes, inicio, fin, a_medida),
         'meses': meses, 'anios': sorted(anios, reverse=True),
-        'url_todo': '?' + base,
-        'url_hallazgos': '?' + (base + '&' if base else '') + 'ver=hallazgos',
+        'url_todo': base.rstrip('&?') or '?',
+        'url_hallazgos': base + 'ver=hallazgos',
         'vehiculo_id': vehiculo_id, 'conductor_id': conductor_id,
         'solo_hallazgos': solo_hallazgos,
-        'vehiculos': Vehiculo.objects.order_by('placa'),
+        'vehiculos': Vehiculo.objects.order_by('placa').only('pk', 'placa'),
         'conductores': (User.objects.filter(recorridos__isnull=False).distinct()
                         .order_by('first_name', 'last_name', 'username')),
+        'pestana': pestana, 'pestanas': pestanas,
+        'page_obj': pagina,
+        'pagina_rango': rango_de_paginas(pagina) if pagina else [],
         'preoperacionales': preoperacionales,
         'encuestas': encuestas,
         'sin_preoperacional': sin_preoperacional,
         'items_fallados': items_fallados,
         'preguntas': preguntas,
         'resumen': resumen,
-        'sin_nada': not (preoperacionales or encuestas or sin_preoperacional),
+        'sin_nada': not (resumen['preoperacionales'] or resumen['encuestas']
+                         or resumen['sin_preoperacional']),
     }
 
 
@@ -9764,7 +9833,7 @@ class CarpetaPESVExcelView(PESVRequiredMixin, View):
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
 
-        datos = _datos_pesv(request)
+        datos = _datos_pesv(request, completo=True)
         libro = Workbook()
         portada = libro.active
         portada.title = 'Resumen'
@@ -9784,7 +9853,7 @@ class CarpetaPESVExcelView(PESVRequiredMixin, View):
             ('Vehículos no aptos', r['no_aptos']),
             ('Preoperacionales con hallazgos', r['pre_con_hallazgos']),
             ('Ítems en mal estado', r['items_malos']),
-            ('Servicios sin preoperacional', len(datos['sin_preoperacional'])),
+            ('Servicios sin preoperacional', r['sin_preoperacional']),
             ('', ''),
             ('Encuestas de cierre', r['encuestas']),
             ('Encuestas con respuestas que exigen atención', r['enc_con_alertas']),

@@ -9615,7 +9615,12 @@ class CarpetaPESVTests(BaseCRM):
                          [self.recorrido])
         self.assertContains(este_mes, 'Frenos de aire, purga de tanques y freno de ahogo.')
         self.assertContains(este_mes, reverse('gestion:preoperacional_pdf', args=[self.recorrido.pk]))
-        self.assertContains(este_mes, reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk]))
+        # Las encuestas van en su pestaña: la de preoperacionales no las carga.
+        self.assertEqual(este_mes.context['encuestas'], [])
+        encuestas = self.client.get(self.url, {'anio': self.hoy.year, 'mes': self.hoy.month, 'pestana': 'enc'})
+        self.assertEqual([e.recorrido for e in encuestas.context['encuestas']], [self.recorrido])
+        self.assertEqual(encuestas.context['preoperacionales'], [])
+        self.assertContains(encuestas, reverse('gestion:encuesta_conductor_pdf', args=[self.recorrido.pk]))
         # El otro servicio no está (la placa sí sale, en el desplegable del filtro).
         self.assertNotContains(este_mes, reverse('gestion:preoperacional_pdf', args=[self.viejo.pk]))
 
@@ -9648,20 +9653,22 @@ class CarpetaPESVTests(BaseCRM):
 
     def test_los_servicios_pasados_sin_preoperacional_se_reclaman(self):
         self.entrar(self.siso)
-        respuesta = self.client.get(self.url, {'anio': self.viejo.fecha_recorrido.year,
-                                               'mes': self.viejo.fecha_recorrido.month})
+        periodo = {'anio': self.viejo.fecha_recorrido.year, 'mes': self.viejo.fecha_recorrido.month,
+                   'pestana': 'sin'}
+        respuesta = self.client.get(self.url, periodo)
         self.assertEqual(respuesta.context['sin_preoperacional'], [self.viejo])
-        self.assertContains(respuesta, 'Servicios sin preoperacional')
+        self.assertEqual(respuesta.context['resumen']['sin_preoperacional'], 1)
+        self.assertContains(respuesta, 'Sin preoperacional')
         self.preoperacional(self.viejo)
-        respuesta = self.client.get(self.url, {'anio': self.viejo.fecha_recorrido.year,
-                                               'mes': self.viejo.fecha_recorrido.month})
+        respuesta = self.client.get(self.url, periodo)
         self.assertEqual(respuesta.context['sin_preoperacional'], [])
 
     def test_desde_la_carpeta_se_completa_un_preoperacional_aunque_el_servicio_este_cerrado(self):
         self.viejo.estado = 'COMPLETADO'
         self.viejo.save()
         url = reverse('gestion:preoperacional', args=[self.viejo.pk])
-        periodo = {'anio': self.viejo.fecha_recorrido.year, 'mes': self.viejo.fecha_recorrido.month}
+        periodo = {'anio': self.viejo.fecha_recorrido.year, 'mes': self.viejo.fecha_recorrido.month,
+                   'pestana': 'sin'}
         for quien in (self.siso, self.admin, self.persona('root', superusuario=True)):
             with self.subTest(quien=quien.username):
                 Preoperacional.objects.all().delete()
@@ -9689,6 +9696,37 @@ class CarpetaPESVTests(BaseCRM):
         carpeta = self.client.get(self.url, periodo)
         self.assertNotContains(carpeta, url + '?volver=pesv')
         self.assertContains(carpeta, 'Ponle el tipo al vehículo primero')
+
+    def test_las_pestanas_y_la_paginacion(self):
+        """Oct-2026: la carpeta no trae todo de golpe: una pestaña a la vez, de a 25."""
+        from .views import PESV_POR_PAGINA
+        orden = self.orden
+        for i in range(PESV_POR_PAGINA + 3):
+            rec = Recorrido.objects.create(orden=orden, vehiculo=self.camion, conductor=self.conductor,
+                                           fecha_recorrido=self.hoy)
+            self.preoperacional(rec, malos=(1,) if i == 0 else ())
+        self.entrar(self.siso)
+        params = {'anio': self.hoy.year, 'mes': self.hoy.month}
+        primera = self.client.get(self.url, params)
+        self.assertEqual(primera.context['pestana'], 'pre')
+        self.assertEqual(len(primera.context['preoperacionales']), PESV_POR_PAGINA)
+        self.assertEqual(primera.context['page_obj'].paginator.count, PESV_POR_PAGINA + 3)
+        self.assertEqual(primera.context['resumen']['preoperacionales'], PESV_POR_PAGINA + 3)
+        self.assertEqual([p['total'] for p in primera.context['pestanas']], [PESV_POR_PAGINA + 3, 0, 1])
+        self.assertContains(primera, 'Encuestas de cierre')
+        segunda = self.client.get(self.url, {**params, 'page': 2})
+        self.assertEqual(len(segunda.context['preoperacionales']), 3)
+        # Las pestañas conservan el filtro y vuelven a la página 1.
+        enlace = [p['url'] for p in segunda.context['pestanas'] if p['clave'] == 'enc'][0]
+        self.assertIn('pestana=enc', enlace)
+        self.assertIn(f'mes={self.hoy.month}', enlace)
+        self.assertNotIn('page=', enlace)
+        # «Solo lo que exige atención» cuenta solo esas en la pestaña.
+        hallazgos = self.client.get(self.url, {**params, 'ver': 'hallazgos'})
+        self.assertEqual(hallazgos.context['page_obj'].paginator.count, 1)
+        self.assertEqual(hallazgos.context['pestanas'][0]['total'], 1)
+        # Una pestaña inventada cae en la de preoperacionales.
+        self.assertEqual(self.client.get(self.url, {**params, 'pestana': 'x'}).context['pestana'], 'pre')
 
     def test_el_excel_trae_el_resumen_y_las_hojas(self):
         from openpyxl import load_workbook
