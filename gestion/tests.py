@@ -7846,23 +7846,53 @@ class DisposicionDeLaOrdenTests(BaseDisposicion):
         self.assertNotContains(respuesta, 'Carga de residuo')
         self.assertNotContains(respuesta, 'Marcar como cargado')
 
-    def test_al_programar_con_no_se_avisa_que_la_orden_queda_sin_disponer(self):
+    def programar_con_no(self, destino):
         self.entrar(self.asesor)
-        respuesta = self.client.post(reverse('gestion:crear_programacion'), {
+        return self.client.post(reverse('gestion:crear_programacion'), {
             'fecha': timezone.localdate().isoformat(), 'cliente': self.cli.pk,
             'hora_ingreso_bodega': '06:00', 'sitio_inicio': '', 'hora_servicio': '08:00',
             'sede_cliente': '', 'tercero': '', 'direccion': 'Calle 100 # 20-30',
             'observaciones_servicio': 'Succión', 'paleada': '', 'bascula': '',
             'bascula_sitio': '', 'registro_fotografico': '', 'responsable_sg': '',
             'requiere_disposicion_final': 'NO', 'dispositor_final': '',
-            'destino_sin_disposicion': Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION).pk,
+            'destino_sin_disposicion': Dispositor.objects.get(nombre=destino).pk,
             'trasiego_vehiculo': '', 'nombre_contacto_recibe': 'Quien recibe',
             'cuadrilla-conductor': self.conductor.pk,
             'cuadrilla-vehiculo': self.vehiculo('WGY347').pk,
             'cuadrilla-ayudante': '', 'cuadrilla-ayudante2': '',
         }, follow=True)
+
+    def test_al_programar_con_no_se_avisa_que_la_orden_queda_sin_disponer(self):
+        respuesta = self.programar_con_no(Dispositor.DEJAR_CARRO_CARGADO)
         self.assertContains(respuesta, 'queda SIN DISPONER')
         self.assertEqual(OrdenServicio.objects.get().estado_disposicion, 'PENDIENTE')
+
+    def test_no_hay_disposicion_no_deja_la_orden_pendiente(self):
+        """Oct-2026: NO + «NO HAY DISPOSICIÓN» = no hay nada que disponer."""
+        respuesta = self.programar_con_no(Dispositor.SIN_DISPOSICION)
+        self.assertNotContains(respuesta, 'queda SIN DISPONER')
+        self.assertContains(respuesta, 'no queda pendiente en Disposiciones')
+        orden = OrdenServicio.objects.get()
+        self.assertEqual(orden.estado_disposicion, 'NO_APLICA')
+        self.entrar(self.admin)
+        panel = self.client.get(self.panel)
+        self.assertNotIn(orden.pk, [f['orden'].pk for f in panel.context['pendientes']])
+
+    def test_corregir_la_orden_a_no_hay_disposicion_la_saca_del_pendiente_y_viceversa(self):
+        self.programar_con_no(Dispositor.DEJAR_CARRO_CARGADO)
+        orden = OrdenServicio.objects.get()
+        programacion = orden.programacion_origen
+        self.assertEqual(orden.estado_disposicion, 'PENDIENTE')
+        from .views import _sincronizar_orden_desde_programacion
+        programacion.dispositor_final = Dispositor.objects.get(nombre=Dispositor.SIN_DISPOSICION)
+        programacion.save()
+        avisos = _sincronizar_orden_desde_programacion(programacion, orden)
+        self.assertEqual(self.estado(orden), 'NO_APLICA')
+        self.assertTrue(any('salió del apartado' in a for a in avisos))
+        programacion.dispositor_final = Dispositor.objects.get(nombre=Dispositor.DEJAR_CARRO_CARGADO)
+        programacion.save()
+        _sincronizar_orden_desde_programacion(programacion, orden)
+        self.assertEqual(self.estado(orden), 'PENDIENTE')
 
 
 class CorreccionManualDisposicionTests(BaseDisposicion):

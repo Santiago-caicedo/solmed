@@ -1029,8 +1029,10 @@ class Dispositor(models.Model):
     DEJAR_CARRO_CARGADO = 'DEJAR CARRO CARGADO'
     TRASIEGO_PLACA = 'TRASIEGO A ------ PLACA'
     TANQUES = ('TRASIEGO TANQUE AUXILIAR', 'TRASIEGO TANQUE SUBTERRANEO')
-    # El servicio pasa sin disposición y SIN dejar nada pendiente: el camión no
-    # queda cargado y no hay contenido que rastrear (p. ej. sondeo o lavado).
+    # El servicio no deja contenido que disponer (p. ej. sondeo o lavado): con
+    # «¿Se realizará disposición final? NO» y este destino, la orden NO queda
+    # sin disponer ni aparece en Disposiciones; queda «No aplica» (decisión de
+    # Santiago, oct-2026). Los demás destinos con NO sí dejan la orden pendiente.
     SIN_DISPOSICION = 'NO HAY DISPOSICIÓN'
 
     def __str__(self):
@@ -1971,6 +1973,12 @@ class Programacion(models.Model):
             self._registrar_disposicion_inicial(orden, usuario)
         return orden
 
+    @property
+    def sin_contenido_que_disponer(self):
+        """NO + «NO HAY DISPOSICIÓN»: el servicio no deja nada que disponer."""
+        return (self.requiere_disposicion_final == 'NO' and self.dispositor_final_id is not None
+                and self.dispositor_final.nombre == Dispositor.SIN_DISPOSICION)
+
     def _registrar_disposicion_inicial(self, orden, usuario=None):
         """
         El pendiente de disposición es DE LA ORDEN (decisión del usuario,
@@ -1978,10 +1986,13 @@ class Programacion(models.Model):
 
           - Disposición SÍ (gestor): la orden queda DISPUESTA al convertir,
             con su gestor, y así queda registrado.
-          - NO: la orden queda SIN DISPONER, sin importar el destino elegido
-            (dejar carro cargado, trasiego, tanques, no hay disposición): ese
-            destino es solo una nota de referencia. Disponerla se registra
-            DESPUÉS desde el plan de trabajo o el panel, con su responsable.
+          - NO: la orden queda SIN DISPONER (dejar carro cargado, trasiego,
+            tanques): ese destino es solo una nota de referencia. Disponerla
+            se registra DESPUÉS desde el plan de trabajo o el panel, con su
+            responsable.
+          - NO + «NO HAY DISPOSICIÓN»: no hay nada que disponer (sondeo,
+            lavado…): la orden queda en NO_APLICA y no entra a Disposiciones
+            (decisión de Santiago, oct-2026).
 
         La pregunta es obligatoria en el formulario; si un dato viejo llega
         sin respuesta, la orden queda en NO_APLICA.
@@ -1992,6 +2003,9 @@ class Programacion(models.Model):
                 via='CONVERTIR', fecha=self.fecha, usuario=usuario, dispositor=gestor,
                 nota=(f"Se dispuso con {gestor.nombre}" if gestor else "Disposición final"),
             )
+        elif self.sin_contenido_que_disponer:
+            orden.estado_disposicion = 'NO_APLICA'
+            orden.save(update_fields=['estado_disposicion'])
         elif self.requiere_disposicion_final == 'NO':
             orden.estado_disposicion = 'PENDIENTE'
             orden.save(update_fields=['estado_disposicion'])

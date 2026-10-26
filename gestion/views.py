@@ -712,6 +712,24 @@ def _sincronizar_orden_desde_programacion(programacion, orden):
             "Esta orden histórica entra a la cola de conciliación: ponle la "
             "cantidad de transporte cuando hagas el corte del mes."
         )
+    # «NO HAY DISPOSICIÓN» (oct-2026): si al corregir la orden se marca que no
+    # deja contenido, sale del pendiente; si se le cambia a otro destino con
+    # NO, vuelve a quedar sin disponer. Solo mientras no tenga una disposición
+    # registrada, y nunca en las históricas (nacieron fuera de este control).
+    if not orden.disposiciones.filter(deshecha=False).exists():
+        if orden.estado_disposicion == 'PENDIENTE' and programacion.sin_contenido_que_disponer:
+            orden.estado_disposicion = 'NO_APLICA'
+            campos.append('estado_disposicion')
+            avisos.append("Con «NO HAY DISPOSICIÓN» la orden ya no queda sin disponer: "
+                          "salió del apartado de Disposiciones.")
+        elif (orden.estado_disposicion == 'NO_APLICA'
+              and orden.pk >= OrdenServicio.NUMERO_INICIAL
+              and programacion.requiere_disposicion_final == 'NO'
+              and not programacion.sin_contenido_que_disponer):
+            orden.estado_disposicion = 'PENDIENTE'
+            campos.append('estado_disposicion')
+            avisos.append(f"La orden #{orden.numero_orden} queda SIN DISPONER: regístrala "
+                          "desde el plan de trabajo o el panel de disposiciones.")
     orden.save(update_fields=campos)
     # Los puntos con registro fotográfico también se reflejan.
     orden.puntos_registro.set(programacion.puntos_registro.all())
@@ -4863,6 +4881,10 @@ def _avisar_carga_pendiente(request, programacion, orden):
     que la orden queda sin disponer hasta que alguien registre el viaje.
     """
     if programacion.requiere_disposicion_final != 'NO':
+        return
+    if programacion.sin_contenido_que_disponer:
+        messages.info(request, f"La orden #{orden.numero_orden} no deja contenido que disponer "
+                               "(«NO HAY DISPOSICIÓN»): no queda pendiente en Disposiciones.")
         return
     destino = programacion.dispositor_final.nombre if programacion.dispositor_final_id else ''
     messages.warning(
