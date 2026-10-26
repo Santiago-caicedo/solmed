@@ -41,6 +41,7 @@ from django.views import View
 from django.views.generic import ListView
 from weasyprint import HTML
 
+from .cartera import clientes_de, tiene_cartera
 from .forms import ServicioVisitaFormSet, VisitaCampoForm, VisitaProgramacionForm
 from .models import FotoVisita, VisitaTecnica
 from .views import AsesorRequiredMixin, PaginadoMixin, _decodificar_firma_png, _qr_data_uri, _reply_to
@@ -188,6 +189,19 @@ def _avisar_oficina(request, visita, asunto, intro, texto_extra=''):
 #  LA OFICINA: lista, solicitud (sección 1), detalle y estado
 # ============================================================
 
+def _visitas_de(user):
+    """
+    Las visitas al alcance de la persona. Cartera (oct-2026): la asesora ve
+    las de sus clientes y, de los prospectos (sin cliente), las que ella
+    programó o tiene asignadas como ejecutiva.
+    """
+    qs = VisitaTecnica.objects.all()
+    if not tiene_cartera(user):
+        return qs
+    return qs.filter(Q(cliente__in=clientes_de(user))
+                     | (Q(cliente__isnull=True) & (Q(ejecutivo=user) | Q(creada_por=user))))
+
+
 class ListaVisitasView(AsesorRequiredMixin, PaginadoMixin, ListView):
     """Las visitas, la próxima arriba, con filtro por estado, ejecutivo y buscador."""
     model = VisitaTecnica
@@ -199,7 +213,7 @@ class ListaVisitasView(AsesorRequiredMixin, PaginadoMixin, ListView):
         return estado if estado in dict(VisitaTecnica.ESTADO_CHOICES) else ''
 
     def get_queryset(self):
-        qs = VisitaTecnica.objects.select_related('cliente', 'ejecutivo')
+        qs = _visitas_de(self.request.user).select_related('cliente', 'ejecutivo')
         if self._estado():
             qs = qs.filter(estado=self._estado())
         try:
@@ -220,11 +234,11 @@ class ListaVisitasView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        conteo = dict(VisitaTecnica.objects.values_list('estado').annotate(n=Count('pk')))
+        conteo = dict(_visitas_de(self.request.user).values_list('estado').annotate(n=Count('pk')))
         context.update({
             'estado': self._estado(),
             'estados': [(c, n, conteo.get(c, 0)) for c, n in VisitaTecnica.ESTADO_CHOICES],
-            'n_total': VisitaTecnica.objects.count(),
+            'n_total': _visitas_de(self.request.user).count(),
             'q': self.request.GET.get('q', '').strip(),
             'ejecutivo': self.request.GET.get('ejecutivo', ''),
             'ejecutivos': VisitaProgramacionForm().fields['ejecutivo'].queryset,
@@ -243,10 +257,10 @@ class ProgramarVisitaView(AsesorRequiredMixin, View):
     template_name = 'gestion/form_visita.html'
 
     def _visita(self, pk):
-        return get_object_or_404(VisitaTecnica, pk=pk) if pk else None
+        return get_object_or_404(_visitas_de(self.request.user), pk=pk) if pk else None
 
     @staticmethod
-    def _clientes():
+    def _clientes(usuario):
         """
         Los clientes registrados con lo que la hoja se llena sola al elegir uno
         (razón social, NIT, contacto, teléfono, correo, dirección), para el
@@ -259,22 +273,22 @@ class ProgramarVisitaView(AsesorRequiredMixin, View):
             'telefonos': ' / '.join(t for t in (c.telefono_celular, c.telefono_fijo, c.telefono) if t),
             'email': c.email or '',
             'direccion': ', '.join(d for d in (c.direccion, c.ciudad) if d),
-        } for c in Cliente.objects.order_by('nombre')]
+        } for c in clientes_de(usuario).order_by('nombre')]   # cartera (oct-2026)
 
     def _contexto(self, form, visita):
-        return {'form': form, 'visita': visita, 'clientes': self._clientes()}
+        return {'form': form, 'visita': visita, 'clientes': self._clientes(self.request.user)}
 
     def get(self, request, pk=None):
         visita = self._visita(pk)
         initial = {} if visita else {'ejecutivo': request.user.pk}
-        form = VisitaProgramacionForm(instance=visita, initial=initial)
+        form = VisitaProgramacionForm(instance=visita, initial=initial, usuario=request.user)
         return render(request, self.template_name, self._contexto(form, visita))
 
     def post(self, request, pk=None):
         visita = self._visita(pk)
         # Se toma ANTES de ligar el formulario: el ModelForm escribe sobre la instancia.
         antes = (visita.fecha_programada, visita.hora_inicio) if visita else None
-        form = VisitaProgramacionForm(request.POST, instance=visita)
+        form = VisitaProgramacionForm(request.POST, instance=visita, usuario=request.user)
         if not form.is_valid():
             messages.error(request, "Revisa el formulario.")
             return render(request, self.template_name, self._contexto(form, visita))
@@ -315,7 +329,7 @@ class DetalleVisitaView(AsesorRequiredMixin, View):
 
     def get(self, request, pk):
         visita = get_object_or_404(
-            VisitaTecnica.objects.select_related('cliente', 'ejecutivo', 'creada_por')
+            _visitas_de(request.user).select_related('cliente', 'ejecutivo', 'creada_por')
             .prefetch_related('servicios', 'fotos'), pk=pk)
         return render(request, self.template_name, {
             'visita': visita,
@@ -333,7 +347,7 @@ class CambiarEstadoVisitaView(AsesorRequiredMixin, View):
     """
 
     def post(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         estado = request.POST.get('estado', '')
         if estado not in dict(VisitaTecnica.ESTADO_CHOICES) or estado == 'REALIZADA':
             messages.error(request, "Ese estado no se puede poner desde aquí.")
@@ -358,7 +372,7 @@ class ReenviarSolicitudVisitaView(AsesorRequiredMixin, View):
     """Vuelve a mandar el correo de la solicitud (mismo enlace) mientras esté pendiente."""
 
     def post(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         if not visita.pendiente_aprobacion:
             messages.error(request, "Esta visita ya no está pendiente de aprobación.")
         else:
@@ -471,7 +485,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
 
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
-            visita = get_object_or_404(VisitaTecnica, pk=kwargs.get('pk'))
+            visita = get_object_or_404(_visitas_de(request.user), pk=kwargs.get('pk'))
             if not visita.en_campo_permitido:
                 messages.error(
                     request,
@@ -487,7 +501,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
         }
 
     def get(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         initial = {}
         if not visita.ejecutivo_realizo:
             quien = visita.ejecutivo or request.user
@@ -500,7 +514,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
         return render(request, self.template_name, self._contexto(visita, form, formset))
 
     def post(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         form = VisitaCampoForm(request.POST, instance=visita)
         formset = ServicioVisitaFormSet(request.POST, instance=visita, prefix='srv')
         a_firma = 'a_firma' in request.POST
@@ -530,7 +544,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
 
 class EliminarFotoVisitaView(AsesorRequiredMixin, View):
     def post(self, request, pk, foto_pk):
-        foto = get_object_or_404(FotoVisita, pk=foto_pk, visita_id=pk)
+        foto = get_object_or_404(FotoVisita, pk=foto_pk, visita_id=pk, visita__in=_visitas_de(request.user))
         foto.archivo.delete(save=False)
         foto.delete()
         messages.success(request, "Foto eliminada.")
@@ -551,7 +565,7 @@ class FirmaVisitaView(AsesorRequiredMixin, View):
     template_name = 'gestion/firma_visita.html'
 
     def _visita(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         if not visita.en_campo_permitido:
             messages.error(request, "El cliente debe aprobar la visita antes de poder firmarla.")
             return None
@@ -585,7 +599,7 @@ class EstadoFirmaVisitaView(AsesorRequiredMixin, View):
     """Sondeo de la pantalla del QR: ¿ya firmó el cliente?"""
 
     def get(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         return JsonResponse({'firmada': visita.estado == 'REALIZADA'})
 
 
@@ -695,7 +709,7 @@ def _pdf_visita(visita, request):
 
 class VisitaPDFView(AsesorRequiredMixin, View):
     def get(self, request, pk):
-        visita = get_object_or_404(VisitaTecnica, pk=pk)
+        visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         respuesta = HttpResponse(_pdf_visita(visita, request), content_type='application/pdf')
         modo = 'inline' if request.GET.get('ver') else 'attachment'
         respuesta['Content-Disposition'] = f'{modo}; filename="visita_tecnica_{visita.codigo}.pdf"'

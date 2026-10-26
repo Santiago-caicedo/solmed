@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Q
 from .roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR
+from .cartera import clientes_de, tiene_cartera
 from .preoperacional import DICTAMEN_CHOICES, ESTADO_ITEM_CHOICES, items_de
 from .models import Banco, Bascula, ContactoProveedor, Dispositor, DocumentoCorreoCliente, DocumentoDispositor, DocumentoInterno, DocumentoOrden, DocumentoPersonal, DocumentoProveedor, EncuestaConductor, FiltroAceite, Manifiesto, OrdenServicio, Pago, PerfilPersona, Programacion, ProgramacionCuadrilla, Proveedor, Recorrido, Sede, SitioInicio, Tercero, TipoResiduo, Vehiculo, Cliente
 from django.contrib.auth.models import User, Group
@@ -48,8 +49,10 @@ class OrdenServicioForm(forms.ModelForm):
             'puntos_registro': forms.CheckboxSelectMultiple,
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if usuario is not None:
+            self.fields['cliente'].queryset = clientes_de(usuario).order_by('nombre')
         # Los puntos con registro fotográfico: los del cliente de la orden
         # (activos + los ya marcados). La plantilla los pinta como casillas.
         from .models import PuntoRegistro
@@ -138,8 +141,11 @@ class ClienteForm(forms.ModelForm):
             'sst_nombre', 'sst_telefono', 'sst_cargo', 'sst_correo',
             # Documentos a adjuntar (fijos)
             'doc_rut', 'doc_camara_comercio', 'doc_cedula_rep_legal',
+            # Cartera: la(s) asesora(s) de SOLMED que lo atienden (oct-2026).
+            'asesoras',
         ]
         widgets = {
+            'asesoras': forms.CheckboxSelectMultiple,
             'nombre': forms.TextInput(attrs={'class': 'form-control'}),
             'sigla': forms.TextInput(attrs={'class': 'form-control'}),
             'identificacion': forms.TextInput(attrs={'class': 'form-control'}),
@@ -156,11 +162,25 @@ class ClienteForm(forms.ModelForm):
             'doc_cedula_rep_legal': forms.FileInput(attrs={'class': 'form-control'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # Las asesoras: las personas activas del rol Asesores. Solo un
+        # administrador las asigna; a una asesora el campo no se le ofrece
+        # (decisión de Santiago, oct-2026) y la vista la deja en su cartera.
+        self.puede_asignar = not tiene_cartera(usuario)
+        if self.puede_asignar:
+            campo = self.fields['asesoras']
+            campo.queryset = (User.objects.filter(is_active=True, groups__name='Asesores')
+                              .distinct().order_by('first_name', 'last_name', 'username'))
+            campo.label_from_instance = lambda u: u.get_full_name() or u.username
+            campo.required = False
+        else:
+            del self.fields['asesoras']
         # Aplica el estilo Bootstrap a los campos que no tienen un widget explícito
         # (las secciones de contacto Comercial / Contabilidad / Ambiental / SST).
-        for field in self.fields.values():
+        for nombre, field in self.fields.items():
+            if nombre == 'asesoras':
+                continue
             css = field.widget.attrs.get('class', '')
             if 'form-control' not in css and 'form-select' not in css:
                 field.widget.attrs['class'] = (css + ' form-control').strip()
@@ -867,8 +887,11 @@ class ProgramacionForm(forms.ModelForm):
             'transporte_tipo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
+        # Cartera (oct-2026): la asesora solo programa a SUS clientes.
+        if usuario is not None:
+            self.fields['cliente'].queryset = clientes_de(usuario).order_by('nombre')
         # El date input HTML solo reconoce el valor si el formato es YYYY-MM-DD.
         self.fields['fecha'].input_formats = ['%Y-%m-%d']
         # Los desplegables con opciones vacías muestran "---------".
@@ -1559,6 +1582,12 @@ class OrdenHistoricaForm(forms.Form):
         widget=forms.Select(attrs={'class': 'form-select'}),
         empty_label='--- Elige el cliente ---',
     )
+
+    def __init__(self, *args, usuario=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Cartera (oct-2026): solo los clientes de la asesora.
+        if usuario is not None:
+            self.fields['cliente'].queryset = clientes_de(usuario).order_by('nombre')
     vehiculo = forms.ModelChoiceField(
         queryset=Vehiculo.objects.order_by('placa'), label="Vehículo",
         widget=forms.Select(attrs={'class': 'form-select'}),
@@ -1752,14 +1781,16 @@ class VisitaProgramacionForm(forms.ModelForm):
             'observaciones_ingreso': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, usuario=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['ejecutivo'].queryset = (
             User.objects.filter(is_active=True)
             .filter(Q(groups__name__in=['Asesores', 'Administradores']) | Q(is_superuser=True))
             .distinct().order_by('first_name', 'last_name'))
         self.fields['ejecutivo'].label_from_instance = lambda u: u.get_full_name() or u.username
-        self.fields['cliente'].queryset = Cliente.objects.order_by('nombre')
+        # Cartera (oct-2026): la asesora solo programa visitas a SUS clientes (o a prospectos).
+        self.fields['cliente'].queryset = (clientes_de(usuario) if usuario is not None
+                                           else Cliente.objects.all()).order_by('nombre')
         self.fields['cliente'].empty_label = 'Prospecto (aún no es cliente)'
         self.fields['empresa'].required = False
         # La hora de ingreso va en la solicitud que recibe el cliente (oct-2026).

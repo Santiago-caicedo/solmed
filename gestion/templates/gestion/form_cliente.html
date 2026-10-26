@@ -31,6 +31,11 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-asesora" type="button" role="tab">
+                <i class="bi bi-person-check me-1"></i> Asesora comercial
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-sedes" type="button" role="tab">
                 <i class="bi bi-geo-alt me-1"></i> Sedes
             </button>
@@ -55,6 +60,47 @@
     </ul>
 
     <div class="tab-content">
+
+        {# ===================== TAB: ASESORA COMERCIAL (cartera, oct-2026) ===================== #}
+        <div class="tab-pane fade" id="tab-asesora" role="tabpanel">
+            <style>
+            .asesora-chip{ display:flex; align-items:center; gap:.6rem; padding:.6rem .8rem; border:1px solid var(--line,#DCE1E8); border-radius:10px; cursor:pointer; margin:0; background:var(--panel,#fff); }
+            .asesora-chip input{ width:20px; height:20px; margin:0; accent-color:var(--brand-600,#5E8C1B); }
+            .asesora-chip:has(input:checked){ border-color:var(--brand-600,#5E8C1B); background:var(--brand-tint,#eef4dd); }
+            </style>
+            <div class="card shadow mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi bi-person-check me-1"></i>Asesora comercial de SOLMED</h5></div>
+                <div class="card-body p-4">
+                    {% if form.puede_asignar %}
+                    <p class="text-muted small">
+                        La asesora asignada es la que ve y gestiona este cliente en el sistema: sus órdenes, programaciones,
+                        actas, visitas técnicas, correos y fotos. Puedes marcar <strong>más de una</strong> (por ejemplo una
+                        titular y una de respaldo). <strong>Sin ninguna, solo lo ven los administradores.</strong>
+                    </p>
+                    {% if form.asesoras.field.queryset %}
+                    <div class="row g-2">
+                        {% for casilla in form.asesoras %}
+                        <div class="col-md-4"><label class="asesora-chip">{{ casilla.tag }}<span>{{ casilla.choice_label }}</span></label></div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">No hay personas con el rol Asesores. Créalas en Personal.</p>
+                    {% endif %}
+                    {% for e in form.asesoras.errors %}<div class="text-danger small mt-2">{{ e }}</div>{% endfor %}
+                    {% else %}
+                    <p class="text-muted small mb-2">La asesora de cada cliente la asigna un administrador.</p>
+                    {% if object.pk %}
+                    <ul class="mb-0">
+                        {% for a in object.asesoras.all %}<li>{{ a.get_full_name|default:a.username }}</li>
+                        {% empty %}<li class="text-muted">Sin asesora asignada.</li>{% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="mb-0"><i class="bi bi-info-circle me-1"></i>Al guardar, este cliente quedará en <strong>tu cartera</strong>.</p>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
 
         {# ========================= TAB 1: DATOS ========================= #}
         <div class="tab-pane fade show active" id="tab-datos" role="tabpanel">

@@ -104,6 +104,12 @@ def imagen(nombre='foto.png'):
 class BaseCRM(TestCase):
     """Utilidades compartidas: personas con rol, clientes, vehículos y servicios."""
 
+    # Cartera (oct-2026): en las pruebas de siempre, las asesoras ven TODOS
+    # los clientes (como antes de la cartera): cada cliente nuevo se les
+    # asigna y cada asesora nueva recibe los que ya existen. Las pruebas de la
+    # cartera lo apagan y asignan a mano.
+    CARTERA_AUTOMATICA = True
+
     # ---------- construcción de datos ----------
 
     @staticmethod
@@ -123,6 +129,9 @@ class BaseCRM(TestCase):
         usuario.save()
         if rol:
             usuario.groups.add(cls.grupo(rol))
+            if rol == 'Asesores' and cls.CARTERA_AUTOMATICA:
+                for cliente in Cliente.objects.all():
+                    cliente.asesoras.add(usuario)
         PerfilPersona.objects.get_or_create(usuario=usuario)
         return usuario
 
@@ -134,12 +143,15 @@ class BaseCRM(TestCase):
             fecha_vencimiento=timezone.localdate() + datetime.timedelta(days=dias),
         )
 
-    @staticmethod
-    def cliente(nombre='Transportes del Norte S.A.S.', **extra):
+    @classmethod
+    def cliente(cls, nombre='Transportes del Norte S.A.S.', **extra):
         datos = {'identificacion': '900123456-1', 'direccion': 'Cra 10 # 20-30',
                  'email': 'contacto@cliente.co'}
         datos.update(extra)
-        return Cliente.objects.create(nombre=nombre, **datos)
+        cliente = Cliente.objects.create(nombre=nombre, **datos)
+        if cls.CARTERA_AUTOMATICA:
+            cliente.asesoras.add(*User.objects.filter(groups__name='Asesores'))
+        return cliente
 
     @staticmethod
     def vehiculo(placa='WHB123', **extra):
@@ -10168,3 +10180,204 @@ class FotosServiciosTests(BaseCRM):
         from .models import FotoRegistro
         FotoRegistro.objects.all().delete()
         self.assertContains(self.client.get(self.galeria), 'No se subieron fotos de servicios')
+
+
+# ============================================================
+#  CARTERA DE CLIENTES POR ASESORA (oct-2026)
+# ============================================================
+class CarteraDeClientesTests(BaseCRM):
+    """
+    Cada cliente tiene su(s) asesora(s) comercial(es) (pestaña «Asesora
+    comercial» de la ficha). La asesora solo ve y gestiona lo de SUS clientes;
+    lo no asignado lo ven solo los administradores; los demás roles no cambian.
+    """
+    CARTERA_AUTOMATICA = False
+
+    def setUp(self):
+        datos = self.servicio_completo()          # cli + asesor (Ana) + orden + recorrido
+        self.__dict__.update(datos)
+        self.cli.asesoras.add(self.asesor)
+        self.otra = self.persona('otra', 'Asesores', 'Luisa', 'Mora')
+        self.admin = self.persona('admin', 'Administradores', 'Marta', 'Gil')
+        self.auxiliar = self.persona('aux', 'Auxiliares Administrativas', 'Rosa', 'Paz')
+        # Un cliente SIN asesora (solo administradores) con su propia orden...
+        self.ajeno = self.cliente('Curtiembres Norte', identificacion='800111222-3')
+        # (self.programacion es la del escenario: el ayudante se llama por la clase)
+        prog = BaseCRM.programacion(cliente=self.ajeno, conductor=self.conductor,
+                                 vehiculo=self.vehiculo('AJE123'), bascula='PESAN')
+        self.orden_ajena = prog.convertir_en_orden(self.admin)
+        self.recorrido_ajeno = self.orden_ajena.recorridos.first()
+        # ...y uno de la OTRA asesora.
+        self.de_otra = self.cliente('Lácteos del Valle', identificacion='901222333-4')
+        self.de_otra.asesoras.add(self.otra)
+        self.entrar(self.asesor)
+
+    def test_la_asesora_solo_ve_sus_clientes(self):
+        lista = self.client.get(reverse('gestion:lista_clientes'))
+        self.assertContains(lista, self.cli.nombre)
+        self.assertNotContains(lista, 'Curtiembres Norte')
+        self.assertNotContains(lista, 'Lácteos del Valle')
+        for nombre in ('ficha_cliente', 'actualizar_cliente', 'historico_cliente'):
+            with self.subTest(pantalla=nombre):
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=[self.cli.pk])).status_code, 200)
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=[self.ajeno.pk])).status_code, 404)
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=[self.de_otra.pk])).status_code, 404)
+        # El administrador ve los tres, y a quién está asignado cada uno.
+        self.entrar(self.admin)
+        lista = self.client.get(reverse('gestion:lista_clientes'))
+        for texto in (self.cli.nombre, 'Curtiembres Norte', 'Lácteos del Valle', 'Sin asignar', 'Luisa Mora'):
+            self.assertContains(lista, texto)
+        self.assertEqual(self.client.get(reverse('gestion:ficha_cliente', args=[self.ajeno.pk])).status_code, 200)
+
+    def test_las_ordenes_las_actas_y_las_programaciones_siguen_la_cartera(self):
+        ordenes = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertIn(self.orden, ordenes.context['ordenes'])
+        self.assertNotIn(self.orden_ajena, ordenes.context['ordenes'])
+        for nombre, args, esperado in (
+                ('detalle_orden', [self.orden_ajena.pk], 404),
+                ('actualizar_orden', [self.orden_ajena.pk], 404),
+                ('registrar_pago', [self.orden_ajena.pk], 404),
+                ('acta_pdf', [self.recorrido_ajeno.pk], 404),
+                ('acta_formato', [self.recorrido_ajeno.pk], 404),
+                ('editar_recorrido', [self.recorrido_ajeno.pk], 404),
+                ('firmar_manifiesto_step', [self.recorrido_ajeno.pk, 'paso3'], 302),
+                ('manifiesto_qr', [self.recorrido_ajeno.pk], 302),
+                ('manifiesto_estado', [self.recorrido_ajeno.pk], 403),
+                ('preoperacional', [self.recorrido_ajeno.pk], 302),
+                ('encuesta_conductor_pdf', [self.recorrido_ajeno.pk], 403),
+                ('detalle_orden', [self.orden.pk], 200),
+                ('acta_formato', [self.recorrido.pk], 200),
+                ('firmar_manifiesto_step', [self.recorrido.pk, 'paso3'], 200)):
+            with self.subTest(pantalla=nombre):
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=args)).status_code, esperado)
+        self.assertEqual(self.client.post(reverse('gestion:conciliar_orden', args=[self.orden_ajena.pk]),
+                                          {'transporte_cantidad': '3'}).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('gestion:conciliaciones')), 'Curtiembres Norte')
+        programaciones = self.client.get(reverse('gestion:lista_programaciones'))
+        self.assertNotContains(programaciones, 'Curtiembres Norte')
+        self.assertEqual(self.client.post(reverse('gestion:convertir_programacion',
+                                                  args=[self.orden_ajena.programacion_origen.pk])).status_code, 404)
+        # El administrador sí.
+        self.entrar(self.admin)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_orden', args=[self.orden_ajena.pk])).status_code, 200)
+
+    def test_los_formularios_solo_ofrecen_sus_clientes(self):
+        form = self.client.get(reverse('gestion:crear_programacion')).context['form']
+        self.assertEqual(list(form.fields['cliente'].queryset), [self.cli])
+        contexto = self.client.get(reverse('gestion:crear_programacion')).context
+        self.assertEqual(set(contexto['direcciones_clientes']), {str(self.cli.pk)})
+        form = self.client.get(reverse('gestion:orden_historica')).context['form']
+        self.assertEqual(list(form.fields['cliente'].queryset), [self.cli])
+        pantalla = self.client.get(reverse('gestion:crear_visita'))
+        self.assertEqual(list(pantalla.context['form'].fields['cliente'].queryset), [self.cli])
+        self.assertNotContains(pantalla, 'Curtiembres Norte')
+        correo = self.client.get(reverse('gestion:crear_envio_correo'))
+        self.assertEqual([c.pk for c in correo.context['clientes']], [self.cli.pk])
+        # Un cliente ajeno colado en el POST no pasa la validación.
+        self.assertEqual(self.client.post(reverse('gestion:crear_punto_registro'),
+                                          {'cliente': self.ajeno.pk, 'nombre': 'Trampa'}).status_code, 400)
+        # El administrador ve todos los clientes en los mismos desplegables.
+        self.entrar(self.admin)
+        form = self.client.get(reverse('gestion:crear_programacion')).context['form']
+        self.assertEqual(form.fields['cliente'].queryset.count(), 3)
+
+    def datos_cliente(self, **cambios):
+        datos = {'nombre': 'Nuevo Cliente S.A.S.', 'identificacion': '900999888-7',
+                 'sede-TOTAL_FORMS': '0', 'sede-INITIAL_FORMS': '0', 'sede-MIN_NUM_FORMS': '0', 'sede-MAX_NUM_FORMS': '1000',
+                 'tercero-TOTAL_FORMS': '0', 'tercero-INITIAL_FORMS': '0', 'tercero-MIN_NUM_FORMS': '0', 'tercero-MAX_NUM_FORMS': '1000',
+                 'doccorreo-TOTAL_FORMS': '0', 'doccorreo-INITIAL_FORMS': '0', 'doccorreo-MIN_NUM_FORMS': '0', 'doccorreo-MAX_NUM_FORMS': '1000'}
+        datos.update(cambios)
+        return datos
+
+    def test_el_cliente_que_crea_la_asesora_queda_en_su_cartera_y_solo_el_administrador_asigna(self):
+        pantalla = self.client.get(reverse('gestion:crear_cliente'))
+        self.assertNotContains(pantalla, 'name="asesoras"', msg_prefix="la asesora no asigna")
+        self.assertContains(pantalla, 'quedará en <strong>tu cartera</strong>')
+        # Aunque mande el campo, se ignora: queda ella.
+        respuesta = self.client.post(reverse('gestion:crear_cliente'), self.datos_cliente(asesoras=[self.otra.pk]))
+        self.assertEqual(respuesta.status_code, 302)
+        nuevo = Cliente.objects.get(nombre='Nuevo Cliente S.A.S.')
+        self.assertEqual(list(nuevo.asesoras.all()), [self.asesor])
+        self.assertContains(self.client.get(reverse('gestion:lista_clientes')), 'Nuevo Cliente S.A.S.')
+        # Editarlo tampoco toca la asignación.
+        self.client.post(reverse('gestion:actualizar_cliente', args=[nuevo.pk]),
+                         self.datos_cliente(ciudad='Cali', asesoras=[self.otra.pk]))
+        nuevo.refresh_from_db()
+        self.assertEqual(nuevo.ciudad, 'Cali')
+        self.assertEqual(list(nuevo.asesoras.all()), [self.asesor])
+
+        # El administrador sí ve la pestaña con las asesoras y reasigna.
+        self.entrar(self.admin)
+        pantalla = self.client.get(reverse('gestion:actualizar_cliente', args=[nuevo.pk]))
+        self.assertContains(pantalla, 'name="asesoras"')
+        self.assertContains(pantalla, 'Luisa Mora')
+        self.assertContains(pantalla, 'Asesora comercial')
+        self.client.post(reverse('gestion:actualizar_cliente', args=[nuevo.pk]),
+                         self.datos_cliente(ciudad='Cali', asesoras=[self.otra.pk]))
+        nuevo.refresh_from_db()
+        self.assertEqual(list(nuevo.asesoras.all()), [self.otra])
+        # Sin ninguna asesora, el administrador recibe el aviso.
+        respuesta = self.client.post(reverse('gestion:actualizar_cliente', args=[nuevo.pk]),
+                                     self.datos_cliente(ciudad='Cali'), follow=True)
+        self.assertContains(respuesta, 'no tiene asesora comercial asignada')
+        self.assertEqual(nuevo.asesoras.count(), 0)
+        # Y Ana, que lo creó, ya no lo ve.
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(reverse('gestion:ficha_cliente', args=[nuevo.pk])).status_code, 404)
+
+    def test_visitas_correos_fotos_calendario_basculas_y_certificados(self):
+        from .models import CertificadoDisposicion, EnvioCorreo, FotoRegistro, VisitaTecnica
+        hoy = timezone.localdate()
+        base = dict(fecha_programada=hoy, hora_inicio=datetime.time(9, 0), creada_por=self.admin)
+        mia = VisitaTecnica.objects.create(cliente=self.cli, empresa=self.cli.nombre, ejecutivo=self.otra, **base)
+        ajena = VisitaTecnica.objects.create(cliente=self.ajeno, empresa='Curtiembres Norte', ejecutivo=self.asesor, **base)
+        prospecto_mio = VisitaTecnica.objects.create(empresa='Prospecto Mío', ejecutivo=self.asesor, **base)
+        prospecto_otra = VisitaTecnica.objects.create(empresa='Prospecto Ajeno', ejecutivo=self.otra, **base)
+        lista = self.client.get(reverse('gestion:lista_visitas'))
+        self.assertEqual({v.pk for v in lista.context['visitas']}, {mia.pk, prospecto_mio.pk},
+                         "sus clientes y sus prospectos; la del cliente ajeno no, aunque ella sea la ejecutiva")
+        self.assertEqual(self.client.get(reverse('gestion:detalle_visita', args=[ajena.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_visita', args=[prospecto_otra.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_visita', args=[mia.pk])).status_code, 200)
+
+        EnvioCorreo.objects.create(cliente=self.cli, destinatarios='a@b.co', asunto='Mío', enviado_por=self.otra)
+        EnvioCorreo.objects.create(cliente=self.ajeno, destinatarios='a@b.co', asunto='Ajeno', enviado_por=self.asesor)
+        EnvioCorreo.objects.create(destinatarios='a@b.co', asunto='Sin cliente mío', enviado_por=self.asesor)
+        EnvioCorreo.objects.create(destinatarios='a@b.co', asunto='Sin cliente de otra', enviado_por=self.otra)
+        correos = self.client.get(reverse('gestion:centro_correos'))
+        self.assertEqual(sorted(e.asunto for e in correos.context['envios']), ['Mío', 'Sin cliente mío'])
+        self.assertEqual(correos.context['kpi']['total'], 2)
+
+        FotoRegistro.objects.create(orden=self.orden, archivo=imagen('mia.png'), subido_por=self.conductor)
+        FotoRegistro.objects.create(orden=self.orden_ajena, archivo=imagen('ajena.png'), subido_por=self.conductor)
+        self.assertEqual(self.client.get(reverse('gestion:fotos_servicios')).context['n_fotos'], 1)
+
+        eventos = self.client.get(reverse('gestion:feed_calendario')).json()
+        self.assertEqual(len(eventos), 1, "solo el servicio de su cliente")
+
+        # Básculas: la asesora solo ve la cola de sus clientes; la auxiliar, toda.
+        self.assertNotContains(self.client.get(reverse('gestion:basculas')), 'Curtiembres Norte')
+        self.assertEqual(self.client.post(reverse('gestion:subir_bascula', args=[self.orden_ajena.pk]),
+                                          {'bascula_adjunto': imagen('t.png')}).status_code, 404)
+        # Certificados: la carpeta del cliente ajeno no le existe; a la auxiliar sí.
+        CertificadoDisposicion.objects.create(cliente=self.ajeno, fecha=hoy, archivo=archivo('c.pdf'))
+        self.assertEqual(self.client.get(reverse('gestion:carpeta_disposicion', args=[self.ajeno.pk])).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('gestion:disposiciones_finales')), 'Curtiembres Norte')
+        self.entrar(self.auxiliar)
+        self.assertContains(self.client.get(reverse('gestion:basculas')), 'Curtiembres Norte')
+        self.assertEqual(self.client.get(reverse('gestion:carpeta_disposicion', args=[self.ajeno.pk])).status_code, 200)
+
+    def test_el_conductor_y_los_demas_roles_no_cambian(self):
+        # El conductor trabaja su servicio del cliente sin asesora igual que siempre.
+        self.entrar(self.conductor)
+        jornada = self.client.get(reverse('gestion:dashboard_conductor'))
+        self.assertEqual({t['orden'].pk for t in jornada.context['tarjetas_hoy']}, {self.orden.pk, self.orden_ajena.pk})
+        self.assertEqual(self.client.get(reverse('gestion:detalle_orden_conductor', args=[self.orden_ajena.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step',
+                                                 args=[self.recorrido_ajeno.pk, 'paso3'])).status_code, 200)
+        # La otra asesora ve lo suyo y nada más.
+        self.entrar(self.otra)
+        lista = self.client.get(reverse('gestion:lista_clientes'))
+        self.assertContains(lista, 'Lácteos del Valle')
+        self.assertNotContains(lista, self.cli.nombre)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk])).status_code, 404)

@@ -60,6 +60,13 @@ class Cliente(models.Model):
     doc_camara_comercio = models.FileField(upload_to='clientes_documentos/', blank=True, null=True, verbose_name="Cámara de Comercio")
     doc_cedula_rep_legal = models.FileField(upload_to='clientes_documentos/', blank=True, null=True, verbose_name="Cédula del Representante Legal")
 
+    # --- Cartera (oct-2026): la(s) asesora(s) comercial(es) de SOLMED que
+    # atienden a este cliente. Solo ellas lo ven y gestionan (ver cartera.py);
+    # sin ninguna, lo ven únicamente los administradores. Lo asigna gestión.
+    asesoras = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name='cartera',
+        verbose_name="Asesoras comerciales")
+
     def __str__(self):
         return self.nombre
 

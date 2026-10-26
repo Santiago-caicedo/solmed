@@ -37,7 +37,7 @@
         <tr>
             <th>Razón Social</th>
             <th>Identificación</th>
-            <th>Ciudad</th> <th>Contacto</th> <th class="text-end">Acciones</th>
+            <th>Ciudad</th> <th>Contacto</th>{% if es_administrador %} <th>Asesora comercial</th>{% endif %} <th class="text-end">Acciones</th>
         </tr>
     </thead>
     <tbody>
@@ -51,7 +51,9 @@
                 {% if cliente.sigla %}<span class="badge bg-light ms-1">{{ cliente.sigla }}</span>{% endif %}
             </td>
             <td>{{ cliente.identificacion }}</td>
-            <td>{{ cliente.ciudad }}</td> <td>{{ cliente.persona_contacto }}</td> <td class="text-end">
+            <td>{{ cliente.ciudad }}</td> <td>{{ cliente.persona_contacto }}</td>
+            {% if es_administrador %}<td>{% for a in cliente.asesoras.all %}<span class="badge bg-light text-dark border me-1">{{ a.get_full_name|default:a.username }}</span>{% empty %}<span class="text-muted small" title="Ninguna asesora lo ve hasta asignarla"><i class="bi bi-exclamation-circle me-1"></i>Sin asignar</span>{% endfor %}</td>{% endif %}
+            <td class="text-end">
                 <a href="{% url 'gestion:ficha_cliente' cliente.pk %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-folder2-open"></i> Expediente
                 </a>

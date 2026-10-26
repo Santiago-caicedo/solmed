@@ -38,6 +38,7 @@ from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_C
 from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from .preoperacional import nombre_tipo
+from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -531,6 +532,8 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
             # «Qué falta» mira las fotos por sede sin una consulta por orden.
             'fotos_registro', 'puntos_registro',
             'programacion_origen__cuadrillas__fotos_ayudantes')
+        # Cartera (oct-2026): la asesora solo ve las órdenes de sus clientes.
+        queryset = solo_cartera(queryset, self.request.user)
         query = self.request.GET.get('q')
         
         # --- LÓGICA DE FILTROS ---
@@ -605,6 +608,11 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
     """
     template_name = 'gestion/orden_historica_form.html'
     form_class = OrdenHistoricaForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['usuario'] = self.request.user   # cartera: solo sus clientes
+        return kwargs
 
     def form_valid(self, form):
         datos = form.cleaned_data
@@ -788,7 +796,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
 
     def _contexto(self, orden, programacion, form=None, cuadrilla_form=None):
         contexto = {
-            'form': form or ProgramacionForm(instance=programacion),
+            'form': form or ProgramacionForm(instance=programacion, usuario=self.request.user),
             'cuadrilla_form': cuadrilla_form or ProgramacionCuadrillaForm(
                 prefix='cuadrilla', instance=self._cuadrilla(orden, programacion),
                 historica=self._es_historica(orden)),
@@ -797,25 +805,25 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
             # los textos y el botón de volver.
             'desde_orden': orden,
         }
-        _contexto_programacion(contexto)
+        _contexto_programacion(contexto, self.request.user)
         return contexto
 
     def get(self, request, pk):
-        orden = get_object_or_404(OrdenServicio, pk=pk)
+        orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         programacion = self._programacion(orden)
         if programacion is None:
             return render(request, 'gestion/form_orden.html', {
-                'form': OrdenServicioForm(instance=orden), 'object': orden})
+                'form': OrdenServicioForm(instance=orden, usuario=request.user), 'object': orden})
         return render(request, self.template_name,
                       self._contexto(orden, programacion))
 
     def post(self, request, pk):
-        orden = get_object_or_404(OrdenServicio, pk=pk)
+        orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         programacion = self._programacion(orden)
         historica = self._es_historica(orden)
 
         if programacion is None:
-            form = OrdenServicioForm(request.POST, instance=orden)
+            form = OrdenServicioForm(request.POST, instance=orden, usuario=request.user)
             if form.is_valid():
                 form.save()
                 messages.success(request, "Orden actualizada.")
@@ -823,7 +831,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
             return render(request, 'gestion/form_orden.html',
                           {'form': form, 'object': orden})
 
-        form = ProgramacionForm(request.POST, instance=programacion)
+        form = ProgramacionForm(request.POST, instance=programacion, usuario=request.user)
         cuadrilla_form = ProgramacionCuadrillaForm(
             request.POST, prefix='cuadrilla',
             instance=self._cuadrilla(orden, programacion),
@@ -923,7 +931,7 @@ class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
     def get_cliente(self):
         if not hasattr(self, '_cliente'):
-            self._cliente = get_object_or_404(Cliente, pk=self.kwargs['pk'])
+            self._cliente = get_object_or_404(clientes_de(self.request.user), pk=self.kwargs['pk'])
         return self._cliente
 
     def _ordenes_del_cliente(self):
@@ -1092,7 +1100,7 @@ class HistoricoClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
     def get_cliente(self):
         if not hasattr(self, '_cliente'):
-            self._cliente = get_object_or_404(Cliente, pk=self.kwargs['pk'])
+            self._cliente = get_object_or_404(clientes_de(self.request.user), pk=self.kwargs['pk'])
         return self._cliente
 
     def _anio_mes(self):
@@ -1183,7 +1191,8 @@ class ListaClientesView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
     def get_queryset(self):
         """Busca por razón social, sigla, NIT, ciudad o persona de contacto."""
-        queryset = super().get_queryset()
+        # Cartera (oct-2026): la asesora solo ve sus clientes.
+        queryset = solo_cartera(super().get_queryset(), self.request.user, 'pk').prefetch_related('asesoras')
         q = self.request.GET.get('q', '').strip()
         if q:
             queryset = queryset.filter(
@@ -1206,6 +1215,11 @@ class ClienteFormMixin:
       - La carga MÚLTIPLE de documentos ambientales ('documentos_ambientales') y
         la eliminación de los marcados ('eliminar_doc_ambiental').
     """
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['usuario'] = self.request.user   # decide si puede asignar asesoras
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if 'sede_formset' not in context:
@@ -1246,6 +1260,16 @@ class ClienteFormMixin:
                 doc_correo_formset=doc_correo_formset
             ))
         self.object.save()
+        form.save_m2m()   # las asesoras (el campo solo lo tiene un administrador)
+        # Cartera (oct-2026): el cliente que crea una asesora queda en su
+        # cartera, si no, se le perdería de vista al guardarlo.
+        if tiene_cartera(self.request.user):
+            self.object.asesoras.add(self.request.user)
+        elif not self.object.asesoras.exists():
+            messages.warning(
+                self.request,
+                "Este cliente no tiene asesora comercial asignada: ninguna asesora lo "
+                "verá hasta que se le asigne una en la pestaña «Asesora comercial».")
         for fs in (sede_formset, tercero_formset, doc_correo_formset):
             fs.instance = self.object
             fs.save()
@@ -1272,6 +1296,9 @@ class ActualizarClienteView(ClienteFormMixin, AsesorRequiredMixin, UpdateView):
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
+
+    def get_queryset(self):
+        return clientes_de(self.request.user)   # cartera: un cliente ajeno no existe
 
 
 def _placa_partes(placa):
@@ -1456,7 +1483,9 @@ def _puede_gestionar_manifiesto(user, recorrido):
     """
     return (
         es_administrador(user)
-        or user.groups.filter(name='Asesores').exists()
+        # Cartera (oct-2026): la asesora, solo si el cliente es suyo.
+        or (user.groups.filter(name='Asesores').exists()
+            and puede_ver_cliente(user, recorrido.orden.cliente_id))
         or (recorrido.conductor_id == user.id
             and recorrido.fecha_recorrido == timezone.localdate())
     )
@@ -1531,7 +1560,7 @@ class ActaPDFView(AsesorRequiredMixin, View):
     vigentes. Solo gestión: el conductor no accede al acta como documento.
     """
     def get(self, request, pk):
-        recorrido = get_object_or_404(Recorrido, pk=pk)
+        recorrido = get_object_or_404(solo_cartera(Recorrido.objects.all(), request.user, 'orden__cliente'), pk=pk)
         manifiesto = getattr(recorrido, 'manifiesto', None)
         if manifiesto is None:
             raise Http404("Este recorrido aún no tiene acta de servicio.")
@@ -1602,7 +1631,9 @@ def _recorrido_para_pdf_pesv(request, pk):
     from django.core.exceptions import PermissionDenied
     recorrido = get_object_or_404(Recorrido, pk=pk)
     user = request.user
-    if not (es_administrador(user) or user.groups.filter(name='Asesores').exists()
+    if not (es_administrador(user)
+            or (user.groups.filter(name='Asesores').exists()
+                and puede_ver_cliente(user, recorrido.orden.cliente_id))
             or _puede_ver_pesv(user)):
         raise PermissionDenied
     return recorrido
@@ -1889,7 +1920,7 @@ class ActaFormatoView(AsesorRequiredMixin, View):
     template_name = 'gestion/acta_formato.html'
 
     def get(self, request, pk):
-        recorrido = get_object_or_404(Recorrido, pk=pk)
+        recorrido = get_object_or_404(solo_cartera(Recorrido.objects.all(), request.user, 'orden__cliente'), pk=pk)
         acta, estado = _acta_para_vista(recorrido)
         return render(request, self.template_name, {
             'recorrido': recorrido, 'orden': recorrido.orden,
@@ -2642,7 +2673,8 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
 
     def get_queryset(self):
         # Precargamos personal y sus documentos (se usan varias veces en la plantilla).
-        return super().get_queryset().prefetch_related(
+        # Cartera (oct-2026): a la asesora, una orden ajena no le existe (404).
+        return solo_cartera(super().get_queryset(), self.request.user).prefetch_related(
             'recorridos__vehiculo',
             'recorridos__conductor__documentos_personales',
             'recorridos__ayudante__documentos_personales',
@@ -2999,6 +3031,9 @@ class EditarRecorridoView(AsesorRequiredMixin, UpdateView):
     form_class = RecorridoForm
     template_name = 'gestion/form_recorrido.html'
 
+    def get_queryset(self):
+        return solo_cartera(super().get_queryset(), self.request.user, 'orden__cliente')
+
     def form_valid(self, form):
         form.save()   # Recorrido.save recalcula el estado de la orden
         messages.success(self.request, "Recorrido actualizado.")
@@ -3017,7 +3052,7 @@ class EliminarRecorridoView(AsesorRequiredMixin, View):
     solo se elimina desde el admin de Django.
     """
     def post(self, request, pk):
-        recorrido = get_object_or_404(Recorrido, pk=pk)
+        recorrido = get_object_or_404(solo_cartera(Recorrido.objects.all(), request.user, 'orden__cliente'), pk=pk)
         orden = recorrido.orden
         # Con el acta firmada por el cliente, quitar el recorrido arrastraría
         # la firma y la encuesta en cascada: evidencia que no se recupera.
@@ -3060,7 +3095,8 @@ def feed_calendario(request):
     if not es_gestion:
         return JsonResponse({'error': 'Sin acceso al calendario.'}, status=403)
 
-    recorridos = Recorrido.objects.all()
+    # Cartera (oct-2026): la asesora, solo los servicios de sus clientes.
+    recorridos = solo_cartera(Recorrido.objects.all(), user, 'orden__cliente')
 
     recorridos = recorridos.exclude(
         orden__estado_orden='CANCELADA'
@@ -3569,12 +3605,12 @@ class RegistrarPagoView(AsesorRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         # Obtenemos la orden desde la URL y la pasamos a la plantilla
-        context['orden'] = get_object_or_404(OrdenServicio, pk=self.kwargs['orden_pk'])
+        context['orden'] = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), self.request.user), pk=self.kwargs['orden_pk'])
         return context
 
     def form_valid(self, form):
         # Asignamos la orden al pago antes de guardarlo
-        orden = get_object_or_404(OrdenServicio, pk=self.kwargs['orden_pk'])
+        orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), self.request.user), pk=self.kwargs['orden_pk'])
         form.instance.orden = orden
         messages.success(self.request, "Pago registrado exitosamente.")
         return super().form_valid(form)
@@ -3593,7 +3629,7 @@ class ConciliarOrdenView(AsesorRequiredMixin, View):
     PENDIENTE de la orden.
     """
     def post(self, request, pk):
-        orden = get_object_or_404(OrdenServicio, pk=pk)
+        orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         # Desde la página de Conciliaciones cada fila se guarda sola: por
         # fetch (respuesta JSON, sin recargar) o, sin JavaScript, volviendo a
         # esa misma página. Desde el expediente se vuelve al expediente.
@@ -3636,7 +3672,7 @@ class ConciliacionesView(AsesorRequiredMixin, View):
 
     def get(self, request):
         from django.db.models import Min
-        ordenes = (OrdenServicio.objects
+        ordenes = (solo_cartera(OrdenServicio.objects.all(), request.user)
                    .filter(estado_conciliacion='PENDIENTE')
                    .exclude(estado_orden='CANCELADA')
                    .select_related('cliente', 'programacion_origen')
@@ -3655,7 +3691,7 @@ class ConciliacionesView(AsesorRequiredMixin, View):
                                or orden.descripcion or '',
             })
         hoy = timezone.localdate()
-        conciliadas_hoy = OrdenServicio.objects.filter(
+        conciliadas_hoy = solo_cartera(OrdenServicio.objects.all(), request.user).filter(
             estado_conciliacion='CONCILIADA', fecha_conciliacion__date=hoy).count()
         return render(request, self.template_name, {
             'filas': filas,
@@ -3686,7 +3722,7 @@ class BasculasView(BasculaRequiredMixin, View):
 
         estado = request.GET.get('estado') or 'todas'
         q = (request.GET.get('q') or '').strip()
-        ordenes = (OrdenServicio.objects
+        ordenes = (solo_cartera(OrdenServicio.objects.all(), request.user)
                    .filter(bascula__in=('PESAN', 'PESO_CLIENTE'))
                    .exclude(estado_orden='CANCELADA')
                    .select_related('cliente', 'programacion_origen__sede_cliente',
@@ -3725,7 +3761,7 @@ class BasculasView(BasculaRequiredMixin, View):
                            if orden.bascula_adjunto else ''),
             })
         # Los totales son de TODAS, no de la página: son el avance del trabajo.
-        todas = (OrdenServicio.objects
+        todas = (solo_cartera(OrdenServicio.objects.all(), request.user)
                  .filter(bascula__in=('PESAN', 'PESO_CLIENTE'))
                  .exclude(estado_orden='CANCELADA'))
         n_total = todas.count()
@@ -3749,7 +3785,7 @@ class SubirBasculaView(BasculaRequiredMixin, View):
     sin tiquete desde aquí.
     """
     def post(self, request, pk):
-        orden = get_object_or_404(OrdenServicio, pk=pk)
+        orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         volver = f"{reverse('gestion:basculas')}?{request.POST.get('filtros', '')}#fila-{orden.pk}"
         if not orden.requiere_bascula:
             messages.error(request, f"La orden #{orden.numero_orden} no se planeó con pesaje.")
@@ -4152,24 +4188,24 @@ def _validar_ss_cuadrilla(form, cuadrilla_form):
     return todo_ok
 
 
-def _direcciones_clientes():
+def _direcciones_clientes(usuario=None):
     """
     Mapa {id_cliente: dirección registrada} para autocompletar la dirección de
-    la programación al elegir el cliente en el formulario.
+    la programación al elegir el cliente en el formulario. Solo la cartera.
     """
     return {
         str(pk): direccion or ''
-        for pk, direccion in Cliente.objects.values_list('pk', 'direccion')
+        for pk, direccion in clientes_de(usuario).values_list('pk', 'direccion')
     }
 
 
-def _sedes_por_cliente():
+def _sedes_por_cliente(usuario=None):
     """
     Mapa {id_cliente: [{id, nombre, direccion}, ...]} de las sedes activas, para
     poblar en vivo el desplegable de sede al elegir el cliente en la programación.
     """
     data = {}
-    sedes = Sede.objects.filter(activa=True).values(
+    sedes = solo_cartera(Sede.objects.filter(activa=True), usuario).values(
         'id', 'cliente_id', 'nombre', 'direccion'
     ).order_by('nombre')
     for s in sedes:
@@ -4179,14 +4215,14 @@ def _sedes_por_cliente():
     return data
 
 
-def _puntos_por_cliente():
+def _puntos_por_cliente(usuario=None):
     """
     Mapa {id_cliente: [{id, nombre}, ...]} de los puntos de registro
     fotográfico activos de cada cliente, para la programación (oct-2026).
     """
     from .models import PuntoRegistro
     data = {}
-    for p in PuntoRegistro.objects.filter(activo=True).values('id', 'cliente_id', 'nombre').order_by('nombre'):
+    for p in solo_cartera(PuntoRegistro.objects.filter(activo=True), usuario).values('id', 'cliente_id', 'nombre').order_by('nombre'):
         data.setdefault(str(p['cliente_id']), []).append({'id': p['id'], 'nombre': p['nombre']})
     return data
 
@@ -4200,7 +4236,7 @@ class CrearPuntoRegistroView(AsesorRequiredMixin, View):
     def post(self, request):
         from .models import PuntoRegistro
         nombre = ' '.join((request.POST.get('nombre') or '').split())[:150]
-        cliente = Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        cliente = clientes_de(request.user).filter(pk=request.POST.get('cliente') or 0).first()
         if cliente is None:
             return JsonResponse({'ok': False, 'error': 'Elige primero el cliente.'}, status=400)
         if not nombre:
@@ -4221,20 +4257,20 @@ class QuitarPuntoRegistroView(AsesorRequiredMixin, View):
     """
     def post(self, request, pk):
         from .models import PuntoRegistro
-        punto = get_object_or_404(PuntoRegistro, pk=pk)
+        punto = get_object_or_404(solo_cartera(PuntoRegistro.objects.all(), request.user), pk=pk)
         punto.activo = False
         punto.save(update_fields=['activo'])
         return JsonResponse({'ok': True, 'id': punto.pk})
 
 
-def _terceros_por_cliente():
+def _terceros_por_cliente(usuario=None):
     """
     Mapa {id_cliente: [{id, nombre, direccion, contacto, telefono}, ...]} de los
     terceros activos, para poblar en vivo el desplegable de tercero al elegir el
     cliente en la programación (y arrastrar su dirección y contacto).
     """
     data = {}
-    terceros = Tercero.objects.filter(activo=True).values(
+    terceros = solo_cartera(Tercero.objects.filter(activo=True), usuario).values(
         'id', 'cliente_id', 'nombre', 'direccion', 'persona_contacto', 'telefono'
     ).order_by('nombre')
     for t in terceros:
@@ -4453,7 +4489,7 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
         }
 
     def _clientes(self, q):
-        qs = (Cliente.objects
+        qs = (clientes_de(self.request.user)
               .prefetch_related('documentos_correo', 'documentos_ambientales')
               .order_by('nombre'))
         if q:
@@ -4486,7 +4522,7 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
 
         # --- Un cliente puntual (al elegirlo en "Datos del correo") ---
         if cliente_id.isdigit():
-            c = (Cliente.objects.filter(pk=cliente_id)
+            c = (clientes_de(request.user).filter(pk=cliente_id)
                  .prefetch_related('documentos_correo', 'documentos_ambientales').first())
             if c is not None:
                 _titulo, _icono, consulta = self.fuentes['clientes']
@@ -4558,7 +4594,7 @@ class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
             except ValueError:
                 return None
 
-        qs = (Manifiesto.objects
+        qs = (solo_cartera(Manifiesto.objects.all(), request.user, 'recorrido__orden__cliente')
               .filter(estado_firma='FIRMADO',
                       recorrido__orden__cliente_id=cliente_id)
               .select_related('recorrido__orden', 'recorrido__vehiculo')
@@ -4584,6 +4620,17 @@ class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
         return JsonResponse({'items': items, 'mas': max(total - self.LIMITE, 0)})
 
 
+def _envios_correo_de(user):
+    """
+    Los envíos del Centro de correos al alcance de la persona. Cartera
+    (oct-2026): la asesora ve los de sus clientes y los suyos sin cliente.
+    """
+    qs = EnvioCorreo.objects.all()
+    if not tiene_cartera(user):
+        return qs
+    return qs.filter(Q(cliente__in=clientes_de(user)) | Q(cliente__isnull=True, enviado_por=user))
+
+
 class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
     """Historial del Centro de correos, con buscador, filtro y estadísticas."""
     model = EnvioCorreo
@@ -4591,7 +4638,7 @@ class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'envios'
 
     def get_queryset(self):
-        qs = EnvioCorreo.objects.select_related('cliente', 'enviado_por')
+        qs = _envios_correo_de(self.request.user).select_related('cliente', 'enviado_por')
         q = self.request.GET.get('q', '').strip()
         estado = self.request.GET.get('estado', '')
         if q:
@@ -4606,7 +4653,7 @@ class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         inicio_mes = timezone.localdate().replace(day=1)
-        todos = EnvioCorreo.objects.all()
+        todos = _envios_correo_de(self.request.user)
         context['kpi'] = {
             'total': todos.count(),
             'mes': todos.filter(fecha__date__gte=inicio_mes).count(),
@@ -4627,7 +4674,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
     template_name = 'gestion/form_envio_correo.html'
 
     def _render(self, request, datos, seleccionados, errores=None):
-        clientes = list(Cliente.objects.order_by('nombre'))
+        clientes = list(clientes_de(request.user).order_by('nombre'))
         # La canasta de adjuntos se arma en el servidor con etiqueta legible;
         # los tokens que ya no resuelven simplemente no vuelven a la canasta.
         seleccion = []
@@ -4664,7 +4711,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             'responder_a': por_defecto,
         }
         seleccionados = []
-        base = EnvioCorreo.objects.filter(pk=request.GET.get('copiar') or 0).first()
+        base = _envios_correo_de(request.user).filter(pk=request.GET.get('copiar') or 0).first()
         if base is not None:
             datos = {
                 'cliente': str(base.cliente_id or ''),
@@ -4691,7 +4738,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
             'responder_a': request.POST.get('responder_a', '').strip(),
         }
         tokens = request.POST.getlist('adjuntos')
-        cliente = (Cliente.objects.filter(pk=datos['cliente']).first()
+        cliente = (clientes_de(request.user).filter(pk=datos['cliente']).first()
                    if datos['cliente'].isdigit() else None)
 
         # --- Validación ---
@@ -4795,6 +4842,9 @@ class DetalleEnvioCorreoView(AsesorRequiredMixin, DetailView):
     template_name = 'gestion/detalle_envio_correo.html'
     context_object_name = 'envio'
 
+    def get_queryset(self):
+        return _envios_correo_de(self.request.user)
+
 
 def _disposicion_meta():
     """IDs de los destinos internos especiales, para la lógica del formulario."""
@@ -4830,7 +4880,7 @@ class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'programaciones'
 
     def get_queryset(self):
-        qs = Programacion.objects.select_related(
+        qs = solo_cartera(Programacion.objects.all(), self.request.user).select_related(
             'cliente', 'orden'
         ).prefetch_related('cuadrillas')
         estado_filtro = self.request.GET.get('estado')
@@ -4847,13 +4897,16 @@ class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         return context
 
 
-def _contexto_programacion(context):
-    """Datos compartidos por el formulario de programación (JSON para el JS)."""
+def _contexto_programacion(context, usuario=None):
+    """
+    Datos compartidos por el formulario de programación (JSON para el JS).
+    Con `usuario`, los mapas de clientes se limitan a su cartera (oct-2026).
+    """
     context['personal_docs'] = _estado_documentos_personal()
-    context['direcciones_clientes'] = _direcciones_clientes()
-    context['sedes_por_cliente'] = _sedes_por_cliente()
-    context['puntos_por_cliente'] = _puntos_por_cliente()
-    context['terceros_por_cliente'] = _terceros_por_cliente()
+    context['direcciones_clientes'] = _direcciones_clientes(usuario)
+    context['sedes_por_cliente'] = _sedes_por_cliente(usuario)
+    context['puntos_por_cliente'] = _puntos_por_cliente(usuario)
+    context['terceros_por_cliente'] = _terceros_por_cliente(usuario)
     context['disposicion_meta'] = _disposicion_meta()
     # Catálogos que se administran desde un popup del propio formulario
     # (agregar/eliminar sin salir de la programación). Solo los activos.
@@ -4897,12 +4950,17 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
     template_name = 'gestion/form_programacion.html'
     success_url = reverse_lazy('gestion:lista_programaciones')
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['usuario'] = self.request.user   # cartera: solo sus clientes
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if 'cuadrilla_form' not in context:
             data = self.request.POST if self.request.method == 'POST' else None
             context['cuadrilla_form'] = ProgramacionCuadrillaForm(data, prefix='cuadrilla')
-        _contexto_programacion(context)
+        _contexto_programacion(context, self.request.user)
         return context
 
     def form_valid(self, form):
@@ -4984,6 +5042,14 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
     template_name = 'gestion/form_programacion.html'
     success_url = reverse_lazy('gestion:lista_programaciones')
 
+    def get_queryset(self):
+        return solo_cartera(super().get_queryset(), self.request.user)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['usuario'] = self.request.user
+        return kwargs
+
     def dispatch(self, request, *args, **kwargs):
         # Una programación ya convertida en orden es de solo lectura.
         self.object = self.get_object()
@@ -5002,7 +5068,7 @@ class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
             data = self.request.POST if self.request.method == 'POST' else None
             context['cuadrilla_form'] = ProgramacionCuadrillaForm(
                 data, prefix='cuadrilla', instance=self.object.cuadrillas.first())
-        _contexto_programacion(context)
+        _contexto_programacion(context, self.request.user)
         return context
 
     def form_valid(self, form):
@@ -5496,7 +5562,7 @@ def _olvidar_guardado(*instancias):
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
     """Genera la Orden de Servicio + un recorrido por cuadrilla (solo POST)."""
     def post(self, request, pk):
-        programacion = get_object_or_404(Programacion, pk=pk)
+        programacion = get_object_or_404(solo_cartera(Programacion.objects.all(), request.user), pk=pk)
 
         if programacion.orden_id:
             messages.info(request, "Esta programación ya tiene una orden generada.")
@@ -5541,7 +5607,7 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
 class CancelarProgramacionView(AsesorRequiredMixin, View):
     """Marca la programación como CANCELADA (solo POST). No aplica si ya generó orden."""
     def post(self, request, pk):
-        programacion = get_object_or_404(Programacion, pk=pk)
+        programacion = get_object_or_404(solo_cartera(Programacion.objects.all(), request.user), pk=pk)
         if programacion.orden_id:
             messages.error(request, "No puedes cancelar una programación que ya generó una orden.")
         else:
@@ -5796,7 +5862,7 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         except (ValueError, TypeError):
             inicio = ultima.replace(day=1)
         fin = (inicio.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
-        dias = _fotos_ayudantes(persona=persona, desde=inicio, hasta=fin)
+        dias = _fotos_ayudantes(persona=persona, desde=inicio, hasta=fin, usuario=request.user)
         return {
             'mes': inicio.strftime('%Y-%m'),
             'inicio': inicio,
@@ -6791,7 +6857,7 @@ class HistorialDisposicionesView(AdministradorRequiredMixin, View):
         })
 
 
-def _fotos_ayudantes(persona=None, desde=None, hasta=None, cliente='', novedad=''):
+def _fotos_ayudantes(persona=None, desde=None, hasta=None, cliente='', novedad='', usuario=None):
     """
     Las fotos que subieron los ayudantes, agrupadas por día del servicio (del
     más reciente al más viejo) y, dentro del día, por persona. Cada foto sabe
@@ -6803,6 +6869,8 @@ def _fotos_ayudantes(persona=None, desde=None, hasta=None, cliente='', novedad='
              .select_related('cuadrilla__programacion__cliente', 'cuadrilla__programacion__orden',
                              'cuadrilla__vehiculo', 'cuadrilla__ayudante', 'cuadrilla__ayudante2')
              .order_by('-cuadrilla__programacion__fecha', 'cuadrilla_id', 'slot', 'fecha_subida'))
+    # Cartera (oct-2026): la asesora, solo lo de sus clientes.
+    fotos = solo_cartera(fotos, usuario, 'cuadrilla__programacion__cliente')
     if persona is not None:
         fotos = fotos.filter(Q(slot=1, cuadrilla__ayudante=persona)
                              | Q(slot=2, cuadrilla__ayudante2=persona))
@@ -6881,7 +6949,8 @@ class FotosAyudantesView(AsesorRequiredMixin, View):
         if filtros['novedad'] not in novedades:
             filtros['novedad'] = ''
         dias = _fotos_ayudantes(persona=persona, desde=desde, hasta=hasta,
-                                cliente=filtros['cliente'], novedad=filtros['novedad'])
+                                cliente=filtros['cliente'], novedad=filtros['novedad'],
+                                usuario=request.user)
         return render(request, self.template_name, {
             'dias': dias,
             'n_fotos': sum(d['n'] for d in dias),
@@ -6902,7 +6971,7 @@ class FotosAyudantesView(AsesorRequiredMixin, View):
 _EXT_IMAGEN = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif')
 
 
-def _fotos_servicios(desde=None, hasta=None, cliente='', orden='', persona=None, punto=''):
+def _fotos_servicios(desde=None, hasta=None, cliente='', orden='', persona=None, punto='', usuario=None):
     """
     Las fotos del registro fotográfico, agrupadas por día del servicio (del
     más reciente al más viejo) y, dentro del día, por orden. El día es el de
@@ -6914,6 +6983,7 @@ def _fotos_servicios(desde=None, hasta=None, cliente='', orden='', persona=None,
              .select_related('orden__cliente', 'punto', 'subido_por')
              .annotate(dia=Coalesce('orden__programacion_origen__fecha', TruncDate('subido_en')))
              .order_by('-dia', '-orden_id', 'punto__nombre', 'subido_en', 'pk'))
+    fotos = solo_cartera(fotos, usuario, 'orden__cliente')   # cartera (oct-2026)
     if desde:
         fotos = fotos.filter(dia__gte=desde)
     if hasta:
@@ -6990,7 +7060,8 @@ class FotosServiciosView(AsesorRequiredMixin, View):
         if persona is None:
             filtros['persona'] = ''
         dias = _fotos_servicios(desde=desde, hasta=hasta, cliente=filtros['cliente'],
-                                orden=filtros['orden'], persona=persona, punto=filtros['punto'])
+                                orden=filtros['orden'], persona=persona, punto=filtros['punto'],
+                                usuario=request.user)
         quienes = User.objects.filter(
             pk__in=FotoRegistro.objects.exclude(subido_por=None).values('subido_por')
         ).order_by('first_name', 'last_name', 'username')
@@ -9283,7 +9354,7 @@ class DisposicionesFinalesView(DisposicionFinalRequiredMixin, View):
             en_rango &= Q(certificados_disposicion__fecha__gte=desde)
         if hasta:
             en_rango &= Q(certificados_disposicion__fecha__lte=hasta)
-        clientes = Cliente.objects.annotate(
+        clientes = clientes_de(request.user).annotate(
             n=Count('certificados_disposicion', filter=en_rango, distinct=True),
             ultima=Max('certificados_disposicion__fecha', filter=en_rango))
         if q:
@@ -9297,15 +9368,15 @@ class DisposicionesFinalesView(DisposicionFinalRequiredMixin, View):
         return render(request, self.template_name, {
             'carpetas': carpetas,
             'q': q, 'ver': ver, 'desde': desde, 'hasta': hasta,
-            'n_certificados': CertificadoDisposicion.objects.count(),
-            'n_con': Cliente.objects.filter(certificados_disposicion__isnull=False).distinct().count(),
-            'clientes_todos': Cliente.objects.order_by('nombre').only('pk', 'nombre', 'identificacion'),
+            'n_certificados': solo_cartera(CertificadoDisposicion.objects.all(), request.user).count(),
+            'n_con': clientes_de(request.user).filter(certificados_disposicion__isnull=False).distinct().count(),
+            'clientes_todos': clientes_de(request.user).order_by('nombre').only('pk', 'nombre', 'identificacion'),
             'hoy': timezone.localdate(),
             **_contexto_envio_certificados(request),
         })
 
     def post(self, request):
-        cliente = Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        cliente = clientes_de(request.user).filter(pk=request.POST.get('cliente') or 0).first()
         if cliente is None:
             messages.error(request, "Elige el cliente de la carpeta.")
             return redirect('gestion:disposiciones_finales')
@@ -9324,7 +9395,7 @@ class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
     template_name = 'gestion/carpeta_disposicion.html'
 
     def get(self, request, pk):
-        cliente = get_object_or_404(Cliente, pk=pk)
+        cliente = get_object_or_404(clientes_de(request.user), pk=pk)
         q = (request.GET.get('q') or '').strip()
         anio = request.GET.get('anio') or ''
         desde, hasta = _rango_de_fechas(request)
@@ -9358,7 +9429,7 @@ class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
         })
 
     def post(self, request, pk):
-        cliente = get_object_or_404(Cliente, pk=pk)
+        cliente = get_object_or_404(clientes_de(request.user), pk=pk)
         n = _guardar_certificados(request, cliente)
         if n is not None:
             _aviso_guardados(request, cliente, n)
@@ -9405,7 +9476,7 @@ class DatosEnvioCertificadosView(AsesorRequiredMixin, View):
     def get(self, request):
         cliente_pk = request.GET.get('cliente') or ''
         if cliente_pk.isdigit():
-            cliente = get_object_or_404(Cliente, pk=cliente_pk)
+            cliente = get_object_or_404(clientes_de(request.user), pk=cliente_pk)
             return JsonResponse({'cliente': {
                 'pk': cliente.pk, 'nombre': cliente.nombre,
                 'nit': cliente.identificacion or '',
@@ -9418,7 +9489,7 @@ class DatosEnvioCertificadosView(AsesorRequiredMixin, View):
         q = (request.GET.get('q') or '').strip()
         if len(q) < 2:
             return JsonResponse({'clientes': []})
-        clientes = (Cliente.objects
+        clientes = (clientes_de(request.user)
                     .filter(Q(nombre__icontains=q) | Q(sigla__icontains=q) | Q(identificacion__icontains=q))
                     .annotate(n=Count('certificados_disposicion'))
                     .filter(n__gt=0).order_by('nombre')[:8])
@@ -9453,7 +9524,7 @@ class EnviarCertificadosView(AsesorRequiredMixin, View):
         pks = [int(x) for x in request.POST.getlist('cliente') if str(x).isdigit()]
         if not pks:
             errores.append("Elige al menos un cliente.")
-        for cliente in Cliente.objects.filter(pk__in=pks).order_by('nombre'):
+        for cliente in clientes_de(request.user).filter(pk__in=pks).order_by('nombre'):
             correos = _lista_correos(request.POST.get(f'destinatarios_{cliente.pk}'))
             if not correos:
                 errores.append(f"Escribe al menos un correo para {cliente.nombre}.")
