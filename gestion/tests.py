@@ -155,9 +155,12 @@ class BaseCRM(TestCase):
 
     @staticmethod
     def vehiculo(placa='WHB123', **extra):
+        # update_or_create: la migración 0092 (tipos de la flota) siembra las
+        # placas reales de SOLMED (WGY347, VCP886, OBB178…) en la base de
+        # pruebas, y crearlas de nuevo violaba la placa única.
         datos = {'marca': 'Kenworth', 'modelo': '2019', 'capacidad': '10 m³'}
         datos.update(extra)
-        return Vehiculo.objects.create(placa=placa, **datos)
+        return Vehiculo.objects.update_or_create(placa=placa, defaults=datos)[0]
 
     @classmethod
     def programacion(cls, cliente=None, conductor=None, vehiculo=None,
@@ -8195,6 +8198,29 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         self.assertEqual(asignacion.hora_fin, datetime.time(11, 0))
         self.assertEqual(asignacion.horario, '07:30–11:00')
         self.assertEqual(self.estado(una), 'DISPUESTA')
+
+    def test_el_vehiculo_del_viaje_se_elige_y_queda_en_el_plan(self):
+        """Oct-2026: el paso «Viaje» pide el vehículo; si no se elige, quedan las placas de las órdenes."""
+        una = self._orden(placa='WGY347')
+        otra = self._orden(placa='OBC727')
+        pantalla = self.client.get(self.panel)
+        self.assertContains(pantalla, 'name="vehiculo"')
+        self.assertContains(pantalla, 'Vehículo del viaje')
+        viaje = self.vehiculo('VCP886')
+        self.registrar_desde_panel([una, otra], vehiculo=viaje.pk)
+        asignacion = self.asignaciones()[0]
+        self.assertEqual([v.placa for v in asignacion.vehiculos.all()], ['VCP886'])
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+        self.assertEqual(self.estado(otra), 'DISPUESTA')
+        # Sin elegir: las placas de las órdenes, como siempre.
+        tercera = self._orden(placa='WGY347')
+        self.registrar_desde_panel([tercera])
+        self.assertEqual([v.placa for v in self.asignaciones()[-1].vehiculos.all()], ['WGY347'])
+        # Un vehículo inexistente no registra nada.
+        cuarta = self._orden(placa='WGY347')
+        respuesta = self.registrar_desde_panel([cuarta], vehiculo=999999)
+        self.assertContains(respuesta, 'ya no existe')
+        self.assertEqual(self.estado(cuarta), 'PENDIENTE')
 
     def test_la_hora_final_sola_o_anterior_no_registra_la_disposicion(self):
         una = self._orden()

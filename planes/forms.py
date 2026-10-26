@@ -43,10 +43,14 @@ class AsignacionForm(forms.Form):
     notificar = forms.BooleanField(required=False)
 
     def __init__(self, data=None, personas_ids=None, vehiculos_ids=None,
-                 ordenes_ids=None, **kwargs):
+                 ordenes_ids=None, vehiculo_viaje=None, **kwargs):
         super().__init__(data, **kwargs)
         self.personas_ids = [p for p in (personas_ids or []) if str(p).isdigit()]
         self.vehiculos_ids = [v for v in (vehiculos_ids or []) if str(v).isdigit()]
+        # El vehículo que hizo el viaje de una disposición. Solo lo manda el
+        # popup del panel de disposiciones (oct-2026); el plan de trabajo no,
+        # así sus casillas de placa no se cuelan en una disposición.
+        self.vehiculo_viaje = str(vehiculo_viaje) if str(vehiculo_viaje or '').isdigit() else None
         self.ordenes_ids = [o for o in (ordenes_ids or []) if str(o).isdigit()]
         self.personas = []
         self.vehiculos = []
@@ -93,9 +97,16 @@ class AsignacionForm(forms.Form):
             if not self.ordenes:
                 self.add_error(None, "Marca cuál orden se va a disponer. Solo "
                                      "aparecen las que siguen sin disponer.")
+            elif self.vehiculo_viaje:
+                # El vehículo que hizo el viaje de disposición, elegido en el
+                # popup del panel de disposiciones (oct-2026, pedido de
+                # Santiago): ese es el que queda en el plan.
+                self.vehiculos = list(Vehiculo.objects.filter(pk=self.vehiculo_viaje))
+                if not self.vehiculos:
+                    self.add_error(None, "El vehículo elegido para el viaje ya no existe.")
             else:
-                # Las placas van solo de referencia (el camión de cada orden):
-                # un viaje puede llevar órdenes de placas distintas.
+                # Sin vehículo elegido, las placas van de referencia (el camión
+                # de cada orden): un viaje puede llevar órdenes de placas distintas.
                 self.vehiculos = sorted(
                     {r.vehiculo for o in self.ordenes for r in o.recorridos.all()
                      if r.vehiculo_id},

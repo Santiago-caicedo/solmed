@@ -6583,6 +6583,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
                 datos,
                 personas_ids=request.POST.getlist('personas'),
                 ordenes_ids=request.POST.getlist('ordenes'),
+                # El vehículo del viaje (opcional): si no se elige, quedan las
+                # placas de las órdenes, como antes.
+                vehiculo_viaje=request.POST.get('vehiculo'),
             )
             if not form.is_valid():
                 for lista in form.errors.values():
@@ -6618,6 +6621,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             # gestores que ofrece el plan de trabajo.
             'personas_por_cargo': _personal_por_cargo() if todas else [],
             'gestores': Dispositor.objects.filter(activo=True, tipo='PROVEEDOR').order_by('nombre'),
+            # El vehículo del viaje: todos (la disposición es un hecho pasado y
+            # el camión pudo quedar fuera de servicio después).
+            'vehiculos': Vehiculo.objects.order_by('placa').only('pk', 'placa', 'marca', 'estado'),
             'hoy': timezone.localdate(),
         })
 

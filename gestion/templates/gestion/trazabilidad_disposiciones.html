@@ -258,6 +258,13 @@
                             <label class="dz-etq" for="dz-fecha">Día del viaje</label>
                             <input type="date" name="fecha" id="dz-fecha" class="form-control form-control-sm"
                                    value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" required>
+                            <label class="dz-etq" for="dz-vehiculo">Vehículo del viaje <span class="text-muted text-lowercase">(opcional)</span></label>
+                            <select name="vehiculo" id="dz-vehiculo" class="form-select form-select-sm">
+                                <option value="">Las placas de las órdenes marcadas</option>
+                                {% for v in vehiculos %}
+                                <option value="{{ v.pk }}" data-placa="{{ v.placa }}">{{ v.placa }}{% if v.marca %} · {{ v.marca }}{% endif %}{% if v.estado != 'OPERATIVO' %} ({{ v.get_estado_display|lower }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
                             <label class="dz-etq" for="dz-gestor">Gestor de disposición <span class="text-muted text-lowercase">(opcional)</span></label>
                             <select name="dispositor" id="dz-gestor" class="form-select form-select-sm">
                                 <option value="">Sin gestor</option>
@@ -295,6 +302,7 @@
                             <dt>Actividad</dt><dd>Disposición final</dd>
                             <dt>Quiénes</dt><dd id="dz-r-personas">—</dd>
                             <dt>Órdenes</dt><dd class="ordenes" id="dz-r-ordenes"></dd>
+                            <dt>Vehículo</dt><dd id="dz-r-vehiculo">—</dd>
                             <dt>Gestor</dt><dd id="dz-r-gestor">—</dd>
                             <dt>Hora</dt><dd id="dz-r-hora">—</dd>
                             <dt>Nota</dt><dd id="dz-r-nota">—</dd>
@@ -362,6 +370,10 @@
             var chip = document.createElement('span'); chip.className = 'placa'; chip.textContent = placa; cont.appendChild(chip);
             porPlaca[placa].forEach(function (o) { var s = document.createElement('span'); s.textContent = o; cont.appendChild(s); });
         });
+        var vehiculo = document.getElementById('dz-vehiculo');
+        document.getElementById('dz-r-vehiculo').textContent = vehiculo.value
+            ? vehiculo.options[vehiculo.selectedIndex].text
+            : 'Las placas de las órdenes (' + (Object.keys(placasMarcadas()).join(', ') || '—') + ')';
         var gestor = document.getElementById('dz-gestor');
         document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
         var inicio = document.getElementById('dz-hora').value, fin = document.getElementById('dz-hora-fin').value;
@@ -378,8 +390,26 @@
         return true;
     }
 
+    // Las placas de las órdenes marcadas (sin el «—» de las que no tienen).
+    function placasMarcadas() {
+        var placas = {};
+        marcadas().forEach(function (c) { if (c.dataset.placa && c.dataset.placa !== '—') placas[c.dataset.placa] = 1; });
+        return placas;
+    }
+    // Al llegar al paso 2: si todas las órdenes son del mismo camión y aún no
+    // se eligió vehículo, se propone ese (se puede cambiar).
+    function proponerVehiculo() {
+        var sel = document.getElementById('dz-vehiculo');
+        if (!sel || sel.value) return;
+        var placas = Object.keys(placasMarcadas());
+        if (placas.length !== 1) return;
+        var opcion = sel.querySelector('option[data-placa="' + placas[0] + '"]');
+        if (opcion) sel.value = opcion.value;
+    }
+
     function irA(n) {
         paso = n;
+        if (n === 2) proponerVehiculo();
         secciones.forEach(function (s) { s.hidden = Number(s.dataset.paso) !== n; });
         tabs.forEach(function (t) {
             var k = Number(t.dataset.tab);

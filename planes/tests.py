@@ -247,7 +247,9 @@ class AsignacionesTests(BasePlan):
         self.assertIsNone(asignacion.proveedor)
 
     def test_cualquier_actividad_lleva_vehiculo_si_se_marca(self):
-        otro = Vehiculo.objects.create(placa='OBB178', marca='Hino', modelo='2020', capacidad='5 m³')
+        # update_or_create: la migración 0092 ya siembra OBB178 en la base de pruebas.
+        otro = Vehiculo.objects.update_or_create(
+            placa='OBB178', defaults={'marca': 'Hino', 'modelo': '2020', 'capacidad': '5 m³'})[0]
         self.assertContains(self.client.get(self.url), 'name="uso_vehiculo"')
         # Sin marcar, las placas que lleguen no se guardan.
         self.asignar([self.conductor], 'TRASTEO', [self.camion], detalle='Bodega')
