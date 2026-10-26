@@ -6951,6 +6951,27 @@ class CentroControlPersonaTests(BaseCRM):
         self.assertEqual(respuesta.context['novedades'][0]['dias_en_rango'], 3)
         self.assertContains(respuesta, 'Vacaciones')
 
+    def test_la_tabla_de_novedades_muestra_la_duracion(self):
+        """Oct-2026: como servicios y actividades, las novedades llevan su duración."""
+        primero = self.hoy.replace(day=1)
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='PERMISO_PERSONAL', fecha_inicio=primero,
+            hora=datetime.time(8, 0), hora_fin=datetime.time(10, 30))
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='VACACIONES', fecha_inicio=primero,
+            fecha_fin=primero + datetime.timedelta(days=1),
+            hora=datetime.time(7, 0), hora_fin=datetime.time(15, 0))
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='INCAPACIDAD_EPS', fecha_inicio=primero)
+        self.entrar(self.admin)
+        respuesta = self.client.get(self.url, self._mes())
+        duraciones = {f['novedad'].tipo: f['duracion'] for f in respuesta.context['novedades']}
+        self.assertEqual(duraciones['PERMISO_PERSONAL'], '2 h 30 min')
+        self.assertEqual(duraciones['VACACIONES'], '8 h por día', "varios días: la duración es por día")
+        self.assertEqual(duraciones['INCAPACIDAD_EPS'], '', "sin las dos horas no hay duración")
+        self.assertContains(respuesta, '<th>Duración</th><th>Detalle</th>', html=False)
+        self.assertContains(respuesta, '2 h 30 min')
+
     def test_una_novedad_de_un_solo_dia_fuera_del_mes_no_entra(self):
         self.Novedad.objects.create(
             persona=self.conductor, tipo='PERMISO_PERSONAL',

@@ -306,7 +306,7 @@
                 <thead>
                     <tr>
                         <th>Novedad</th><th>Desde</th><th>Hasta</th>
-                        <th>Días en el periodo</th><th>Horas</th><th>Detalle</th><th>Registró</th>
+                        <th>Días en el periodo</th><th>Horas</th><th>Duración</th><th>Detalle</th><th>Registró</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -317,6 +317,7 @@
                         <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                         <td>{{ f.dias_en_rango }}</td>
                         <td>{{ f.novedad.horario|default:"—" }}</td>
+                        <td>{{ f.duracion|default:"—" }}</td>
                         <td>{{ f.novedad.detalle|default:"—" }}</td>
                         <td class="text-muted small">
                             {% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}

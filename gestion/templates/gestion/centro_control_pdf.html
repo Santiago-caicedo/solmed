@@ -326,13 +326,14 @@
         <table class="datos">
             <thead>
                 <tr>
-                    <th style="width: 24%;">Novedad</th>
-                    <th style="width: 11%;">Desde</th>
-                    <th style="width: 11%;">Hasta</th>
-                    <th style="width: 10%;">Días</th>
+                    <th style="width: 20%;">Novedad</th>
+                    <th style="width: 10%;">Desde</th>
+                    <th style="width: 10%;">Hasta</th>
+                    <th style="width: 7%;">Días</th>
                     <th style="width: 11%;">Horas</th>
-                    <th style="width: 18%;">Detalle</th>
-                    <th style="width: 15%;">Registró</th>
+                    <th style="width: 12%;">Duración</th>
+                    <th style="width: 16%;">Detalle</th>
+                    <th style="width: 14%;">Registró</th>
                 </tr>
             </thead>
             <tbody>
@@ -343,6 +344,7 @@
                     <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                     <td class="num">{{ f.dias_en_rango }}</td>
                     <td class="tenue">{{ f.novedad.horario|default:"—" }}</td>
+                    <td class="tenue">{{ f.duracion|default:"—" }}</td>
                     <td class="tenue">{{ f.novedad.detalle|default:"—" }}</td>
                     <td class="tenue">{% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}</td>
                 </tr>

@@ -6193,8 +6193,15 @@ def _datos_centro_control(persona, inicio, fin):
         cubiertos = (hasta - desde).days + 1 if hasta >= desde else 0
         for i in range(cubiertos):
             dias_novedad.add(desde + datetime.timedelta(days=i))
+        # Duración (oct-2026): como en servicios y actividades. Las horas de
+        # una novedad son de CADA día de su rango; si cubre varios días del
+        # periodo se dice «por día».
+        minutos = _minutos_entre(n.hora, n.hora_fin)
+        duracion = _texto_horas(minutos)
+        if duracion and cubiertos > 1:
+            duracion += ' por día'
         novedades.append({'novedad': n, 'dias_en_rango': cubiertos,
-                          'desde': desde})
+                          'desde': desde, 'minutos': minutos, 'duracion': duracion})
 
     dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
     dias_actividad = {a.plan.fecha for a in asignaciones}
@@ -6471,17 +6478,18 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
         self._hoja(
             libro, 'Novedades',
             ['Novedad', 'Desde', 'Hasta', 'Días en el periodo', 'Horas',
-             'Detalle', 'Registró'],
+             'Duración', 'Detalle', 'Registró'],
             [[f['novedad'].get_tipo_display(),
               f['novedad'].fecha_inicio,
               f['novedad'].fecha_fin or '—',
               f['dias_en_rango'],
               f['novedad'].horario or '—',
+              f['duracion'] or '—',
               f['novedad'].detalle or '—',
               (f['novedad'].registrado_por.get_full_name()
                or f['novedad'].registrado_por.username) if f['novedad'].registrado_por else '—']
              for f in datos['novedades']],
-            [30, 12, 12, 18, 13, 40, 24], fechas=(2, 3))
+            [30, 12, 12, 18, 13, 16, 40, 24], fechas=(2, 3))
 
         flujo = BytesIO()
         libro.save(flujo)
