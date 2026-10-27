@@ -309,6 +309,17 @@
                                     <input type="time" name="hora_fin" id="asig-hora-fin" class="form-control form-control-sm">
                                 </div>
                             </div>
+                            {# Solo con esta casilla las horas cuentan como trabajadas en el centro de control. #}
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="suma_horas"
+                                       value="1" id="suma-horas-asignacion">
+                                <label class="form-check-label" for="suma-horas-asignacion" style="font-size:.82rem">
+                                    Sumar estas horas al historial de horas trabajadas
+                                </label>
+                            </div>
+                            <div class="form-text mt-0" style="font-size:.72rem">
+                                Se marca sola al escribir las dos horas; pide la hora de inicio y la final.
+                            </div>
                         </div>
 
                         <div class="pt-etq" id="etq-detalle">Descripción <span class="text-muted" id="detalle-opcional">(opcional)</span></div>
@@ -600,6 +611,19 @@ queda guardado y aparece en el desplegable, en «Creadas en el plan».
                 var propia = listas.NOVEDAD.filter(function (t) { return t.valor === v; })[0];
                 sumar.checked = v === 'TRABAJO_BODEGA' || v === 'TRABAJO_OFICINA'
                     || !!(propia && propia.es_trabajo);
+            });
+        }
+
+        // En la actividad la casilla se marca sola al escribir las dos horas
+        // (toda actividad es trabajo); se puede desmarcar.
+        var sumarAsig = document.getElementById('suma-horas-asignacion');
+        var asigHora = document.getElementById('asig-hora');
+        var asigHoraFin = document.getElementById('asig-hora-fin');
+        if (sumarAsig && asigHora && asigHoraFin) {
+            [asigHora, asigHoraFin].forEach(function (c) {
+                c.addEventListener('change', function () {
+                    sumarAsig.checked = !!(asigHora.value && asigHoraFin.value);
+                });
             });
         }
 

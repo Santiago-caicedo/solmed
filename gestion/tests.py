@@ -7297,7 +7297,8 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
     def actividad(self, hora=None, hora_fin=None, tipo='APOYO_SERVICIO'):
         plan, _ = self.PlanDia.objects.get_or_create(fecha=self.dia)
         return self.Asignacion.objects.create(
-            plan=plan, persona=self.conductor, tipo=tipo, hora=hora, hora_fin=hora_fin)
+            plan=plan, persona=self.conductor, tipo=tipo, hora=hora, hora_fin=hora_fin,
+            suma_horas=True)
 
     def horas(self, **params):
         params = params or {'anio': self.dia.year, 'mes': self.dia.month}
@@ -7368,6 +7369,19 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         self.assertEqual((horas['minutos'], horas['sin_hora']), (0, 1),
                          "solo el servicio sin acta queda por fuera")
 
+    def test_una_actividad_sin_la_casilla_no_suma_sus_horas(self):
+        """Oct-2026: igual que las novedades, manda la casilla «Sumar estas horas…»."""
+        plan, _ = self.PlanDia.objects.get_or_create(fecha=self.dia)
+        self.Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='LAVADA',
+            hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
+        respuesta = self.horas()
+        horas = respuesta.context['horas']
+        self.assertEqual(horas['actividades'], '0 h')
+        self.assertEqual(horas['sin_hora'], 1, "solo el servicio sin acta; la actividad no entra")
+        # En la tabla sigue con su duración, solo que no se liquida.
+        self.assertEqual(respuesta.context['asignaciones'][0].duracion, '2 h')
+
     def test_sin_la_casilla_ni_el_trabajo_en_bodega_suma_horas(self):
         """Oct-2026: manda la casilla «Sumar estas horas…», no el tipo."""
         self.Novedad.objects.create(
@@ -7383,7 +7397,7 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         manana = timezone.localdate() + datetime.timedelta(days=1)
         plan = self.PlanDia.objects.create(fecha=manana)
         self.Asignacion.objects.create(
-            plan=plan, persona=self.conductor, tipo='LAVADA',
+            plan=plan, persona=self.conductor, tipo='LAVADA', suma_horas=True,
             hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
         self.Novedad.objects.create(
             persona=self.conductor, tipo='TRABAJO_OFICINA', fecha_inicio=manana,

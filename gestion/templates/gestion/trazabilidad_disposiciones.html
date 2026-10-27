@@ -282,6 +282,11 @@
                                     <input type="time" name="hora_fin" id="dz-hora-fin" class="form-control form-control-sm">
                                 </div>
                             </div>
+                            {# Como en el plan: solo marcada, las horas suman en el centro de control. #}
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="suma_horas" value="1" id="dz-suma-horas">
+                                <label class="form-check-label" for="dz-suma-horas">Sumar estas horas al historial de horas trabajadas</label>
+                            </div>
                             <label class="dz-etq" for="dz-detalle">Nota para el plan <span class="text-muted text-lowercase">(opcional)</span></label>
                             <input type="text" name="detalle" id="dz-detalle" class="form-control form-control-sm" maxlength="255" placeholder="Sale en el plan impreso">
                             <div class="form-check mt-3">
@@ -305,6 +310,7 @@
                             <dt>Vehículo</dt><dd id="dz-r-vehiculo">—</dd>
                             <dt>Gestor</dt><dd id="dz-r-gestor">—</dd>
                             <dt>Hora</dt><dd id="dz-r-hora">—</dd>
+                            <dt>Horas trabajadas</dt><dd id="dz-r-suma">—</dd>
                             <dt>Nota</dt><dd id="dz-r-nota">—</dd>
                             <dt>Correo</dt><dd id="dz-r-correo">—</dd>
                         </dl>
@@ -378,6 +384,8 @@
         document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
         var inicio = document.getElementById('dz-hora').value, fin = document.getElementById('dz-hora-fin').value;
         document.getElementById('dz-r-hora').textContent = inicio ? (fin ? inicio + '–' + fin : inicio) : '—';
+        document.getElementById('dz-r-suma').textContent =
+            document.getElementById('dz-suma-horas').checked ? 'Suman al historial' : 'No suman';
         document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
         document.getElementById('dz-r-correo').textContent =
             document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo';
@@ -448,6 +456,11 @@
 
     form.addEventListener('change', function (e) {
         if (e.target.name === 'ordenes') pintarResumen();
+        // La casilla de sumar horas se marca sola al escribir las dos horas.
+        if (e.target.name === 'hora' || e.target.name === 'hora_fin') {
+            document.getElementById('dz-suma-horas').checked =
+                !!(document.getElementById('dz-hora').value && document.getElementById('dz-hora-fin').value);
+        }
         btnSiguiente.disabled = !listo();
     });
 

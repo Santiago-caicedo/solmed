@@ -192,6 +192,12 @@ class Asignacion(models.Model):
     hora = models.TimeField(null=True, blank=True)
     hora_fin = models.TimeField(null=True, blank=True,
                                 verbose_name="Hora de finalización")
+    # Como en las novedades (oct-2026): solo con esta casilla las horas de la
+    # actividad suman en las horas trabajadas del centro de control. Exige
+    # las dos horas (ver AsignacionForm).
+    suma_horas = models.BooleanField(
+        default=False,
+        verbose_name="Sumar estas horas al historial de horas trabajadas")
     detalle = models.CharField(max_length=255, blank=True, verbose_name="Descripción")
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,

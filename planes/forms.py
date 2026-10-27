@@ -28,6 +28,8 @@ class AsignacionForm(forms.Form):
     tipo = forms.CharField(max_length=20)
     hora = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
     hora_fin = forms.TimeField(required=False, input_formats=['%H:%M', '%H:%M:%S'])
+    # Marcada, las horas suman en el centro de control (exige las dos horas).
+    suma_horas = forms.BooleanField(required=False)
     orden_numero = forms.CharField(required=False, max_length=10)
     proveedor = forms.ModelChoiceField(
         queryset=Proveedor.objects.filter(activo=True), required=False)
@@ -142,6 +144,10 @@ class AsignacionForm(forms.Form):
 
         # Lo que la actividad no pide, no se guarda (aunque venga en el POST).
         validar_horas(self, cleaned, None)
+        # Sumar al historial de horas trabajadas exige saber cuántas fueron.
+        if cleaned.get('suma_horas') and not (cleaned.get('hora') and cleaned.get('hora_fin')):
+            self.add_error(None, "Para sumar estas horas al historial de horas trabajadas, "
+                                 "escribe la hora de inicio y la final.")
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
         if not campos.get('dispositor'):
@@ -164,6 +170,7 @@ class AsignacionForm(forms.Form):
                 dispositor=self.cleaned_data['dispositor'],
                 hora=self.cleaned_data['hora'],
                 hora_fin=self.cleaned_data['hora_fin'],
+                suma_horas=bool(self.cleaned_data.get('suma_horas')),
                 detalle=(self.cleaned_data.get('detalle') or '').strip(),
                 registrado_por=usuario,
             )

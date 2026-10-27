@@ -6107,10 +6107,10 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     """
     La estadística de horas del periodo (base de la nómina). Cuentan los
     SERVICIOS con las dos horas en el acta (salida y llegada a SolMed, o
-    inicio y final operativo), las ACTIVIDADES del plan con hora de inicio y
-    final y las novedades registradas con la casilla «Sumar estas horas al
-    historial de horas trabajadas» (oct-2026), una vez por cada día de su
-    rango. Las demás novedades no son tiempo trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
+    inicio y final operativo) y las ACTIVIDADES y novedades del plan
+    registradas con la casilla «Sumar estas horas al historial de horas
+    trabajadas» (oct-2026); las novedades, una vez por cada día de su rango.
+    Lo demás no es tiempo trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
     agendado para mañana aún no se ha trabajado. Lo que no tiene las dos
     horas no se cuenta, pero se dice cuántos quedaron por fuera.
 
@@ -6121,7 +6121,7 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
         [(s['recorrido'].fecha_recorrido, s['minutos'], s['desde'], 'servicios')
          for s in servicios]
         + [(a.plan.fecha, a.minutos, a.hora, 'actividades') for a in asignaciones
-           if a.plan.fecha <= hoy])
+           if a.suma_horas and a.plan.fecha <= hoy])
     for f in novedades:
         n = f['novedad']
         if not n.es_trabajo:

@@ -68,8 +68,9 @@ class BasePlan(TestCase):
                  'vehiculos': [v.pk for v in (vehiculos or [])],
                  'ordenes': [o.pk for o in (ordenes or [])],
                  'orden_numero': '', 'detalle': '', 'hora': ''}
+        follow = extra.pop('follow', False)
         datos.update(extra)
-        return self.client.post(self.url, datos)
+        return self.client.post(self.url, datos, follow=follow)
 
 
 class AccesoAlPlanTests(BasePlan):
@@ -307,6 +308,28 @@ class AsignacionesTests(BasePlan):
                 self.asignar([self.ayudante], 'APOYO_SERVICIO', [self.camion],
                              hora=hora, hora_fin=hora_fin)
                 self.assertFalse(Asignacion.objects.exists())
+
+    def test_sumar_las_horas_de_la_actividad_exige_las_dos_horas(self):
+        """Oct-2026: la casilla «Sumar estas horas…» sin las dos horas no se guarda."""
+        respuesta = self.asignar([self.conductor], 'TRASTEO', suma_horas='1',
+                                 hora='08:00', hora_fin='', follow=True)
+        self.assertContains(respuesta, 'escribe la hora de inicio y la final')
+        self.assertFalse(Asignacion.objects.exists())
+        # Sin la casilla, las horas son solo informativas.
+        self.asignar([self.conductor], 'TRASTEO', hora='08:00', hora_fin='10:00')
+        self.assertFalse(Asignacion.objects.get().suma_horas)
+        # Con la casilla y las dos horas, suma en el centro de control.
+        self.asignar([self.conductor], 'DESTRUCCION_CANECAS', suma_horas='1',
+                     hora='13:00', hora_fin='16:00')
+        self.assertTrue(Asignacion.objects.get(tipo='DESTRUCCION_CANECAS').suma_horas)
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
+            {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
+        self.assertEqual(respuesta.context['horas']['actividades'], '3 h')
+
+    def test_la_casilla_de_sumar_horas_sale_en_el_panel_de_actividades(self):
+        contenido = self.client.get(self.url).content.decode()
+        self.assertIn('id="suma-horas-asignacion"', contenido)
 
     def test_toda_actividad_guarda_su_hora_de_inicio_y_final(self):
         # Base de la nómina (oct-2026): cualquier actividad lleva horas.
