@@ -2032,7 +2032,7 @@ def _formularios_descuentos(recorrido, data=None):
         filas.append((rol, persona, clave, DescuentoHorasForm(
             data, prefix=f'des-{clave}',
             initial={'descontar': minutos > 0,
-                     'tiempo': datetime.time(minutos // 60, minutos % 60) if minutos else None,
+                     'horas': minutos // 60, 'minutos': minutos % 60,
                      'motivo': getattr(recorrido, f'descuento_{clave}_motivo')})))
     return filas
 
@@ -2041,7 +2041,7 @@ def _guardar_descuentos(recorrido, filas):
     """Escribe en el recorrido el descuento de cada persona (no en el acta)."""
     campos = []
     for _rol, _persona, clave, form in filas:
-        setattr(recorrido, f'descuento_{clave}_min', form.minutos)
+        setattr(recorrido, f'descuento_{clave}_min', form.total_minutos)
         setattr(recorrido, f'descuento_{clave}_motivo', form.cleaned_data['motivo'].strip())
         campos += [f'descuento_{clave}_min', f'descuento_{clave}_motivo']
     if campos:

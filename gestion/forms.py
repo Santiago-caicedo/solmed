@@ -414,19 +414,25 @@ class HorasAyudanteForm(forms.Form):
 class DescuentoHorasForm(forms.Form):
     """
     El descuento de horas de UNA persona del servicio (oct-2026): una casilla
-    que habilita el tiempo a descontar (p. ej. 1:00) y el motivo (almuerzo).
-    Con la casilla marcada ambos son obligatorios; sin marcar no se guarda nada.
+    que habilita el tiempo a descontar y el motivo (almuerzo). El tiempo va en
+    dos selectores, horas y minutos (pedido de Santiago): solo se puede elegir
+    un valor válido. Con la casilla marcada el tiempo (más de 0) y el motivo
+    son obligatorios; sin marcar no se guarda nada.
     """
+    HORAS = [(h, f"{h} h") for h in range(13)]
+    MINUTOS = [(m, f"{m:02d} min") for m in range(0, 60, 5)]
+    VALOR_INVALIDO = {'invalid_choice': "Elige un valor de la lista."}
+
     descontar = forms.BooleanField(
         required=False, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
-    # Es una DURACIÓN, no una hora del día: un <input type="time"> la mostraría
-    # como «01:00 a. m.» en un navegador en 12 horas. Se escribe «1:00» o «1».
-    tiempo = forms.TimeField(
-        required=False, input_formats=['%H:%M', '%H'],
-        error_messages={'invalid': "Escribe el tiempo como h:mm (ej. 1:00 o 0:30)."},
-        widget=forms.TimeInput(attrs={'class': 'form-control', 'placeholder': 'h:mm (ej. 1:00)',
-                                      'autocomplete': 'off'},
-                               format='%H:%M'))
+    horas = forms.TypedChoiceField(
+        choices=HORAS, coerce=int, empty_value=0, required=False,
+        error_messages=VALOR_INVALIDO,
+        widget=forms.Select(attrs={'class': 'form-select'}))
+    minutos = forms.TypedChoiceField(
+        choices=MINUTOS, coerce=int, empty_value=0, required=False,
+        error_messages=VALOR_INVALIDO,
+        widget=forms.Select(attrs={'class': 'form-select'}))
     motivo = forms.CharField(
         required=False, max_length=120,
         widget=forms.TextInput(attrs={'class': 'form-control',
@@ -435,23 +441,22 @@ class DescuentoHorasForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         if cleaned.get('descontar'):
-            tiempo = cleaned.get('tiempo')
-            if not tiempo or (tiempo.hour == 0 and tiempo.minute == 0):
-                self.add_error('tiempo', "Escribe cuánto tiempo se descuenta.")
+            if 'horas' in cleaned and 'minutos' in cleaned and not self.total_minutos_de(cleaned):
+                self.add_error('horas', "Elige cuánto tiempo se descuenta.")
             if not (cleaned.get('motivo') or '').strip():
                 self.add_error('motivo', "Escribe el motivo del descuento.")
         else:
-            cleaned['tiempo'] = None
-            cleaned['motivo'] = ''
+            cleaned.update(horas=0, minutos=0, motivo='')
         return cleaned
 
+    @staticmethod
+    def total_minutos_de(cleaned):
+        return (cleaned.get('horas') or 0) * 60 + (cleaned.get('minutos') or 0)
+
     @property
-    def minutos(self):
+    def total_minutos(self):
         """Minutos a descontar, o None si no se descuenta."""
-        tiempo = self.cleaned_data.get('tiempo')
-        if not self.cleaned_data.get('descontar') or not tiempo:
-            return None
-        return tiempo.hour * 60 + tiempo.minute
+        return self.total_minutos_de(self.cleaned_data) or None
 
 
 class ManifiestoPaso4Form(forms.ModelForm):

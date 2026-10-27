@@ -747,10 +747,10 @@ class ActaDeServicioTests(BaseCRM):
         hoja = self.client.get(self.url_paso('paso3')).content.decode()
         self.assertIn('Descuento de horas', hoja)
         respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00',
-            'des-conductor-motivo': 'Almuerzo',
-            'des-ayudante-descontar': 'on', 'des-ayudante-tiempo': '00:30',
-            'des-ayudante-motivo': 'Desayuno'}))
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '1',
+            'des-conductor-minutos': '0', 'des-conductor-motivo': 'Almuerzo',
+            'des-ayudante-descontar': 'on', 'des-ayudante-horas': '0',
+            'des-ayudante-minutos': '30', 'des-ayudante-motivo': 'Desayuno'}))
         self.assertRedirects(respuesta, self.url_paso('paso4'))
         self.recorrido.refresh_from_db()
         self.assertEqual(self.recorrido.descuento_de(self.conductor), (60, 'Almuerzo'))
@@ -767,30 +767,38 @@ class ActaDeServicioTests(BaseCRM):
     def test_el_descuento_exige_tiempo_y_motivo(self):
         self.entrar(self.asesor)
         respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00'}))
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '1',
+            'des-conductor-minutos': '0'}))
         self.assertEqual(respuesta.status_code, 200)
         self.assertContains(respuesta, 'Escribe el motivo del descuento.')
         respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'des-conductor-descontar': 'on', 'des-conductor-motivo': 'Almuerzo'}))
-        self.assertContains(respuesta, 'Escribe cuánto tiempo se descuenta.')
-        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'des-conductor-descontar': 'on', 'des-conductor-tiempo': 'una hora',
-            'des-conductor-motivo': 'Almuerzo'}))
-        self.assertContains(respuesta, 'Escribe el tiempo como h:mm')
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '0',
+            'des-conductor-minutos': '0', 'des-conductor-motivo': 'Almuerzo'}))
+        self.assertContains(respuesta, 'Elige cuánto tiempo se descuenta.')
+        # Solo valen los valores de los selectores (nada de 7 minutos ni 30 horas).
+        for horas, minutos in (('1', '7'), ('30', '0'), ('una', '0')):
+            respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+                'des-conductor-descontar': 'on', 'des-conductor-horas': horas,
+                'des-conductor-minutos': minutos, 'des-conductor-motivo': 'Almuerzo'}))
+            self.assertContains(respuesta, 'Elige un valor de la lista.')
         self.recorrido.refresh_from_db()
         self.assertEqual(self.recorrido.descuento_de(self.conductor), (0, ''))
-        # Basta con la hora: «1» es una hora.
+        # Una hora y media.
         self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
-            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '1',
-            'des-conductor-motivo': 'Almuerzo'}))
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '1',
+            'des-conductor-minutos': '30', 'des-conductor-motivo': 'Almuerzo'}))
         self.recorrido.refresh_from_db()
-        self.assertEqual(self.recorrido.descuento_de(self.conductor), (60, 'Almuerzo'))
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (90, 'Almuerzo'))
+        # Al volver, los selectores traen lo guardado.
+        hoja = self.client.get(self.url_paso('paso3'))
+        self.assertContains(hoja, '<option value="1" selected>1 h</option>', html=False)
+        self.assertContains(hoja, '<option value="30" selected>30 min</option>', html=False)
 
     def test_el_conductor_no_ve_ni_escribe_el_descuento_de_horas(self):
         self.entrar(self.conductor)
-        self.assertNotContains(self.client.get(self.url_paso('paso3')), 'Descuento de horas')
+        self.assertNotContains(self.client.get(self.url_paso('paso3')), 'name="des-conductor-descontar"')
         self.client.post(self.url_paso('paso3'), {
-            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00',
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '1',
             'des-conductor-motivo': 'Almuerzo', 'observaciones': 'ok'})
         self.recorrido.refresh_from_db()
         self.assertEqual(self.recorrido.descuento_de(self.conductor), (0, ''))

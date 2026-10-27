@@ -67,6 +67,7 @@ decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
 .ds-cab label{ margin-left:auto; display:flex; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; cursor:pointer; }
 .ds-det{ margin-top:.6rem; }
 .ds-det[hidden]{ display:none; }
+.cd .ds-det .form-select{ font-size:16px; min-height:48px; border-radius:10px; }
 
 /* Botón principal fijo abajo, al alcance del pulgar */
 .hj-pie{ position:sticky; bottom:0; z-index:5; margin:1rem -1rem 0; padding:.75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
@@ -152,9 +153,10 @@ decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
                     <div class="ds-det"{% if not f.descontar.value %} hidden{% endif %}>
                         {% if f.errors %}<div class="text-danger small mb-2">{% for campo in f %}{% for e in campo.errors %}{{ e }} {% endfor %}{% endfor %}</div>{% endif %}
                         <div class="grilla-2">
-                            <div class="campo"><label for="{{ f.tiempo.id_for_label }}">Tiempo a descontar</label>{{ f.tiempo }}</div>
-                            <div class="campo"><label for="{{ f.motivo.id_for_label }}">Motivo</label>{{ f.motivo }}</div>
+                            <div class="campo"><label for="{{ f.horas.id_for_label }}">Horas a descontar</label>{{ f.horas }}</div>
+                            <div class="campo"><label for="{{ f.minutos.id_for_label }}">Minutos a descontar</label>{{ f.minutos }}</div>
                         </div>
+                        <div class="campo mt-2"><label for="{{ f.motivo.id_for_label }}">Motivo</label>{{ f.motivo }}</div>
                     </div>
                 </div>
                 {% endfor %}
