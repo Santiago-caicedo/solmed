@@ -749,6 +749,7 @@ class ActaDeServicioTests(BaseCRM):
         respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
             'des-conductor-descontar': 'on', 'des-conductor-horas': '1',
             'des-conductor-minutos': '0', 'des-conductor-motivo': 'Almuerzo',
+            'ayu1-hora_inicio': '07:00', 'ayu1-hora_fin': '12:00',
             'des-ayudante-descontar': 'on', 'des-ayudante-horas': '0',
             'des-ayudante-minutos': '30', 'des-ayudante-motivo': 'Desayuno'}))
         self.assertRedirects(respuesta, self.url_paso('paso4'))
@@ -793,6 +794,34 @@ class ActaDeServicioTests(BaseCRM):
         hoja = self.client.get(self.url_paso('paso3'))
         self.assertContains(hoja, '<option value="1" selected>1 h</option>', html=False)
         self.assertContains(hoja, '<option value="30" selected>30 min</option>', html=False)
+
+    def test_el_descuento_no_puede_pasar_del_tiempo_trabajado(self):
+        self.entrar(self.asesor)
+        # El conductor trabajó de 06:00 a 13:00 (7 h): 8 h no caben, 7 h sí.
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '8',
+            'des-conductor-minutos': '0', 'des-conductor-motivo': 'Almuerzo'}))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'El descuento (8 h) es mayor que el tiempo trabajado (7 h).')
+        self.assertFalse(Manifiesto.objects.exists(), "no guarda nada de la hoja")
+        # El ayudante sin sus horas no tiene de dónde descontar.
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-ayudante-descontar': 'on', 'des-ayudante-horas': '1',
+            'des-ayudante-minutos': '0', 'des-ayudante-motivo': 'Almuerzo'}))
+        self.assertContains(respuesta, 'anota primero la hora de inicio y la final')
+        # Con sus horas (2 h), 2 h 30 min no caben.
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'ayu1-hora_inicio': '08:00', 'ayu1-hora_fin': '10:00',
+            'des-ayudante-descontar': 'on', 'des-ayudante-horas': '2',
+            'des-ayudante-minutos': '30', 'des-ayudante-motivo': 'Almuerzo'}))
+        self.assertContains(respuesta, 'es mayor que el tiempo trabajado (2 h)')
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.ayudante), (0, ''))
+        self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-horas': '7',
+            'des-conductor-minutos': '0', 'des-conductor-motivo': 'Almuerzo'}))
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (420, 'Almuerzo'))
 
     def test_el_conductor_no_ve_ni_escribe_el_descuento_de_horas(self):
         self.entrar(self.conductor)

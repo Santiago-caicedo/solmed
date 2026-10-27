@@ -2037,6 +2037,35 @@ def _formularios_descuentos(recorrido, data=None):
     return filas
 
 
+def _descuentos_caben(datos_acta, filas_ayudantes, filas_descuentos):
+    """
+    El descuento no puede pasar del tiempo que esa persona trabajó en el
+    servicio (ni descontarse sin sus dos horas): pone el error en la fila y
+    devuelve False. Las horas son las que trae la MISMA hoja: las del acta para
+    el conductor (como el centro de control) y las suyas para cada ayudante.
+    """
+    trabajado = {'conductor': _minutos_entre(
+        datos_acta.get('hora_salida_solmed') or datos_acta.get('tiempo_inicio_operativo'),
+        datos_acta.get('hora_llegada_solmed') or datos_acta.get('tiempo_final_operativo'))}
+    for _persona, campo_inicio, _cf, f in filas_ayudantes:
+        clave = 'ayudante2' if campo_inicio.endswith('2') else 'ayudante'
+        trabajado[clave] = _minutos_entre(f.cleaned_data['hora_inicio'], f.cleaned_data['hora_fin'])
+    ok = True
+    for _rol, _persona, clave, form in filas_descuentos:
+        descuento = form.total_minutos
+        if not descuento:
+            continue
+        minutos = trabajado.get(clave)
+        if minutos is None:
+            form.add_error('horas', "Para descontar, anota primero la hora de inicio y la final.")
+            ok = False
+        elif descuento > minutos:
+            form.add_error('horas', f"El descuento ({_texto_horas(descuento)}) es mayor que "
+                                    f"el tiempo trabajado ({_texto_horas(minutos)}).")
+            ok = False
+    return ok
+
+
 def _guardar_descuentos(recorrido, filas):
     """Escribe en el recorrido el descuento de cada persona (no en el acta)."""
     campos = []
@@ -2210,6 +2239,9 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             *(f.is_valid() for _p, _ci, _cf, f in extra.get('filas_ayudantes', [])),
             *(f.is_valid() for _r, _p, _c, f in extra.get('filas_descuentos', [])),
         ])
+        if subformularios_ok and extra.get('filas_descuentos') and form.is_valid():
+            subformularios_ok = _descuentos_caben(
+                form.cleaned_data, extra['filas_ayudantes'], extra['filas_descuentos'])
 
         if not form.is_valid() or not subformularios_ok:
             messages.error(request, "Por favor, corrija los errores en el formulario.")
