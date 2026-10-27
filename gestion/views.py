@@ -2016,6 +2016,38 @@ def _guardar_horas_ayudantes(recorrido, filas):
         recorrido.save(update_fields=campos)
 
 
+def _formularios_descuentos(recorrido, data=None):
+    """
+    Una fila de descuento de horas por cada persona del servicio (conductor y
+    ayudantes): [(rol, persona, clave, form)]. Se guarda en el recorrido.
+    """
+    from .forms import DescuentoHorasForm
+    filas = []
+    for rol, persona, clave in (('Conductor', recorrido.conductor, 'conductor'),
+                                ('Ayudante', recorrido.ayudante, 'ayudante'),
+                                ('Ayudante', recorrido.ayudante2, 'ayudante2')):
+        if persona is None:
+            continue
+        minutos = getattr(recorrido, f'descuento_{clave}_min') or 0
+        filas.append((rol, persona, clave, DescuentoHorasForm(
+            data, prefix=f'des-{clave}',
+            initial={'descontar': minutos > 0,
+                     'tiempo': datetime.time(minutos // 60, minutos % 60) if minutos else None,
+                     'motivo': getattr(recorrido, f'descuento_{clave}_motivo')})))
+    return filas
+
+
+def _guardar_descuentos(recorrido, filas):
+    """Escribe en el recorrido el descuento de cada persona (no en el acta)."""
+    campos = []
+    for _rol, _persona, clave, form in filas:
+        setattr(recorrido, f'descuento_{clave}_min', form.minutos)
+        setattr(recorrido, f'descuento_{clave}_motivo', form.cleaned_data['motivo'].strip())
+        campos += [f'descuento_{clave}_min', f'descuento_{clave}_motivo']
+    if campos:
+        recorrido.save(update_fields=campos)
+
+
 def _guardar_novedades(manifiesto, filas_novedades, con_horas=True):
     """
     Escribe lo marcado en la hoja: las novedades sin datos se borran (el
@@ -2149,6 +2181,9 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             # Las horas de los ayudantes son de la oficina, como los tiempos.
             'filas_ayudantes': (_formularios_horas_ayudantes(recorrido, data)
                                 if llena_tiempos else []),
+            # Lo que se le descuenta a cada uno (almuerzo, etc.), también de la oficina.
+            'filas_descuentos': (_formularios_descuentos(recorrido, data)
+                                 if llena_tiempos else []),
         }
 
     def post(self, request, pk, step='paso3'):
@@ -2173,6 +2208,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
         subformularios_ok = all([
             *(f.is_valid() for _t, _e, _i, f in extra.get('filas_novedades', [])),
             *(f.is_valid() for _p, _ci, _cf, f in extra.get('filas_ayudantes', [])),
+            *(f.is_valid() for _r, _p, _c, f in extra.get('filas_descuentos', [])),
         ])
 
         if not form.is_valid() or not subformularios_ok:
@@ -2208,6 +2244,7 @@ class GenerarManifiestoView(LoginRequiredMixin, View):
             _guardar_novedades(manifiesto_instance, extra['filas_novedades'],
                                con_horas=extra['llena_tiempos'])
             _guardar_horas_ayudantes(recorrido, extra['filas_ayudantes'])
+            _guardar_descuentos(recorrido, extra['filas_descuentos'])
 
         # Acumulamos los datos del paso en la sesión (serializando tipos no JSON).
         cleaned_data = form.cleaned_data
@@ -6088,6 +6125,19 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     for desde, hasta, fecha in unidos:
         clave = (fecha.year, fecha.month)
         por_mes[clave] = por_mes.get(clave, 0) + (hasta - desde)
+
+    # Descuentos de la oficina (almuerzo, etc.): se restan al servicio, al
+    # total y al mes del servicio; el tramo no se acorta porque el descuento
+    # no dice a qué hora fue.
+    for s in servicios:
+        descuento = s.get('descuento_min', 0)
+        if not descuento:
+            continue
+        fecha = s['recorrido'].fecha_recorrido
+        clave = (fecha.year, fecha.month)
+        total -= descuento
+        por_lista['servicios'] -= descuento
+        por_mes[clave] = max(por_mes.get(clave, 0) - descuento, 0)
     meses, maximo = [], max(por_mes.values(), default=0)
     if (inicio.year, inicio.month) != (fin.year, fin.month):
         actual = datetime.date(inicio.year, inicio.month, 1)
@@ -6157,13 +6207,20 @@ def _datos_centro_control(persona, inicio, fin):
                 hasta = acta.hora_llegada_solmed or acta.tiempo_final_operativo
             horas = _horario_de(r, acta)
         minutos = _minutos_entre(desde, hasta)
+        # Descuento de horas (oct-2026): la duración que se liquida es la
+        # neta; sin las dos horas no hay duración de la que descontar.
+        descuento, motivo = r.descuento_de(persona)
+        descuento = min(descuento, minutos) if minutos is not None else 0
+        neto = minutos - descuento if minutos is not None else None
         servicios.append({
             'recorrido': r,
             'como': 'Conductor' if es_conductor else 'Ayudante',
             'horas': horas,
             'desde': desde,
             'minutos': minutos,
-            'duracion': _texto_horas(minutos),
+            'descuento_min': descuento,
+            'descuento': f"−{_texto_horas(descuento)} · {motivo}" if descuento else '',
+            'duracion': _texto_horas(neto),
         })
 
     asignaciones = list(
@@ -6452,15 +6509,15 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
         self._hoja(
             libro, 'Servicios',
             ['Fecha', 'N° Orden', 'Participó como', 'Vehículo', 'Cliente',
-             'Horas', 'Duración', 'Estado', 'Dirección'],
+             'Horas', 'Duración', 'Descuento', 'Estado', 'Dirección'],
             [[s['recorrido'].fecha_recorrido,
               s['recorrido'].orden.numero_orden, s['como'],
               s['recorrido'].vehiculo.placa, s['recorrido'].orden.cliente.nombre,
-              s['horas'] or '—', s['duracion'] or '—',
+              s['horas'] or '—', s['duracion'] or '—', s['descuento'] or '—',
               s['recorrido'].get_estado_display(),
               s['recorrido'].orden.direccion_servicio or '—']
              for s in datos['servicios']],
-            [12, 11, 15, 12, 34, 16, 14, 14, 34], fechas=(1,))
+            [12, 11, 15, 12, 34, 16, 14, 26, 14, 34], fechas=(1,))
 
         self._hoja(
             libro, 'Actividades',

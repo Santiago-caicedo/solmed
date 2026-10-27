@@ -753,6 +753,15 @@ class Recorrido(models.Model):
     hora_fin_ayudante = models.TimeField(null=True, blank=True)
     hora_inicio_ayudante2 = models.TimeField(null=True, blank=True)
     hora_fin_ayudante2 = models.TimeField(null=True, blank=True)
+    # Descuento de horas (oct-2026): tiempo que la oficina le resta a cada
+    # persona del servicio (p. ej. 1 h de almuerzo) y por qué. Se descuenta
+    # en la liquidación de horas del centro de control; el acta no lo ve.
+    descuento_conductor_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    descuento_conductor_motivo = models.CharField(max_length=120, blank=True, default='')
+    descuento_ayudante_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    descuento_ayudante_motivo = models.CharField(max_length=120, blank=True, default='')
+    descuento_ayudante2_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    descuento_ayudante2_motivo = models.CharField(max_length=120, blank=True, default='')
 
     fecha_recorrido = models.DateField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PROGRAMADO')
@@ -793,6 +802,18 @@ class Recorrido(models.Model):
         if self.ayudante2_id == persona.pk:
             return self.hora_inicio_ayudante2, self.hora_fin_ayudante2
         return None, None
+
+    def descuento_de(self, persona):
+        """(minutos, motivo) que la oficina le descontó a esa persona; (0, '') si no."""
+        if persona is None:
+            return 0, ''
+        for clave, id_persona in (('conductor', self.conductor_id),
+                                  ('ayudante', self.ayudante_id),
+                                  ('ayudante2', self.ayudante2_id)):
+            if id_persona == persona.pk:
+                return (getattr(self, f'descuento_{clave}_min') or 0,
+                        getattr(self, f'descuento_{clave}_motivo'))
+        return 0, ''
 
     @property
     def va_sin_ayudante(self):

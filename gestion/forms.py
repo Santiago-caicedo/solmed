@@ -411,6 +411,49 @@ class HorasAyudanteForm(forms.Form):
         return cleaned
 
 
+class DescuentoHorasForm(forms.Form):
+    """
+    El descuento de horas de UNA persona del servicio (oct-2026): una casilla
+    que habilita el tiempo a descontar (p. ej. 1:00) y el motivo (almuerzo).
+    Con la casilla marcada ambos son obligatorios; sin marcar no se guarda nada.
+    """
+    descontar = forms.BooleanField(
+        required=False, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
+    # Es una DURACIÓN, no una hora del día: un <input type="time"> la mostraría
+    # como «01:00 a. m.» en un navegador en 12 horas. Se escribe «1:00» o «1».
+    tiempo = forms.TimeField(
+        required=False, input_formats=['%H:%M', '%H'],
+        error_messages={'invalid': "Escribe el tiempo como h:mm (ej. 1:00 o 0:30)."},
+        widget=forms.TimeInput(attrs={'class': 'form-control', 'placeholder': 'h:mm (ej. 1:00)',
+                                      'autocomplete': 'off'},
+                               format='%H:%M'))
+    motivo = forms.CharField(
+        required=False, max_length=120,
+        widget=forms.TextInput(attrs={'class': 'form-control',
+                                      'placeholder': 'Motivo (ej. almuerzo)'}))
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('descontar'):
+            tiempo = cleaned.get('tiempo')
+            if not tiempo or (tiempo.hour == 0 and tiempo.minute == 0):
+                self.add_error('tiempo', "Escribe cuánto tiempo se descuenta.")
+            if not (cleaned.get('motivo') or '').strip():
+                self.add_error('motivo', "Escribe el motivo del descuento.")
+        else:
+            cleaned['tiempo'] = None
+            cleaned['motivo'] = ''
+        return cleaned
+
+    @property
+    def minutos(self):
+        """Minutos a descontar, o None si no se descuenta."""
+        tiempo = self.cleaned_data.get('tiempo')
+        if not self.cleaned_data.get('descontar') or not tiempo:
+            return None
+        return tiempo.hour * 60 + tiempo.minute
+
+
 class ManifiestoPaso4Form(forms.ModelForm):
     """
     Cierre del acta. El RESPONSABLE EMPRESA es el conductor asignado, así que

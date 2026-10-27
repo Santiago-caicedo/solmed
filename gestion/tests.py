@@ -742,6 +742,59 @@ class ActaDeServicioTests(BaseCRM):
         self.recorrido.refresh_from_db()
         self.assertIsNone(self.recorrido.hora_inicio_ayudante)
 
+    def test_la_oficina_descuenta_horas_a_cada_persona_con_su_motivo(self):
+        self.entrar(self.asesor)
+        hoja = self.client.get(self.url_paso('paso3')).content.decode()
+        self.assertIn('Descuento de horas', hoja)
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00',
+            'des-conductor-motivo': 'Almuerzo',
+            'des-ayudante-descontar': 'on', 'des-ayudante-tiempo': '00:30',
+            'des-ayudante-motivo': 'Desayuno'}))
+        self.assertRedirects(respuesta, self.url_paso('paso4'))
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (60, 'Almuerzo'))
+        self.assertEqual(self.recorrido.descuento_de(self.ayudante), (30, 'Desayuno'))
+        # Al volver, la hoja lo trae puesto; y no sale en el acta.
+        self.assertContains(self.client.get(self.url_paso('paso3')), 'value="Almuerzo"')
+        detalle = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertNotContains(detalle, 'Almuerzo')
+        # Desmarcar la casilla quita el descuento.
+        self.client.post(self.url_paso('paso3'), self.datos_hoja())
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (0, ''))
+
+    def test_el_descuento_exige_tiempo_y_motivo(self):
+        self.entrar(self.asesor)
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00'}))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Escribe el motivo del descuento.')
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-motivo': 'Almuerzo'}))
+        self.assertContains(respuesta, 'Escribe cuánto tiempo se descuenta.')
+        respuesta = self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-tiempo': 'una hora',
+            'des-conductor-motivo': 'Almuerzo'}))
+        self.assertContains(respuesta, 'Escribe el tiempo como h:mm')
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (0, ''))
+        # Basta con la hora: «1» es una hora.
+        self.client.post(self.url_paso('paso3'), self.datos_hoja(**{
+            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '1',
+            'des-conductor-motivo': 'Almuerzo'}))
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (60, 'Almuerzo'))
+
+    def test_el_conductor_no_ve_ni_escribe_el_descuento_de_horas(self):
+        self.entrar(self.conductor)
+        self.assertNotContains(self.client.get(self.url_paso('paso3')), 'Descuento de horas')
+        self.client.post(self.url_paso('paso3'), {
+            'des-conductor-descontar': 'on', 'des-conductor-tiempo': '01:00',
+            'des-conductor-motivo': 'Almuerzo', 'observaciones': 'ok'})
+        self.recorrido.refresh_from_db()
+        self.assertEqual(self.recorrido.descuento_de(self.conductor), (0, ''))
+
     def test_otro_conductor_no_puede_llenar_un_acta_ajena(self):
         intruso = self.persona('conductor2', 'Conductores')
         self.entrar(intruso)
@@ -7313,6 +7366,54 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         self.assertEqual(respuesta.context['horas']['total'], '4 h 30 min')
         # Al conductor no lo tocan: sigue con las del acta.
         self.assertEqual(self.horas().context['horas']['total'], '9 h')
+
+    def test_el_descuento_de_horas_resta_en_la_liquidacion(self):
+        """Servicio de 07:00 a 13:00 con 1 h de almuerzo: se liquidan 5 h."""
+        self.acta(datetime.time(7, 0), datetime.time(13, 0))
+        self.recorrido.descuento_conductor_min = 60
+        self.recorrido.descuento_conductor_motivo = 'Almuerzo'
+        self.recorrido.save()
+        respuesta = self.horas()
+        servicio = respuesta.context['servicios'][0]
+        self.assertEqual(servicio['duracion'], '5 h')
+        self.assertEqual(servicio['descuento'], '−1 h · Almuerzo')
+        horas = respuesta.context['horas']
+        self.assertEqual((horas['total'], horas['servicios']), ('5 h', '5 h'))
+        self.assertContains(respuesta, '−1 h · Almuerzo')
+        # El año completo también lo resta del mes.
+        anual = self.horas(anio=self.dia.year, mes='todo').context['horas']
+        self.assertEqual(anual['por_mes'][self.dia.month - 1]['texto'], '5 h')
+
+    def test_el_descuento_es_de_cada_persona_y_nunca_deja_horas_negativas(self):
+        ayudante = self.persona('ayu', 'Ayudantes', 'Luis', 'Gómez')
+        self.recorrido.ayudante = ayudante
+        self.recorrido.hora_inicio_ayudante = datetime.time(7, 0)
+        self.recorrido.hora_fin_ayudante = datetime.time(8, 0)
+        self.recorrido.descuento_ayudante_min = 180
+        self.recorrido.descuento_ayudante_motivo = 'Exceso'
+        self.recorrido.save()
+        self.acta(datetime.time(7, 0), datetime.time(13, 0))
+        params = {'anio': self.dia.year, 'mes': self.dia.month}
+        url = reverse('gestion:centro_control_persona', args=[ayudante.pk])
+        horas = self.client.get(url, params).context['horas']
+        self.assertEqual(horas['total'], '0 h', "no baja de cero")
+        # El descuento del ayudante no toca al conductor.
+        self.assertEqual(self.horas().context['horas']['total'], '6 h')
+
+    def test_el_pdf_y_el_excel_llevan_el_descuento(self):
+        from openpyxl import load_workbook
+        self.acta(datetime.time(7, 0), datetime.time(13, 0))
+        self.recorrido.descuento_conductor_min = 60
+        self.recorrido.descuento_conductor_motivo = 'Almuerzo'
+        self.recorrido.save()
+        params = {'anio': self.dia.year, 'mes': self.dia.month}
+        xlsx = self.client.get(
+            reverse('gestion:centro_control_excel', args=[self.conductor.pk]), params)
+        hoja = load_workbook(io.BytesIO(xlsx.content))['Servicios']
+        cabecera = [c.value for c in hoja[1]]
+        fila = [c.value for c in hoja[2]]
+        self.assertEqual(fila[cabecera.index('Duración')], '5 h')
+        self.assertEqual(fila[cabecera.index('Descuento')], '−1 h · Almuerzo')
 
     def test_la_novedad_muestra_su_rango_de_horas(self):
         self.Novedad.objects.create(

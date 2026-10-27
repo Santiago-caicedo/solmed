@@ -273,7 +273,7 @@
                     <td>{{ s.como }}</td>
                     <td>{{ s.recorrido.vehiculo.placa }}</td>
                     <td>{{ s.recorrido.orden.cliente.nombre }}</td>
-                    <td class="tenue">{{ s.horas|default:"—" }}{% if s.duracion %}<br>{{ s.duracion }}{% endif %}</td>
+                    <td class="tenue">{{ s.horas|default:"—" }}{% if s.duracion %}<br>{{ s.duracion }}{% endif %}{% if s.descuento %}<br>{{ s.descuento }}{% endif %}</td>
                     <td class="tenue">{{ s.recorrido.get_estado_display }}</td>
                 </tr>
                 {% endfor %}

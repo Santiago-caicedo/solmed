@@ -232,7 +232,7 @@
                         <td>{{ s.recorrido.vehiculo.placa }}</td>
                         <td>{{ s.recorrido.orden.cliente.nombre }}</td>
                         <td>{{ s.horas|default:"—" }}</td>
-                        <td>{{ s.duracion|default:"—" }}</td>
+                        <td>{{ s.duracion|default:"—" }}{% if s.descuento %}<div class="small text-danger">{{ s.descuento }}</div>{% endif %}</td>
                         <td>
                             {% if s.recorrido.estado == 'COMPLETADO' %}<span class="badge bg-success">Completado</span>
                             {% elif s.recorrido.estado == 'EN_CURSO' %}<span class="badge bg-warning text-dark">En curso</span>

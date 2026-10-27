@@ -60,6 +60,14 @@ decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
 .ay-nombre{ font-weight:700; font-size:.95rem; margin-bottom:.5rem; display:flex; align-items:center; gap:.4rem; }
 .ay-nombre i{ color:var(--steel); }
 
+/* Descuento de horas: la casilla habilita el tiempo y el motivo */
+.ds-fila + .ds-fila{ margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--line); }
+.ds-cab{ display:flex; align-items:center; gap:.6rem; font-weight:700; font-size:.95rem; }
+.ds-cab .rol{ font-weight:500; color:var(--ink-3); font-size:.85rem; }
+.ds-cab label{ margin-left:auto; display:flex; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; cursor:pointer; }
+.ds-det{ margin-top:.6rem; }
+.ds-det[hidden]{ display:none; }
+
 /* Botón principal fijo abajo, al alcance del pulgar */
 .hj-pie{ position:sticky; bottom:0; z-index:5; margin:1rem -1rem 0; padding:.75rem 1rem calc(.75rem + env(safe-area-inset-bottom));
     background:linear-gradient(to top, var(--canvas) 70%, rgba(237,240,244,0)); display:grid; gap:.4rem; }
@@ -130,6 +138,29 @@ decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
                 {% endfor %}
             </div>
         </div>
+        {# Descuento de horas: se resta en la liquidación del centro de control, NO va al acta. #}
+        {% if filas_descuentos %}
+        <div class="hj-sec">
+            <div class="cab"><i class="bi bi-hourglass-split" aria-hidden="true"></i><span class="t">Descuento de horas</span><span class="s">p. ej. almuerzo · no sale en el acta</span></div>
+            <div class="cuerpo">
+                {% for rol, persona, clave, f in filas_descuentos %}
+                <div class="ds-fila">
+                    <div class="ds-cab">
+                        <i class="bi bi-person" aria-hidden="true"></i>{{ persona.get_full_name|default:persona.username }}<span class="rol">{{ rol }}</span>
+                        <label>{{ f.descontar }}Descontar</label>
+                    </div>
+                    <div class="ds-det"{% if not f.descontar.value %} hidden{% endif %}>
+                        {% if f.errors %}<div class="text-danger small mb-2">{% for campo in f %}{% for e in campo.errors %}{{ e }} {% endfor %}{% endfor %}</div>{% endif %}
+                        <div class="grilla-2">
+                            <div class="campo"><label for="{{ f.tiempo.id_for_label }}">Tiempo a descontar</label>{{ f.tiempo }}</div>
+                            <div class="campo"><label for="{{ f.motivo.id_for_label }}">Motivo</label>{{ f.motivo }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
 
         {% comment %}
@@ -228,6 +259,17 @@ decide cuál. El control de ACPM ya no lo llena nadie (oct-2026).
         abrir.addEventListener('click', function () { mostrar(); var p = lista.querySelector('.nv-tile'); if (p) p.focus(); });
         if (contar()) mostrar();
     } else { contar(); }
+
+    // Descuento de horas: la casilla muestra u oculta el tiempo y el motivo.
+    document.querySelectorAll('.ds-fila').forEach(function (fila) {
+        var chk = fila.querySelector('input[type=checkbox]');
+        var det = fila.querySelector('.ds-det');
+        if (!chk || !det) return;
+        chk.addEventListener('change', function () {
+            det.hidden = !chk.checked;
+            if (chk.checked) { var t = det.querySelector('input'); if (t) t.focus(); }
+        });
+    });
 
 })();
 </script>
