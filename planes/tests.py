@@ -327,6 +327,58 @@ class AsignacionesTests(BasePlan):
             {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
         self.assertEqual(respuesta.context['horas']['actividades'], '3 h')
 
+    def test_una_actividad_puede_llevar_varios_descuentos_con_su_motivo(self):
+        """Oct-2026: como en «Corregir datos», pero varios; se restan al liquidar."""
+        from planes.models import DescuentoHoras
+        self.asignar([self.conductor, self.ayudante], 'TRASTEO', suma_horas='1',
+                     hora='07:00', hora_fin='16:00',
+                     des_horas=['1', '0'], des_minutos=['0', '15'],
+                     des_motivo=['Almuerzo', 'Pausa activa'])
+        self.assertEqual(Asignacion.objects.count(), 2)
+        for a in Asignacion.objects.all():
+            self.assertEqual([(d.minutos, d.motivo) for d in a.descuentos.all()],
+                             [(60, 'Almuerzo'), (15, 'Pausa activa')])
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
+            {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
+        actividad = respuesta.context['asignaciones'][0]
+        self.assertEqual(actividad.duracion, '7 h 45 min')
+        self.assertEqual(actividad.descuento, '−1 h · Almuerzo; −15 min · Pausa activa')
+        self.assertEqual(respuesta.context['horas']['actividades'], '7 h 45 min')
+        self.assertEqual(respuesta.context['horas']['total'], '7 h 45 min')
+        self.assertContains(respuesta, '−1 h · Almuerzo; −15 min · Pausa activa')
+        # Quitar la actividad se lleva sus descuentos.
+        Asignacion.objects.all().delete()
+        self.assertFalse(DescuentoHoras.objects.exists())
+
+    def test_el_descuento_de_la_actividad_se_valida(self):
+        base = dict(hora='08:00', hora_fin='10:00', suma_horas='1')
+        casos = [
+            ({'des_horas': ['0'], 'des_minutos': ['0'], 'des_motivo': ['Almuerzo']},
+             'elige cuánto tiempo se descuenta'),
+            ({'des_horas': ['1'], 'des_minutos': ['0'], 'des_motivo': ['']},
+             'escribe el motivo del descuento'),
+            ({'des_horas': ['1'], 'des_minutos': ['7'], 'des_motivo': ['Almuerzo']},
+             'elige un valor de la lista'),
+            ({'des_horas': ['2'], 'des_minutos': ['30'], 'des_motivo': ['Almuerzo']},
+             'Los descuentos (2 h 30 min) son más que el tiempo entre las dos horas (2 h)'),
+        ]
+        for extra, mensaje in casos:
+            with self.subTest(mensaje=mensaje):
+                respuesta = self.asignar([self.conductor], 'TRASTEO', follow=True, **base, **extra)
+                self.assertContains(respuesta, mensaje)
+                self.assertFalse(Asignacion.objects.exists())
+        # Sin «Sumar estas horas…» el descuento no tiene sentido.
+        respuesta = self.asignar([self.conductor], 'TRASTEO', follow=True, hora='08:00',
+                                 hora_fin='10:00', des_horas=['1'], des_minutos=['0'],
+                                 des_motivo=['Almuerzo'])
+        self.assertContains(respuesta, 'Para descontar horas, marca')
+        self.assertFalse(Asignacion.objects.exists())
+        # Una fila vacía (el botón se tocó y no se llenó) no estorba.
+        self.asignar([self.conductor], 'TRASTEO', **base, des_horas=['0'],
+                     des_minutos=['0'], des_motivo=[''])
+        self.assertEqual(Asignacion.objects.get().descuentos.count(), 0)
+
     def test_la_casilla_de_sumar_horas_sale_en_el_panel_de_actividades(self):
         contenido = self.client.get(self.url).content.decode()
         self.assertIn('id="suma-horas-asignacion"', contenido)
@@ -1178,10 +1230,41 @@ class ActividadesYNovedadesCreadasTests(BasePlan):
             {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
         self.assertEqual(respuesta.context['horas']['interno'], '4 h')
 
+    def test_una_novedad_descuenta_cada_dia_de_su_rango(self):
+        """Trabajo en bodega tres días de 07:00 a 15:00 con 1 h de almuerzo: 7 h por día."""
+        desde = self.hoy - datetime.timedelta(days=2)
+        respuesta = self.client.post(self.url, {
+            'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
+            'persona': self.conductor.pk, 'tipo': 'TRABAJO_BODEGA',
+            'fecha_inicio': desde.isoformat(), 'fecha_fin': self.hoy.isoformat(),
+            'hora': '07:00', 'hora_fin': '15:00', 'suma_horas': 'on', 'detalle': '',
+            'des_horas': ['1'], 'des_minutos': ['0'], 'des_motivo': ['Almuerzo']}, follow=True)
+        novedad = Novedad.objects.get()
+        self.assertEqual([(d.minutos, d.motivo) for d in novedad.descuentos.all()],
+                         [(60, 'Almuerzo')])
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
+            {'desde': desde.isoformat(), 'hasta': self.hoy.isoformat()})
+        fila = respuesta.context['novedades'][0]
+        self.assertEqual(fila['duracion'], '7 h por día')
+        self.assertEqual(fila['descuento'], '−1 h · Almuerzo por día')
+        self.assertEqual(respuesta.context['horas']['interno'], '21 h')
+        # Un descuento sin la casilla de sumar no se acepta.
+        respuesta = self.client.post(self.url, {
+            'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
+            'persona': self.conductor.pk, 'tipo': 'CALAMIDAD',
+            'fecha_inicio': self.hoy.isoformat(), 'fecha_fin': '',
+            'hora': '07:00', 'hora_fin': '15:00', 'detalle': '',
+            'des_horas': ['1'], 'des_minutos': ['0'], 'des_motivo': ['Almuerzo']}, follow=True)
+        self.assertContains(respuesta, 'Para descontar horas, marca')
+        self.assertEqual(Novedad.objects.count(), 1)
+
     def test_la_casilla_de_sumar_horas_sale_en_el_popup(self):
         respuesta = self.client.get(self.url)
         self.assertContains(respuesta, 'Sumar estas horas al historial de horas trabajadas')
         self.assertContains(respuesta, 'name="suma_horas"')
+        # Y el bloque de descuentos, en los dos popups.
+        self.assertEqual(respuesta.content.decode().count('class="ds-bloque'), 2)
 
     def test_quitar_una_sin_usar_la_borra_y_una_usada_se_oculta(self):
         sin_usar = TipoPersonalizado.objects.create(ambito='ACTIVIDAD', nombre='Sin usar')

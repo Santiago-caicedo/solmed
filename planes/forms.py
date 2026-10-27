@@ -16,6 +16,75 @@ def validar_horas(form, cleaned, campo_fin):
         form.add_error(campo_fin, "La hora final debe ser posterior a la de inicio.")
 
 
+# Lo que se puede elegir en los selectores de un descuento (como en «Corregir datos»).
+DESCUENTO_HORAS = list(range(13))
+DESCUENTO_MINUTOS = list(range(0, 60, 5))
+
+
+def leer_descuentos(form, cleaned):
+    """
+    Los descuentos de horas que llegan del popup como listas paralelas
+    (des_horas, des_minutos, des_motivo): [(minutos, motivo)]. Las filas
+    vacías se saltan. Cada fila necesita un tiempo mayor que cero y su
+    motivo; en total no pueden pasar del tiempo entre las dos horas, y solo
+    tienen sentido si esas horas suman (casilla «Sumar estas horas…»). Los
+    errores van al formulario (sin campo) y entonces devuelve None.
+    """
+    data = form.data
+    horas_l = data.getlist('des_horas') if hasattr(data, 'getlist') else []
+    minutos_l = data.getlist('des_minutos') if hasattr(data, 'getlist') else []
+    motivos_l = data.getlist('des_motivo') if hasattr(data, 'getlist') else []
+    filas, errores = [], []
+    for i in range(max(len(horas_l), len(minutos_l), len(motivos_l))):
+        h = (horas_l[i] if i < len(horas_l) else '').strip()
+        m = (minutos_l[i] if i < len(minutos_l) else '').strip()
+        motivo = (motivos_l[i] if i < len(motivos_l) else '').strip()
+        if not (h or m or motivo):
+            continue
+        if not (h.isdigit() and m.isdigit() and int(h) in DESCUENTO_HORAS
+                and int(m) in DESCUENTO_MINUTOS):
+            errores.append("Descuento de horas: elige un valor de la lista.")
+            continue
+        total = int(h) * 60 + int(m)
+        if not total and not motivo:
+            continue    # se tocó «Añadir descuento» y la fila quedó sin llenar
+        if not total:
+            errores.append("Descuento de horas: elige cuánto tiempo se descuenta.")
+        if not motivo:
+            errores.append("Descuento de horas: escribe el motivo del descuento.")
+        if total and motivo:
+            filas.append((total, motivo))
+    if filas and not errores:
+        inicio, fin = cleaned.get('hora'), cleaned.get('hora_fin')
+        if not cleaned.get('suma_horas'):
+            errores.append("Para descontar horas, marca «Sumar estas horas al historial "
+                           "de horas trabajadas».")
+        elif inicio and fin:
+            minutos = (fin.hour * 60 + fin.minute) - (inicio.hour * 60 + inicio.minute)
+            suma = sum(t for t, _ in filas)
+            if suma > minutos:
+                errores.append(f"Los descuentos ({_texto_horas(suma)}) son más que el tiempo "
+                               f"entre las dos horas ({_texto_horas(minutos)}).")
+    for e in errores:
+        form.add_error(None, e)
+    return None if errores else filas
+
+
+def _texto_horas(minutos):
+    """2 h 30 min · 2 h · 15 min (como gestion.views._texto_horas)."""
+    horas, resto = divmod(minutos, 60)
+    if not horas and resto:
+        return f"{resto} min"
+    return f"{horas} h {resto:02d} min" if resto else f"{horas} h"
+
+
+def guardar_descuentos(filas, **duenio):
+    """Crea los DescuentoHoras de una actividad (asignacion=) o novedad (novedad=)."""
+    from .models import DescuentoHoras
+    for minutos, motivo in filas or []:
+        DescuentoHoras.objects.create(minutos=minutos, motivo=motivo, **duenio)
+
+
 class AsignacionForm(forms.Form):
     """
     Alta de una actividad del plan para UNA O VARIAS personas a la vez (el
@@ -148,6 +217,7 @@ class AsignacionForm(forms.Form):
         if cleaned.get('suma_horas') and not (cleaned.get('hora') and cleaned.get('hora_fin')):
             self.add_error(None, "Para sumar estas horas al historial de horas trabajadas, "
                                  "escribe la hora de inicio y la final.")
+        self.descuentos = leer_descuentos(self, cleaned)
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
         if not campos.get('dispositor'):
@@ -175,6 +245,7 @@ class AsignacionForm(forms.Form):
                 registrado_por=usuario,
             )
             asignacion.vehiculos.set(self.vehiculos)
+            guardar_descuentos(self.descuentos, asignacion=asignacion)
             creadas.append(asignacion)
 
         if creadas and creadas[0].dispone_ordenes and self.ordenes:
@@ -261,4 +332,8 @@ class NovedadForm(forms.ModelForm):
         # Sumar al historial de horas trabajadas exige saber cuántas fueron.
         if cleaned.get('suma_horas') and not (cleaned.get('hora') and cleaned.get('hora_fin')):
             self.add_error('suma_horas', "Para sumar estas horas, escribe la hora de inicio y la final.")
+        self.descuentos = leer_descuentos(self, cleaned)
         return cleaned
+
+    def guardar_descuentos(self, novedad):
+        guardar_descuentos(self.descuentos, novedad=novedad)

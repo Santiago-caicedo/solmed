@@ -320,6 +320,7 @@
                             <div class="form-text mt-0" style="font-size:.72rem">
                                 Se marca sola al escribir las dos horas; pide la hora de inicio y la final.
                             </div>
+                            {% include 'planes/partials/_descuentos.html' %}
                         </div>
 
                         <div class="pt-etq" id="etq-detalle">Descripción <span class="text-muted" id="detalle-opcional">(opcional)</span></div>
@@ -384,6 +385,7 @@
                         <div class="form-text mt-0" style="font-size:.72rem">
                             Solo para novedades que son trabajo (bodega, oficina…). Pide la hora de inicio y la final.
                         </div>
+                        {% include 'planes/partials/_descuentos.html' %}
                         <div class="pt-etq">Detalle</div>
                         {{ form_novedad.detalle }}
                         <div class="form-text" style="font-size:.72rem">
@@ -732,5 +734,22 @@ queda guardado y aparece en el desplegable, en «Creadas en el plan».
         });
     });
 })();
+
+    // Descuentos de horas (oct-2026): «Añadir descuento» clona la fila de la
+    // plantilla; cada fila tiene su botón para quitarla.
+    document.querySelectorAll('[data-descuentos]').forEach(function (bloque) {
+        var filas = bloque.querySelector('[data-ds-filas]');
+        var plantilla = bloque.querySelector('[data-ds-plantilla]');
+        bloque.querySelector('[data-ds-anadir]').addEventListener('click', function () {
+            filas.appendChild(plantilla.content.cloneNode(true));
+            var ultima = filas.lastElementChild;
+            var motivo = ultima.querySelector('input[name="des_motivo"]');
+            if (motivo) motivo.focus();
+        });
+        filas.addEventListener('click', function (e) {
+            var quitar = e.target.closest('[data-ds-quitar]');
+            if (quitar) quitar.closest('.ds-fila').remove();
+        });
+    });
 </script>
 {% endblock %}

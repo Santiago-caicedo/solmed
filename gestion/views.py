@@ -6096,11 +6096,27 @@ def _minutos_entre(inicio, fin):
 
 
 def _texto_horas(minutos):
-    """7 h 30 min · 8 h · 0 h; vacío si no hay duración."""
+    """7 h 30 min · 8 h · 15 min · 0 h; vacío si no hay duración."""
     if minutos is None:
         return ''
     horas, resto = divmod(minutos, 60)
+    if not horas and resto:
+        return f"{resto} min"
     return f"{horas} h {resto:02d} min" if resto else f"{horas} h"
+
+
+def _descuentos_de(descuentos, minutos):
+    """
+    (minutos a descontar, texto) de los descuentos de una actividad o novedad
+    del plan. Sin las dos horas no hay de dónde descontar (0, ''); nunca se
+    descuenta más que la duración.
+    """
+    descuentos = list(descuentos)
+    if minutos is None or not descuentos:
+        return 0, ''
+    total = min(sum(d.minutos for d in descuentos), minutos)
+    texto = '; '.join(f"−{_texto_horas(d.minutos)} · {d.motivo}" for d in descuentos)
+    return total, texto
 
 
 def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
@@ -6158,18 +6174,30 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
         clave = (fecha.year, fecha.month)
         por_mes[clave] = por_mes.get(clave, 0) + (hasta - desde)
 
-    # Descuentos de la oficina (almuerzo, etc.): se restan al servicio, al
-    # total y al mes del servicio; el tramo no se acorta porque el descuento
-    # no dice a qué hora fue.
-    for s in servicios:
-        descuento = s.get('descuento_min', 0)
-        if not descuento:
-            continue
-        fecha = s['recorrido'].fecha_recorrido
+    # Descuentos (almuerzo, etc.): se restan a su lista, al total y al mes;
+    # el tramo no se acorta porque el descuento no dice a qué hora fue.
+    def restar(fecha, descuento, lista):
+        nonlocal total
         clave = (fecha.year, fecha.month)
         total -= descuento
-        por_lista['servicios'] -= descuento
+        por_lista[lista] -= descuento
         por_mes[clave] = max(por_mes.get(clave, 0) - descuento, 0)
+
+    for s in servicios:
+        if s.get('descuento_min'):
+            restar(s['recorrido'].fecha_recorrido, s['descuento_min'], 'servicios')
+    for a in asignaciones:
+        if a.suma_horas and a.plan.fecha <= hoy and a.minutos is not None and a.descuento_min:
+            restar(a.plan.fecha, a.descuento_min, 'actividades')
+    for f in novedades:
+        n = f['novedad']
+        if not (n.es_trabajo and f['minutos'] is not None and f.get('descuento_min')):
+            continue
+        for i in range(f['dias_en_rango']):
+            dia = f['desde'] + datetime.timedelta(days=i)
+            if dia <= hoy:
+                restar(dia, f['descuento_min'], 'interno')
+    total = max(total, 0)
     meses, maximo = [], max(por_mes.values(), default=0)
     if (inicio.year, inicio.month) != (fin.year, fin.month):
         actual = datetime.date(inicio.year, inicio.month, 1)
@@ -6260,12 +6288,14 @@ def _datos_centro_control(persona, inicio, fin):
         .filter(persona=persona, plan__fecha__range=(inicio, fin))
         .select_related('plan', 'orden', 'proveedor', 'dispositor',
                         'tipo_personalizado')
-        .prefetch_related('vehiculos')
+        .prefetch_related('vehiculos', 'descuentos')
         .order_by('plan__fecha', 'id')
     )
     for a in asignaciones:
         a.minutos = _minutos_entre(a.hora, a.hora_fin)
-        a.duracion = _texto_horas(a.minutos)
+        # Descuentos del plan (oct-2026): la duración que se liquida es la neta.
+        a.descuento_min, a.descuento = _descuentos_de(a.descuentos.all(), a.minutos)
+        a.duracion = _texto_horas(a.minutos - a.descuento_min if a.minutos is not None else None)
 
     # Las novedades viven por RANGO (unas vacaciones se registran una vez):
     # entran las que TOCAN el periodo, contando solo sus días dentro de él.
@@ -6276,6 +6306,7 @@ def _datos_centro_control(persona, inicio, fin):
                       & (Q(fecha_fin__gte=inicio)
                          | Q(fecha_fin__isnull=True, fecha_inicio__gte=inicio)))
               .select_related('registrado_por', 'tipo_personalizado')
+              .prefetch_related('descuentos')
               .order_by('fecha_inicio', 'id')):
         desde = max(n.fecha_inicio, inicio)
         hasta = min(n.fecha_fin or n.fecha_inicio, fin)
@@ -6286,11 +6317,15 @@ def _datos_centro_control(persona, inicio, fin):
         # una novedad son de CADA día de su rango; si cubre varios días del
         # periodo se dice «por día».
         minutos = _minutos_entre(n.hora, n.hora_fin)
-        duracion = _texto_horas(minutos)
-        if duracion and cubiertos > 1:
-            duracion += ' por día'
+        # Descuentos del plan (oct-2026): de cada día, como las horas.
+        descuento_min, descuento = _descuentos_de(n.descuentos.all(), minutos)
+        duracion = _texto_horas(minutos - descuento_min if minutos is not None else None)
+        if cubiertos > 1:
+            duracion += ' por día' if duracion else ''
+            descuento += ' por día' if descuento else ''
         novedades.append({'novedad': n, 'dias_en_rango': cubiertos,
-                          'desde': desde, 'minutos': minutos, 'duracion': duracion})
+                          'desde': desde, 'minutos': minutos, 'duracion': duracion,
+                          'descuento_min': descuento_min, 'descuento': descuento})
 
     dias_servicio = {s['recorrido'].fecha_recorrido for s in servicios}
     dias_actividad = {a.plan.fecha for a in asignaciones}
@@ -6554,31 +6589,32 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
         self._hoja(
             libro, 'Actividades',
             ['Fecha', 'Actividad', 'Placa(s)', 'Orden', 'Proveedor / gestor',
-             'Horas', 'Duración', 'Descripción'],
+             'Horas', 'Duración', 'Descuento', 'Descripción'],
             [[a.plan.fecha, a.get_tipo_display(),
               a.placas or '—',
               f"#{a.orden.numero_orden}" if a.orden else '—',
               str(a.proveedor or a.dispositor or '—'),
-              a.horario or '—', a.duracion or '—',
+              a.horario or '—', a.duracion or '—', a.descuento or '—',
               a.detalle or '—']
              for a in datos['asignaciones']],
-            [12, 32, 16, 11, 30, 13, 14, 40], fechas=(1,))
+            [12, 32, 16, 11, 30, 13, 14, 26, 40], fechas=(1,))
 
         self._hoja(
             libro, 'Novedades',
             ['Novedad', 'Desde', 'Hasta', 'Días en el periodo', 'Horas',
-             'Duración', 'Detalle', 'Registró'],
+             'Duración', 'Descuento', 'Detalle', 'Registró'],
             [[f['novedad'].get_tipo_display(),
               f['novedad'].fecha_inicio,
               f['novedad'].fecha_fin or '—',
               f['dias_en_rango'],
               f['novedad'].horario or '—',
               f['duracion'] or '—',
+              f['descuento'] or '—',
               f['novedad'].detalle or '—',
               (f['novedad'].registrado_por.get_full_name()
                or f['novedad'].registrado_por.username) if f['novedad'].registrado_por else '—']
              for f in datos['novedades']],
-            [30, 12, 12, 18, 13, 16, 40, 24], fechas=(2, 3))
+            [30, 12, 12, 18, 13, 16, 26, 40, 24], fechas=(2, 3))
 
         flujo = BytesIO()
         libro.save(flujo)

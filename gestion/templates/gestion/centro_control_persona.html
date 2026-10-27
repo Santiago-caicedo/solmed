@@ -281,7 +281,7 @@
                         </td>
                         <td>{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
                         <td>{{ a.horario|default:"—" }}</td>
-                        <td>{{ a.duracion|default:"—" }}</td>
+                        <td>{{ a.duracion|default:"—" }}{% if a.descuento %}<div class="small text-danger">{{ a.descuento }}</div>{% endif %}</td>
                         <td>{{ a.detalle|default:"—" }}</td>
                     </tr>
                 {% endfor %}
@@ -317,7 +317,7 @@
                         <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                         <td>{{ f.dias_en_rango }}</td>
                         <td>{{ f.novedad.horario|default:"—" }}</td>
-                        <td>{{ f.duracion|default:"—" }}</td>
+                        <td>{{ f.duracion|default:"—" }}{% if f.descuento %}<div class="small text-danger">{{ f.descuento }}</div>{% endif %}</td>
                         <td>{{ f.novedad.detalle|default:"—" }}</td>
                         <td class="text-muted small">
                             {% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}

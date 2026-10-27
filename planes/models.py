@@ -417,3 +417,36 @@ class Novedad(models.Model):
             models.Q(fecha_inicio=fecha, fecha_fin__isnull=True)
             | models.Q(fecha_inicio__lte=fecha, fecha_fin__gte=fecha)
         ).select_related('persona', 'tipo_personalizado')
+
+
+class DescuentoHoras(models.Model):
+    """
+    Tiempo que se le resta a UNA actividad o UNA novedad del plan al liquidar
+    las horas trabajadas (oct-2026): un almuerzo, una pausa… Pueden ser
+    varios por registro, cada uno con su motivo. Es la misma idea del
+    descuento del servicio en «Corregir datos» (Recorrido.descuento_*), pero
+    aquí viven aparte porque son varios. En una novedad de varios días el
+    descuento es de CADA día, como sus horas.
+    """
+    asignacion = models.ForeignKey(
+        Asignacion, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='descuentos')
+    novedad = models.ForeignKey(
+        Novedad, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='descuentos')
+    minutos = models.PositiveSmallIntegerField()
+    motivo = models.CharField(max_length=120)
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Descuento de horas del plan"
+        verbose_name_plural = "Descuentos de horas del plan"
+        constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(asignacion__isnull=False, novedad__isnull=True)
+                           | models.Q(asignacion__isnull=True, novedad__isnull=False)),
+                name='descuento_de_una_actividad_o_una_novedad'),
+        ]
+
+    def __str__(self):
+        return f"−{self.minutos} min · {self.motivo}"

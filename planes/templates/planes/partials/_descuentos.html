@@ -1,0 +1,38 @@
+{% comment %}
+Descuentos de horas de una actividad o novedad del plan (oct-2026): varios
+por registro, cada uno con horas, minutos y motivo (almuerzo, pausa…). Van
+como listas paralelas des_horas / des_minutos / des_motivo; el servidor las
+lee en planes.forms.leer_descuentos. Se incluye con `prefijo` (asig | nov)
+para que los ids no se repitan entre los dos popups.
+{% endcomment %}
+<div class="ds-bloque mt-2" data-descuentos>
+    <div class="d-flex align-items-center gap-2">
+        <span class="pt-etq mb-0">Descuentos de horas <span class="text-muted">(almuerzo, pausas…)</span></span>
+        <button type="button" class="pt-crear ms-auto" data-ds-anadir><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Añadir descuento</button>
+    </div>
+    <div class="ds-filas" data-ds-filas></div>
+    <div class="form-text mt-0" style="font-size:.72rem">
+        Se restan de estas horas al liquidar. Solo con «Sumar estas horas…» y sin pasar del tiempo trabajado.
+    </div>
+    <template data-ds-plantilla>
+        <div class="ds-fila row g-1 mt-2 align-items-center">
+            <div class="col-4">
+                <select name="des_horas" class="form-select form-select-sm" aria-label="Horas a descontar">
+                    {% for h in descuento_horas %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-5">
+                <select name="des_minutos" class="form-select form-select-sm" aria-label="Minutos a descontar">
+                    {% for m in descuento_minutos %}<option value="{{ m }}">{{ m|stringformat:"02d" }} min</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-auto ms-auto">
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" data-ds-quitar title="Quitar" aria-label="Quitar descuento"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="col-12">
+                <input type="text" name="des_motivo" class="form-control form-control-sm" maxlength="120"
+                       placeholder="Motivo (ej. almuerzo)" aria-label="Motivo del descuento">
+            </div>
+        </div>
+    </template>
+</div>

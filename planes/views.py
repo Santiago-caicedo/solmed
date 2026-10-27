@@ -26,7 +26,7 @@ from gestion.models import Dispositor, Manifiesto, OrdenServicio, Recorrido, Veh
 from gestion.roles import GRUPOS_AYUDANTE, GRUPOS_CONDUCTOR, es_de
 from gestion.views import AdministradorRequiredMixin, PaginadoMixin, _reply_to
 
-from .forms import AsignacionForm, NovedadForm
+from .forms import AsignacionForm, NovedadForm, DESCUENTO_HORAS, DESCUENTO_MINUTOS
 from .models import Asignacion, Novedad, PlanDia, TipoPersonalizado
 
 # El orden del formato físico: primero la operación, luego la oficina.
@@ -332,6 +332,9 @@ class PlanDiaView(AdministradorRequiredMixin, View):
             'sin_plan': total - con_plan,
             'form_asignacion': AsignacionForm(),
             'form_novedad': NovedadForm(initial={'fecha_inicio': fecha}),
+            # Los selectores de los descuentos de horas (partials/_descuentos.html).
+            'descuento_horas': DESCUENTO_HORAS,
+            'descuento_minutos': DESCUENTO_MINUTOS,
             'campos_tipo': campos_tipo,
             # Las del formato; las creadas en el popup van en su propio grupo.
             'tipos_actividad': [t for t in Asignacion.TIPO_CHOICES
@@ -380,6 +383,7 @@ class PlanDiaView(AdministradorRequiredMixin, View):
                 novedad = form.save(commit=False)
                 novedad.registrado_por = request.user
                 novedad.save()
+                form.guardar_descuentos(novedad)
                 messages.success(
                     request,
                     f"Novedad registrada: {novedad.get_tipo_display().lower()} "
