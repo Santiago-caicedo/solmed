@@ -6108,8 +6108,8 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     La estadística de horas del periodo (base de la nómina). Cuentan los
     SERVICIOS con las dos horas en el acta (salida y llegada a SolMed, o
     inicio y final operativo), las ACTIVIDADES del plan con hora de inicio y
-    final y las novedades que SON trabajo (bodega, oficina, o las creadas en el
-    plan marcadas como trabajo) con sus dos horas, una vez por cada día de su
+    final y las novedades registradas con la casilla «Sumar estas horas al
+    historial de horas trabajadas» (oct-2026), una vez por cada día de su
     rango. Las demás novedades no son tiempo trabajado. Actividades y trabajo interno cuentan solo hasta hoy: lo
     agendado para mañana aún no se ha trabajado. Lo que no tiene las dos
     horas no se cuenta, pero se dice cuántos quedaron por fuera.

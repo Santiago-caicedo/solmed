@@ -340,16 +340,15 @@ class Novedad(models.Model):
             ('PERSONALIZADA', 'Novedad creada en el plan'),
         )),
     ]
-    # Las novedades que SON trabajo: sus horas suman en las horas trabajadas
-    # del centro de control del empleado (base de la nómina).
+    # Las novedades que por su tipo SUELEN ser trabajo: en el popup dejan
+    # marcada de entrada la casilla «Sumar estas horas…». Lo que manda es la
+    # casilla (suma_horas), no el tipo (pedido de Santiago, oct-2026).
     TIPOS_TRABAJO = ('TRABAJO_BODEGA', 'TRABAJO_OFICINA')
 
     @property
     def es_trabajo(self):
-        """¿Sus horas son tiempo trabajado? Las creadas en el plan lo dicen ellas."""
-        if self.tipo == 'PERSONALIZADA':
-            return bool(self.tipo_personalizado_id and self.tipo_personalizado.es_trabajo)
-        return self.tipo in self.TIPOS_TRABAJO
+        """¿Sus horas son tiempo trabajado? Lo dice la casilla al registrarla."""
+        return self.suma_horas
 
     persona = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
@@ -369,6 +368,12 @@ class Novedad(models.Model):
                             help_text="Para permisos de unas horas.")
     hora_fin = models.TimeField(null=True, blank=True,
                                 verbose_name="Hora de finalización")
+    # Solo las novedades con esta casilla suman en las horas trabajadas del
+    # centro de control (base de la nómina): una calamidad con horas no es
+    # trabajo; un día en bodega sí. Exige las dos horas (ver NovedadForm).
+    suma_horas = models.BooleanField(
+        default=False,
+        verbose_name="Sumar estas horas al historial de horas trabajadas")
     detalle = models.CharField(max_length=255, blank=True, verbose_name="Detalle")
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,

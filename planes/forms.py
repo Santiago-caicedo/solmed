@@ -186,8 +186,9 @@ class NovedadForm(forms.ModelForm):
     class Meta:
         model = Novedad
         fields = ['persona', 'tipo', 'fecha_inicio', 'fecha_fin', 'hora', 'hora_fin',
-                  'detalle']
+                  'suma_horas', 'detalle']
         widgets = {
+            'suma_horas': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'persona': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'tipo': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'fecha_inicio': forms.DateInput(
@@ -250,4 +251,7 @@ class NovedadForm(forms.ModelForm):
         if inicio and fin and fin < inicio:
             self.add_error('fecha_fin', 'La fecha final no puede ser anterior a la de inicio.')
         validar_horas(self, cleaned, 'hora_fin')
+        # Sumar al historial de horas trabajadas exige saber cuántas fueron.
+        if cleaned.get('suma_horas') and not (cleaned.get('hora') and cleaned.get('hora_fin')):
+            self.add_error('suma_horas', "Para sumar estas horas, escribe la hora de inicio y la final.")
         return cleaned

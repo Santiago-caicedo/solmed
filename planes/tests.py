@@ -1108,7 +1108,7 @@ class ActividadesYNovedadesCreadasTests(BasePlan):
             'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
             'persona': self.conductor.pk, 'tipo': datos['valor'],
             'fecha_inicio': self.hoy.isoformat(), 'fecha_fin': '',
-            'hora': '08:00', 'hora_fin': '12:00', 'detalle': ''})
+            'hora': '08:00', 'hora_fin': '12:00', 'suma_horas': 'on', 'detalle': ''})
         novedad = Novedad.objects.get()
         self.assertEqual(novedad.tipo, 'PERSONALIZADA')
         self.assertEqual(novedad.get_tipo_display(), 'Capacitación externa')
@@ -1125,12 +1125,40 @@ class ActividadesYNovedadesCreadasTests(BasePlan):
         for tipo, hora in ((trabajo, 7), (ausencia, 14)):
             Novedad.objects.create(persona=self.conductor, tipo='PERSONALIZADA',
                                    tipo_personalizado=tipo, fecha_inicio=self.hoy,
+                                   suma_horas=tipo.es_trabajo,
                                    hora=datetime.time(hora), hora_fin=datetime.time(hora + 2))
         respuesta = self.client.get(
             reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
             {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
         self.assertEqual(respuesta.context['horas']['interno'], '2 h')
         self.assertContains(respuesta, 'Inventario')
+
+    def test_sumar_las_horas_exige_la_hora_de_inicio_y_la_final(self):
+        """Oct-2026: la casilla «Sumar estas horas…» sin las dos horas no se guarda."""
+        base = {'submit_novedad': '1', 'fecha': self.hoy.isoformat(),
+                'persona': self.conductor.pk, 'tipo': 'TRABAJO_BODEGA',
+                'fecha_inicio': self.hoy.isoformat(), 'fecha_fin': '', 'detalle': ''}
+        respuesta = self.client.post(self.url, {**base, 'suma_horas': 'on',
+                                                'hora': '08:00', 'hora_fin': ''}, follow=True)
+        self.assertContains(respuesta, 'escribe la hora de inicio y la final')
+        self.assertFalse(Novedad.objects.exists())
+        # Sin la casilla, las horas son solo informativas y sí se guarda.
+        self.client.post(self.url, {**base, 'tipo': 'CALAMIDAD', 'hora': '08:00', 'hora_fin': '12:00'})
+        calamidad = Novedad.objects.get()
+        self.assertFalse(calamidad.suma_horas)
+        # Con la casilla y las dos horas, suma.
+        self.client.post(self.url, {**base, 'suma_horas': 'on', 'hora': '08:00', 'hora_fin': '12:00'})
+        bodega = Novedad.objects.get(tipo='TRABAJO_BODEGA')
+        self.assertTrue(bodega.suma_horas)
+        respuesta = self.client.get(
+            reverse('gestion:centro_control_persona', args=[self.conductor.pk]),
+            {'desde': self.hoy.isoformat(), 'hasta': self.hoy.isoformat()})
+        self.assertEqual(respuesta.context['horas']['interno'], '4 h')
+
+    def test_la_casilla_de_sumar_horas_sale_en_el_popup(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'Sumar estas horas al historial de horas trabajadas')
+        self.assertContains(respuesta, 'name="suma_horas"')
 
     def test_quitar_una_sin_usar_la_borra_y_una_usada_se_oculta(self):
         sin_usar = TipoPersonalizado.objects.create(ambito='ACTIVIDAD', nombre='Sin usar')

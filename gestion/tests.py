@@ -7352,7 +7352,7 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
     def test_el_trabajo_interno_suma_sus_horas_cada_dia_de_su_rango(self):
         # Trabajo en bodega de 07:00 a 15:00 durante tres días ya pasados.
         self.Novedad.objects.create(
-            persona=self.conductor, tipo='TRABAJO_BODEGA',
+            persona=self.conductor, tipo='TRABAJO_BODEGA', suma_horas=True,
             fecha_inicio=self.dia - datetime.timedelta(days=2), fecha_fin=self.dia,
             hora=datetime.time(7, 0), hora_fin=datetime.time(15, 0))
         horas = self.horas(desde=(self.dia - datetime.timedelta(days=2)).isoformat(),
@@ -7368,6 +7368,17 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
         self.assertEqual((horas['minutos'], horas['sin_hora']), (0, 1),
                          "solo el servicio sin acta queda por fuera")
 
+    def test_sin_la_casilla_ni_el_trabajo_en_bodega_suma_horas(self):
+        """Oct-2026: manda la casilla «Sumar estas horas…», no el tipo."""
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='TRABAJO_BODEGA', fecha_inicio=self.dia,
+            hora=datetime.time(7, 0), hora_fin=datetime.time(15, 0))
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='CALAMIDAD', fecha_inicio=self.dia,
+            suma_horas=True, hora=datetime.time(16, 0), hora_fin=datetime.time(18, 0))
+        horas = self.horas().context['horas']
+        self.assertEqual(horas['interno'], '2 h', "solo la marcada, sea del tipo que sea")
+
     def test_lo_agendado_para_despues_de_hoy_no_cuenta(self):
         manana = timezone.localdate() + datetime.timedelta(days=1)
         plan = self.PlanDia.objects.create(fecha=manana)
@@ -7376,7 +7387,7 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
             hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
         self.Novedad.objects.create(
             persona=self.conductor, tipo='TRABAJO_OFICINA', fecha_inicio=manana,
-            hora=datetime.time(8, 0), hora_fin=datetime.time(12, 0))
+            suma_horas=True, hora=datetime.time(8, 0), hora_fin=datetime.time(12, 0))
         horas = self.horas(anio=manana.year, mes='todo').context['horas']
         self.assertEqual(horas['actividades'], '0 h')
         self.assertEqual(horas['interno'], '0 h')

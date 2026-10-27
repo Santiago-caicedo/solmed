@@ -363,6 +363,16 @@
                                 {{ form_novedad.hora_fin }}
                             </div>
                         </div>
+                        {# Solo con esta casilla las horas cuentan como trabajadas en el centro de control. #}
+                        <div class="form-check mt-2">
+                            {{ form_novedad.suma_horas }}
+                            <label class="form-check-label" for="{{ form_novedad.suma_horas.id_for_label }}" style="font-size:.82rem">
+                                Sumar estas horas al historial de horas trabajadas
+                            </label>
+                        </div>
+                        <div class="form-text mt-0" style="font-size:.72rem">
+                            Solo para novedades que son trabajo (bodega, oficina…). Pide la hora de inicio y la final.
+                        </div>
                         <div class="pt-etq">Detalle</div>
                         {{ form_novedad.detalle }}
                         <div class="form-text" style="font-size:.72rem">
@@ -578,6 +588,19 @@ queda guardado y aparece en el desplegable, en «Creadas en el plan».
             select.value = previo;
             if (select.value !== previo) { select.value = ''; }
             select.dispatchEvent(new Event('change'));
+        }
+
+        // La casilla «Sumar estas horas…» se marca sola al elegir una novedad
+        // que es trabajo (bodega, oficina o creada como tiempo trabajado); se
+        // puede desmarcar.
+        var sumar = document.getElementById('{{ form_novedad.suma_horas.id_for_label }}');
+        if (sumar && selects.NOVEDAD) {
+            selects.NOVEDAD.addEventListener('change', function () {
+                var v = selects.NOVEDAD.value;
+                var propia = listas.NOVEDAD.filter(function (t) { return t.valor === v; })[0];
+                sumar.checked = v === 'TRABAJO_BODEGA' || v === 'TRABAJO_OFICINA'
+                    || !!(propia && propia.es_trabajo);
+            });
         }
 
         modal.addEventListener('show.bs.modal', function (evento) {
