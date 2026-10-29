@@ -8406,12 +8406,60 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
 
     def test_la_disposicion_guarda_su_hora_de_inicio_y_la_final_opcional(self):
         una = self._orden()
-        self.registrar_desde_panel([una], hora='07:30', hora_fin='11:00')
+        self.registrar_desde_panel([una], personas=[self.conductor], **{
+            f'hora_{self.conductor.pk}': '07:30', f'hora_fin_{self.conductor.pk}': '11:00'})
         asignacion = self.asignaciones()[0]
         self.assertEqual(asignacion.hora, datetime.time(7, 30))
         self.assertEqual(asignacion.hora_fin, datetime.time(11, 0))
         self.assertEqual(asignacion.horario, '07:30–11:00')
         self.assertEqual(self.estado(una), 'DISPUESTA')
+
+    def test_cada_persona_lleva_sus_propios_tiempos_y_descuentos(self):
+        """Oct-2026: el paso «Tiempos» pide horas, casilla y descuentos de cada uno."""
+        una = self._orden()
+        c, a = self.conductor.pk, self.ayudante.pk
+        self.registrar_desde_panel([una], **{
+            f'hora_{c}': '06:00', f'hora_fin_{c}': '14:00', f'suma_horas_{c}': '1',
+            f'des_horas_{c}': ['1', '0'], f'des_minutos_{c}': ['0', '15'],
+            f'des_motivo_{c}': ['Almuerzo', 'Pausa'],
+            f'hora_{a}': '07:00', f'hora_fin_{a}': '12:00'})
+        por_persona = {x.persona_id: x for x in self.asignaciones()}
+        del_conductor, del_ayudante = por_persona[c], por_persona[a]
+        self.assertEqual((del_conductor.horario, del_conductor.suma_horas), ('06:00–14:00', True))
+        self.assertEqual([(d.minutos, d.motivo) for d in del_conductor.descuentos.all()],
+                         [(60, 'Almuerzo'), (15, 'Pausa')])
+        self.assertEqual((del_ayudante.horario, del_ayudante.suma_horas), ('07:00–12:00', False))
+        self.assertFalse(del_ayudante.descuentos.exists())
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+        # El centro de control liquida a cada uno lo suyo.
+        hoy = timezone.localdate()
+        horas = self.client.get(reverse('gestion:centro_control_persona', args=[c]),
+                                {'desde': hoy.isoformat(), 'hasta': hoy.isoformat()}).context['horas']
+        self.assertEqual(horas['actividades'], '6 h 45 min')
+        horas = self.client.get(reverse('gestion:centro_control_persona', args=[a]),
+                                {'desde': hoy.isoformat(), 'hasta': hoy.isoformat()}).context['horas']
+        self.assertEqual(horas['actividades'], '0 h', "sin la casilla no suma")
+
+    def test_los_tiempos_de_una_persona_se_validan_con_su_nombre(self):
+        una = self._orden()
+        c = self.conductor.pk
+        nombre = self.conductor.get_full_name() or self.conductor.username
+        casos = [
+            ({f'suma_horas_{c}': '1', f'hora_{c}': '07:00'}, 'escribe la hora de inicio y la final'),
+            ({f'hora_{c}': '07:00', f'hora_fin_{c}': '08:00', f'suma_horas_{c}': '1',
+              f'des_horas_{c}': ['2'], f'des_minutos_{c}': ['0'], f'des_motivo_{c}': ['Almuerzo']},
+             'son más que el tiempo entre las dos horas'),
+            ({f'hora_{c}': '07:00', f'hora_fin_{c}': '08:00',
+              f'des_horas_{c}': ['0'], f'des_minutos_{c}': ['30'], f'des_motivo_{c}': ['Almuerzo']},
+             'Para descontar horas, marca'),
+        ]
+        for extra, mensaje in casos:
+            with self.subTest(mensaje=mensaje):
+                respuesta = self.registrar_desde_panel([una], **extra)
+                self.assertContains(respuesta, f'{nombre}: ')
+                self.assertContains(respuesta, mensaje)
+                self.assertEqual(self.asignaciones(), [])
+                self.assertEqual(self.estado(una), 'PENDIENTE')
 
     def test_el_vehiculo_del_viaje_se_elige_y_queda_en_el_plan(self):
         """Oct-2026: el paso «Viaje» pide el vehículo; si no se elige, quedan las placas de las órdenes."""
@@ -8438,15 +8486,21 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
 
     def test_la_hora_final_sola_o_anterior_no_registra_la_disposicion(self):
         una = self._orden()
+        c = self.conductor.pk
         for hora, hora_fin in (('', '11:00'), ('11:00', '07:30')):
             with self.subTest(hora=hora, hora_fin=hora_fin):
-                self.registrar_desde_panel([una], hora=hora, hora_fin=hora_fin)
+                self.registrar_desde_panel([una], **{f'hora_{c}': hora, f'hora_fin_{c}': hora_fin})
                 self.assertEqual(self.asignaciones(), [])
                 self.assertEqual(self.estado(una), 'PENDIENTE')
 
     def test_el_popup_pide_la_hora_final(self):
+        # Paso «Tiempos»: la plantilla de la tarjeta de cada persona.
         self._orden()
-        self.assertContains(self.client.get(self.panel), 'name="hora_fin"')
+        pantalla = self.client.get(self.panel)
+        self.assertContains(pantalla, 'name="hora_fin___ID__"')
+        self.assertContains(pantalla, 'name="suma_horas___ID__"')
+        self.assertContains(pantalla, 'name="des_motivo___ID__"')
+        self.assertContains(pantalla, '<span class="n">4</span>Confirmar', html=False)
 
     def test_el_popup_ofrece_solo_las_pendientes_y_los_datos_del_viaje(self):
         pendiente = self._orden()
@@ -8460,8 +8514,8 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         self.assertContains(respuesta, 'Luis Gómez')
         self.assertContains(respuesta, self.gestor.nombre)
         self.assertContains(respuesta, f'value="{timezone.localdate():%Y-%m-%d}"')
-        # Los tres pasos y la estructura que el CSS/JS esperan (label>input).
-        self.assertEqual(contenido.count('class="dz-paso-tab"'), 3)
+        # Los cuatro pasos (oct-2026: se sumó «Tiempos») y la estructura que el CSS/JS esperan (label>input).
+        self.assertEqual(contenido.count('class="dz-paso-tab"'), 4)
         self.assertIn('aria-current="step"', contenido)
         self.assertRegex(contenido, r'<label class="dz-orden"[^>]*>\s*<input type="checkbox"[^>]*name="ordenes"')
         self.assertRegex(contenido, r'<label><input type="checkbox" name="personas" value="\d+" data-nombre="Carlos Pérez">')

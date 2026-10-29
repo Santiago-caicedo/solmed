@@ -1,4 +1,6 @@
 """Formularios del plan de trabajo."""
+import datetime
+
 from django import forms
 from django.contrib.auth.models import User
 
@@ -21,7 +23,7 @@ DESCUENTO_HORAS = list(range(13))
 DESCUENTO_MINUTOS = list(range(0, 60, 5))
 
 
-def leer_descuentos(form, cleaned):
+def leer_descuentos(form, cleaned, sufijo='', quien=''):
     """
     Los descuentos de horas que llegan del popup como listas paralelas
     (des_horas, des_minutos, des_motivo): [(minutos, motivo)]. Las filas
@@ -29,11 +31,14 @@ def leer_descuentos(form, cleaned):
     motivo; en total no pueden pasar del tiempo entre las dos horas, y solo
     tienen sentido si esas horas suman (casilla «Sumar estas horas…»). Los
     errores van al formulario (sin campo) y entonces devuelve None.
+
+    `sufijo` y `quien` son para el popup de Disposiciones, que pide los
+    tiempos de CADA persona (des_horas_<id>…) y nombra a quién falta algo.
     """
     data = form.data
-    horas_l = data.getlist('des_horas') if hasattr(data, 'getlist') else []
-    minutos_l = data.getlist('des_minutos') if hasattr(data, 'getlist') else []
-    motivos_l = data.getlist('des_motivo') if hasattr(data, 'getlist') else []
+    horas_l = data.getlist(f'des_horas{sufijo}') if hasattr(data, 'getlist') else []
+    minutos_l = data.getlist(f'des_minutos{sufijo}') if hasattr(data, 'getlist') else []
+    motivos_l = data.getlist(f'des_motivo{sufijo}') if hasattr(data, 'getlist') else []
     filas, errores = [], []
     for i in range(max(len(horas_l), len(minutos_l), len(motivos_l))):
         h = (horas_l[i] if i < len(horas_l) else '').strip()
@@ -66,8 +71,50 @@ def leer_descuentos(form, cleaned):
                 errores.append(f"Los descuentos ({_texto_horas(suma)}) son más que el tiempo "
                                f"entre las dos horas ({_texto_horas(minutos)}).")
     for e in errores:
-        form.add_error(None, e)
+        form.add_error(None, f"{quien}: {e}" if quien else e)
     return None if errores else filas
+
+
+def _hora_de(valor):
+    """«07:30» → time; vacío → None; lo que no sea una hora → ValueError."""
+    valor = (valor or '').strip()
+    if not valor:
+        return None
+    return datetime.datetime.strptime(valor[:5], '%H:%M').time()
+
+
+def leer_tiempos_por_persona(form, personas):
+    """
+    Los tiempos de CADA persona del popup de Disposiciones (oct-2026, pedido
+    de Santiago): hora_<id>, hora_fin_<id>, suma_horas_<id> y sus descuentos
+    (des_horas_<id>…). Las mismas reglas que una actividad del plan, con el
+    nombre de la persona en el error. {persona.pk: {hora, hora_fin,
+    suma_horas, descuentos}}; las que tengan error no entran.
+    """
+    data, tiempos = form.data, {}
+    for persona in personas:
+        nombre = persona.get_full_name() or persona.username
+        try:
+            t = {'hora': _hora_de(data.get(f'hora_{persona.pk}')),
+                 'hora_fin': _hora_de(data.get(f'hora_fin_{persona.pk}')),
+                 'suma_horas': data.get(f'suma_horas_{persona.pk}') in ('1', 'on', 'true')}
+        except ValueError:
+            form.add_error(None, f"{nombre}: escribe las horas como hh:mm.")
+            continue
+        inicio, fin = t['hora'], t['hora_fin']
+        if fin and not inicio:
+            form.add_error(None, f"{nombre}: escribe también la hora de inicio.")
+            continue
+        if inicio and fin and fin <= inicio:
+            form.add_error(None, f"{nombre}: la hora final debe ser posterior a la de inicio.")
+            continue
+        if t['suma_horas'] and not (inicio and fin):
+            form.add_error(None, f"{nombre}: para sumar estas horas al historial de horas "
+                                 f"trabajadas, escribe la hora de inicio y la final.")
+            continue
+        t['descuentos'] = leer_descuentos(form, t, sufijo=f'_{persona.pk}', quien=nombre)
+        tiempos[persona.pk] = t
+    return tiempos
 
 
 def _texto_horas(minutos):
@@ -114,8 +161,14 @@ class AsignacionForm(forms.Form):
     notificar = forms.BooleanField(required=False)
 
     def __init__(self, data=None, personas_ids=None, vehiculos_ids=None,
-                 ordenes_ids=None, vehiculo_viaje=None, **kwargs):
+                 ordenes_ids=None, vehiculo_viaje=None, tiempos_por_persona=False,
+                 **kwargs):
         super().__init__(data, **kwargs)
+        # El popup de Disposiciones pide las horas, la casilla de sumar y los
+        # descuentos de CADA persona (paso «Tiempos», oct-2026); el plan de
+        # trabajo, unos solos para todos.
+        self.tiempos_por_persona = tiempos_por_persona
+        self.tiempos = {}
         self.personas_ids = [p for p in (personas_ids or []) if str(p).isdigit()]
         self.vehiculos_ids = [v for v in (vehiculos_ids or []) if str(v).isdigit()]
         # El vehículo que hizo el viaje de una disposición. Solo lo manda el
@@ -217,7 +270,11 @@ class AsignacionForm(forms.Form):
         if cleaned.get('suma_horas') and not (cleaned.get('hora') and cleaned.get('hora_fin')):
             self.add_error(None, "Para sumar estas horas al historial de horas trabajadas, "
                                  "escribe la hora de inicio y la final.")
-        self.descuentos = leer_descuentos(self, cleaned)
+        if self.tiempos_por_persona:
+            self.descuentos = []
+            self.tiempos = leer_tiempos_por_persona(self, self.personas)
+        else:
+            self.descuentos = leer_descuentos(self, cleaned)
         if not campos.get('proveedor'):
             cleaned['proveedor'] = None
         if not campos.get('dispositor'):
@@ -232,20 +289,25 @@ class AsignacionForm(forms.Form):
         """
         creadas = []
         for persona in self.personas:
+            # Los tiempos de esa persona (Disposiciones) o los de todos (plan).
+            t = self.tiempos.get(persona.pk) or {
+                'hora': self.cleaned_data['hora'], 'hora_fin': self.cleaned_data['hora_fin'],
+                'suma_horas': bool(self.cleaned_data.get('suma_horas')),
+                'descuentos': self.descuentos}
             asignacion = Asignacion.objects.create(
                 plan=plan, persona=persona, tipo=self.cleaned_data['tipo'],
                 tipo_personalizado=self.cleaned_data['tipo_personalizado'],
                 orden=self.cleaned_data['orden'],
                 proveedor=self.cleaned_data['proveedor'],
                 dispositor=self.cleaned_data['dispositor'],
-                hora=self.cleaned_data['hora'],
-                hora_fin=self.cleaned_data['hora_fin'],
-                suma_horas=bool(self.cleaned_data.get('suma_horas')),
+                hora=t['hora'],
+                hora_fin=t['hora_fin'],
+                suma_horas=t['suma_horas'],
                 detalle=(self.cleaned_data.get('detalle') or '').strip(),
                 registrado_por=usuario,
             )
             asignacion.vehiculos.set(self.vehiculos)
-            guardar_descuentos(self.descuentos, asignacion=asignacion)
+            guardar_descuentos(t['descuentos'], asignacion=asignacion)
             creadas.append(asignacion)
 
         if creadas and creadas[0].dispone_ordenes and self.ordenes:

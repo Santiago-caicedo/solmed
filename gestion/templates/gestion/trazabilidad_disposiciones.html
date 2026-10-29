@@ -3,7 +3,7 @@
 {% block content %}
 {# Lo que se debe: TODAS las órdenes sin disponer, en orden consecutivo y sin páginas. #}
 {# Lo ya dispuesto se consulta en el expediente de cada orden y en el plan de trabajo. #}
-{# Registrar una disposición abre un popup por pasos (1 órdenes → 2 viaje → 3 confirmar): #}
+{# Registrar una disposición abre un popup por pasos (1 órdenes → 2 viaje → 3 tiempos → 4 confirmar): #}
 {# es la misma actividad «Disposición final» del plan de trabajo, así que aparece allá también. #}
 <style>
 .dz-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
@@ -34,7 +34,7 @@
 .dz-modal .modal-footer{ border-top:1px solid var(--line-2); padding:.75rem 1.25rem; justify-content:space-between; gap:.5rem; }
 
 /* pasos: es una secuencia real, por eso van numerados */
-.dz-pasos{ display:grid; grid-template-columns:repeat(3,1fr); background:var(--panel-2); border-bottom:1px solid var(--line-2); }
+.dz-pasos{ display:grid; grid-template-columns:repeat(4,1fr); background:var(--panel-2); border-bottom:1px solid var(--line-2); }
 .dz-paso-tab{ display:flex; align-items:center; gap:.55rem; padding:.7rem 1.25rem; font-size:.8rem; color:var(--ink-3);
     border-bottom:2px solid transparent; }
 .dz-paso-tab .n{ display:inline-flex; align-items:center; justify-content:center; width:1.45rem; height:1.45rem; border-radius:99px;
@@ -85,7 +85,23 @@
 .dz-sel label:has(input:focus-visible){ outline:2px solid var(--steel); outline-offset:1px; }
 .dz-sel .cargo-mini{ width:100%; font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.35rem; }
 
-/* paso 3: el renglón del plan, tal como va a quedar escrito */
+/* paso 3: una tarjeta por persona con sus horas, la casilla y sus descuentos */
+.dz-persona{ border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .9rem; margin-bottom:.65rem; background:var(--panel); }
+.dz-persona.con-error{ border-color:var(--danger, #c0392b); }
+.dz-persona .cab{ display:flex; align-items:center; gap:.5rem; font-weight:600; font-size:.9rem; margin-bottom:.35rem; }
+.dz-persona .cab i{ color:var(--steel); }
+.dz-persona .cab .btn-link{ margin-left:auto; font-size:.76rem; padding:0; text-decoration:none; font-weight:500; }
+.dz-persona .dz-etq{ margin-top:.4rem; }
+.dz-des-cab{ display:flex; align-items:center; gap:.5rem; margin-top:.6rem; }
+.dz-des-cab .dz-etq{ margin:0; }
+.dz-des-cab .btn-link{ margin-left:auto; font-size:.76rem; padding:0; text-decoration:none; }
+.dz-des-fila{ display:grid; grid-template-columns:5.5rem 6.5rem 1fr auto; gap:.35rem; align-items:center; margin-top:.35rem; }
+.dz-aviso{ font-size:.78rem; color:var(--danger, #c0392b); margin-top:.45rem; }
+.dz-recibo .tiempos div + div{ margin-top:.2rem; }
+.dz-recibo .tiempos .des{ color:var(--ink-3); font-size:.8rem; }
+@media (max-width:575px){ .dz-des-fila{ grid-template-columns:1fr 1fr auto; } .dz-des-fila input{ grid-column:1 / -1; grid-row:2; } }
+
+/* paso 4: el renglón del plan, tal como va a quedar escrito */
 .dz-recibo{ border:1px solid var(--line); border-left:3px solid var(--brand-600); border-radius:var(--r-md); background:var(--panel-2); padding:.9rem 1rem; }
 .dz-recibo .cab{ font-family:var(--mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--brand-700); font-weight:600; margin-bottom:.5rem; }
 .dz-recibo dl{ display:grid; grid-template-columns:8.5rem 1fr; gap:.35rem .75rem; margin:0; font-size:.86rem; }
@@ -191,7 +207,7 @@
 </div>
 
 {% if n_pendientes %}
-{# ===== El popup: 1 órdenes → 2 viaje → 3 confirmar. Un solo <form>; se envía solo desde el paso 3. ===== #}
+{# ===== El popup: 1 órdenes → 2 viaje → 3 tiempos → 4 confirmar. Un solo <form>; se envía solo desde el paso 4. ===== #}
 <div class="modal fade dz-modal" id="dz-modal" tabindex="-1" aria-labelledby="dz-titulo" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <form method="post" class="modal-content" id="form-disposicion" novalidate>
@@ -208,7 +224,8 @@
                 <ol class="dz-pasos list-unstyled mb-0" aria-label="Pasos">
                     <li class="dz-paso-tab" data-tab="1" aria-current="step"><span class="n">1</span>Órdenes</li>
                     <li class="dz-paso-tab" data-tab="2"><span class="n">2</span>Viaje</li>
-                    <li class="dz-paso-tab" data-tab="3"><span class="n">3</span>Confirmar</li>
+                    <li class="dz-paso-tab" data-tab="3"><span class="n">3</span>Tiempos</li>
+                    <li class="dz-paso-tab" data-tab="4"><span class="n">4</span>Confirmar</li>
                 </ol>
 
                 {# ---------- paso 1 ---------- #}
@@ -272,21 +289,6 @@
                                 <option value="{{ g.pk }}">{{ g.nombre }}</option>
                                 {% endfor %}
                             </select>
-                            <div class="row g-2 dz-horas">
-                                <div class="col-6">
-                                    <label class="dz-etq" for="dz-hora">Hora de inicio <span class="text-muted text-lowercase">(opcional)</span></label>
-                                    <input type="time" name="hora" id="dz-hora" class="form-control form-control-sm">
-                                </div>
-                                <div class="col-6">
-                                    <label class="dz-etq" for="dz-hora-fin">Hora final <span class="text-muted text-lowercase">(opcional)</span></label>
-                                    <input type="time" name="hora_fin" id="dz-hora-fin" class="form-control form-control-sm">
-                                </div>
-                            </div>
-                            {# Como en el plan: solo marcada, las horas suman en el centro de control. #}
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" name="suma_horas" value="1" id="dz-suma-horas">
-                                <label class="form-check-label" for="dz-suma-horas">Sumar estas horas al historial de horas trabajadas</label>
-                            </div>
                             <label class="dz-etq" for="dz-detalle">Nota para el plan <span class="text-muted text-lowercase">(opcional)</span></label>
                             <input type="text" name="detalle" id="dz-detalle" class="form-control form-control-sm" maxlength="255" placeholder="Sale en el plan impreso">
                             <div class="form-check mt-3">
@@ -297,8 +299,57 @@
                     </div>
                 </section>
 
-                {# ---------- paso 3 ---------- #}
+                {# ---------- paso 3: los tiempos de cada persona ---------- #}
+                {# Cada quien con sus horas, su casilla de sumar y sus descuentos (oct-2026). #}
+                {# Las tarjetas las arma el JS con las personas del paso 2 (plantillas abajo). #}
                 <section class="dz-paso" data-paso="3" hidden>
+                    <h6 tabindex="-1">¿Cuánto tiempo trabajó cada uno?</h6>
+                    <div class="ayuda">Todo es opcional. Solo con «Sumar estas horas…» van al centro de control, y solo así se pueden descontar (almuerzo, pausas…).</div>
+                    <div id="dz-tiempos"></div>
+                    <template id="dz-plantilla-persona">
+                        <div class="dz-persona" data-persona="__ID__">
+                            <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span>
+                                <button type="button" class="btn btn-link dz-copiar"><i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás</button>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="dz-etq" for="dz-hora-__ID__">Hora de inicio</label>
+                                    <input type="time" name="hora___ID__" id="dz-hora-__ID__" class="form-control form-control-sm" data-campo="hora">
+                                </div>
+                                <div class="col-6">
+                                    <label class="dz-etq" for="dz-hora-fin-__ID__">Hora final</label>
+                                    <input type="time" name="hora_fin___ID__" id="dz-hora-fin-__ID__" class="form-control form-control-sm" data-campo="hora_fin">
+                                </div>
+                            </div>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="suma_horas___ID__" value="1" id="dz-suma-__ID__" data-campo="suma">
+                                <label class="form-check-label" for="dz-suma-__ID__">Sumar estas horas al historial de horas trabajadas</label>
+                            </div>
+                            <div class="dz-des-cab">
+                                <span class="dz-etq">Descuentos de horas</span>
+                                <button type="button" class="btn btn-link dz-anadir"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Añadir descuento</button>
+                            </div>
+                            <div class="dz-des-filas"></div>
+                            <div class="dz-aviso" hidden></div>
+                        </div>
+                    </template>
+                    <template id="dz-plantilla-descuento">
+                        <div class="dz-des-fila">
+                            <select name="des_horas___ID__" class="form-select form-select-sm" aria-label="Horas a descontar">
+                                {% for h in descuento_horas %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}
+                            </select>
+                            <select name="des_minutos___ID__" class="form-select form-select-sm" aria-label="Minutos a descontar">
+                                {% for m in descuento_minutos %}<option value="{{ m }}">{{ m|stringformat:"02d" }} min</option>{% endfor %}
+                            </select>
+                            <input type="text" name="des_motivo___ID__" class="form-control form-control-sm" maxlength="120"
+                                   placeholder="Motivo (ej. almuerzo)" aria-label="Motivo del descuento">
+                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 dz-quitar" title="Quitar" aria-label="Quitar descuento"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </template>
+                </section>
+
+                {# ---------- paso 4 ---------- #}
+                <section class="dz-paso" data-paso="4" hidden>
                     <h6 tabindex="-1">Revisa y registra</h6>
                     <div class="ayuda">Así va a quedar escrito en el plan de trabajo.</div>
                     <div class="dz-recibo">
@@ -309,8 +360,7 @@
                             <dt>Órdenes</dt><dd class="ordenes" id="dz-r-ordenes"></dd>
                             <dt>Vehículo</dt><dd id="dz-r-vehiculo">—</dd>
                             <dt>Gestor</dt><dd id="dz-r-gestor">—</dd>
-                            <dt>Hora</dt><dd id="dz-r-hora">—</dd>
-                            <dt>Horas trabajadas</dt><dd id="dz-r-suma">—</dd>
+                            <dt>Tiempos</dt><dd class="tiempos" id="dz-r-tiempos">—</dd>
                             <dt>Nota</dt><dd id="dz-r-nota">—</dd>
                             <dt>Correo</dt><dd id="dz-r-correo">—</dd>
                         </dl>
@@ -382,10 +432,25 @@
             : 'Las placas de las órdenes (' + (Object.keys(placasMarcadas()).join(', ') || '—') + ')';
         var gestor = document.getElementById('dz-gestor');
         document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
-        var inicio = document.getElementById('dz-hora').value, fin = document.getElementById('dz-hora-fin').value;
-        document.getElementById('dz-r-hora').textContent = inicio ? (fin ? inicio + '–' + fin : inicio) : '—';
-        document.getElementById('dz-r-suma').textContent =
-            document.getElementById('dz-suma-horas').checked ? 'Suman al historial' : 'No suman';
+        // Los tiempos de cada uno, como van a quedar.
+        var rt = document.getElementById('dz-r-tiempos');
+        rt.innerHTML = '';
+        tarjetas().forEach(function (t) {
+            var d = datosDe(t);
+            var linea = document.createElement('div');
+            linea.textContent = t.querySelector('.nombre').textContent + ': '
+                + (d.inicio ? (d.fin ? d.inicio + '–' + d.fin : 'desde ' + d.inicio) : 'sin horas')
+                + (d.suma ? ' · suman al historial' : ' · no suman');
+            rt.appendChild(linea);
+            if (d.descuentos.length) {
+                var des = document.createElement('div');
+                des.className = 'des';
+                des.textContent = d.descuentos.map(function (x) { return '−' + textoHoras(x.min) + ' · ' + x.motivo; }).join('; ')
+                    + (d.inicio && d.fin ? ' → se liquidan ' + textoHoras(Math.max(minutosDe(d.fin) - minutosDe(d.inicio) - d.totalDes, 0)) : '');
+                rt.appendChild(des);
+            }
+        });
+        if (!rt.childElementCount) rt.textContent = '—';
         document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
         document.getElementById('dz-r-correo').textContent =
             document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo';
@@ -395,8 +460,128 @@
         // Lo que hace falta para poder avanzar desde cada paso.
         if (paso === 1) return marcadas().length > 0;
         if (paso === 2) return personas().length > 0 && !!document.getElementById('dz-fecha').value;
+        if (paso === 3) return tarjetas().every(function (t) { return !errorDe(t); });
         return true;
     }
+
+    // ===== Paso 3: los tiempos de cada persona =====
+    var contTiempos = document.getElementById('dz-tiempos');
+    var plantillaPersona = document.getElementById('dz-plantilla-persona');
+    var plantillaDescuento = document.getElementById('dz-plantilla-descuento');
+    function tarjetas() { return Array.prototype.slice.call(contTiempos.querySelectorAll('.dz-persona')); }
+    function deHtml(plantilla, id) {
+        var caja = document.createElement('div');
+        caja.innerHTML = plantilla.innerHTML.split('__ID__').join(id).trim();
+        return caja.firstElementChild;
+    }
+    // Una tarjeta por persona marcada en el paso 2, en el mismo orden; las de
+    // quien se desmarcó se quitan y las que ya estaban conservan lo escrito.
+    function sincronizarTarjetas() {
+        var marcados = personas();
+        var ids = marcados.map(function (p) { return p.value; });
+        tarjetas().forEach(function (t) { if (ids.indexOf(t.dataset.persona) === -1) t.remove(); });
+        marcados.forEach(function (p) {
+            var t = contTiempos.querySelector('.dz-persona[data-persona="' + p.value + '"]');
+            if (!t) {
+                t = deHtml(plantillaPersona, p.value);
+                t.querySelector('.nombre').textContent = p.dataset.nombre;
+            }
+            contTiempos.appendChild(t);
+        });
+        tarjetas().forEach(function (t) { t.querySelector('.dz-copiar').hidden = marcados.length < 2; });
+        revisarTarjetas();
+    }
+    function anadirDescuento(t, valores) {
+        var fila = deHtml(plantillaDescuento, t.dataset.persona);
+        if (valores) {
+            fila.querySelector('select[name^="des_horas"]').value = valores.h;
+            fila.querySelector('select[name^="des_minutos"]').value = valores.m;
+            fila.querySelector('input[name^="des_motivo"]').value = valores.motivo;
+        }
+        t.querySelector('.dz-des-filas').appendChild(fila);
+        return fila;
+    }
+    function minutosDe(hhmm) { var p = hhmm.split(':'); return Number(p[0]) * 60 + Number(p[1]); }
+    function textoHoras(min) {
+        var h = Math.floor(min / 60), m = min % 60;
+        if (!h) return m + ' min';
+        return m ? h + ' h ' + (m < 10 ? '0' : '') + m + ' min' : h + ' h';
+    }
+    function datosDe(t) {
+        var d = {
+            inicio: t.querySelector('[data-campo="hora"]').value,
+            fin: t.querySelector('[data-campo="hora_fin"]').value,
+            suma: t.querySelector('[data-campo="suma"]').checked,
+            descuentos: [], vacias: 0, totalDes: 0, sinTiempo: false, sinMotivo: false,
+        };
+        t.querySelectorAll('.dz-des-fila').forEach(function (f) {
+            var h = f.querySelector('select[name^="des_horas"]').value;
+            var m = f.querySelector('select[name^="des_minutos"]').value;
+            var motivo = f.querySelector('input[name^="des_motivo"]').value.trim();
+            var min = Number(h) * 60 + Number(m);
+            if (!min && !motivo) { d.vacias++; return; }
+            if (!min) d.sinTiempo = true;
+            if (!motivo) d.sinMotivo = true;
+            if (min && motivo) { d.descuentos.push({ h: h, m: m, min: min, motivo: motivo }); d.totalDes += min; }
+        });
+        return d;
+    }
+    // Las mismas reglas que valida el servidor, para avisar antes de enviar.
+    function errorDe(t) {
+        var d = datosDe(t);
+        if (d.fin && !d.inicio) return 'Escribe también la hora de inicio.';
+        if (d.inicio && d.fin && d.fin <= d.inicio) return 'La hora final debe ser posterior a la de inicio.';
+        if (d.suma && !(d.inicio && d.fin)) return 'Para sumar estas horas, escribe la hora de inicio y la final.';
+        if (d.sinTiempo) return 'Descuento: elige cuánto tiempo se descuenta.';
+        if (d.sinMotivo) return 'Descuento: escribe el motivo.';
+        if (d.totalDes && !d.suma) return 'Para descontar horas, marca «Sumar estas horas al historial de horas trabajadas».';
+        if (d.totalDes && d.inicio && d.fin && d.totalDes > minutosDe(d.fin) - minutosDe(d.inicio))
+            return 'Los descuentos (' + textoHoras(d.totalDes) + ') son más que el tiempo entre las dos horas ('
+                + textoHoras(minutosDe(d.fin) - minutosDe(d.inicio)) + ').';
+        return '';
+    }
+    function revisarTarjetas() {
+        tarjetas().forEach(function (t) {
+            var error = errorDe(t), aviso = t.querySelector('.dz-aviso');
+            aviso.textContent = error;
+            aviso.hidden = !error;
+            t.classList.toggle('con-error', !!error);
+        });
+        if (paso === 3) btnSiguiente.disabled = !listo();
+    }
+    contTiempos.addEventListener('click', function (e) {
+        var t = e.target.closest('.dz-persona');
+        if (!t) return;
+        if (e.target.closest('.dz-anadir')) {
+            anadirDescuento(t).querySelector('input[name^="des_motivo"]').focus();
+        } else if (e.target.closest('.dz-quitar')) {
+            e.target.closest('.dz-des-fila').remove();
+        } else if (e.target.closest('.dz-copiar')) {
+            // Las mismas horas, casilla y descuentos para los demás del viaje.
+            var d = datosDe(t);
+            tarjetas().forEach(function (otra) {
+                if (otra === t) return;
+                otra.querySelector('[data-campo="hora"]').value = d.inicio;
+                otra.querySelector('[data-campo="hora_fin"]').value = d.fin;
+                otra.querySelector('[data-campo="suma"]').checked = d.suma;
+                otra.querySelector('.dz-des-filas').innerHTML = '';
+                d.descuentos.forEach(function (x) { anadirDescuento(otra, x); });
+            });
+        } else {
+            return;
+        }
+        revisarTarjetas();
+    });
+    contTiempos.addEventListener('change', function (e) {
+        var t = e.target.closest('.dz-persona');
+        // La casilla de sumar se marca sola al escribir las dos horas (se puede desmarcar).
+        if (t && (e.target.dataset.campo === 'hora' || e.target.dataset.campo === 'hora_fin')) {
+            t.querySelector('[data-campo="suma"]').checked =
+                !!(t.querySelector('[data-campo="hora"]').value && t.querySelector('[data-campo="hora_fin"]').value);
+        }
+        revisarTarjetas();
+    });
+    contTiempos.addEventListener('input', revisarTarjetas);
 
     // Las placas de las órdenes marcadas (sin el «—» de las que no tienen).
     function placasMarcadas() {
@@ -418,6 +603,7 @@
     function irA(n) {
         paso = n;
         if (n === 2) proponerVehiculo();
+        if (n === 3) sincronizarTarjetas();
         secciones.forEach(function (s) { s.hidden = Number(s.dataset.paso) !== n; });
         tabs.forEach(function (t) {
             var k = Number(t.dataset.tab);
@@ -425,10 +611,10 @@
             t.classList.toggle('hecho', k < n);
         });
         btnAtras.hidden = n === 1;
-        btnSiguiente.hidden = n === 3;
-        btnRegistrar.hidden = n !== 3;
+        btnSiguiente.hidden = n === 4;
+        btnRegistrar.hidden = n !== 4;
         btnSiguiente.disabled = !listo();
-        if (n === 3) pintarRecibo();
+        if (n === 4) pintarRecibo();
         var titulo = modal.querySelector('.dz-paso[data-paso="' + n + '"] h6');
         if (titulo) titulo.focus();
         modal.querySelector('.modal-body').scrollTop = 0;
@@ -436,7 +622,7 @@
 
     btnSiguiente.addEventListener('click', function () { if (listo()) irA(paso + 1); });
     btnAtras.addEventListener('click', function () { irA(paso - 1); });
-    // El registro sale solo desde el botón del paso 3: Enter en los pasos 1–2 no envía.
+    // El registro sale solo desde el botón del paso 4: Enter en los pasos 1–3 no envía.
     btnRegistrar.addEventListener('click', function () {
         btnRegistrar.disabled = true;
         var oculto = document.createElement('input');
@@ -451,16 +637,11 @@
         // En el buscador, Enter solo busca (ya filtra al escribir); en los
         // demás campos avanza si el paso está completo.
         if (e.target === buscar) return;
-        if (paso < 3 && listo()) irA(paso + 1);
+        if (paso < 4 && listo()) irA(paso + 1);
     });
 
     form.addEventListener('change', function (e) {
         if (e.target.name === 'ordenes') pintarResumen();
-        // La casilla de sumar horas se marca sola al escribir las dos horas.
-        if (e.target.name === 'hora' || e.target.name === 'hora_fin') {
-            document.getElementById('dz-suma-horas').checked =
-                !!(document.getElementById('dz-hora').value && document.getElementById('dz-hora-fin').value);
-        }
         btnSiguiente.disabled = !listo();
     });
 

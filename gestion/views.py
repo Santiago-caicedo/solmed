@@ -6741,6 +6741,8 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
                 # El vehículo del viaje (opcional): si no se elige, quedan las
                 # placas de las órdenes, como antes.
                 vehiculo_viaje=request.POST.get('vehiculo'),
+                # Paso «Tiempos»: horas, casilla de sumar y descuentos de cada uno.
+                tiempos_por_persona=True,
             )
             if not form.is_valid():
                 for lista in form.errors.values():
@@ -6764,6 +6766,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         return redirect(volver)
 
     def get(self, request):
+        from planes.forms import DESCUENTO_HORAS, DESCUENTO_MINUTOS
         filtradas, todas, filtros = _filas_trazabilidad(request)
         return render(request, self.template_name, {
             'filas': filtradas,
@@ -6780,6 +6783,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             # el camión pudo quedar fuera de servicio después).
             'vehiculos': Vehiculo.objects.order_by('placa').only('pk', 'placa', 'marca', 'estado'),
             'hoy': timezone.localdate(),
+            # Los selectores de los descuentos del paso «Tiempos» (como en el plan).
+            'descuento_horas': DESCUENTO_HORAS,
+            'descuento_minutos': DESCUENTO_MINUTOS,
         })
 
 
