@@ -5136,7 +5136,10 @@ def _estadistica_personal(fecha):
 
     resultado = {}
     for rol, cargos in CARGOS_ESTADISTICA.items():
-        personas = (User.objects.filter(groups__name__in=cargos, is_active=True, is_superuser=False)
+        # Sin filtrar por is_active: los ayudantes no entran al sistema y su
+        # cuenta es inactiva a propósito. El que ya no trabaja está RETIRADO
+        # (la misma regla del plan de trabajo).
+        personas = (User.objects.filter(groups__name__in=cargos, is_superuser=False)
                     .exclude(perfil__retirado=True).distinct())
         filas = []
         for p in personas:

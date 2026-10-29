@@ -8791,6 +8791,14 @@ class EstadisticaPersonalTests(BaseCRM):
         c = self.fila(self.client.get(self.url, {'fecha': '2026-08-01'}), 'conductores', self.conductor)
         self.assertEqual(c['total'], 0)
 
+    def test_los_ayudantes_sin_acceso_al_sistema_si_salen(self):
+        """Su cuenta es inactiva a propósito (no entran): igual cuentan. El retirado no."""
+        User.objects.filter(pk=self.ayudante.pk).update(is_active=False)
+        retirado = self.persona('ayu2', 'Ayudantes', 'Pedro', 'Ríos')
+        PerfilPersona.objects.update_or_create(usuario=retirado, defaults={'retirado': True})
+        nombres = [f['nombre'] for f in self.client.get(self.url).context['est']['ayudantes']]
+        self.assertEqual(nombres, ['Luis Gómez'])
+
     def test_el_formulario_la_carga_y_solo_entra_gestion(self):
         pantalla = self.client.get(reverse('gestion:crear_programacion'))
         self.assertContains(pantalla, 'id="estadistica-personal"')
