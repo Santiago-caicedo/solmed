@@ -1,0 +1,121 @@
+{% extends 'gestion/base.html' %}
+{% block title %}Disposiciones agendadas{% endblock %}
+{% block content %}
+{# Todas las disposiciones agendadas en una tabla (oct-2026): se confirman con los tiempos de cada uno o se cancelan. #}
+<style>
+.ag-tabla td{ vertical-align:top; font-size:.86rem; }
+.ag-fecha{ font-family:var(--mono); font-weight:600; white-space:nowrap; }
+.ag-placa{ display:inline-block; font-family:var(--mono); font-weight:600; font-size:.74rem; letter-spacing:.06em;
+    padding:.08rem .45rem; border-radius:var(--r-xs); background:var(--g-800); color:#fff; }
+.ag-ordenes{ display:flex; flex-wrap:wrap; gap:.25rem; }
+.ag-ordenes a{ font-family:var(--mono); font-size:.74rem; padding:.05rem .45rem; border-radius:99px; border:1px solid var(--line); text-decoration:none; }
+.ag-persona{ white-space:nowrap; }
+.ag-persona .rol{ font-size:.72rem; color:var(--ink-3); }
+.ag-ok{ color:var(--ok); }
+.ag-falta{ color:var(--warn); }
+.ag-fotos{ display:flex; gap:.25rem; flex-wrap:wrap; margin-top:.2rem; }
+.ag-fotos img{ width:36px; height:36px; object-fit:cover; border-radius:5px; border:1px solid var(--line); }
+.ag-atrasada{ font-size:.72rem; font-weight:600; padding:.1rem .45rem; border-radius:99px;
+    background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); white-space:nowrap; }
+.ag-acciones{ display:flex; flex-direction:column; gap:.3rem; align-items:stretch; min-width:150px; }
+tr.atrasada > td:first-child{ box-shadow:inset 3px 0 0 var(--warn); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="text-decoration-none small"><i class="bi bi-chevron-left"></i> Disposiciones</a>
+        <h2 class="mb-0">Disposiciones agendadas</h2>
+        <div class="text-muted">Confirma las que ya se hicieron con los tiempos de cada persona: ahí quedan dispuestas sus órdenes.</div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    {% for p in pestanas %}
+    <li class="nav-item">
+        <a class="nav-link {% if p.clave == ver %}active{% endif %}" href="?ver={{ p.clave }}">{{ p.nombre }}
+            <span class="badge {% if p.clave == 'pendientes' and p.n %}text-bg-warning{% else %}text-bg-light{% endif %} ms-1">{{ p.n }}</span></a>
+    </li>
+    {% endfor %}
+</ul>
+
+<div class="card shadow">
+    <div class="card-body">
+        {% if viajes %}
+        <div class="table-responsive">
+            <table class="table ag-tabla align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Día</th><th>Vehículo · gestor</th><th>Órdenes</th><th>Personal</th>
+                        <th>Ayudantes · fotos</th><th>{% if ver == 'pendientes' %}Acciones{% else %}Cierre{% endif %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for v in viajes %}
+                    <tr class="{% if v.atrasada %}atrasada{% endif %}">
+                        <td>
+                            <div class="ag-fecha">{{ v.fecha|date:"D d/m/Y"|capfirst }}</div>
+                            {% if v.hora %}<div class="text-muted small">Sale a las {{ v.hora|time:"H:i" }}</div>{% endif %}
+                            {% if v.atrasada %}<span class="ag-atrasada">Falta confirmar</span>{% elif ver == 'pendientes' and v.fecha == hoy %}<span class="ag-atrasada" style="background:var(--steel-tint,#e9f1f7);color:var(--steel);border-color:#c2d8e8">Hoy</span>{% endif %}
+                        </td>
+                        <td><span class="ag-placa">{{ v.vehiculo.placa }}</span>
+                            <div class="text-muted small mt-1">{{ v.dispositor.nombre|default:"Sin gestor" }}</div>
+                            {% if v.detalle %}<div class="small mt-1">{{ v.detalle }}</div>{% endif %}</td>
+                        <td><div class="ag-ordenes">{% for o in v.ordenes.all %}<a href="{% url 'gestion:detalle_orden' o.pk %}" title="{{ o.cliente.nombre }}">#{{ o.numero_orden }}</a>{% endfor %}</div></td>
+                        <td>
+                            {% for p in v.personas_info %}
+                            <div class="ag-persona">{{ p.nombre }} <span class="rol">· {{ p.rol }}</span></div>
+                            {% if p.rol == 'conductor' %}
+                            <div class="small">{% if v.pre %}<a class="ag-ok" href="{% url 'gestion:preoperacional_viaje_pdf' v.pk %}"><i class="bi bi-check-circle-fill"></i> preoperacional</a>{% if v.pre.tiene_hallazgos %} <span class="ag-falta">con hallazgos</span>{% endif %}{% else %}<span class="ag-falta"><i class="bi bi-hourglass-split"></i> preoperacional pendiente</span>{% endif %}</div>
+                            {% endif %}
+                            {% empty %}<span class="text-muted">—</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% for a in v.ayudantes_info %}
+                            <div>{{ a.nombre }}{% if a.pedidas %}: <span class="{% if a.con_foto >= a.pedidas %}ag-ok{% else %}ag-falta{% endif %}">{{ a.con_foto }} de {{ a.pedidas }}</span>{% else %} <span class="text-muted small">(sin fotos pedidas)</span>{% endif %}</div>
+                            {% if a.fotos %}<div class="ag-fotos">{% for f in a.fotos %}<a href="{{ f.archivo.url }}" target="_blank" rel="noopener" title="{{ f.get_novedad_display_label }}"><img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}"></a>{% endfor %}</div>{% endif %}
+                            {% empty %}<span class="text-muted">—</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if v.estado == 'AGENDADA' %}
+                            <div class="ag-acciones">
+                                {% if v.se_puede_confirmar %}
+                                <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#dz-confirmar"
+                                        data-viaje="{{ v.pk }}" data-personas="{{ v.personas_json }}"
+                                        data-titulo="Disposición del {{ v.fecha|date:'d/m/Y' }} · {{ v.vehiculo.placa }} · {{ v.numeros_ordenes }}">
+                                    <i class="bi bi-check2-circle me-1"></i>Marcar realizada</button>
+                                {% else %}
+                                <span class="text-muted small">Se confirma desde el {{ v.fecha|date:"d/m" }}</span>
+                                {% endif %}
+                                <form method="post" action="{% url 'gestion:trazabilidad_disposiciones' %}"
+                                      onsubmit="return confirm('¿Cancelar este viaje? Sale del plan y sus órdenes siguen pendientes.');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+                                    <input type="hidden" name="viaje" value="{{ v.pk }}">
+                                    <button name="submit_cancelar_viaje" value="1" class="btn btn-sm btn-outline-danger w-100">Cancelar</button>
+                                </form>
+                            </div>
+                            {% else %}
+                            <div class="small">{{ v.get_estado_display }}{% if v.cerrado_en %} el {{ v.cerrado_en|date:"d/m/Y H:i" }}{% endif %}</div>
+                            {% if v.cerrado_por %}<div class="text-muted small">por {{ v.cerrado_por.get_full_name|default:v.cerrado_por.username }}</div>{% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if page_obj.paginator.num_pages > 1 %}{% include 'gestion/partials/_paginacion.html' %}{% endif %}
+        {% else %}
+        <p class="text-muted mb-0">
+            {% if ver == 'pendientes' %}No hay disposiciones agendadas por confirmar. Se agendan desde el panel de Disposiciones con «Registrar o agendar disposición».
+            {% elif ver == 'realizadas' %}Aún no se ha confirmado ninguna disposición agendada.
+            {% else %}No hay disposiciones agendadas canceladas.{% endif %}
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+{% include 'gestion/partials/_confirmar_viaje.html' %}
+{% endblock %}

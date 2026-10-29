@@ -1,0 +1,286 @@
+{% comment %}
+Confirmar que un viaje de disposición AGENDADO se hizo (oct-2026), con las
+horas reales, la casilla «Sumar estas horas…» y los descuentos de cada
+persona. Lo usan el panel de Disposiciones y la lista de agendadas: el
+botón de cada viaje abre #dz-confirmar con data-viaje, data-titulo y
+data-personas ([{id, nombre}]). Define también crearTiempos(), que el
+popup de registrar reutiliza en su paso «Tiempos». Necesita
+`descuento_horas` y `descuento_minutos` en el contexto.
+{% endcomment %}
+<style>
+/* ===== El popup por pasos ===== */
+.dz-modal .modal-content{ border:0; border-radius:var(--r-lg); overflow:hidden; }
+.dz-modal .modal-header{ background:var(--g-900); color:#fff; border:0; padding:.9rem 1.25rem; align-items:center; }
+.dz-modal .modal-header .btn-close{ filter:invert(1) grayscale(1); opacity:.7; }
+.dz-modal .modal-header .btn-close:hover{ opacity:1; }
+.dz-modal .modal-title{ font-family:var(--sans); font-size:1.05rem; font-weight:600; letter-spacing:0; text-transform:none; color:#fff; }
+.dz-modal .modal-title small{ display:block; font-family:var(--sans); font-size:.78rem; font-weight:400; letter-spacing:0; text-transform:none; color:rgba(255,255,255,.7); margin-top:.15rem; }
+.dz-modal .modal-body{ padding:0; }
+.dz-modal .modal-footer{ border-top:1px solid var(--line-2); padding:.75rem 1.25rem; justify-content:space-between; gap:.5rem; }
+
+.dz-paso{ padding:1rem 1.25rem 1.25rem; }
+.dz-paso h6{ font-size:.95rem; font-weight:600; margin:0 0 .15rem; outline:none; }
+.dz-paso .ayuda{ font-size:.8rem; color:var(--ink-2); margin-bottom:.9rem; }
+
+.dz-etq{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin:.8rem 0 .3rem; }
+.dz-etq:first-child{ margin-top:0; }
+/* paso 3: una tarjeta por persona con sus horas, la casilla y sus descuentos */
+.dz-persona{ border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .9rem; margin-bottom:.65rem; background:var(--panel); }
+.dz-persona.con-error{ border-color:var(--danger, #c0392b); }
+.dz-persona .cab{ display:flex; align-items:center; gap:.5rem; font-weight:600; font-size:.9rem; margin-bottom:.35rem; }
+.dz-persona .cab i{ color:var(--steel); }
+.dz-persona .cab .btn-link{ margin-left:auto; font-size:.76rem; padding:0; text-decoration:none; font-weight:500; }
+.dz-persona .dz-etq{ margin-top:.4rem; }
+.dz-des-cab{ display:flex; align-items:center; gap:.5rem; margin-top:.6rem; }
+.dz-des-cab .dz-etq{ margin:0; }
+.dz-des-cab .btn-link{ margin-left:auto; font-size:.76rem; padding:0; text-decoration:none; }
+.dz-des-fila{ display:grid; grid-template-columns:5.5rem 6.5rem 1fr auto; gap:.35rem; align-items:center; margin-top:.35rem; }
+.dz-aviso{ font-size:.78rem; color:var(--danger, #c0392b); margin-top:.45rem; }
+.dz-persona .dz-novedades + .dz-apoya{ margin-top:.3rem; }
+@media (max-width:575px){ .dz-des-fila{ grid-template-columns:1fr 1fr auto; } .dz-des-fila input{ grid-column:1 / -1; grid-row:2; } }
+
+.dz-resumen{ font-size:.8rem; color:var(--ink-2); }
+.dz-resumen strong{ font-family:var(--mono); color:var(--ink); }
+</style>
+
+{# Las plantillas de las tarjetas de tiempos: las usan el popup de registrar y el de confirmar un viaje agendado. #}
+<template id="dz-plantilla-persona">
+    <div class="dz-persona" data-persona="__ID__">
+        <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span>
+            <button type="button" class="btn btn-link dz-copiar"><i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás</button>
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="dz-etq" for="__FORM__-hora-__ID__">Hora de inicio</label>
+                <input type="time" name="hora___ID__" id="__FORM__-hora-__ID__" class="form-control form-control-sm" data-campo="hora">
+            </div>
+            <div class="col-6">
+                <label class="dz-etq" for="__FORM__-hora-fin-__ID__">Hora final</label>
+                <input type="time" name="hora_fin___ID__" id="__FORM__-hora-fin-__ID__" class="form-control form-control-sm" data-campo="hora_fin">
+            </div>
+        </div>
+        <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="suma_horas___ID__" value="1" id="__FORM__-suma-__ID__" data-campo="suma">
+            <label class="form-check-label" for="__FORM__-suma-__ID__">Sumar estas horas al historial de horas trabajadas</label>
+        </div>
+        <div class="dz-des-cab">
+            <span class="dz-etq">Descuentos de horas</span>
+            <button type="button" class="btn btn-link dz-anadir"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Añadir descuento</button>
+        </div>
+        <div class="dz-des-filas"></div>
+        <div class="dz-aviso" hidden></div>
+    </div>
+</template>
+<template id="dz-plantilla-descuento">
+    <div class="dz-des-fila">
+        <select name="des_horas___ID__" class="form-select form-select-sm" aria-label="Horas a descontar">
+            {% for h in descuento_horas %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}
+        </select>
+        <select name="des_minutos___ID__" class="form-select form-select-sm" aria-label="Minutos a descontar">
+            {% for m in descuento_minutos %}<option value="{{ m }}">{{ m|stringformat:"02d" }} min</option>{% endfor %}
+        </select>
+        <input type="text" name="des_motivo___ID__" class="form-control form-control-sm" maxlength="120"
+               placeholder="Motivo (ej. almuerzo)" aria-label="Motivo del descuento">
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 dz-quitar" title="Quitar" aria-label="Quitar descuento"><i class="bi bi-x-lg"></i></button>
+    </div>
+</template>
+{# ===== Confirmar que un viaje agendado se hizo: las horas reales y los descuentos de cada uno ===== #}
+<div class="modal fade dz-modal" id="dz-confirmar" tabindex="-1" aria-labelledby="dzc-titulo" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form method="post" class="modal-content" id="form-confirmar" novalidate
+              action="{% url 'gestion:trazabilidad_disposiciones' %}">
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+            <input type="hidden" name="viaje" id="dzc-viaje" value="">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dzc-titulo">Confirmar que el viaje se hizo
+                    <small id="dzc-sub">—</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <section class="dz-paso">
+                    <h6 tabindex="-1">¿Cuánto tiempo trabajó cada uno?</h6>
+                    <div class="ayuda">Al confirmar, las órdenes quedan dispuestas. Solo con «Sumar estas horas…» van al centro de control, y solo así se pueden descontar.</div>
+                    <div id="dzc-tiempos"></div>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <div class="dz-resumen" id="dzc-resumen"></div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+                    <button type="button" class="btn btn-success" id="dzc-confirmar"><i class="bi bi-check2-circle me-1"></i>Confirmar realizada</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// ===== Las tarjetas de tiempos de cada persona (horas, casilla de sumar y descuentos) =====
+// Las usan el paso «Tiempos» del popup y el de confirmar un viaje agendado.
+function crearTiempos(cont, prefijo, alCambiar) {
+    var plantillaPersona = document.getElementById('dz-plantilla-persona');
+    var plantillaDescuento = document.getElementById('dz-plantilla-descuento');
+    function tarjetas() { return Array.prototype.slice.call(cont.querySelectorAll('.dz-persona')); }
+    function deHtml(plantilla, id) {
+        var caja = document.createElement('div');
+        caja.innerHTML = plantilla.innerHTML.split('__ID__').join(id).split('__FORM__').join(prefijo).trim();
+        return caja.firstElementChild;
+    }
+    // Una tarjeta por persona, en el mismo orden; las de quien ya no va se
+    // quitan y las que ya estaban conservan lo escrito.
+    function sincronizar(personas) {
+        var ids = personas.map(function (p) { return String(p.id); });
+        tarjetas().forEach(function (t) { if (ids.indexOf(t.dataset.persona) === -1) t.remove(); });
+        personas.forEach(function (p) {
+            var t = cont.querySelector('.dz-persona[data-persona="' + p.id + '"]');
+            if (!t) {
+                t = deHtml(plantillaPersona, p.id);
+                t.querySelector('.nombre').textContent = p.nombre;
+            }
+            cont.appendChild(t);
+        });
+        tarjetas().forEach(function (t) { t.querySelector('.dz-copiar').hidden = personas.length < 2; });
+        revisar();
+    }
+    function anadirDescuento(t, valores) {
+        var fila = deHtml(plantillaDescuento, t.dataset.persona);
+        if (valores) {
+            fila.querySelector('select[name^="des_horas"]').value = valores.h;
+            fila.querySelector('select[name^="des_minutos"]').value = valores.m;
+            fila.querySelector('input[name^="des_motivo"]').value = valores.motivo;
+        }
+        t.querySelector('.dz-des-filas').appendChild(fila);
+        return fila;
+    }
+    function datosDe(t) {
+        var d = {
+            inicio: t.querySelector('[data-campo="hora"]').value,
+            fin: t.querySelector('[data-campo="hora_fin"]').value,
+            suma: t.querySelector('[data-campo="suma"]').checked,
+            descuentos: [], totalDes: 0, sinTiempo: false, sinMotivo: false,
+        };
+        t.querySelectorAll('.dz-des-fila').forEach(function (f) {
+            var h = f.querySelector('select[name^="des_horas"]').value;
+            var m = f.querySelector('select[name^="des_minutos"]').value;
+            var motivo = f.querySelector('input[name^="des_motivo"]').value.trim();
+            var min = Number(h) * 60 + Number(m);
+            if (!min && !motivo) return;
+            if (!min) d.sinTiempo = true;
+            if (!motivo) d.sinMotivo = true;
+            if (min && motivo) { d.descuentos.push({ h: h, m: m, min: min, motivo: motivo }); d.totalDes += min; }
+        });
+        return d;
+    }
+    // Las mismas reglas que valida el servidor, para avisar antes de enviar.
+    function errorDe(t) {
+        var d = datosDe(t);
+        if (d.fin && !d.inicio) return 'Escribe también la hora de inicio.';
+        if (d.inicio && d.fin && d.fin <= d.inicio) return 'La hora final debe ser posterior a la de inicio.';
+        if (d.suma && !(d.inicio && d.fin)) return 'Para sumar estas horas, escribe la hora de inicio y la final.';
+        if (d.sinTiempo) return 'Descuento: elige cuánto tiempo se descuenta.';
+        if (d.sinMotivo) return 'Descuento: escribe el motivo.';
+        if (d.totalDes && !d.suma) return 'Para descontar horas, marca «Sumar estas horas al historial de horas trabajadas».';
+        if (d.totalDes && d.inicio && d.fin && d.totalDes > minutosDe(d.fin) - minutosDe(d.inicio))
+            return 'Los descuentos (' + textoHoras(d.totalDes) + ') son más que el tiempo entre las dos horas ('
+                + textoHoras(minutosDe(d.fin) - minutosDe(d.inicio)) + ').';
+        return '';
+    }
+    function valido() { return tarjetas().every(function (t) { return !errorDe(t); }); }
+    function revisar() {
+        tarjetas().forEach(function (t) {
+            var error = errorDe(t), aviso = t.querySelector('.dz-aviso');
+            aviso.textContent = error;
+            aviso.hidden = !error;
+            t.classList.toggle('con-error', !!error);
+        });
+        if (alCambiar) alCambiar();
+    }
+    // «06:00–14:00 · suman al historial» y, debajo, sus descuentos y lo que se liquida.
+    function lineas() {
+        return tarjetas().map(function (t) {
+            var d = datosDe(t);
+            var linea = t.querySelector('.nombre').textContent + ': '
+                + (d.inicio ? (d.fin ? d.inicio + '–' + d.fin : 'desde ' + d.inicio) : 'sin horas')
+                + (d.suma ? ' · suman al historial' : ' · no suman');
+            var des = d.descuentos.length
+                ? d.descuentos.map(function (x) { return '−' + textoHoras(x.min) + ' · ' + x.motivo; }).join('; ')
+                  + (d.inicio && d.fin ? ' → se liquidan ' + textoHoras(Math.max(minutosDe(d.fin) - minutosDe(d.inicio) - d.totalDes, 0)) : '')
+                : '';
+            return { linea: linea, des: des };
+        });
+    }
+    cont.addEventListener('click', function (e) {
+        var t = e.target.closest('.dz-persona');
+        if (!t) return;
+        if (e.target.closest('.dz-anadir')) {
+            anadirDescuento(t).querySelector('input[name^="des_motivo"]').focus();
+        } else if (e.target.closest('.dz-quitar')) {
+            e.target.closest('.dz-des-fila').remove();
+        } else if (e.target.closest('.dz-copiar')) {
+            // Las mismas horas, casilla y descuentos para los demás.
+            var d = datosDe(t);
+            tarjetas().forEach(function (otra) {
+                if (otra === t) return;
+                otra.querySelector('[data-campo="hora"]').value = d.inicio;
+                otra.querySelector('[data-campo="hora_fin"]').value = d.fin;
+                otra.querySelector('[data-campo="suma"]').checked = d.suma;
+                otra.querySelector('.dz-des-filas').innerHTML = '';
+                d.descuentos.forEach(function (x) { anadirDescuento(otra, x); });
+            });
+        } else {
+            return;
+        }
+        revisar();
+    });
+    cont.addEventListener('change', function (e) {
+        var t = e.target.closest('.dz-persona');
+        // La casilla de sumar se marca sola al escribir las dos horas (se puede desmarcar).
+        if (t && (e.target.dataset.campo === 'hora' || e.target.dataset.campo === 'hora_fin')) {
+            t.querySelector('[data-campo="suma"]').checked =
+                !!(t.querySelector('[data-campo="hora"]').value && t.querySelector('[data-campo="hora_fin"]').value);
+        }
+        revisar();
+    });
+    cont.addEventListener('input', revisar);
+    return { sincronizar: sincronizar, valido: valido, lineas: lineas, tarjetas: tarjetas };
+}
+function minutosDe(hhmm) { var p = hhmm.split(':'); return Number(p[0]) * 60 + Number(p[1]); }
+function textoHoras(min) {
+    var h = Math.floor(min / 60), m = min % 60;
+    if (!h) return m + ' min';
+    return m ? h + ' h ' + (m < 10 ? '0' : '') + m + ' min' : h + ' h';
+}
+
+(function () {
+    // Confirmar un viaje agendado: el botón de cada viaje trae quiénes fueron.
+    var modal = document.getElementById('dz-confirmar');
+    var form = document.getElementById('form-confirmar');
+    if (!modal || !form) return;
+    var boton = document.getElementById('dzc-confirmar');
+    var resumen = document.getElementById('dzc-resumen');
+    var tiempos = crearTiempos(document.getElementById('dzc-tiempos'), 'dzc', function () {
+        boton.disabled = !tiempos.valido();
+        resumen.textContent = boton.disabled ? 'Revisa los tiempos marcados en rojo.' : '';
+    });
+    modal.addEventListener('show.bs.modal', function (e) {
+        var origen = e.relatedTarget;
+        if (!origen) return;
+        document.getElementById('dzc-viaje').value = origen.dataset.viaje;
+        document.getElementById('dzc-sub').textContent = origen.dataset.titulo;
+        document.getElementById('dzc-tiempos').innerHTML = '';
+        tiempos.sincronizar(JSON.parse(origen.dataset.personas));
+        boton.disabled = false;
+    });
+    boton.addEventListener('click', function () {
+        if (!tiempos.valido()) return;
+        boton.disabled = true;
+        var oculto = document.createElement('input');
+        oculto.type = 'hidden'; oculto.name = 'submit_confirmar_viaje'; oculto.value = '1';
+        form.appendChild(oculto);
+        form.submit();
+    });
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+})();
+</script>

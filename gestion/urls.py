@@ -180,6 +180,8 @@ urlpatterns = [
     path('disposiciones/excel/', views.TrazabilidadDisposicionesExcelView.as_view(), name='trazabilidad_disposiciones_excel'),
     # Historial: todo lo ya dispuesto, para revisarlo y corregirlo (solo administradores, oct-2026).
     path('disposiciones/historial/', views.HistorialDisposicionesView.as_view(), name='historial_disposiciones'),
+    # Las agendadas en una tabla, para confirmarlas con los tiempos de cada uno (oct-2026).
+    path('disposiciones/agendadas/', views.DisposicionesAgendadasView.as_view(), name='disposiciones_agendadas'),
     path('personal/', views.ListaPersonalView.as_view(), name='lista_personal'),
     path('personal/nueva/', views.CrearPersonaView.as_view(), name='crear_persona'),
     path('personal/<int:pk>/', views.FichaPersonaView.as_view(), name='ficha_persona'),

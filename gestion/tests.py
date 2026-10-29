@@ -9031,6 +9031,45 @@ class AgendarDisposicionTests(BaseDisposicion):
         self.assertEqual(viaje.estado, 'CANCELADA')
         self.assertEqual(self.estado(una), 'PENDIENTE')
 
+    def test_la_lista_de_agendadas_y_marcarlas_realizadas_desde_ahi(self):
+        """Oct-2026: un apartado con todas las agendadas en una tabla."""
+        una, otra = self._orden(), self._orden()
+        self.agendar([una], fecha=timezone.localdate())
+        self.agendar([otra])
+        lista = reverse('gestion:disposiciones_agendadas')
+        self.assertContains(self.client.get(self.panel), lista)
+        pantalla = self.client.get(lista)
+        self.assertEqual(len(pantalla.context['viajes']), 2)
+        self.assertContains(pantalla, 'Marcar realizada')
+        self.assertContains(pantalla, 'Se confirma desde el')
+        self.assertContains(pantalla, 'id="dz-confirmar"')
+        hoy_viaje = next(v for v in pantalla.context['viajes'] if v.fecha == timezone.localdate())
+        c = self.conductor.pk
+        respuesta = self.client.post(self.panel, {
+            'submit_confirmar_viaje': '1', 'viaje': hoy_viaje.pk, 'volver': lista,
+            f'hora_{c}': '06:00', f'hora_fin_{c}': '09:00', f'suma_horas_{c}': '1'})
+        self.assertRedirects(respuesta, lista)
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+        pantalla = self.client.get(lista)
+        self.assertEqual(len(pantalla.context['viajes']), 1)
+        conteos = {p['clave']: p['n'] for p in pantalla.context['pestanas']}
+        self.assertEqual(conteos, {'pendientes': 1, 'realizadas': 1, 'canceladas': 0})
+        realizadas = self.client.get(lista, {'ver': 'realizadas'})
+        self.assertEqual([v.pk for v in realizadas.context['viajes']], [hoy_viaje.pk])
+        self.assertContains(realizadas, 'Realizada el')
+
+    def test_la_agendada_de_un_dia_que_ya_paso_dice_que_falta_confirmar(self):
+        una = self._orden()
+        self.agendar([una], fecha=timezone.localdate())
+        viaje = self.viaje()
+        viaje.fecha = timezone.localdate() - datetime.timedelta(days=2)
+        viaje.save()
+        pantalla = self.client.get(reverse('gestion:disposiciones_agendadas'))
+        self.assertTrue(pantalla.context['viajes'][0].atrasada)
+        self.assertContains(pantalla, 'Falta confirmar')
+        self.entrar(self.conductor)
+        self.assertNotEqual(self.client.get(reverse('gestion:disposiciones_agendadas')).status_code, 200)
+
     def test_el_popup_ofrece_agendar_y_muestra_el_rol_de_cada_persona(self):
         self._orden()
         pantalla = self.client.get(self.panel)

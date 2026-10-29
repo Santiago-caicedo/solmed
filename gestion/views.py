@@ -7097,33 +7097,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     def _agendadas():
         """Los viajes agendados, con lo que la oficina sigue: preoperacional y fotos."""
         from planes.models import ViajeDisposicion
-        from planes.viajes import rol_en_viaje
-        viajes = list(
-            ViajeDisposicion.objects.filter(estado='AGENDADA')
-            .select_related('vehiculo', 'dispositor', 'preoperacional')
-            .prefetch_related('ordenes__cliente', 'asignaciones__persona__groups',
-                              'ayudantes__fotos', 'ayudantes__persona'))
-        hoy = timezone.localdate()
-        for v in viajes:
-            personas = [a.persona for a in sorted(v.asignaciones.all(), key=lambda a: a.pk)]
-            v.personas_info = [{'id': p.pk, 'nombre': p.get_full_name() or p.username,
-                                'rol': rol_en_viaje(p)} for p in personas]
-            v.personas_json = json.dumps([{'id': p['id'], 'nombre': p['nombre']}
-                                          for p in v.personas_info])
-            v.pre = getattr(v, 'preoperacional', None)
-            v.ayudantes_info = []
-            for a in v.ayudantes.all():
-                fotos = list(a.fotos.all())
-                pedidas = a.fotos_pedidas()
-                v.ayudantes_info.append({
-                    'nombre': a.persona_nombre,
-                    'novedades': a.novedades_display(),
-                    'pedidas': len(pedidas),
-                    'con_foto': len({f.novedad for f in fotos}),
-                    'fotos': fotos,
-                })
-            v.se_puede_confirmar = v.fecha <= hoy
-        return viajes
+        return _info_viajes(ViajeDisposicion.objects.filter(estado='AGENDADA'))
 
     def get(self, request):
         from planes.forms import DESCUENTO_HORAS, DESCUENTO_MINUTOS
@@ -7151,6 +7125,83 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'vehiculos': Vehiculo.objects.order_by('placa').only('pk', 'placa', 'marca', 'estado'),
             'hoy': timezone.localdate(),
             # Los selectores de los descuentos del paso «Tiempos» (como en el plan).
+            'descuento_horas': DESCUENTO_HORAS,
+            'descuento_minutos': DESCUENTO_MINUTOS,
+        })
+
+
+def _info_viajes(viajes):
+    """
+    Los viajes de disposición con lo que la oficina sigue de cada uno: quién
+    va y con qué rol (y en JSON para el popup de confirmar), el
+    preoperacional del conductor y las fotos de los ayudantes. Lo usan el
+    panel de Disposiciones y la lista de agendadas.
+    """
+    from planes.viajes import rol_en_viaje
+    viajes = list(
+        viajes.select_related('vehiculo', 'dispositor', 'preoperacional', 'cerrado_por')
+        .prefetch_related('ordenes__cliente', 'asignaciones__persona__groups',
+                          'ayudantes__fotos', 'ayudantes__persona'))
+    hoy = timezone.localdate()
+    for v in viajes:
+        personas = [a.persona for a in sorted(v.asignaciones.all(), key=lambda a: a.pk)]
+        v.personas_info = [{'id': p.pk, 'nombre': p.get_full_name() or p.username,
+                            'rol': rol_en_viaje(p)} for p in personas]
+        v.personas_json = json.dumps([{'id': p['id'], 'nombre': p['nombre']}
+                                      for p in v.personas_info])
+        v.pre = getattr(v, 'preoperacional', None)
+        v.ayudantes_info = []
+        for a in v.ayudantes.all():
+            fotos = list(a.fotos.all())
+            pedidas = a.fotos_pedidas()
+            v.ayudantes_info.append({
+                'nombre': a.persona_nombre,
+                'novedades': a.novedades_display(),
+                'pedidas': len(pedidas),
+                'con_foto': len({f.novedad for f in fotos}),
+                'fotos': fotos,
+            })
+        v.se_puede_confirmar = v.estado == 'AGENDADA' and v.fecha <= hoy
+        # Agendada y su día ya pasó: falta confirmar si se hizo.
+        v.atrasada = v.estado == 'AGENDADA' and v.fecha < hoy
+    return viajes
+
+
+class DisposicionesAgendadasView(AdministradorRequiredMixin, View):
+    """
+    Todas las disposiciones AGENDADAS en una tabla (oct-2026, pedido de
+    Santiago): las que faltan por confirmar —primero las más viejas— y, en
+    otras pestañas, las ya realizadas y las canceladas. Desde aquí se
+    confirman (con los tiempos de cada persona) o se cancelan; el envío lo
+    resuelve el panel de Disposiciones y vuelve aquí.
+    """
+    template_name = 'gestion/disposiciones_agendadas.html'
+    PESTANAS = [('pendientes', 'Por confirmar', 'AGENDADA'),
+                ('realizadas', 'Realizadas', 'REALIZADA'),
+                ('canceladas', 'Canceladas', 'CANCELADA')]
+
+    def get(self, request):
+        from planes.forms import DESCUENTO_HORAS, DESCUENTO_MINUTOS
+        from planes.models import ViajeDisposicion
+        ver = request.GET.get('ver')
+        estados = {clave: estado for clave, _, estado in self.PESTANAS}
+        if ver not in estados:
+            ver = 'pendientes'
+        conteos = dict(ViajeDisposicion.objects.values_list('estado').annotate(n=Count('pk')))
+        viajes = ViajeDisposicion.objects.filter(estado=estados[ver])
+        # Por confirmar: de la más vieja a la más nueva; lo cerrado, lo último primero.
+        viajes = viajes.order_by('fecha', 'hora', 'pk') if ver == 'pendientes' \
+            else viajes.order_by('-fecha', '-hora', '-pk')
+        pagina = Paginator(viajes, 25).get_page(request.GET.get('page'))
+        return render(request, self.template_name, {
+            'ver': ver,
+            'pestanas': [{'clave': clave, 'nombre': nombre, 'n': conteos.get(estado, 0)}
+                         for clave, nombre, estado in self.PESTANAS],
+            'viajes': _info_viajes(ViajeDisposicion.objects.filter(
+                pk__in=[v.pk for v in pagina.object_list]).order_by(*viajes.query.order_by)),
+            'page_obj': pagina,
+            'pagina_rango': rango_de_paginas(pagina),
+            'hoy': timezone.localdate(),
             'descuento_horas': DESCUENTO_HORAS,
             'descuento_minutos': DESCUENTO_MINUTOS,
         })
