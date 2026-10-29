@@ -114,6 +114,10 @@
         <a href="{% url 'planes:plan_pdf' fecha|date:'Y-m-d' %}" class="btn btn-primary btn-sm">
             <i class="bi bi-file-earmark-pdf me-1"></i> PDF del día
         </a>
+        {# Todo lo de cada persona ese día, con horas y descuentos (oct-2026). #}
+        <a href="{% url 'planes:movimiento_pdf' fecha|date:'Y-m-d' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-people me-1"></i> Movimiento del personal
+        </a>
         <a href="{% url 'planes:historial' %}" class="btn btn-secondary btn-sm">
             <i class="bi bi-archive me-1"></i> Historial
         </a>

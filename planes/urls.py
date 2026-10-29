@@ -16,6 +16,8 @@ urlpatterns = [
     path('novedad/<int:pk>/eliminar/', views.EliminarNovedadView.as_view(),
          name='eliminar_novedad'),
     path('pdf/<str:fecha>/', views.PlanPDFView.as_view(), name='plan_pdf'),
+    # Todo el movimiento del personal de un día, con el diseño del acta (oct-2026).
+    path('movimiento/<str:fecha>/', views.MovimientoPDFView.as_view(), name='movimiento_pdf'),
     # Actividades y novedades nuevas, creadas desde el popup del panel.
     path('tipos/crear/', views.CrearTipoPersonalizadoView.as_view(), name='crear_tipo'),
     path('tipos/<int:pk>/eliminar/', views.EliminarTipoPersonalizadoView.as_view(),

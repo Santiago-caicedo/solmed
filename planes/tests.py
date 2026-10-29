@@ -73,6 +73,71 @@ class BasePlan(TestCase):
         return self.client.post(self.url, datos, follow=follow)
 
 
+class MovimientoDelPersonalTests(BasePlan):
+    """Oct-2026: el PDF con todo el movimiento del personal de un día, pasado o futuro."""
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def pdf(self, fecha):
+        return self.client.get(reverse('planes:movimiento_pdf', args=[fecha.isoformat()]))
+
+    def test_baja_el_pdf_de_un_dia_pasado_y_de_uno_futuro(self):
+        from planes.views import _pdf_movimiento  # noqa: F401 (la vista lo usa)
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin, notas='Revisar llantas')
+        asignacion = Asignacion.objects.create(
+            plan=plan, persona=self.conductor, tipo='LAVADA', suma_horas=True,
+            hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
+        asignacion.vehiculos.set([self.camion])
+        Novedad.objects.create(persona=self.ayudante, tipo='PERMISO_PERSONAL', fecha_inicio=self.hoy,
+                               hora=datetime.time(14, 0), hora_fin=datetime.time(16, 0))
+        for fecha in (self.hoy, self.hoy + datetime.timedelta(days=5), self.hoy - datetime.timedelta(days=40)):
+            with self.subTest(fecha=fecha):
+                respuesta = self.pdf(fecha)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+                self.assertIn(f'movimiento_personal_{fecha.isoformat()}.pdf', respuesta['Content-Disposition'])
+
+    def test_el_documento_trae_lo_de_cada_persona(self):
+        from django.template import loader
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        Asignacion.objects.create(plan=plan, persona=self.conductor, tipo='LAVADA', suma_horas=True,
+                                  hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
+        Novedad.objects.create(persona=self.ayudante, tipo='PERMISO_PERSONAL', fecha_inicio=self.hoy)
+        capturado = {}
+        original = loader.get_template
+
+        def espiar(nombre, *a, **k):
+            plantilla = original(nombre, *a, **k)
+            if nombre == 'planes/movimiento_pdf.html':
+                render = plantilla.render
+
+                def render_espiado(contexto=None, *args, **kwargs):
+                    capturado.update(contexto or {})
+                    capturado['html'] = render(contexto, *args, **kwargs)
+                    return capturado['html']
+                plantilla.render = render_espiado
+            return plantilla
+        from unittest import mock
+        with mock.patch('planes.views.get_template', side_effect=espiar):
+            self.pdf(self.hoy)
+        nombres = [p['nombre'] for p in capturado['personas']]
+        self.assertIn(self.conductor.get_full_name() or self.conductor.username, nombres)
+        self.assertIn('Lavada de vehículo', capturado['html'])
+        self.assertIn('Permiso personal', capturado['html'])
+        self.assertEqual(capturado['totales']['horas'], '2 h')
+        self.assertIn('MOVIMIENTO DEL PERSONAL', capturado['html'])
+
+    def test_solo_administradores(self):
+        self.entrar(self.conductor)
+        self.assertNotEqual(self.pdf(self.hoy).status_code, 200)
+
+    def test_el_plan_y_el_historial_tienen_el_boton(self):
+        self.assertContains(self.client.get(self.url),
+                            reverse('planes:movimiento_pdf', args=[self.hoy.isoformat()]))
+
+
 class AccesoAlPlanTests(BasePlan):
     """
     El plan es SOLO de administradores (decisión del usuario, ago-2026):

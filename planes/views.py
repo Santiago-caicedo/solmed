@@ -692,6 +692,63 @@ def _pdf_plan(fecha, request):
     return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
 
 
+def _pdf_movimiento(fecha, request):
+    """
+    El MOVIMIENTO DEL PERSONAL de un día en PDF (oct-2026): por persona y
+    agrupado por cargo, todo lo suyo ese día —servicios, actividades,
+    disposiciones (hechas o agendadas) y novedades— con horario, duración,
+    descuentos y si suma horas. Sale de la misma fuente del centro de
+    control (_datos_centro_control) para que los dos digan lo mismo. Sirve
+    para un día pasado o futuro (en uno futuro, todo es lo programado).
+    """
+    from gestion.views import _datos_centro_control
+    posicion = {cargo: i for i, cargo in enumerate(ORDEN_CARGOS)}
+    por_cargo, sin_movimiento = {}, []
+    totales = {'servicios': 0, 'actividades': 0, 'novedades': 0, 'minutos': 0}
+    for persona in sorted(_personal_activo(),
+                          key=lambda p: (p.get_full_name() or p.username).lower()):
+        cargo = _cargo_de(persona)
+        nombre = persona.get_full_name() or persona.username
+        datos = _datos_centro_control(persona, fecha, fecha)
+        if datos['sin_nada']:
+            sin_movimiento.append(nombre)
+            continue
+        por_cargo.setdefault(cargo, []).append({'nombre': nombre, 'datos': datos})
+        totales['servicios'] += datos['n_servicios']
+        totales['actividades'] += datos['n_actividades']
+        totales['novedades'] += len(datos['novedades'])
+        totales['minutos'] += datos['horas']['minutos']
+    grupos = [{'cargo': cargo, 'personas': personas}
+              for cargo, personas in sorted(por_cargo.items(), key=lambda kv: posicion.get(kv[0], 99))]
+    horas, resto = divmod(totales['minutos'], 60)
+    totales['horas'] = f"{horas} h {resto:02d} min" if resto else f"{horas} h"
+
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, 'rb') as archivo:
+        logo_b64 = 'data:image/png;base64,' + base64.b64encode(archivo.read()).decode()
+    html = get_template('planes/movimiento_pdf.html').render({
+        'fecha': fecha, 'futuro': fecha > timezone.localdate(),
+        'plan': PlanDia.objects.filter(fecha=fecha).first(),
+        'grupos': grupos, 'personas': [p for g in grupos for p in g['personas']],
+        'sin_movimiento': sin_movimiento, 'totales': totales,
+        'logo_b64': logo_b64, 'generado': timezone.localtime(),
+    })
+    return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
+
+
+class MovimientoPDFView(AdministradorRequiredMixin, View):
+    """Descarga el PDF del movimiento del personal de un día (pasado o futuro)."""
+    def get(self, request, fecha):
+        try:
+            dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            raise Http404("Fecha inválida.")
+        respuesta = HttpResponse(_pdf_movimiento(dia, request), content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="movimiento_personal_{dia.isoformat()}.pdf"')
+        return respuesta
+
+
 class PlanPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del plan de un día."""
     def get(self, request, fecha):

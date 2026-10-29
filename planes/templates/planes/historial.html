@@ -42,6 +42,10 @@
                            class="btn btn-outline-secondary btn-sm" title="Descargar el PDF">
                             <i class="bi bi-file-earmark-pdf"></i>
                         </a>
+                        <a href="{% url 'planes:movimiento_pdf' p.fecha|date:'Y-m-d' %}"
+                           class="btn btn-outline-secondary btn-sm" title="Movimiento del personal (PDF)">
+                            <i class="bi bi-people"></i>
+                        </a>
                     </td>
                 </tr>
                 {% empty %}
