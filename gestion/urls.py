@@ -150,6 +150,8 @@ urlpatterns = [
     # --- Módulo de Programación (paso previo a la orden) ---
     path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),
     path('programaciones/nueva/', views.CrearProgramacionView.as_view(), name='crear_programacion'),
+    # Debajo del formulario: cuánto lleva cada conductor y ayudante en el mes (oct-2026).
+    path('programaciones/estadistica/', views.EstadisticaPersonalView.as_view(), name='estadistica_personal'),
     path('programaciones/<int:pk>/editar/', views.ActualizarProgramacionView.as_view(), name='actualizar_programacion'),
     path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
     path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),

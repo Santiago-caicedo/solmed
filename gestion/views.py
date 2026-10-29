@@ -5079,6 +5079,97 @@ def _avisar_carga_pendiente(request, programacion, orden):
     )
 
 
+# Cargos que cuentan en la estadística de la programación (oct-2026).
+CARGOS_ESTADISTICA = {
+    'conductores': ('Conductores',),
+    'ayudantes': ('Ayudantes', 'Conductor - Ayudante'),
+}
+
+
+def _estadistica_personal(fecha):
+    """
+    Cómo va el MES de `fecha` para los conductores y los ayudantes (pedido de
+    la clienta, oct-2026): cuántas órdenes lleva cada uno —las ya hechas y
+    las que tiene programadas— y en cuáles días de fin de semana o festivo
+    trabajó. Sale de los recorridos (sin las órdenes canceladas) y de las
+    cuadrillas de las programaciones que aún no se convierten, sin contar dos
+    veces lo convertido. {'conductores': [...], 'ayudantes': [...]}
+    """
+    from .festivos import es_festivo, es_fin_de_semana_o_festivo
+    inicio = fecha.replace(day=1)
+    fin = fecha.replace(day=calendar.monthrange(fecha.year, fecha.month)[1])
+    hoy = timezone.localdate()
+
+    # (persona_id, rol) -> {'hechas': set(ordenes), 'programadas': set(...), 'dias_fds': set(fechas)}
+    conteo = {}
+
+    def sumar(persona_id, rol, clave, fecha_servicio):
+        if not persona_id:
+            return
+        c = conteo.setdefault((persona_id, rol), {'hechas': set(), 'programadas': set(), 'dias_fds': set()})
+        c['hechas' if fecha_servicio <= hoy else 'programadas'].add(clave)
+        if es_fin_de_semana_o_festivo(fecha_servicio):
+            c['dias_fds'].add(fecha_servicio)
+
+    for r in (Recorrido.objects.filter(fecha_recorrido__range=(inicio, fin))
+              .exclude(orden__estado_orden='CANCELADA')
+              .values('orden_id', 'fecha_recorrido', 'conductor_id', 'ayudante_id', 'ayudante2_id')):
+        clave = ('orden', r['orden_id'])
+        sumar(r['conductor_id'], 'conductores', clave, r['fecha_recorrido'])
+        sumar(r['ayudante_id'], 'ayudantes', clave, r['fecha_recorrido'])
+        sumar(r['ayudante2_id'], 'ayudantes', clave, r['fecha_recorrido'])
+    for c in (ProgramacionCuadrilla.objects
+              .filter(programacion__fecha__range=(inicio, fin),
+                      programacion__estado__in=('BORRADOR', 'CONFIRMADA'))
+              .values('programacion_id', 'programacion__fecha', 'conductor_id',
+                      'ayudante_id', 'ayudante2_id')):
+        clave = ('programacion', c['programacion_id'])
+        # Lo que aún no es orden cuenta como programado, aunque su fecha ya haya pasado.
+        for persona_id, rol in ((c['conductor_id'], 'conductores'), (c['ayudante_id'], 'ayudantes'),
+                                (c['ayudante2_id'], 'ayudantes')):
+            if not persona_id:
+                continue
+            fila = conteo.setdefault((persona_id, rol), {'hechas': set(), 'programadas': set(), 'dias_fds': set()})
+            fila['programadas'].add(clave)
+            if es_fin_de_semana_o_festivo(c['programacion__fecha']):
+                fila['dias_fds'].add(c['programacion__fecha'])
+
+    resultado = {}
+    for rol, cargos in CARGOS_ESTADISTICA.items():
+        personas = (User.objects.filter(groups__name__in=cargos, is_active=True, is_superuser=False)
+                    .exclude(perfil__retirado=True).distinct())
+        filas = []
+        for p in personas:
+            c = conteo.get((p.pk, rol), {'hechas': set(), 'programadas': set(), 'dias_fds': set()})
+            filas.append({
+                'nombre': p.get_full_name() or p.username,
+                'hechas': len(c['hechas']),
+                'programadas': len(c['programadas']),
+                'total': len(c['hechas']) + len(c['programadas']),
+                'dias_fds': [{'fecha': d, 'festivo': es_festivo(d)} for d in sorted(c['dias_fds'])],
+            })
+        filas.sort(key=lambda f: (-f['total'], f['nombre'].lower()))
+        maximo = max((f['total'] for f in filas), default=0) or 1
+        for f in filas:
+            f['pct_hechas'] = round(f['hechas'] * 100 / maximo)
+            f['pct_programadas'] = round(f['programadas'] * 100 / maximo)
+        resultado[rol] = filas
+    resultado['mes'] = f"{HistoricoClienteView.MESES[fecha.month - 1]} de {fecha.year}"
+    return resultado
+
+
+class EstadisticaPersonalView(AsesorRequiredMixin, View):
+    """
+    El bloque de la estadística del personal que va debajo del formulario de
+    programación (fragmento HTML; se recarga al cambiar la fecha del servicio).
+    """
+    def get(self, request):
+        from django.utils.dateparse import parse_date
+        fecha = parse_date(request.GET.get('fecha') or '') or timezone.localdate()
+        return render(request, 'gestion/partials/_estadistica_personal.html',
+                      {'est': _estadistica_personal(fecha)})
+
+
 class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'

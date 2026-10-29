@@ -1,0 +1,57 @@
+{% comment %}
+Estadística del personal debajo del formulario de programación (oct-2026):
+por conductor y por ayudante, cuántas órdenes lleva en el mes del servicio
+(barra verde: ya hechas; azul claro: programadas) y qué días de fin de
+semana o festivo trabajó. Recibe `est` (ver _estadistica_personal).
+{% endcomment %}
+<style>
+.est-card .nav-link{ font-size:.85rem; padding:.35rem .8rem; }
+.est-fila{ display:grid; grid-template-columns:minmax(140px,220px) 1fr 3.2rem; gap:.6rem; align-items:center; padding:.32rem 0; border-top:1px solid var(--line-2); }
+.est-fila:first-child{ border-top:0; }
+.est-nombre{ font-size:.84rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.est-barra{ display:flex; height:14px; background:var(--panel-2); border-radius:7px; overflow:hidden; }
+.est-barra .h{ background:var(--brand-600); }
+.est-barra .p{ background:#9DBFDA; }
+.est-total{ font-family:var(--mono); font-weight:700; text-align:right; font-size:.85rem; }
+.est-fds{ grid-column:2 / -1; display:flex; flex-wrap:wrap; gap:.25rem; margin-top:-.1rem; }
+.est-fds span{ font-family:var(--mono); font-size:.68rem; padding:.05rem .4rem; border-radius:99px; background:var(--warn-tint); color:var(--warn); border:1px solid var(--warn-line); }
+.est-fds span.festivo{ background:#F6E7F2; color:#8E2F6F; border-color:#E3BCD6; }
+.est-ley{ display:flex; flex-wrap:wrap; gap:.3rem 1rem; font-size:.74rem; color:var(--ink-2); }
+.est-ley i{ display:inline-block; width:.8rem; height:.8rem; border-radius:3px; vertical-align:-1px; margin-right:.25rem; }
+@media (max-width:575px){ .est-fila{ grid-template-columns:1fr 2.6rem; } .est-barra{ grid-column:1 / -1; grid-row:2; } .est-fds{ grid-column:1 / -1; } }
+</style>
+<div class="card shadow est-card">
+    <div class="card-header d-flex flex-wrap align-items-center gap-2">
+        <strong><i class="bi bi-bar-chart-line me-1" aria-hidden="true"></i>Cómo va el personal · {{ est.mes }}</strong>
+        <ul class="nav nav-pills ms-auto" role="tablist">
+            <li class="nav-item"><button type="button" class="nav-link active" data-est-tab="conductores" role="tab" aria-selected="true">Conductores</button></li>
+            <li class="nav-item"><button type="button" class="nav-link" data-est-tab="ayudantes" role="tab" aria-selected="false">Ayudantes</button></li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="est-ley mb-2">
+            <span><i style="background:var(--brand-600)"></i>Órdenes ya hechas</span>
+            <span><i style="background:#9DBFDA"></i>Programadas</span>
+            <span><i style="background:var(--warn-tint); border:1px solid var(--warn-line)"></i>Fin de semana</span>
+            <span><i style="background:#F6E7F2; border:1px solid #E3BCD6"></i>Festivo</span>
+        </div>
+        {% for rol, filas in est.items %}{% if rol != 'mes' %}
+        <div data-est-panel="{{ rol }}" role="tabpanel"{% if rol != 'conductores' %} hidden{% endif %}>
+            {% for f in filas %}
+            <div class="est-fila">
+                <span class="est-nombre" title="{{ f.nombre }}">{{ f.nombre }}</span>
+                <div class="est-barra" role="img" aria-label="{{ f.nombre }}: {{ f.hechas }} hechas y {{ f.programadas }} programadas">
+                    <div class="h" style="width:{{ f.pct_hechas }}%"></div><div class="p" style="width:{{ f.pct_programadas }}%"></div>
+                </div>
+                <span class="est-total" title="{{ f.hechas }} hechas · {{ f.programadas }} programadas">{{ f.total }}</span>
+                {% if f.dias_fds %}
+                <div class="est-fds">{% for d in f.dias_fds %}<span class="{% if d.festivo %}festivo{% endif %}" title="{% if d.festivo %}Festivo{% else %}Fin de semana{% endif %}">{{ d.fecha|date:"D d"|capfirst }}</span>{% endfor %}</div>
+                {% endif %}
+            </div>
+            {% empty %}
+            <div class="text-muted small">No hay personas con este cargo.</div>
+            {% endfor %}
+        </div>
+        {% endif %}{% endfor %}
+    </div>
+</div>
