@@ -25,7 +25,7 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
                     SOLMED <span style="color:#ffffff;">SAS</span>
                 </div>
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#a7b2be; letter-spacing:2px; text-transform:uppercase; padding-top:4px;">
-                    Programación de servicio
+                    {{ encabezado|default:"Programación de servicio" }}
                 </div>
             </td>
         </tr>
@@ -34,7 +34,7 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
         <tr>
             <td style="background-color:#5E8C1B; padding:10px 28px;">
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#ffffff; font-weight:bold;">
-                    &#128197;&nbsp; Servicio del {{ programacion.fecha|date:"l j \d\e F \d\e Y" }}
+                    &#128197;&nbsp; {{ titulo_fecha|default:"Servicio del" }} {{ programacion.fecha|date:"l j \d\e F \d\e Y" }}
                 </div>
             </td>
         </tr>
@@ -47,9 +47,9 @@ novedades, fotos_pedidas, url, url_boton, fecha_limite.
                 </div>
                 <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#51606E; padding-top:6px; line-height:1.5;">
                     {% if rol == 'conductor' %}
-                        Se te asignó un servicio como <strong>conductor</strong>. Estos son los datos:
+                        Se te asignó {{ que|default:"un servicio" }} como <strong>conductor</strong>. Estos son los datos:
                     {% else %}
-                        Se te asignó un servicio como <strong>ayudante</strong>. Esto es lo tuyo:
+                        Se te asignó {{ que|default:"un servicio" }} como <strong>ayudante</strong>. Esto es lo tuyo:
                     {% endif %}
                 </div>
             </td>

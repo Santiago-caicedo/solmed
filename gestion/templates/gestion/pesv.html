@@ -190,13 +190,17 @@
         <tbody>
         {% for p in preoperacionales %}
         <tr>
-            <td class="mono">{{ p.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
+            <td class="mono">{{ p.fecha_servicio|date:"d/m/Y" }}</td>
+            {% if p.viaje_id %}
+            <td>Disposición final<div class="hal">Órdenes {{ p.viaje.numeros_ordenes }}</div></td>
+            {% else %}
             <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a>{% else %}#{{ p.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
-            <td><span class="mono">{{ p.recorrido.vehiculo.placa }}</span><div class="hal">{{ p.get_tipo_vehiculo_display }}</div></td>
-            <td>{% if p.recorrido.conductor %}{{ p.recorrido.conductor.get_full_name|default:p.recorrido.conductor.username }}{% else %}—{% endif %}</td>
+            {% endif %}
+            <td><span class="mono">{{ p.vehiculo.placa }}</span><div class="hal">{{ p.get_tipo_vehiculo_display }}</div></td>
+            <td>{% if p.conductor %}{{ p.conductor.get_full_name|default:p.conductor.username }}{% else %}—{% endif %}</td>
             <td>{% if not p.apto %}<span class="pv-badge malo">No apto</span>{% elif p.items_malos %}<span class="pv-badge alerta">Apto con hallazgos</span>{% else %}<span class="pv-badge ok">Apto</span>{% endif %}</td>
             <td>{% for i in p.items_malos %}<div class="hal">{{ i.numero }}. {{ i.texto }}</div>{% empty %}<span class="text-muted">—</span>{% endfor %}{% if p.observaciones %}<div class="hal"><i class="bi bi-chat-left-text me-1"></i>{{ p.observaciones|truncatechars:120 }}</div>{% endif %}</td>
-            <td><a href="{% url 'gestion:preoperacional_pdf' p.recorrido_id %}" class="btn btn-sm btn-outline-danger pdf"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a></td>
+            <td><a href="{% if p.viaje_id %}{% url 'gestion:preoperacional_viaje_pdf' p.viaje_id %}{% else %}{% url 'gestion:preoperacional_pdf' p.recorrido_id %}{% endif %}" class="btn btn-sm btn-outline-danger pdf"><i class="bi bi-file-earmark-pdf-fill me-1"></i>PDF</a></td>
         </tr>
         {% endfor %}
         </tbody>

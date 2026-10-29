@@ -214,13 +214,18 @@ class AsignacionForm(forms.Form):
         if campos.get('ordenes') == 'pendientes':
             # Disponer se hace POR ORDEN: se marcan las que salieron en el
             # viaje (la orden no se digita). Solo las que siguen sin disponer.
+            # Las que ya van en un viaje AGENDADO tampoco (oct-2026): se
+            # disponen al confirmarlo o vuelven a estar libres si se cancela.
+            from .viajes import ids_ordenes_agendadas
             self.ordenes = list(
                 OrdenServicio.objects
                 .filter(pk__in=self.ordenes_ids, estado_disposicion='PENDIENTE')
+                .exclude(pk__in=ids_ordenes_agendadas())
                 .prefetch_related('recorridos__vehiculo').order_by('numero_orden'))
             if not self.ordenes:
                 self.add_error(None, "Marca cuál orden se va a disponer. Solo "
-                                     "aparecen las que siguen sin disponer.")
+                                     "aparecen las que siguen sin disponer y no "
+                                     "están agendadas en otro viaje.")
             elif self.vehiculo_viaje:
                 # El vehículo que hizo el viaje de disposición, elegido en el
                 # popup del panel de disposiciones (oct-2026, pedido de
@@ -281,11 +286,15 @@ class AsignacionForm(forms.Form):
             cleaned['dispositor'] = None
         return cleaned
 
-    def crear(self, plan, usuario):
+    def crear(self, plan, usuario, viaje=None):
         """
         Crea una asignación por persona (el mismo trabajo suele ir en pareja).
         Si la actividad dispone el residuo, cada orden queda dispuesta UNA vez
         —no una por persona— con su registro y su responsable.
+
+        Con `viaje` (un viaje de disposición AGENDADO, oct-2026) cada
+        actividad queda enlazada a él y NO dispone nada todavía: las órdenes
+        se disponen cuando la oficina confirma que el viaje se hizo.
         """
         creadas = []
         for persona in self.personas:
@@ -305,12 +314,13 @@ class AsignacionForm(forms.Form):
                 suma_horas=t['suma_horas'],
                 detalle=(self.cleaned_data.get('detalle') or '').strip(),
                 registrado_por=usuario,
+                viaje=viaje,
             )
             asignacion.vehiculos.set(self.vehiculos)
             guardar_descuentos(t['descuentos'], asignacion=asignacion)
             creadas.append(asignacion)
 
-        if creadas and creadas[0].dispone_ordenes and self.ordenes:
+        if creadas and creadas[0].dispone_ordenes and self.ordenes and viaje is None:
             nombres = [a.persona_nombre for a in creadas]
             creadas[0].aplicar_disposicion(nombres, self.ordenes)
             # La pareja comparte la misma disposición: todos enlazan los mismos

@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Preoperacional del vehículo - Recorrido #{{ recorrido.pk }}</title>
+    <title>Preoperacional del vehículo - {{ pre.referencia }}</title>
     <style>
         /* Evidencia interna del PESV: la misma identidad verde de la encuesta
            de cierre, su documento hermano (el acta del cliente es azul). */
@@ -78,9 +78,9 @@
             </td>
             <td style="width:128px;">
                 <div class="rec-box">
-                    <div class="t">Recorrido</div>
-                    <div class="n">#{{ recorrido.pk }}</div>
-                    <div class="f">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div>
+                    <div class="t">{% if pre.viaje_id %}Disposición{% else %}Recorrido{% endif %}</div>
+                    <div class="n">#{% if pre.viaje_id %}{{ pre.viaje_id }}{% else %}{{ recorrido.pk }}{% endif %}</div>
+                    <div class="f">{{ pre.fecha_servicio|date:"d/m/Y" }}</div>
                 </div>
             </td>
         </tr>
@@ -89,13 +89,18 @@
 
     <table class="meta">
         <tr>
+            {% if orden %}
             <td><div class="l">Orden de servicio</div><div class="v">#{{ orden.numero_orden }}</div></td>
             <td><div class="l">Cliente</div><div class="v">{{ orden.cliente.nombre }}</div></td>
-            <td><div class="l">Vehículo</div><div class="v">{{ recorrido.vehiculo.placa }} · {{ recorrido.vehiculo.marca }} {{ recorrido.vehiculo.modelo }}</div></td>
+            {% else %}
+            <td><div class="l">Servicio</div><div class="v">Disposición final</div></td>
+            <td><div class="l">Órdenes</div><div class="v">{{ pre.viaje.numeros_ordenes }}</div></td>
+            {% endif %}
+            <td><div class="l">Vehículo</div><div class="v">{{ pre.vehiculo.placa }} · {{ pre.vehiculo.marca }} {{ pre.vehiculo.modelo }}</div></td>
         </tr>
         <tr>
-            <td><div class="l">Conductor</div><div class="v">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</div></td>
-            <td><div class="l">Fecha del servicio</div><div class="v">{{ recorrido.fecha_recorrido|date:"d/m/Y" }}</div></td>
+            <td><div class="l">Conductor</div><div class="v">{% if pre.conductor %}{{ pre.conductor.get_full_name|default:pre.conductor.username }}{% else %}—{% endif %}</div></td>
+            <td><div class="l">Fecha del servicio</div><div class="v">{{ pre.fecha_servicio|date:"d/m/Y" }}</div></td>
             <td><div class="l">Registrado</div><div class="v">{{ pre.fecha_diligenciamiento|date:"d/m/Y H:i" }}</div></td>
         </tr>
     </table>
@@ -158,7 +163,7 @@
         <tr>
             <td>
                 <div class="caja">
-                    <div class="nombre">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</div>
+                    <div class="nombre">{% if pre.conductor %}{{ pre.conductor.get_full_name|default:pre.conductor.username }}{% else %}—{% endif %}</div>
                     <div class="rol">Conductor</div>
                 </div>
             </td>
@@ -177,7 +182,7 @@
 
     <div class="footer">
         Documento generado automáticamente por el sistema de gestión SOLMED SAS ·
-        Orden #{{ orden.numero_orden }} · Recorrido #{{ recorrido.pk }} · {{ pre.fecha_diligenciamiento|date:"d/m/Y H:i" }}
+        {{ pre.referencia }}{% if recorrido %} · Recorrido #{{ recorrido.pk }}{% endif %} · {{ pre.fecha_diligenciamiento|date:"d/m/Y H:i" }}
     </div>
 </body>
 </html>

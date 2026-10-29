@@ -61,8 +61,11 @@ def ordenes_sin_disponer():
     nueva, con su placa y su fecha de servicio de referencia. Las ofrecen el
     plan y el panel de disposiciones para registrar el viaje.
     """
+    from .viajes import ids_ordenes_agendadas
+    # Las que ya van en un viaje agendado (oct-2026) no se ofrecen otra vez.
     ordenes = list(
         OrdenServicio.objects.filter(estado_disposicion='PENDIENTE')
+        .exclude(pk__in=ids_ordenes_agendadas())
         .select_related('cliente').prefetch_related('recorridos__vehiculo')
         .order_by('numero_orden'))
     for o in ordenes:
@@ -501,6 +504,10 @@ class EliminarAsignacionView(AdministradorRequiredMixin, View):
     def post(self, request, pk):
         asignacion = get_object_or_404(Asignacion, pk=pk)
         fecha = asignacion.plan.fecha
+        # De un viaje agendado (oct-2026): esa persona deja de ir; sin nadie,
+        # el viaje se cancela y sus órdenes quedan libres.
+        from .viajes import quitar_persona
+        quitar_persona(asignacion)
         disponia = asignacion.dispone_ordenes and asignacion.disposiciones.exists()
         # ¿Queda alguien más encargado de ESTA misma disposición? Compañero es
         # quien comparte los mismos registros (la pareja del trabajo).

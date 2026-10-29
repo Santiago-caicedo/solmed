@@ -3,7 +3,8 @@
 {% block content %}
 {# Lo que se debe: TODAS las órdenes sin disponer, en orden consecutivo y sin páginas. #}
 {# Lo ya dispuesto se consulta en el expediente de cada orden y en el plan de trabajo. #}
-{# Registrar una disposición abre un popup por pasos (1 órdenes → 2 viaje → 3 tiempos → 4 confirmar): #}
+{# Registrar o agendar una disposición abre un popup por pasos (1 órdenes → 2 viaje → 3 tiempos/novedades → 4 confirmar): #}
+{# Agendada (oct-2026): las órdenes siguen pendientes hasta que se confirma que el viaje se hizo (lista «Agendadas»). #}
 {# es la misma actividad «Disposición final» del plan de trabajo, así que aparece allá también. #}
 <style>
 .dz-tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.75rem; }
@@ -83,7 +84,43 @@
 .dz-sel label input{ position:absolute; opacity:0; width:0; height:0; }
 .dz-sel label:has(input:checked){ background:var(--brand-tint); border-color:var(--brand-600); color:var(--brand-700); font-weight:600; }
 .dz-sel label:has(input:focus-visible){ outline:2px solid var(--steel); outline-offset:1px; }
-.dz-sel .cargo-mini{ width:100%; font-size:.66rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-top:.35rem; }
+/* El grupo de cada bloque de personas, bien visible (oct-2026): define qué le toca al agendar. */
+.dz-sel .cargo-mini{ width:100%; font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-2);
+    margin-top:.6rem; padding-bottom:.15rem; border-bottom:1px solid var(--line-2); }
+.dz-sel .cargo-mini:first-child{ margin-top:0; }
+
+/* ¿Ya se hizo o se agenda? */
+.dz-cuando{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-bottom:1rem; }
+.dz-cuando label{ display:flex; gap:.55rem; align-items:flex-start; border:1px solid var(--line); border-radius:var(--r-md);
+    padding:.6rem .75rem; cursor:pointer; margin:0; background:var(--panel); }
+.dz-cuando label:has(input:checked){ border-color:var(--brand-600); background:var(--brand-tint); }
+.dz-cuando input{ margin-top:.25rem; }
+.dz-cuando strong{ display:block; font-size:.88rem; }
+.dz-cuando small{ display:block; font-size:.74rem; color:var(--ink-2); line-height:1.35; }
+@media (max-width:575px){ .dz-cuando{ grid-template-columns:1fr; } }
+
+/* Agendar: lo de cada persona según su cargo */
+.dz-rol{ margin-left:auto; font-family:var(--mono); font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+    padding:.1rem .5rem; border-radius:99px; background:var(--steel-tint, #e9f1f7); color:var(--steel); }
+.dz-novedades{ display:grid; grid-template-columns:1fr 1fr; gap:.25rem .8rem; font-size:.84rem; }
+.dz-novedades label{ display:flex; gap:.4rem; align-items:flex-start; margin:0; cursor:pointer; }
+.dz-novedades .form-check-input{ margin-top:.2rem; flex-shrink:0; }
+.dz-nota-rol{ font-size:.78rem; color:var(--ink-2); margin-top:.5rem; }
+@media (max-width:575px){ .dz-novedades{ grid-template-columns:1fr; } }
+
+/* Las agendadas: lo que la oficina sigue hasta confirmar */
+.dz-agendada{ border:1px solid var(--line); border-left:3px solid var(--steel); border-radius:var(--r-md); padding:.75rem .9rem; margin-bottom:.65rem; background:var(--panel); }
+.dz-agendada .cab{ display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .8rem; }
+.dz-agendada .fecha{ font-family:var(--mono); font-weight:600; }
+.dz-agendada .acciones{ margin-left:auto; display:flex; gap:.4rem; }
+.dz-agendada .ordenes{ display:flex; flex-wrap:wrap; gap:.3rem; margin:.45rem 0; }
+.dz-agendada .ordenes a{ font-family:var(--mono); font-size:.76rem; padding:.08rem .5rem; border-radius:99px; border:1px solid var(--line); text-decoration:none; }
+.dz-agendada .gente{ display:flex; flex-wrap:wrap; gap:.3rem .9rem; font-size:.82rem; color:var(--ink-2); }
+.dz-agendada .ok{ color:var(--ok); }
+.dz-agendada .falta{ color:var(--warn); }
+.dz-agendada .fotos{ display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.35rem; }
+.dz-agendada .fotos img{ width:44px; height:44px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+.dz-estado.agendada{ background:var(--steel-tint, #e9f1f7); color:var(--steel); border:1px solid #c2d8e8; }
 
 /* paso 3: una tarjeta por persona con sus horas, la casilla y sus descuentos */
 .dz-persona{ border:1px solid var(--line); border-radius:var(--r-md); padding:.75rem .9rem; margin-bottom:.65rem; background:var(--panel); }
@@ -98,6 +135,7 @@
 .dz-des-fila{ display:grid; grid-template-columns:5.5rem 6.5rem 1fr auto; gap:.35rem; align-items:center; margin-top:.35rem; }
 .dz-aviso{ font-size:.78rem; color:var(--danger, #c0392b); margin-top:.45rem; }
 .dz-recibo .tiempos div + div{ margin-top:.2rem; }
+.dz-persona .dz-novedades + .dz-apoya{ margin-top:.3rem; }
 .dz-recibo .tiempos .des{ color:var(--ink-3); font-size:.8rem; }
 @media (max-width:575px){ .dz-des-fila{ grid-template-columns:1fr 1fr auto; } .dz-des-fila input{ grid-column:1 / -1; grid-row:2; } }
 
@@ -149,6 +187,55 @@
     </div>
 </div>
 
+{% if agendadas %}
+{# Viajes agendados (oct-2026): siguen pendientes hasta confirmar que se hicieron (o cancelarlos). #}
+<div class="card shadow mb-4">
+    <div class="card-header"><strong>Disposiciones agendadas</strong>
+        <span class="text-muted small ms-2">Las órdenes siguen pendientes hasta que confirmes que el viaje se hizo.</span></div>
+    <div class="card-body">
+        {% for v in agendadas %}
+        <div class="dz-agendada">
+            <div class="cab">
+                <span class="fecha">{{ v.fecha|date:"D d/m/Y"|capfirst }}{% if v.hora %} · {{ v.hora|time:"H:i" }}{% endif %}</span>
+                <span class="dz-placa mini">{{ v.vehiculo.placa }}</span>
+                <span class="text-muted small">{{ v.dispositor.nombre|default:"Sin gestor" }}</span>
+                <div class="acciones">
+                    {% if v.se_puede_confirmar %}
+                    <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#dz-confirmar"
+                            data-viaje="{{ v.pk }}" data-personas="{{ v.personas_json }}"
+                            data-titulo="Disposición del {{ v.fecha|date:'d/m/Y' }} · {{ v.vehiculo.placa }} · {{ v.numeros_ordenes }}">
+                        <i class="bi bi-check2-circle me-1"></i>Confirmar realizada</button>
+                    {% else %}
+                    <span class="text-muted small" title="Se confirma desde el día del viaje">Se confirma desde el {{ v.fecha|date:"d/m" }}</span>
+                    {% endif %}
+                    <form method="post" onsubmit="return confirm('¿Cancelar este viaje? Sale del plan y sus órdenes siguen pendientes.');">
+                        {% csrf_token %}
+                        <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+                        <input type="hidden" name="viaje" value="{{ v.pk }}">
+                        <button name="submit_cancelar_viaje" value="1" class="btn btn-sm btn-outline-danger">Cancelar</button>
+                    </form>
+                </div>
+            </div>
+            <div class="ordenes">{% for o in v.ordenes.all %}<a href="{% url 'gestion:detalle_orden' o.pk %}" title="{{ o.cliente.nombre }}">#{{ o.numero_orden }}</a>{% endfor %}</div>
+            <div class="gente">
+                {% for p in v.personas_info %}
+                <span>{{ p.nombre }}{% if p.rol == 'conductor' %} · conductor ·
+                    {% if v.pre %}<a class="ok" href="{% url 'gestion:preoperacional_viaje_pdf' v.pk %}"><i class="bi bi-check-circle-fill"></i> preoperacional</a>{% if v.pre.tiene_hallazgos %} <span class="falta">con hallazgos</span>{% endif %}
+                    {% else %}<span class="falta"><i class="bi bi-hourglass-split"></i> preoperacional pendiente</span>{% endif %}
+                    {% elif p.rol == 'ayudante' %} · ayudante{% endif %}</span>
+                {% endfor %}
+            </div>
+            {% for a in v.ayudantes_info %}{% if a.pedidas %}
+            <div class="gente mt-1"><span>{{ a.nombre }}: fotos <span class="{% if a.con_foto >= a.pedidas %}ok{% else %}falta{% endif %}">{{ a.con_foto }} de {{ a.pedidas }}</span></span></div>
+            {% if a.fotos %}<div class="fotos">{% for f in a.fotos %}<a href="{{ f.archivo.url }}" target="_blank" rel="noopener" title="{{ f.get_novedad_display_label }}"><img src="{{ f.archivo.url }}" alt="{{ f.get_novedad_display_label }}"></a>{% endfor %}</div>{% endif %}
+            {% endif %}{% endfor %}
+            {% if v.detalle %}<div class="text-muted small mt-1">{{ v.detalle }}</div>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card shadow">
     <div class="card-header">
         <div class="dz-lista-cab">
@@ -170,9 +257,9 @@
                     {% endif %}
                 </div>
             </form>
-            {% if n_pendientes %}
+            {% if hay_libres %}
             <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#dz-modal">
-                <i class="bi bi-truck-flatbed me-1"></i>Registrar disposición
+                <i class="bi bi-truck-flatbed me-1"></i>Registrar o agendar disposición
             </button>
             {% endif %}
         </div>
@@ -193,7 +280,8 @@
                         <td>{{ f.orden.cliente.nombre|truncatechars:40 }}</td>
                         <td>{{ f.servicio|date:"d/m/Y"|default:"—" }}</td>
                         <td class="font-monospace">{{ f.placa|default:"—" }}</td>
-                        <td><span class="dz-estado pendiente">{{ f.dias }} día{{ f.dias|pluralize }}</span></td>
+                        <td><span class="dz-estado pendiente">{{ f.dias }} día{{ f.dias|pluralize }}</span>
+                            {% if f.agendada %}<span class="dz-estado agendada" title="Va en un viaje agendado">Agendada {{ f.agendada.fecha|date:"d/m" }}</span>{% endif %}</td>
                     </tr>
                 {% endfor %}
                 </tbody>
@@ -206,15 +294,92 @@
     </div>
 </div>
 
-{% if n_pendientes %}
-{# ===== El popup: 1 órdenes → 2 viaje → 3 tiempos → 4 confirmar. Un solo <form>; se envía solo desde el paso 4. ===== #}
+{# Las plantillas de las tarjetas de tiempos: las usan el popup de registrar y el de confirmar un viaje agendado. #}
+<template id="dz-plantilla-persona">
+    <div class="dz-persona" data-persona="__ID__">
+        <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span>
+            <button type="button" class="btn btn-link dz-copiar"><i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás</button>
+        </div>
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="dz-etq" for="__FORM__-hora-__ID__">Hora de inicio</label>
+                <input type="time" name="hora___ID__" id="__FORM__-hora-__ID__" class="form-control form-control-sm" data-campo="hora">
+            </div>
+            <div class="col-6">
+                <label class="dz-etq" for="__FORM__-hora-fin-__ID__">Hora final</label>
+                <input type="time" name="hora_fin___ID__" id="__FORM__-hora-fin-__ID__" class="form-control form-control-sm" data-campo="hora_fin">
+            </div>
+        </div>
+        <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="suma_horas___ID__" value="1" id="__FORM__-suma-__ID__" data-campo="suma">
+            <label class="form-check-label" for="__FORM__-suma-__ID__">Sumar estas horas al historial de horas trabajadas</label>
+        </div>
+        <div class="dz-des-cab">
+            <span class="dz-etq">Descuentos de horas</span>
+            <button type="button" class="btn btn-link dz-anadir"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Añadir descuento</button>
+        </div>
+        <div class="dz-des-filas"></div>
+        <div class="dz-aviso" hidden></div>
+    </div>
+</template>
+<template id="dz-plantilla-descuento">
+    <div class="dz-des-fila">
+        <select name="des_horas___ID__" class="form-select form-select-sm" aria-label="Horas a descontar">
+            {% for h in descuento_horas %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}
+        </select>
+        <select name="des_minutos___ID__" class="form-select form-select-sm" aria-label="Minutos a descontar">
+            {% for m in descuento_minutos %}<option value="{{ m }}">{{ m|stringformat:"02d" }} min</option>{% endfor %}
+        </select>
+        <input type="text" name="des_motivo___ID__" class="form-control form-control-sm" maxlength="120"
+               placeholder="Motivo (ej. almuerzo)" aria-label="Motivo del descuento">
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 dz-quitar" title="Quitar" aria-label="Quitar descuento"><i class="bi bi-x-lg"></i></button>
+    </div>
+</template>
+{# Agendar (oct-2026): lo de cada persona según su cargo. Ayudante: las mismas novedades de la programación de una orden. #}
+<template id="dz-plantilla-ayudante">
+    <div class="dz-persona" data-persona="__ID__">
+        <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span><span class="dz-rol">Ayudante</span></div>
+        <div class="dz-etq">Novedades de su turno</div>
+        <div class="dz-novedades">
+            {% for codigo, etiqueta in novedades_ayudante %}
+            <label><input type="checkbox" class="form-check-input" name="nov___ID__" value="{{ codigo }}"{% if codigo == apoya_disposicion %} data-apoya{% endif %}>
+                {{ etiqueta }}{% if codigo in novedades_con_foto %} <i class="bi bi-camera-fill text-muted" title="Pide foto" aria-label="pide foto"></i>{% endif %}</label>
+            {% endfor %}
+        </div>
+        <div class="dz-apoya" hidden>
+            <label class="dz-etq" for="dz-apoya-__ID__">Apoya la disposición del vehículo</label>
+            <select name="apoya___ID__" id="dz-apoya-__ID__" class="form-select form-select-sm">
+                <option value="">El vehículo del viaje</option>
+                {% for v in vehiculos %}<option value="{{ v.pk }}">{{ v.placa }}</option>{% endfor %}
+            </select>
+        </div>
+        <label class="dz-etq" for="dz-obs-__ID__">Observaciones para el ayudante <span class="text-muted text-lowercase">(opcional)</span></label>
+        <textarea name="obs___ID__" id="dz-obs-__ID__" rows="2" class="form-control form-control-sm" placeholder="Le llega en su correo y en su enlace"></textarea>
+        <div class="dz-nota-rol"><i class="bi bi-envelope me-1" aria-hidden="true"></i>Le llega el correo con su enlace para ver el viaje{% if novedades_con_foto %} y subir las fotos que pidan sus novedades{% endif %}.</div>
+    </div>
+</template>
+<template id="dz-plantilla-conductor">
+    <div class="dz-persona" data-persona="__ID__">
+        <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span><span class="dz-rol">Conductor</span></div>
+        <div class="dz-nota-rol"><i class="bi bi-phone me-1" aria-hidden="true"></i>Le llega el correo y ese día ve el viaje en su portal, donde hace el preoperacional del vehículo.</div>
+    </div>
+</template>
+<template id="dz-plantilla-otro">
+    <div class="dz-persona" data-persona="__ID__">
+        <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span><span class="dz-rol otro"></span></div>
+        <div class="dz-nota-rol"><i class="bi bi-envelope me-1" aria-hidden="true"></i>Le llega el aviso de la actividad por correo.</div>
+    </div>
+</template>
+
+{% if hay_libres %}
+{# ===== El popup: 1 órdenes → 2 viaje → 3 tiempos (o novedades, si se agenda) → 4 confirmar. Un solo <form>; se envía solo desde el paso 4. ===== #}
 <div class="modal fade dz-modal" id="dz-modal" tabindex="-1" aria-labelledby="dz-titulo" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <form method="post" class="modal-content" id="form-disposicion" novalidate>
             {% csrf_token %}
             <input type="hidden" name="volver" value="{{ request.get_full_path }}">
             <div class="modal-header">
-                <h5 class="modal-title" id="dz-titulo">Registrar disposición
+                <h5 class="modal-title" id="dz-titulo">Registrar o agendar disposición
                     <small>Queda en el plan de trabajo del día del viaje</small>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -224,14 +389,14 @@
                 <ol class="dz-pasos list-unstyled mb-0" aria-label="Pasos">
                     <li class="dz-paso-tab" data-tab="1" aria-current="step"><span class="n">1</span>Órdenes</li>
                     <li class="dz-paso-tab" data-tab="2"><span class="n">2</span>Viaje</li>
-                    <li class="dz-paso-tab" data-tab="3"><span class="n">3</span>Tiempos</li>
+                    <li class="dz-paso-tab" data-tab="3"><span class="n">3</span><span id="dz-tab-3">Tiempos</span></li>
                     <li class="dz-paso-tab" data-tab="4"><span class="n">4</span>Confirmar</li>
                 </ol>
 
                 {# ---------- paso 1 ---------- #}
                 <section class="dz-paso" data-paso="1">
-                    <h6 tabindex="-1">¿Qué salió del camión?</h6>
-                    <div class="ayuda">Marca las órdenes que se dispusieron en el viaje. La placa es solo referencia: pueden ser de camiones distintos.</div>
+                    <h6 tabindex="-1">¿Qué sale del camión?</h6>
+                    <div class="ayuda">Marca las órdenes del viaje. La placa es solo referencia: pueden ser de camiones distintos. Las que ya están agendadas en otro viaje no salen aquí.</div>
                     <input type="search" class="form-control form-control-sm dz-buscar" id="dz-buscar"
                            placeholder="Buscar por orden, cliente o placa" aria-label="Buscar orden, cliente o placa" autocomplete="off">
                     <div class="dz-grupo">
@@ -239,7 +404,7 @@
                             <div><span class="cuantas">{{ n_pendientes }} sin disponer · en orden consecutivo</span></div>
                             <button type="button" class="btn btn-link dz-todo-camion">Marcar las visibles</button>
                         </div>
-                        {% for f in pendientes %}
+                        {% for f in pendientes %}{% if not f.agendada %}
                         <label class="dz-orden" data-buscar="{{ f.orden.numero_orden }} {{ f.orden.cliente.nombre|lower }} {{ f.placa|lower }}">
                             <input type="checkbox" class="form-check-input" name="ordenes" value="{{ f.orden.pk }}"
                                    data-orden="{{ f.orden.numero_orden }}" data-placa="{{ f.placa|default:'—' }}"
@@ -250,15 +415,21 @@
                             <span class="fec">{{ f.servicio|date:"d/m/Y"|default:"—" }}</span>
                             <span class="dias">{{ f.dias }} día{{ f.dias|pluralize }}</span>
                         </label>
-                        {% endfor %}
+                        {% endif %}{% endfor %}
                     </div>
                     <div class="dz-nada" id="dz-nada" hidden>Ninguna orden coincide con esa búsqueda.</div>
                 </section>
 
                 {# ---------- paso 2 ---------- #}
                 <section class="dz-paso" data-paso="2" hidden>
-                    <h6 tabindex="-1">¿Quién hizo el viaje, cuándo y a dónde?</h6>
-                    <div class="ayuda">Los mismos datos que pide el plan de trabajo.</div>
+                    <h6 tabindex="-1">¿Cuándo, quién y a dónde?</h6>
+                    {# Ya hecha: se dispone al registrar. Agendada: queda pendiente hasta que la oficina confirme. #}
+                    <div class="dz-cuando" role="radiogroup" aria-label="¿Cuándo es el viaje?">
+                        <label><input type="radio" name="cuando" value="hecha" checked>
+                            <span><strong>Ya se hizo</strong><small>Hoy o antes: las órdenes quedan dispuestas al registrar.</small></span></label>
+                        <label><input type="radio" name="cuando" value="futura">
+                            <span><strong>Agendar a futuro</strong><small>Hoy más tarde o un día que viene: se le avisa al personal y se confirma después.</small></span></label>
+                    </div>
                     <div class="row g-3">
                         <div class="col-md-7">
                             <div class="dz-etq">Quiénes</div>
@@ -266,7 +437,7 @@
                                 {% for grupo in personas_por_cargo %}
                                 <span class="cargo-mini">{{ grupo.cargo }}</span>
                                 {% for p in grupo.personas %}
-                                <label><input type="checkbox" name="personas" value="{{ p.pk }}" data-nombre="{{ p.nombre }}">{{ p.nombre }}</label>
+                                <label><input type="checkbox" name="personas" value="{{ p.pk }}" data-nombre="{{ p.nombre }}" data-rol="{{ p.rol }}" data-cargo="{{ grupo.cargo }}">{{ p.nombre }}</label>
                                 {% endfor %}
                                 {% endfor %}
                             </div>
@@ -274,10 +445,14 @@
                         <div class="col-md-5">
                             <label class="dz-etq" for="dz-fecha">Día del viaje</label>
                             <input type="date" name="fecha" id="dz-fecha" class="form-control form-control-sm"
-                                   value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" required>
-                            <label class="dz-etq" for="dz-vehiculo">Vehículo del viaje <span class="text-muted text-lowercase">(opcional)</span></label>
+                                   value="{{ hoy|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" data-hoy="{{ hoy|date:'Y-m-d' }}" required>
+                            <div class="dz-solo-futura" hidden>
+                                <label class="dz-etq" for="dz-hora-prog">Hora de salida <span class="text-muted text-lowercase">(opcional)</span></label>
+                                <input type="time" name="hora" id="dz-hora-prog" class="form-control form-control-sm" disabled>
+                            </div>
+                            <label class="dz-etq" for="dz-vehiculo">Vehículo del viaje <span class="text-muted text-lowercase" id="dz-vehiculo-etq">(opcional)</span></label>
                             <select name="vehiculo" id="dz-vehiculo" class="form-select form-select-sm">
-                                <option value="">Las placas de las órdenes marcadas</option>
+                                <option value="" id="dz-vehiculo-vacio">Las placas de las órdenes marcadas</option>
                                 {% for v in vehiculos %}
                                 <option value="{{ v.pk }}" data-placa="{{ v.placa }}">{{ v.placa }}{% if v.marca %} · {{ v.marca }}{% endif %}{% if v.estado != 'OPERATIVO' %} ({{ v.get_estado_display|lower }}){% endif %}</option>
                                 {% endfor %}
@@ -291,76 +466,43 @@
                             </select>
                             <label class="dz-etq" for="dz-detalle">Nota para el plan <span class="text-muted text-lowercase">(opcional)</span></label>
                             <input type="text" name="detalle" id="dz-detalle" class="form-control form-control-sm" maxlength="255" placeholder="Sale en el plan impreso">
-                            <div class="form-check mt-3">
+                            <div class="form-check mt-3 dz-solo-hecha">
                                 <input class="form-check-input" type="checkbox" name="notificar" value="1" id="dz-notificar">
                                 <label class="form-check-label" for="dz-notificar">Avisar por correo a los asignados</label>
                             </div>
+                            <div class="dz-nota-rol dz-solo-futura mt-3" hidden><i class="bi bi-envelope me-1" aria-hidden="true"></i>Al agendar se le avisa por correo a todos.</div>
                         </div>
                     </div>
                 </section>
 
-                {# ---------- paso 3: los tiempos de cada persona ---------- #}
-                {# Cada quien con sus horas, su casilla de sumar y sus descuentos (oct-2026). #}
-                {# Las tarjetas las arma el JS con las personas del paso 2 (plantillas abajo). #}
+                {# ---------- paso 3: tiempos (ya hecha) o novedades (agendada) de cada persona ---------- #}
                 <section class="dz-paso" data-paso="3" hidden>
-                    <h6 tabindex="-1">¿Cuánto tiempo trabajó cada uno?</h6>
-                    <div class="ayuda">Todo es opcional. Solo con «Sumar estas horas…» van al centro de control, y solo así se pueden descontar (almuerzo, pausas…).</div>
-                    <div id="dz-tiempos"></div>
-                    <template id="dz-plantilla-persona">
-                        <div class="dz-persona" data-persona="__ID__">
-                            <div class="cab"><i class="bi bi-person" aria-hidden="true"></i><span class="nombre"></span>
-                                <button type="button" class="btn btn-link dz-copiar"><i class="bi bi-files me-1" aria-hidden="true"></i>Copiar a los demás</button>
-                            </div>
-                            <div class="row g-2">
-                                <div class="col-6">
-                                    <label class="dz-etq" for="dz-hora-__ID__">Hora de inicio</label>
-                                    <input type="time" name="hora___ID__" id="dz-hora-__ID__" class="form-control form-control-sm" data-campo="hora">
-                                </div>
-                                <div class="col-6">
-                                    <label class="dz-etq" for="dz-hora-fin-__ID__">Hora final</label>
-                                    <input type="time" name="hora_fin___ID__" id="dz-hora-fin-__ID__" class="form-control form-control-sm" data-campo="hora_fin">
-                                </div>
-                            </div>
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" name="suma_horas___ID__" value="1" id="dz-suma-__ID__" data-campo="suma">
-                                <label class="form-check-label" for="dz-suma-__ID__">Sumar estas horas al historial de horas trabajadas</label>
-                            </div>
-                            <div class="dz-des-cab">
-                                <span class="dz-etq">Descuentos de horas</span>
-                                <button type="button" class="btn btn-link dz-anadir"><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Añadir descuento</button>
-                            </div>
-                            <div class="dz-des-filas"></div>
-                            <div class="dz-aviso" hidden></div>
-                        </div>
-                    </template>
-                    <template id="dz-plantilla-descuento">
-                        <div class="dz-des-fila">
-                            <select name="des_horas___ID__" class="form-select form-select-sm" aria-label="Horas a descontar">
-                                {% for h in descuento_horas %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}
-                            </select>
-                            <select name="des_minutos___ID__" class="form-select form-select-sm" aria-label="Minutos a descontar">
-                                {% for m in descuento_minutos %}<option value="{{ m }}">{{ m|stringformat:"02d" }} min</option>{% endfor %}
-                            </select>
-                            <input type="text" name="des_motivo___ID__" class="form-control form-control-sm" maxlength="120"
-                                   placeholder="Motivo (ej. almuerzo)" aria-label="Motivo del descuento">
-                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 dz-quitar" title="Quitar" aria-label="Quitar descuento"><i class="bi bi-x-lg"></i></button>
-                        </div>
-                    </template>
+                    <div class="dz-solo-hecha">
+                        <h6 tabindex="-1">¿Cuánto tiempo trabajó cada uno?</h6>
+                        <div class="ayuda">Todo es opcional. Solo con «Sumar estas horas…» van al centro de control, y solo así se pueden descontar (almuerzo, pausas…).</div>
+                        <div id="dz-tiempos"></div>
+                    </div>
+                    <div class="dz-solo-futura" hidden>
+                        <h6 tabindex="-1">¿Qué le toca a cada uno?</h6>
+                        <div class="ayuda">Lo de cada persona según su cargo. Las horas reales y los descuentos se ponen al confirmar que el viaje se hizo.</div>
+                        <div id="dz-roles"></div>
+                    </div>
                 </section>
 
                 {# ---------- paso 4 ---------- #}
                 <section class="dz-paso" data-paso="4" hidden>
-                    <h6 tabindex="-1">Revisa y registra</h6>
+                    <h6 tabindex="-1">Revisa y <span id="dz-verbo">registra</span></h6>
                     <div class="ayuda">Así va a quedar escrito en el plan de trabajo.</div>
                     <div class="dz-recibo">
                         <div class="cab" id="dz-recibo-cab">Plan del —</div>
                         <dl>
                             <dt>Actividad</dt><dd>Disposición final</dd>
+                            <dt>Registro</dt><dd id="dz-r-cuando">—</dd>
                             <dt>Quiénes</dt><dd id="dz-r-personas">—</dd>
                             <dt>Órdenes</dt><dd class="ordenes" id="dz-r-ordenes"></dd>
                             <dt>Vehículo</dt><dd id="dz-r-vehiculo">—</dd>
                             <dt>Gestor</dt><dd id="dz-r-gestor">—</dd>
-                            <dt>Tiempos</dt><dd class="tiempos" id="dz-r-tiempos">—</dd>
+                            <dt id="dz-r-tiempos-etq">Tiempos</dt><dd class="tiempos" id="dz-r-tiempos">—</dd>
                             <dt>Nota</dt><dd id="dz-r-nota">—</dd>
                             <dt>Correo</dt><dd id="dz-r-correo">—</dd>
                         </dl>
@@ -373,123 +515,74 @@
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-outline-secondary" id="dz-atras" hidden><i class="bi bi-arrow-left me-1"></i>Atrás</button>
                     <button type="button" class="btn btn-primary" id="dz-siguiente" disabled>Siguiente<i class="bi bi-arrow-right ms-1"></i></button>
-                    <button type="button" class="btn btn-success" id="dz-registrar" name="submit_disposicion" value="1" hidden><i class="bi bi-check2-circle me-1"></i>Registrar disposición</button>
+                    <button type="button" class="btn btn-success" id="dz-registrar" name="submit_disposicion" value="1" hidden><i class="bi bi-check2-circle me-1"></i><span id="dz-registrar-txt">Registrar disposición</span></button>
                 </div>
             </div>
         </form>
     </div>
 </div>
+{% endif %}
+
+{% if agendadas %}
+{# ===== Confirmar que un viaje agendado se hizo: las horas reales y los descuentos de cada uno ===== #}
+<div class="modal fade dz-modal" id="dz-confirmar" tabindex="-1" aria-labelledby="dzc-titulo" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form method="post" class="modal-content" id="form-confirmar" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ request.get_full_path }}">
+            <input type="hidden" name="viaje" id="dzc-viaje" value="">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dzc-titulo">Confirmar que el viaje se hizo
+                    <small id="dzc-sub">—</small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <section class="dz-paso">
+                    <h6 tabindex="-1">¿Cuánto tiempo trabajó cada uno?</h6>
+                    <div class="ayuda">Al confirmar, las órdenes quedan dispuestas. Solo con «Sumar estas horas…» van al centro de control, y solo así se pueden descontar.</div>
+                    <div id="dzc-tiempos"></div>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <div class="dz-resumen" id="dzc-resumen"></div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+                    <button type="button" class="btn btn-success" id="dzc-confirmar"><i class="bi bi-check2-circle me-1"></i>Confirmar realizada</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <script>
-(function () {
-    // Popup por pasos. Todo con addEventListener: no necesita el objeto bootstrap
-    // (el bundle carga después de este bloque). Abre con data-bs-toggle.
-    var modal = document.getElementById('dz-modal');
-    var form = document.getElementById('form-disposicion');
-    if (!modal || !form) return;
-
-    var paso = 1;
-    var tabs = modal.querySelectorAll('.dz-paso-tab');
-    var secciones = modal.querySelectorAll('.dz-paso');
-    var btnAtras = document.getElementById('dz-atras');
-    var btnSiguiente = document.getElementById('dz-siguiente');
-    var btnRegistrar = document.getElementById('dz-registrar');
-    var resumen = document.getElementById('dz-resumen');
-    var buscar = document.getElementById('dz-buscar');
-    var nada = document.getElementById('dz-nada');
-
-    function marcadas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="ordenes"]:checked')); }
-    function personas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="personas"]:checked')); }
-    function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
-
-    function pintarResumen() {
-        var m = marcadas();
-        if (!m.length) { resumen.textContent = 'Ninguna orden marcada'; return; }
-        var placas = {};
-        m.forEach(function (c) { placas[c.dataset.placa] = 1; });
-        var nPlacas = Object.keys(placas).length;
-        resumen.innerHTML = '<strong>' + plural(m.length, 'orden', 'órdenes') + '</strong> · ' + plural(nPlacas, 'camión', 'camiones');
-    }
-
-    function pintarRecibo() {
-        var fecha = document.getElementById('dz-fecha').value;
-        var partes = fecha ? fecha.split('-') : null;
-        document.getElementById('dz-recibo-cab').textContent =
-            'Plan del ' + (partes ? partes[2] + '/' + partes[1] + '/' + partes[0] : '—');
-        var nombres = personas().map(function (p) { return p.dataset.nombre; });
-        document.getElementById('dz-r-personas').textContent = nombres.join(', ') || '—';
-        var porPlaca = {};
-        marcadas().forEach(function (c) { (porPlaca[c.dataset.placa] = porPlaca[c.dataset.placa] || []).push('#' + c.dataset.orden); });
-        var cont = document.getElementById('dz-r-ordenes');
-        cont.innerHTML = '';
-        Object.keys(porPlaca).sort().forEach(function (placa) {
-            var chip = document.createElement('span'); chip.className = 'placa'; chip.textContent = placa; cont.appendChild(chip);
-            porPlaca[placa].forEach(function (o) { var s = document.createElement('span'); s.textContent = o; cont.appendChild(s); });
-        });
-        var vehiculo = document.getElementById('dz-vehiculo');
-        document.getElementById('dz-r-vehiculo').textContent = vehiculo.value
-            ? vehiculo.options[vehiculo.selectedIndex].text
-            : 'Las placas de las órdenes (' + (Object.keys(placasMarcadas()).join(', ') || '—') + ')';
-        var gestor = document.getElementById('dz-gestor');
-        document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
-        // Los tiempos de cada uno, como van a quedar.
-        var rt = document.getElementById('dz-r-tiempos');
-        rt.innerHTML = '';
-        tarjetas().forEach(function (t) {
-            var d = datosDe(t);
-            var linea = document.createElement('div');
-            linea.textContent = t.querySelector('.nombre').textContent + ': '
-                + (d.inicio ? (d.fin ? d.inicio + '–' + d.fin : 'desde ' + d.inicio) : 'sin horas')
-                + (d.suma ? ' · suman al historial' : ' · no suman');
-            rt.appendChild(linea);
-            if (d.descuentos.length) {
-                var des = document.createElement('div');
-                des.className = 'des';
-                des.textContent = d.descuentos.map(function (x) { return '−' + textoHoras(x.min) + ' · ' + x.motivo; }).join('; ')
-                    + (d.inicio && d.fin ? ' → se liquidan ' + textoHoras(Math.max(minutosDe(d.fin) - minutosDe(d.inicio) - d.totalDes, 0)) : '');
-                rt.appendChild(des);
-            }
-        });
-        if (!rt.childElementCount) rt.textContent = '—';
-        document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
-        document.getElementById('dz-r-correo').textContent =
-            document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo';
-    }
-
-    function listo() {
-        // Lo que hace falta para poder avanzar desde cada paso.
-        if (paso === 1) return marcadas().length > 0;
-        if (paso === 2) return personas().length > 0 && !!document.getElementById('dz-fecha').value;
-        if (paso === 3) return tarjetas().every(function (t) { return !errorDe(t); });
-        return true;
-    }
-
-    // ===== Paso 3: los tiempos de cada persona =====
-    var contTiempos = document.getElementById('dz-tiempos');
+// ===== Las tarjetas de tiempos de cada persona (horas, casilla de sumar y descuentos) =====
+// Las usan el paso «Tiempos» del popup y el de confirmar un viaje agendado.
+function crearTiempos(cont, prefijo, alCambiar) {
     var plantillaPersona = document.getElementById('dz-plantilla-persona');
     var plantillaDescuento = document.getElementById('dz-plantilla-descuento');
-    function tarjetas() { return Array.prototype.slice.call(contTiempos.querySelectorAll('.dz-persona')); }
+    function tarjetas() { return Array.prototype.slice.call(cont.querySelectorAll('.dz-persona')); }
     function deHtml(plantilla, id) {
         var caja = document.createElement('div');
-        caja.innerHTML = plantilla.innerHTML.split('__ID__').join(id).trim();
+        caja.innerHTML = plantilla.innerHTML.split('__ID__').join(id).split('__FORM__').join(prefijo).trim();
         return caja.firstElementChild;
     }
-    // Una tarjeta por persona marcada en el paso 2, en el mismo orden; las de
-    // quien se desmarcó se quitan y las que ya estaban conservan lo escrito.
-    function sincronizarTarjetas() {
-        var marcados = personas();
-        var ids = marcados.map(function (p) { return p.value; });
+    // Una tarjeta por persona, en el mismo orden; las de quien ya no va se
+    // quitan y las que ya estaban conservan lo escrito.
+    function sincronizar(personas) {
+        var ids = personas.map(function (p) { return String(p.id); });
         tarjetas().forEach(function (t) { if (ids.indexOf(t.dataset.persona) === -1) t.remove(); });
-        marcados.forEach(function (p) {
-            var t = contTiempos.querySelector('.dz-persona[data-persona="' + p.value + '"]');
+        personas.forEach(function (p) {
+            var t = cont.querySelector('.dz-persona[data-persona="' + p.id + '"]');
             if (!t) {
-                t = deHtml(plantillaPersona, p.value);
-                t.querySelector('.nombre').textContent = p.dataset.nombre;
+                t = deHtml(plantillaPersona, p.id);
+                t.querySelector('.nombre').textContent = p.nombre;
             }
-            contTiempos.appendChild(t);
+            cont.appendChild(t);
         });
-        tarjetas().forEach(function (t) { t.querySelector('.dz-copiar').hidden = marcados.length < 2; });
-        revisarTarjetas();
+        tarjetas().forEach(function (t) { t.querySelector('.dz-copiar').hidden = personas.length < 2; });
+        revisar();
     }
     function anadirDescuento(t, valores) {
         var fila = deHtml(plantillaDescuento, t.dataset.persona);
@@ -501,25 +594,19 @@
         t.querySelector('.dz-des-filas').appendChild(fila);
         return fila;
     }
-    function minutosDe(hhmm) { var p = hhmm.split(':'); return Number(p[0]) * 60 + Number(p[1]); }
-    function textoHoras(min) {
-        var h = Math.floor(min / 60), m = min % 60;
-        if (!h) return m + ' min';
-        return m ? h + ' h ' + (m < 10 ? '0' : '') + m + ' min' : h + ' h';
-    }
     function datosDe(t) {
         var d = {
             inicio: t.querySelector('[data-campo="hora"]').value,
             fin: t.querySelector('[data-campo="hora_fin"]').value,
             suma: t.querySelector('[data-campo="suma"]').checked,
-            descuentos: [], vacias: 0, totalDes: 0, sinTiempo: false, sinMotivo: false,
+            descuentos: [], totalDes: 0, sinTiempo: false, sinMotivo: false,
         };
         t.querySelectorAll('.dz-des-fila').forEach(function (f) {
             var h = f.querySelector('select[name^="des_horas"]').value;
             var m = f.querySelector('select[name^="des_minutos"]').value;
             var motivo = f.querySelector('input[name^="des_motivo"]').value.trim();
             var min = Number(h) * 60 + Number(m);
-            if (!min && !motivo) { d.vacias++; return; }
+            if (!min && !motivo) return;
             if (!min) d.sinTiempo = true;
             if (!motivo) d.sinMotivo = true;
             if (min && motivo) { d.descuentos.push({ h: h, m: m, min: min, motivo: motivo }); d.totalDes += min; }
@@ -540,16 +627,31 @@
                 + textoHoras(minutosDe(d.fin) - minutosDe(d.inicio)) + ').';
         return '';
     }
-    function revisarTarjetas() {
+    function valido() { return tarjetas().every(function (t) { return !errorDe(t); }); }
+    function revisar() {
         tarjetas().forEach(function (t) {
             var error = errorDe(t), aviso = t.querySelector('.dz-aviso');
             aviso.textContent = error;
             aviso.hidden = !error;
             t.classList.toggle('con-error', !!error);
         });
-        if (paso === 3) btnSiguiente.disabled = !listo();
+        if (alCambiar) alCambiar();
     }
-    contTiempos.addEventListener('click', function (e) {
+    // «06:00–14:00 · suman al historial» y, debajo, sus descuentos y lo que se liquida.
+    function lineas() {
+        return tarjetas().map(function (t) {
+            var d = datosDe(t);
+            var linea = t.querySelector('.nombre').textContent + ': '
+                + (d.inicio ? (d.fin ? d.inicio + '–' + d.fin : 'desde ' + d.inicio) : 'sin horas')
+                + (d.suma ? ' · suman al historial' : ' · no suman');
+            var des = d.descuentos.length
+                ? d.descuentos.map(function (x) { return '−' + textoHoras(x.min) + ' · ' + x.motivo; }).join('; ')
+                  + (d.inicio && d.fin ? ' → se liquidan ' + textoHoras(Math.max(minutosDe(d.fin) - minutosDe(d.inicio) - d.totalDes, 0)) : '')
+                : '';
+            return { linea: linea, des: des };
+        });
+    }
+    cont.addEventListener('click', function (e) {
         var t = e.target.closest('.dz-persona');
         if (!t) return;
         if (e.target.closest('.dz-anadir')) {
@@ -557,7 +659,7 @@
         } else if (e.target.closest('.dz-quitar')) {
             e.target.closest('.dz-des-fila').remove();
         } else if (e.target.closest('.dz-copiar')) {
-            // Las mismas horas, casilla y descuentos para los demás del viaje.
+            // Las mismas horas, casilla y descuentos para los demás.
             var d = datosDe(t);
             tarjetas().forEach(function (otra) {
                 if (otra === t) return;
@@ -570,18 +672,171 @@
         } else {
             return;
         }
-        revisarTarjetas();
+        revisar();
     });
-    contTiempos.addEventListener('change', function (e) {
+    cont.addEventListener('change', function (e) {
         var t = e.target.closest('.dz-persona');
         // La casilla de sumar se marca sola al escribir las dos horas (se puede desmarcar).
         if (t && (e.target.dataset.campo === 'hora' || e.target.dataset.campo === 'hora_fin')) {
             t.querySelector('[data-campo="suma"]').checked =
                 !!(t.querySelector('[data-campo="hora"]').value && t.querySelector('[data-campo="hora_fin"]').value);
         }
-        revisarTarjetas();
+        revisar();
     });
-    contTiempos.addEventListener('input', revisarTarjetas);
+    cont.addEventListener('input', revisar);
+    return { sincronizar: sincronizar, valido: valido, lineas: lineas, tarjetas: tarjetas };
+}
+function minutosDe(hhmm) { var p = hhmm.split(':'); return Number(p[0]) * 60 + Number(p[1]); }
+function textoHoras(min) {
+    var h = Math.floor(min / 60), m = min % 60;
+    if (!h) return m + ' min';
+    return m ? h + ' h ' + (m < 10 ? '0' : '') + m + ' min' : h + ' h';
+}
+
+(function () {
+    // Popup por pasos. Todo con addEventListener: no necesita el objeto bootstrap
+    // (el bundle carga después de este bloque). Abre con data-bs-toggle.
+    var modal = document.getElementById('dz-modal');
+    var form = document.getElementById('form-disposicion');
+    if (!modal || !form) return;
+
+    var paso = 1;
+    var tabs = modal.querySelectorAll('.dz-paso-tab');
+    var secciones = modal.querySelectorAll('.dz-paso');
+    var btnAtras = document.getElementById('dz-atras');
+    var btnSiguiente = document.getElementById('dz-siguiente');
+    var btnRegistrar = document.getElementById('dz-registrar');
+    var resumen = document.getElementById('dz-resumen');
+    var buscar = document.getElementById('dz-buscar');
+    var nada = document.getElementById('dz-nada');
+    var fecha = document.getElementById('dz-fecha');
+    var tiempos = crearTiempos(document.getElementById('dz-tiempos'), 'dz', function () {
+        if (paso === 3) btnSiguiente.disabled = !listo();
+    });
+    var contRoles = document.getElementById('dz-roles');
+
+    function marcadas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="ordenes"]:checked')); }
+    function personas() { return Array.prototype.slice.call(form.querySelectorAll('input[name="personas"]:checked')); }
+    function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
+    function futura() { return form.querySelector('input[name="cuando"]:checked').value === 'futura'; }
+
+    // «Ya se hizo» o «Agendar a futuro»: cambia la fecha permitida, lo que se pide y el paso 3.
+    function pintarCuando() {
+        var f = futura(), hoy = fecha.dataset.hoy;
+        if (f) { fecha.removeAttribute('max'); fecha.min = hoy; if (fecha.value < hoy) fecha.value = hoy; }
+        else { fecha.removeAttribute('min'); fecha.max = hoy; if (fecha.value > hoy) fecha.value = hoy; }
+        modal.querySelectorAll('.dz-solo-futura').forEach(function (el) { el.hidden = !f; });
+        modal.querySelectorAll('.dz-solo-hecha').forEach(function (el) { el.hidden = f; });
+        document.getElementById('dz-hora-prog').disabled = !f;
+        document.getElementById('dz-vehiculo-etq').textContent = f ? '(obligatorio: el conductor hace su preoperacional)' : '(opcional)';
+        document.getElementById('dz-vehiculo-vacio').textContent = f ? 'Elige el vehículo' : 'Las placas de las órdenes marcadas';
+        document.getElementById('dz-tab-3').textContent = f ? 'Novedades' : 'Tiempos';
+        document.getElementById('dz-verbo').textContent = f ? 'agenda' : 'registra';
+        document.getElementById('dz-registrar-txt').textContent = f ? 'Agendar disposición' : 'Registrar disposición';
+        // Las horas y descuentos de cada uno solo se envían al registrar uno ya hecho.
+        document.getElementById('dz-tiempos').querySelectorAll('input, select').forEach(function (c) { c.disabled = f; });
+        contRoles.querySelectorAll('input, select, textarea').forEach(function (c) { c.disabled = !f; });
+    }
+
+    // Agendar: una tarjeta por persona según su cargo (conductor, ayudante u otro).
+    function sincronizarRoles() {
+        var marcados = personas();
+        var ids = marcados.map(function (p) { return p.value; });
+        contRoles.querySelectorAll('.dz-persona').forEach(function (t) { if (ids.indexOf(t.dataset.persona) === -1) t.remove(); });
+        marcados.forEach(function (p) {
+            var t = contRoles.querySelector('.dz-persona[data-persona="' + p.value + '"]');
+            if (!t) {
+                var plantilla = document.getElementById('dz-plantilla-' + (p.dataset.rol || 'otro'));
+                var caja = document.createElement('div');
+                caja.innerHTML = plantilla.innerHTML.split('__ID__').join(p.value).trim();
+                t = caja.firstElementChild;
+                t.querySelector('.nombre').textContent = p.dataset.nombre;
+                var otro = t.querySelector('.dz-rol.otro');
+                if (otro) otro.textContent = p.dataset.cargo;
+            }
+            contRoles.appendChild(t);
+        });
+    }
+    contRoles.addEventListener('change', function (e) {
+        // «Apoya disposición de:» muestra el vehículo del que apoya.
+        if (e.target.hasAttribute('data-apoya')) {
+            e.target.closest('.dz-persona').querySelector('.dz-apoya').hidden = !e.target.checked;
+        }
+    });
+
+    function pintarResumen() {
+        var m = marcadas();
+        if (!m.length) { resumen.textContent = 'Ninguna orden marcada'; return; }
+        var placas = {};
+        m.forEach(function (c) { placas[c.dataset.placa] = 1; });
+        var nPlacas = Object.keys(placas).length;
+        resumen.innerHTML = '<strong>' + plural(m.length, 'orden', 'órdenes') + '</strong> · ' + plural(nPlacas, 'camión', 'camiones');
+    }
+
+    function pintarRecibo() {
+        var f = futura();
+        var partes = fecha.value ? fecha.value.split('-') : null;
+        document.getElementById('dz-recibo-cab').textContent =
+            'Plan del ' + (partes ? partes[2] + '/' + partes[1] + '/' + partes[0] : '—');
+        var hora = document.getElementById('dz-hora-prog').value;
+        document.getElementById('dz-r-cuando').textContent = f
+            ? 'Agendada' + (hora ? ' · sale a las ' + hora : '') + ' · las órdenes se disponen al confirmar'
+            : 'Ya se hizo · las órdenes quedan dispuestas';
+        var nombres = personas().map(function (p) { return p.dataset.nombre; });
+        document.getElementById('dz-r-personas').textContent = nombres.join(', ') || '—';
+        var porPlaca = {};
+        marcadas().forEach(function (c) { (porPlaca[c.dataset.placa] = porPlaca[c.dataset.placa] || []).push('#' + c.dataset.orden); });
+        var cont = document.getElementById('dz-r-ordenes');
+        cont.innerHTML = '';
+        Object.keys(porPlaca).sort().forEach(function (placa) {
+            var chip = document.createElement('span'); chip.className = 'placa'; chip.textContent = placa; cont.appendChild(chip);
+            porPlaca[placa].forEach(function (o) { var s = document.createElement('span'); s.textContent = o; cont.appendChild(s); });
+        });
+        var vehiculo = document.getElementById('dz-vehiculo');
+        document.getElementById('dz-r-vehiculo').textContent = vehiculo.value
+            ? vehiculo.options[vehiculo.selectedIndex].text
+            : 'Las placas de las órdenes (' + (Object.keys(placasMarcadas()).join(', ') || '—') + ')';
+        var gestor = document.getElementById('dz-gestor');
+        document.getElementById('dz-r-gestor').textContent = gestor.value ? gestor.options[gestor.selectedIndex].text : 'Sin gestor';
+        var rt = document.getElementById('dz-r-tiempos');
+        rt.innerHTML = '';
+        document.getElementById('dz-r-tiempos-etq').textContent = f ? 'Novedades' : 'Tiempos';
+        if (f) {
+            // Lo de cada uno según su cargo.
+            personas().forEach(function (p) {
+                var t = contRoles.querySelector('.dz-persona[data-persona="' + p.value + '"]');
+                var texto = p.dataset.nombre + ': ';
+                if (p.dataset.rol === 'conductor') texto += 'conductor · preoperacional en su portal';
+                else if (p.dataset.rol === 'ayudante') {
+                    var nov = t ? Array.prototype.slice.call(t.querySelectorAll('input[name^="nov_"]:checked'))
+                        .map(function (c) { return c.parentNode.textContent.trim(); }) : [];
+                    texto += 'ayudante · ' + (nov.length ? nov.join(', ') : 'sin novedades marcadas');
+                } else texto += 'aviso de la actividad';
+                var linea = document.createElement('div'); linea.textContent = texto; rt.appendChild(linea);
+            });
+        } else {
+            tiempos.lineas().forEach(function (l) {
+                var linea = document.createElement('div'); linea.textContent = l.linea; rt.appendChild(linea);
+                if (l.des) { var d = document.createElement('div'); d.className = 'des'; d.textContent = l.des; rt.appendChild(d); }
+            });
+        }
+        if (!rt.childElementCount) rt.textContent = '—';
+        document.getElementById('dz-r-nota').textContent = document.getElementById('dz-detalle').value.trim() || '—';
+        document.getElementById('dz-r-correo').textContent = f ? 'Se les avisa por correo a todos'
+            : (document.getElementById('dz-notificar').checked ? 'Se les avisa por correo' : 'Sin aviso por correo');
+    }
+
+    function listo() {
+        // Lo que hace falta para poder avanzar desde cada paso.
+        if (paso === 1) return marcadas().length > 0;
+        if (paso === 2) {
+            if (!personas().length || !fecha.value) return false;
+            if (futura()) return fecha.value >= fecha.dataset.hoy && !!document.getElementById('dz-vehiculo').value;
+            return fecha.value <= fecha.dataset.hoy;
+        }
+        if (paso === 3) return futura() || tiempos.valido();
+        return true;
+    }
 
     // Las placas de las órdenes marcadas (sin el «—» de las que no tienen).
     function placasMarcadas() {
@@ -603,7 +858,11 @@
     function irA(n) {
         paso = n;
         if (n === 2) proponerVehiculo();
-        if (n === 3) sincronizarTarjetas();
+        if (n === 3) {
+            tiempos.sincronizar(personas().map(function (p) { return { id: p.value, nombre: p.dataset.nombre }; }));
+            sincronizarRoles();
+            pintarCuando();
+        }
         secciones.forEach(function (s) { s.hidden = Number(s.dataset.paso) !== n; });
         tabs.forEach(function (t) {
             var k = Number(t.dataset.tab);
@@ -615,8 +874,8 @@
         btnRegistrar.hidden = n !== 4;
         btnSiguiente.disabled = !listo();
         if (n === 4) pintarRecibo();
-        var titulo = modal.querySelector('.dz-paso[data-paso="' + n + '"] h6');
-        if (titulo) titulo.focus();
+        var titulo = modal.querySelector('.dz-paso[data-paso="' + n + '"] h6:not([hidden])');
+        if (titulo && titulo.offsetParent !== null) titulo.focus();
         modal.querySelector('.modal-body').scrollTop = 0;
     }
 
@@ -632,7 +891,7 @@
     });
     form.addEventListener('submit', function (e) { e.preventDefault(); });
     form.addEventListener('keydown', function (e) {
-        if (e.key !== 'Enter' || e.target.type === 'checkbox') return;
+        if (e.key !== 'Enter' || e.target.type === 'checkbox' || e.target.tagName === 'TEXTAREA') return;
         e.preventDefault();
         // En el buscador, Enter solo busca (ya filtra al escribir); en los
         // demás campos avanza si el paso está completo.
@@ -642,6 +901,7 @@
 
     form.addEventListener('change', function (e) {
         if (e.target.name === 'ordenes') pintarResumen();
+        if (e.target.name === 'cuando') pintarCuando();
         btnSiguiente.disabled = !listo();
     });
 
@@ -679,8 +939,39 @@
     });
     modal.addEventListener('shown.bs.modal', function () { irA(1); buscar.focus(); });
 
+    pintarCuando();
     pintarResumen();
 })();
+
+(function () {
+    // Confirmar un viaje agendado: el botón de cada viaje trae quiénes fueron.
+    var modal = document.getElementById('dz-confirmar');
+    var form = document.getElementById('form-confirmar');
+    if (!modal || !form) return;
+    var boton = document.getElementById('dzc-confirmar');
+    var resumen = document.getElementById('dzc-resumen');
+    var tiempos = crearTiempos(document.getElementById('dzc-tiempos'), 'dzc', function () {
+        boton.disabled = !tiempos.valido();
+        resumen.textContent = boton.disabled ? 'Revisa los tiempos marcados en rojo.' : '';
+    });
+    modal.addEventListener('show.bs.modal', function (e) {
+        var origen = e.relatedTarget;
+        if (!origen) return;
+        document.getElementById('dzc-viaje').value = origen.dataset.viaje;
+        document.getElementById('dzc-sub').textContent = origen.dataset.titulo;
+        document.getElementById('dzc-tiempos').innerHTML = '';
+        tiempos.sincronizar(JSON.parse(origen.dataset.personas));
+        boton.disabled = false;
+    });
+    boton.addEventListener('click', function () {
+        if (!tiempos.valido()) return;
+        boton.disabled = true;
+        var oculto = document.createElement('input');
+        oculto.type = 'hidden'; oculto.name = 'submit_confirmar_viaje'; oculto.value = '1';
+        form.appendChild(oculto);
+        form.submit();
+    });
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+})();
 </script>
-{% endif %}
 {% endblock %}

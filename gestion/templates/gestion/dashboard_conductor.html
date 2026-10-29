@@ -7,14 +7,34 @@
     <header class="cd-cab">
         <div class="fecha">{{ hoy|date:"l j \d\e F"|lower|capfirst }}</div>
         <h1>Hola, {{ user.first_name|default:user.username }}</h1>
-        <p>{% with n=tarjetas_hoy|length %}{% if n %}Hoy tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }}.{% else %}Hoy no tienes servicios.{% endif %}{% endwith %}</p>
+        <p>{% with n=total_hoy %}{% if n %}Hoy tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }}.{% else %}Hoy no tienes servicios.{% endif %}{% endwith %}</p>
     </header>
 
     <h2 class="cd-sec">Hoy</h2>
+    {# Los viajes de disposición agendados (oct-2026): tarjeta aparte, distinta a la de una orden. #}
+    {% for v in viajes_hoy %}
+    <article class="cd-card {% if v.pre %}cerrada{% endif %}" aria-label="Viaje de disposición">
+        <p class="cd-dir"><i class="bi bi-recycle" aria-hidden="true"></i>Disposición final{% if v.viaje.dispositor %} · {{ v.viaje.dispositor.nombre }}{% endif %}</p>
+        <div class="cd-meta">
+            {% if v.viaje.hora %}<span><i class="bi bi-clock" aria-hidden="true"></i> {{ v.viaje.hora|time:"g:i a" }}</span>{% endif %}
+            <span>{{ v.viaje.vehiculo.placa }}</span>
+            <span>{{ v.viaje.ordenes.all|length }} orden{{ v.viaje.ordenes.all|length|pluralize:"es" }}</span>
+        </div>
+        {% if v.pre %}
+        <div class="cd-estado listo"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Preoperacional hecho. Buen viaje.</div>
+        {% else %}
+        <div class="cd-estado falta"><i class="bi bi-circle-half" aria-hidden="true"></i><span>Te falta <strong>el preoperacional</strong>.</span></div>
+        {% endif %}
+        <div class="cd-acciones" style="grid-template-columns:1fr">
+            <a href="{% url 'gestion:viaje_conductor' v.viaje.pk %}" class="cd-btn {% if v.pre %}sec{% else %}pri{% endif %}">
+                {% if v.pre %}Ver viaje{% else %}Abrir viaje{% endif %}<i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+        </div>
+    </article>
+    {% endfor %}
     {% for t in tarjetas_hoy %}
     {% include 'gestion/partials/_tarjeta_servicio_conductor.html' %}
     {% empty %}
-    <div class="cd-vacio"><i class="bi bi-cup-hot" aria-hidden="true"></i>No tienes servicios para hoy.</div>
+    {% if not viajes_hoy %}<div class="cd-vacio"><i class="bi bi-cup-hot" aria-hidden="true"></i>No tienes servicios para hoy.</div>{% endif %}
     {% endfor %}
 
 </div>

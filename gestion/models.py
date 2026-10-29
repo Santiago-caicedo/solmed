@@ -1345,8 +1345,14 @@ class Preoperacional(models.Model):
     trazabilidad mes a mes. Un dictamen «No apto» o un ítem malo no frena el
     servicio: queda registrado con alerta y se le avisa a gestión por correo.
     """
+    # Es de UN servicio (recorrido) o de UN viaje de disposición agendado
+    # (oct-2026): uno de los dos, nunca ambos.
     recorrido = models.OneToOneField(
-        Recorrido, on_delete=models.CASCADE, related_name='preoperacional')
+        Recorrido, on_delete=models.CASCADE, related_name='preoperacional',
+        null=True, blank=True)
+    viaje = models.OneToOneField(
+        'planes.ViajeDisposicion', on_delete=models.CASCADE, related_name='preoperacional',
+        null=True, blank=True)
     # Copia del tipo del vehículo al momento de la revisión: si la oficina
     # lo cambia después, el registro sigue diciendo qué lista se llenó.
     tipo_vehiculo = models.CharField(max_length=20, choices=TIPOS_VEHICULO)
@@ -1364,7 +1370,39 @@ class Preoperacional(models.Model):
         verbose_name_plural = "Preoperacionales"
 
     def __str__(self):
+        if self.viaje_id:
+            return f"Preoperacional - Disposición #{self.viaje_id}"
         return f"Preoperacional - Recorrido #{self.recorrido_id}"
+
+    # ---- Lo mismo, venga de un servicio o de un viaje de disposición ----
+    @property
+    def fecha_servicio(self):
+        return self.viaje.fecha if self.viaje_id else self.recorrido.fecha_recorrido
+
+    @property
+    def vehiculo(self):
+        return self.viaje.vehiculo if self.viaje_id else self.recorrido.vehiculo
+
+    @property
+    def conductor(self):
+        """El conductor del servicio; en un viaje, quien lo diligenció."""
+        return self.diligenciado_por if self.viaje_id else self.recorrido.conductor
+
+    @property
+    def orden(self):
+        """La orden del servicio (None en un viaje de disposición)."""
+        return None if self.viaje_id else self.recorrido.orden
+
+    @property
+    def referencia(self):
+        """«Orden #22208» o «Disposición final» (pantallas, PDF y Excel)."""
+        return "Disposición final" if self.viaje_id else f"Orden #{self.recorrido.orden.numero_orden}"
+
+    @property
+    def cliente_texto(self):
+        if self.viaje_id:
+            return f"Órdenes {self.viaje.numeros_ordenes()}"
+        return self.recorrido.orden.cliente.nombre
 
     @property
     def apto(self):

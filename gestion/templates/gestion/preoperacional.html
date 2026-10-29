@@ -11,20 +11,21 @@ fijo abajo. El vehículo y el conductor los pone el sistema.
 {% endcomment %}
 
 <div class="cd">
-    <a class="cd-volver" href="{{ url_volver }}"><i class="bi bi-chevron-left" aria-hidden="true"></i>{% if recorrido.conductor_id == request.user.id %}Tu servicio{% else %}Volver{% endif %}</a>
+    {# `datos` sale de la vista: sirve igual para un servicio y para un viaje de disposición (oct-2026). #}
+    <a class="cd-volver" href="{{ url_volver }}"><i class="bi bi-chevron-left" aria-hidden="true"></i>{% if datos.es_suyo %}Tu servicio{% else %}Volver{% endif %}</a>
     <header class="cd-cab">
-        <div class="fecha">Orden #{{ recorrido.orden.numero_orden }} · {{ recorrido.fecha_recorrido|date:"j \d\e F"|capfirst }}</div>
+        <div class="fecha">{{ datos.referencia }} · {{ datos.fecha|date:"j \d\e F"|capfirst }}</div>
         <h1>Preoperacional del vehículo</h1>
-        <p>Revisa el {{ recorrido.vehiculo.placa }} punto por punto antes de salir.</p>
+        <p>Revisa el {{ datos.vehiculo.placa }} punto por punto antes de salir.</p>
     </header>
 
     {# Lo que pone el sistema: el conductor no lo escribe. #}
     <div class="pe-datos" aria-label="Datos del vehículo y del servicio">
-        <div><span class="k">Placa</span><span class="v mono">{{ recorrido.vehiculo.placa }}</span></div>
-        <div><span class="k">Vehículo</span><span class="v">{{ recorrido.vehiculo.marca }} {{ recorrido.vehiculo.modelo }}</span></div>
+        <div><span class="k">Placa</span><span class="v mono">{{ datos.vehiculo.placa }}</span></div>
+        <div><span class="k">Vehículo</span><span class="v">{{ datos.vehiculo.marca }} {{ datos.vehiculo.modelo }}</span></div>
         <div><span class="k">Lista de chequeo</span><span class="v">{{ tipo_nombre }}</span></div>
-        <div><span class="k">Conductor</span><span class="v">{% if recorrido.conductor %}{{ recorrido.conductor.get_full_name|default:recorrido.conductor.username }}{% else %}—{% endif %}</span></div>
-        <div><span class="k">Cliente</span><span class="v">{{ recorrido.orden.cliente.nombre }}</span></div>
+        <div><span class="k">Conductor</span><span class="v">{% if datos.conductor %}{{ datos.conductor.get_full_name|default:datos.conductor.username }}{% else %}—{% endif %}</span></div>
+        <div><span class="k">{{ datos.cliente_etiqueta }}</span><span class="v">{{ datos.cliente }}</span></div>
     </div>
 
     {% if ya_diligenciado %}

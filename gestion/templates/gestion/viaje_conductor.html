@@ -1,0 +1,63 @@
+{% extends "gestion/base.html" %}
+{% block title %}Viaje de disposición{% endblock %}
+{% block content %}
+{% include 'gestion/partials/_conductor_estilos.html' %}
+{% comment %}
+El viaje de disposición agendado, en el portal del conductor (oct-2026). Es
+distinto al de una orden: no hay acta ni encuesta; lo único que le toca es
+el preoperacional del vehículo antes de salir. La oficina confirma después
+que el viaje se hizo.
+{% endcomment %}
+<style>
+.vj-datos{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:.4rem 1.1rem; margin-bottom:1rem; }
+.vj-dato{ display:flex; gap:.8rem; padding:.6rem 0; border-top:1px solid var(--line-2); font-size:1rem; }
+.vj-dato:first-child{ border-top:0; }
+.vj-dato .et{ flex:0 0 110px; color:var(--ink-2); font-size:.9rem; }
+.vj-dato .va{ font-weight:600; min-width:0; }
+.vj-ordenes{ background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; margin-bottom:1rem; }
+.vj-orden{ display:flex; gap:.8rem; align-items:baseline; padding:.7rem 1.1rem; border-top:1px solid var(--line-2); }
+.vj-orden:first-child{ border-top:0; }
+.vj-orden .num{ font-family:var(--mono); font-weight:700; }
+.vj-orden .cli{ flex:1; min-width:0; }
+.vj-orden .pl{ font-family:var(--mono); font-size:.8rem; color:var(--ink-3); }
+.vj-tarea{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1rem 1.1rem; }
+.vj-tarea.hecha{ background:var(--ok-tint); border-color:var(--ok-line); }
+.vj-tarea .t{ font-weight:700; font-size:1.05rem; }
+.vj-tarea .s{ font-size:.9rem; color:var(--ink-2); margin:.2rem 0 .8rem; }
+</style>
+
+<div class="cd">
+    <a class="cd-volver" href="{% url 'gestion:dashboard_conductor' %}"><i class="bi bi-chevron-left" aria-hidden="true"></i>Mi jornada</a>
+    <header class="cd-cab">
+        <div class="fecha">{{ viaje.fecha|date:"l j \d\e F"|capfirst }}{% if viaje.hora %} · {{ viaje.hora|time:"g:i a" }}{% endif %}</div>
+        <h1>Viaje de disposición</h1>
+        {% if viaje.estado == 'CANCELADA' %}<p class="text-danger">Este viaje se canceló: ya no tienes que hacerlo.</p>{% endif %}
+    </header>
+
+    {% include 'gestion/partials/_alerta_vehiculo.html' with vehiculo=viaje.vehiculo %}
+
+    <div class="vj-datos">
+        <div class="vj-dato"><span class="et">Vehículo</span><span class="va">{{ viaje.vehiculo.placa }}{% if viaje.vehiculo.marca %} · {{ viaje.vehiculo.marca }}{% endif %}</span></div>
+        <div class="vj-dato"><span class="et">Gestor</span><span class="va">{{ viaje.dispositor.nombre|default:"Por confirmar" }}</span></div>
+        {% if companeros %}<div class="vj-dato"><span class="et">Van contigo</span><span class="va">{{ companeros|join:", " }}</span></div>{% endif %}
+        {% if viaje.detalle %}<div class="vj-dato"><span class="et">Nota</span><span class="va">{{ viaje.detalle }}</span></div>{% endif %}
+    </div>
+
+    <h2 class="cd-sec">Órdenes que se disponen <span class="n">{{ ordenes|length }}</span></h2>
+    <div class="vj-ordenes">
+        {% for o in ordenes %}
+        <div class="vj-orden"><span class="num">#{{ o.orden.numero_orden }}</span><span class="cli">{{ o.orden.cliente.nombre }}</span>{% if o.placas %}<span class="pl">{{ o.placas }}</span>{% endif %}</div>
+        {% endfor %}
+    </div>
+
+    <h2 class="cd-sec">Lo que tienes que hacer</h2>
+    <section class="vj-tarea {% if pre %}hecha{% endif %}">
+        <div class="t">{% if pre %}<i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>{% endif %}Preoperacional del {{ viaje.vehiculo.placa }}</div>
+        <div class="s">{% if pre %}Ya lo registraste{% if pre.tiene_hallazgos %}, con hallazgos: la oficina fue avisada{% endif %}. Puedes revisarlo o corregirlo.{% else %}Revisa el vehículo punto por punto antes de salir.{% endif %}</div>
+        {% if viaje.estado != 'CANCELADA' %}
+        <a href="{% url 'gestion:preoperacional_viaje' viaje.pk %}" class="cd-btn {% if pre %}sec{% else %}pri{% endif %}">
+            {% if pre %}Ver mis respuestas{% else %}Hacer el preoperacional{% endif %}<i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

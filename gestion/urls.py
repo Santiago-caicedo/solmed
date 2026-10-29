@@ -33,6 +33,11 @@ urlpatterns = [
     # --- Preoperacional del vehículo (PESV): lo llena el conductor antes de salir ---
     path('recorrido/<int:pk>/preoperacional/', views.PreoperacionalView.as_view(), name='preoperacional'),
     path('recorrido/<int:pk>/preoperacional-pdf/', views.PreoperacionalPDFView.as_view(), name='preoperacional_pdf'),
+    # --- Viajes de disposición agendados (oct-2026): preoperacional, portal del conductor y enlace del ayudante ---
+    path('disposicion/<int:pk>/preoperacional/', views.PreoperacionalViajeView.as_view(), name='preoperacional_viaje'),
+    path('disposicion/<int:pk>/preoperacional-pdf/', views.PreoperacionalViajePDFView.as_view(), name='preoperacional_viaje_pdf'),
+    path('conductor/disposicion/<int:pk>/', views.ViajeConductorView.as_view(), name='viaje_conductor'),
+    path('ayudante/disposicion/<uuid:token>/', views.AccesoAyudanteViajeView.as_view(), name='acceso_ayudante_viaje'),
     # --- Visitas técnicas (formato GC-F-01 v03): la oficina programa, el ejecutivo llena en campo ---
     path('visitas/', visitas.ListaVisitasView.as_view(), name='lista_visitas'),
     path('visitas/nueva/', visitas.ProgramarVisitaView.as_view(), name='crear_visita'),

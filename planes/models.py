@@ -16,10 +16,15 @@ de tres fuentes:
 El PDF del día se genera al descargarlo (no se guarda): es un reporte interno
 derivado de datos, igual que la encuesta de cierre.
 """
+import datetime
+import uuid
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
-from gestion.models import Dispositor, OrdenServicio, Proveedor, Vehiculo
+from gestion.models import (Dispositor, OrdenServicio, ProgramacionCuadrilla,
+                            Proveedor, Vehiculo)
 
 
 def horario(inicio, fin):
@@ -210,6 +215,11 @@ class Asignacion(models.Model):
         'gestion.DisposicionOrden', blank=True,
         related_name='asignaciones_plan', verbose_name="Disposiciones registradas",
     )
+    # El viaje de disposición AGENDADO del que sale esta actividad (oct-2026):
+    # una por persona del viaje. Mientras esté agendado no dispone nada.
+    viaje = models.ForeignKey(
+        'ViajeDisposicion', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='asignaciones')
     fecha_registro = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -254,6 +264,9 @@ class Asignacion(models.Model):
         numeros = sorted({d.orden_id for d in self.disposiciones.all()})
         if numeros:
             return numeros
+        # Un viaje agendado aún no dispone: se muestran las órdenes que lleva.
+        if self.viaje_id:
+            return sorted(o.pk for o in self.viaje.ordenes.all())
         return [self.orden_id] if self.orden_id else []
 
     @property
@@ -450,3 +463,168 @@ class DescuentoHoras(models.Model):
 
     def __str__(self):
         return f"−{self.minutos} min · {self.motivo}"
+
+
+# ============================================================
+#  VIAJES DE DISPOSICIÓN AGENDADOS (oct-2026, pedido de Santiago)
+# ============================================================
+class ViajeDisposicion(models.Model):
+    """
+    Un viaje de disposición AGENDADO desde el panel de Disposiciones para un
+    día que todavía no llega (o para más tarde hoy). A diferencia de registrar
+    uno ya hecho, agendarlo NO dispone las órdenes: quedan pendientes y
+    marcadas como agendadas hasta que la oficina CONFIRMA que se hizo (con
+    las horas reales y los descuentos de cada uno) o lo cancela.
+
+    Al agendarlo se crean las actividades «Disposición final» del plan de
+    ese día (una por persona, con `viaje`), así sale en el plan; al personal
+    le llega el correo: el CONDUCTOR lo ve en su portal ese día y hace el
+    preoperacional del vehículo; cada AYUDANTE, con sus novedades, sus
+    fotos y su enlace personal, igual que en la programación de una orden.
+    """
+    ESTADO_CHOICES = [
+        ('AGENDADA', 'Agendada'),
+        ('REALIZADA', 'Realizada'),
+        ('CANCELADA', 'Cancelada'),
+    ]
+
+    fecha = models.DateField(verbose_name="Día del viaje")
+    hora = models.TimeField(null=True, blank=True, verbose_name="Hora programada")
+    # Obligatorio al agendar: el preoperacional depende del tipo de vehículo.
+    vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, related_name='viajes_disposicion',
+        verbose_name="Vehículo del viaje")
+    dispositor = models.ForeignKey(
+        Dispositor, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='viajes_disposicion', verbose_name="Gestor de disposición")
+    ordenes = models.ManyToManyField(
+        OrdenServicio, related_name='viajes_disposicion', verbose_name="Órdenes")
+    detalle = models.CharField(max_length=255, blank=True, verbose_name="Nota para el plan")
+    estado = models.CharField(max_length=10, choices=ESTADO_CHOICES, default='AGENDADA')
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
+        related_name='viajes_disposicion_creados')
+    creado_en = models.DateTimeField(auto_now_add=True)
+    # Quién confirmó que se hizo o lo canceló, y cuándo.
+    cerrado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='viajes_disposicion_cerrados')
+    cerrado_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['fecha', 'hora', 'id']
+        verbose_name = "Viaje de disposición agendado"
+        verbose_name_plural = "Viajes de disposición agendados"
+
+    def __str__(self):
+        return f"Disposición del {self.fecha:%d/%m/%Y} ({self.vehiculo.placa})"
+
+    # El correo y el enlace del ayudante leen esto como si fuera la
+    # programación de un servicio (gestion/correo_programacion.html).
+    @property
+    def observaciones_servicio(self):
+        return self.detalle
+
+    @property
+    def agendada(self):
+        return self.estado == 'AGENDADA'
+
+    def personas(self):
+        """Quiénes van, en el orden en que se asignaron."""
+        return [a.persona for a in self.asignaciones.select_related('persona').order_by('id')]
+
+    def conductores(self):
+        """Las personas del viaje con rol de conductor: lo ven en su portal."""
+        return [p for p in self.personas() if p.groups.filter(name='Conductores').exists()]
+
+    def numeros_ordenes(self):
+        return ', '.join(f"#{o.pk}" for o in self.ordenes.order_by('pk'))
+
+
+class AyudanteViaje(models.Model):
+    """
+    Un AYUDANTE de un viaje agendado (oct-2026): las mismas novedades que se
+    le marcan en la programación de una orden (ProgramacionCuadrilla), su
+    observación, el vehículo del que apoya la disposición y su enlace
+    personal (token, sin usuario) para ver el viaje y subir las fotos que le
+    pidan sus novedades.
+    """
+    NOVEDAD_CHOICES = ProgramacionCuadrilla.NOVEDAD_CHOICES
+    NOVEDADES_CON_FOTO = ProgramacionCuadrilla.NOVEDADES_CON_FOTO
+    APOYA_DISPOSICION = ProgramacionCuadrilla.APOYA_DISPOSICION
+    DIAS_VIGENCIA_ACCESO = ProgramacionCuadrilla.DIAS_VIGENCIA_ACCESO
+
+    viaje = models.ForeignKey(ViajeDisposicion, on_delete=models.CASCADE,
+                              related_name='ayudantes')
+    persona = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                related_name='viajes_como_ayudante')
+    # Selección múltiple, como en la cuadrilla: códigos separados por coma.
+    novedades = models.CharField(max_length=200, blank=True, default='')
+    observacion = models.TextField(blank=True, verbose_name="Observaciones para el ayudante")
+    apoya_vehiculo = models.ForeignKey(
+        Vehiculo, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='viajes_apoyo_ayudante', verbose_name="Apoya disposición del vehículo")
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Ayudante de un viaje de disposición"
+        verbose_name_plural = "Ayudantes de viajes de disposición"
+        constraints = [
+            models.UniqueConstraint(fields=['viaje', 'persona'], name='ayudante_una_vez_por_viaje'),
+        ]
+
+    def __str__(self):
+        return f"{self.persona_nombre} — {self.viaje}"
+
+    @property
+    def persona_nombre(self):
+        return self.persona.get_full_name() or self.persona.username
+
+    def codigos(self):
+        return [c for c in (self.novedades or '').split(',') if c]
+
+    def novedades_display(self):
+        etiquetas = dict(self.NOVEDAD_CHOICES)
+        textos = []
+        for c in self.codigos():
+            texto = etiquetas.get(c, c)
+            if c == self.APOYA_DISPOSICION and self.apoya_vehiculo_id:
+                texto = f"{texto} {self.apoya_vehiculo.placa}"
+            textos.append(texto)
+        return textos
+
+    def fotos_pedidas(self):
+        """Novedades que le exigen foto: [{'codigo', 'etiqueta'}]."""
+        etiquetas = dict(self.NOVEDAD_CHOICES)
+        return [{'codigo': c, 'etiqueta': etiquetas.get(c, c)}
+                for c in self.codigos() if c in self.NOVEDADES_CON_FOTO]
+
+    @property
+    def fecha_limite_acceso(self):
+        return self.viaje.fecha + datetime.timedelta(days=self.DIAS_VIGENCIA_ACCESO)
+
+    @property
+    def acceso_vigente(self):
+        return (self.viaje.estado != 'CANCELADA'
+                and timezone.localdate() <= self.fecha_limite_acceso)
+
+
+class FotoAyudanteViaje(models.Model):
+    """Foto que sube el ayudante de un viaje como evidencia de una novedad."""
+    ayudante = models.ForeignKey(AyudanteViaje, on_delete=models.CASCADE, related_name='fotos')
+    novedad = models.CharField(max_length=30)
+    archivo = models.ImageField(upload_to='fotos_ayudantes/')
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['fecha_subida']
+        verbose_name = "Foto del ayudante (viaje de disposición)"
+        verbose_name_plural = "Fotos de los ayudantes (viajes de disposición)"
+
+    def get_novedad_display_label(self):
+        return dict(AyudanteViaje.NOVEDAD_CHOICES).get(self.novedad, self.novedad)
+
+    @property
+    def persona_nombre(self):
+        return self.ayudante.persona_nombre

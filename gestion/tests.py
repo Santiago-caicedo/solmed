@@ -8518,7 +8518,7 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
         self.assertEqual(contenido.count('class="dz-paso-tab"'), 4)
         self.assertIn('aria-current="step"', contenido)
         self.assertRegex(contenido, r'<label class="dz-orden"[^>]*>\s*<input type="checkbox"[^>]*name="ordenes"')
-        self.assertRegex(contenido, r'<label><input type="checkbox" name="personas" value="\d+" data-nombre="Carlos Pérez">')
+        self.assertRegex(contenido, r'<label><input type="checkbox" name="personas" value="\d+" data-nombre="Carlos Pérez"[^>]*>')
         self.assertNotIn("closest('li')", contenido)
         self.assertNotIn('bootstrap.Modal', contenido)
 
@@ -8535,7 +8535,9 @@ class RegistrarDisposicionDesdePanelTests(BaseDisposicion):
 
     def test_sin_pendientes_no_hay_popup(self):
         self._orden(pendiente=False)
-        self.assertNotContains(self.client.get(self.panel), 'Registrar disposición')
+        pantalla = self.client.get(self.panel)
+        self.assertNotContains(pantalla, 'id="dz-modal"')
+        self.assertNotContains(pantalla, 'data-bs-target="#dz-modal"')
 
     def test_registrar_crea_la_actividad_en_el_plan_de_ese_dia_y_dispone_las_ordenes(self):
         from planes.models import PlanDia
@@ -8729,6 +8731,241 @@ class CuadrarPendientesTests(BaseDisposicion):
     def test_avisa_si_una_orden_de_la_foto_no_existe(self):
         salida = self.correr(foto={99999: ('X', '01/09/2026', 'A', 'B', 'XXX111')})
         self.assertIn('#99999 no existe', salida)
+
+
+class AgendarDisposicionTests(BaseDisposicion):
+    """
+    Oct-2026: desde el panel también se AGENDA un viaje de disposición. Las
+    órdenes siguen pendientes (y no entran a otro viaje) hasta que la oficina
+    confirma que se hizo; el conductor lo ve en su portal ese día y hace el
+    preoperacional; el ayudante recibe sus novedades, fotos y su enlace.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+        self.manana = timezone.localdate() + datetime.timedelta(days=1)
+        self.camion = Vehiculo.objects.get(placa='WGY347')
+        self.camion.tipo = 'HINO'
+        self.camion.save()
+
+    def agendar(self, ordenes, personas=None, fecha=None, **extra):
+        datos = {'cuando': 'futura', 'fecha': (fecha or self.manana).isoformat(),
+                 'vehiculo': self.camion.pk, 'hora': '06:30'}
+        datos.update(extra)
+        return self.registrar_desde_panel(ordenes, personas, **datos)
+
+    @staticmethod
+    def viaje():
+        from planes.models import ViajeDisposicion
+        return ViajeDisposicion.objects.get()
+
+    def test_agendar_no_dispone_y_deja_el_viaje_en_el_plan_de_ese_dia(self):
+        from planes.models import ViajeDisposicion
+        una = self._orden()
+        mail.outbox.clear()
+        a = self.ayudante.pk
+        respuesta = self.agendar([una], **{
+            f'nov_{a}': ['INICIA_BODEGA', 'TERMINA_CLIENTE', 'APOYA_DISPOSICION'],
+            f'obs_{a}': 'Lleva guantes'})
+        self.assertContains(respuesta, 'Disposición agendada')
+        viaje = self.viaje()
+        self.assertEqual((viaje.estado, viaje.fecha, viaje.hora, viaje.vehiculo),
+                         ('AGENDADA', self.manana, datetime.time(6, 30), self.camion))
+        self.assertEqual(self.estado(una), 'PENDIENTE', "agendar no dispone")
+        asignaciones = self.asignaciones()
+        self.assertEqual(len(asignaciones), 2)
+        for x in asignaciones:
+            self.assertEqual((x.plan.fecha, x.viaje, x.hora, x.suma_horas),
+                             (self.manana, viaje, datetime.time(6, 30), False))
+            self.assertFalse(x.disposiciones.exists())
+            self.assertEqual(x.ordenes_dispuestas, [una.pk], "el plan muestra las órdenes del viaje")
+        # El ayudante, con sus novedades (el vehículo de apoyo es el del viaje).
+        ayudante = viaje.ayudantes.get()
+        self.assertEqual(ayudante.persona, self.ayudante)
+        self.assertEqual(ayudante.codigos(), ['INICIA_BODEGA', 'TERMINA_CLIENTE', 'APOYA_DISPOSICION'])
+        self.assertEqual(ayudante.apoya_vehiculo, self.camion)
+        self.assertEqual([f['codigo'] for f in ayudante.fotos_pedidas()], ['TERMINA_CLIENTE'])
+        # Correos: al conductor (su portal) y al ayudante (su enlace).
+        por_correo = {m.to[0]: m for m in mail.outbox}
+        self.assertIn('Disposición final', por_correo[self.conductor.email].subject)
+        self.assertIn('preoperacional', por_correo[self.conductor.email].body)
+        cuerpo = por_correo[self.ayudante.email].body
+        self.assertIn(str(ayudante.token), cuerpo)
+        self.assertIn('Termina turno donde el cliente', cuerpo)
+        self.assertIn('Lleva guantes', cuerpo)
+        # La orden agendada no se puede meter en otro viaje.
+        self.registrar_desde_panel([una])
+        self.assertEqual(ViajeDisposicion.objects.count(), 1)
+        self.assertEqual(len(self.asignaciones()), 2)
+        self.assertEqual(self.estado(una), 'PENDIENTE')
+        panel = self.client.get(self.panel)
+        self.assertContains(panel, 'Disposiciones agendadas')
+        self.assertContains(panel, 'Agendada ')
+        self.assertNotContains(panel, f'name="ordenes" value="{una.pk}"')
+
+    def test_agendar_pide_un_dia_que_no_haya_pasado_y_el_vehiculo(self):
+        una = self._orden()
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        respuesta = self.agendar([una], fecha=ayer)
+        self.assertContains(respuesta, 'Para agendar, el día del viaje es hoy o uno que viene')
+        respuesta = self.agendar([una], vehiculo='')
+        self.assertContains(respuesta, 'elige el vehículo del viaje')
+        self.assertEqual(self.asignaciones(), [])
+        # Hoy sí se puede agendar (para más tarde).
+        self.agendar([una], fecha=timezone.localdate())
+        self.assertEqual(self.viaje().fecha, timezone.localdate())
+
+    def test_el_ayudante_ve_su_viaje_y_sube_las_fotos_con_su_enlace(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        una = self._orden()
+        self.agendar([una], **{f'nov_{self.ayudante.pk}': ['INICIA_CLIENTE']})
+        ayudante = self.viaje().ayudantes.get()
+        self.client.logout()
+        url = reverse('gestion:acceso_ayudante_viaje', args=[ayudante.token])
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'Disposición del')
+        self.assertContains(pagina, 'Inicia turno donde el cliente')
+        foto = SimpleUploadedFile('f.jpg', self.imagen_jpg() if hasattr(self, 'imagen_jpg') else b'\xff\xd8\xff',
+                                  content_type='image/jpeg')
+        self.client.post(url, {'novedad': 'INICIA_CLIENTE', 'fotos': foto})
+        self.assertEqual(ayudante.fotos.count(), 1)
+        # Una novedad que no le pidieron no se acepta.
+        otra = SimpleUploadedFile('g.jpg', b'\xff\xd8\xff', content_type='image/jpeg')
+        self.client.post(url, {'novedad': 'TERMINA_CLIENTE', 'fotos': otra})
+        self.assertEqual(ayudante.fotos.count(), 1)
+
+    def test_el_conductor_lo_ve_ese_dia_en_su_portal_y_hace_el_preoperacional(self):
+        una = self._orden()
+        self.agendar([una], fecha=timezone.localdate())
+        viaje = self.viaje()
+        self.entrar(self.conductor)
+        portal = self.client.get(reverse('gestion:dashboard_conductor'))
+        self.assertEqual(len(portal.context['viajes_hoy']), 1)
+        self.assertContains(portal, 'Disposición final')
+        detalle = self.client.get(reverse('gestion:viaje_conductor', args=[viaje.pk]))
+        self.assertContains(detalle, f'#{una.numero_orden}')
+        self.assertContains(detalle, 'Hacer el preoperacional')
+        url = reverse('gestion:preoperacional_viaje', args=[viaje.pk])
+        self.assertContains(self.client.get(url), self.camion.placa)
+        datos = {f'item_{n}': 'B' for n in range(1, 10)}
+        datos['dictamen'] = 'APTO'
+        respuesta = self.client.post(url, datos)
+        self.assertRedirects(respuesta, reverse('gestion:viaje_conductor', args=[viaje.pk]))
+        viaje.refresh_from_db()
+        pre = viaje.preoperacional
+        self.assertEqual((pre.recorrido, pre.diligenciado_por, pre.vehiculo), (None, self.conductor, self.camion))
+        self.assertEqual(pre.referencia, 'Disposición final')
+        # Queda en la carpeta del PESV y tiene su PDF.
+        self.entrar(self.admin)
+        hoy = timezone.localdate()
+        carpeta = self.client.get(reverse('gestion:pesv'), {'desde': hoy.isoformat(), 'hasta': hoy.isoformat()})
+        self.assertIn(pre, carpeta.context['preoperacionales'])
+        pdf = self.client.get(reverse('gestion:preoperacional_viaje_pdf', args=[viaje.pk]))
+        self.assertEqual(pdf.status_code, 200)
+
+    def test_el_conductor_no_lo_abre_antes_del_dia_ni_si_no_es_suyo(self):
+        una = self._orden()
+        self.agendar([una])
+        viaje = self.viaje()
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.get(reverse('gestion:dashboard_conductor')).context['viajes_hoy'], [])
+        self.assertRedirects(self.client.get(reverse('gestion:viaje_conductor', args=[viaje.pk])),
+                             reverse('gestion:dashboard_conductor'))
+        otro = self.persona('otro', 'Conductores')
+        self.entrar(otro)
+        self.client.get(reverse('gestion:preoperacional_viaje', args=[viaje.pk]))
+        self.assertEqual(self.client.post(reverse('gestion:preoperacional_viaje', args=[viaje.pk]),
+                                          {'dictamen': 'APTO'}).status_code, 302)
+        viaje.refresh_from_db()
+        self.assertFalse(hasattr(viaje, 'preoperacional'))
+
+    def test_confirmar_con_los_tiempos_reales_dispone_las_ordenes(self):
+        una = self._orden()
+        self.agendar([una], fecha=timezone.localdate())
+        viaje = self.viaje()
+        c, a = self.conductor.pk, self.ayudante.pk
+        respuesta = self.client.post(self.panel, {
+            'submit_confirmar_viaje': '1', 'viaje': viaje.pk,
+            f'hora_{c}': '06:00', f'hora_fin_{c}': '12:00', f'suma_horas_{c}': '1',
+            f'des_horas_{c}': ['0'], f'des_minutos_{c}': ['30'], f'des_motivo_{c}': ['Almuerzo'],
+            f'hora_{a}': '06:00', f'hora_fin_{a}': '11:00', f'suma_horas_{a}': '1'}, follow=True)
+        self.assertContains(respuesta, 'confirmada')
+        viaje.refresh_from_db()
+        self.assertEqual(viaje.estado, 'REALIZADA')
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+        por_persona = {x.persona_id: x for x in self.asignaciones()}
+        self.assertEqual((por_persona[c].horario, por_persona[c].suma_horas), ('06:00–12:00', True))
+        self.assertEqual([(d.minutos, d.motivo) for d in por_persona[c].descuentos.all()], [(30, 'Almuerzo')])
+        self.assertTrue(por_persona[a].disposiciones.exists(), "comparten el registro de la disposición")
+        hoy = timezone.localdate()
+        horas = self.client.get(reverse('gestion:centro_control_persona', args=[c]),
+                                {'desde': hoy.isoformat(), 'hasta': hoy.isoformat()}).context['horas']
+        self.assertEqual(horas['actividades'], '5 h 30 min')
+        self.assertNotContains(self.client.get(self.panel), 'Disposiciones agendadas')
+
+    def test_no_se_confirma_antes_del_dia_ni_con_tiempos_malos(self):
+        una = self._orden()
+        self.agendar([una])
+        viaje = self.viaje()
+        respuesta = self.client.post(self.panel, {'submit_confirmar_viaje': '1', 'viaje': viaje.pk}, follow=True)
+        self.assertContains(respuesta, 'se confirma desde ese día')
+        viaje.fecha = timezone.localdate()
+        viaje.save()
+        c = self.conductor.pk
+        respuesta = self.client.post(self.panel, {
+            'submit_confirmar_viaje': '1', 'viaje': viaje.pk,
+            f'hora_{c}': '06:00', f'hora_fin_{c}': '07:00', f'suma_horas_{c}': '1',
+            f'des_horas_{c}': ['2'], f'des_minutos_{c}': ['0'], f'des_motivo_{c}': ['Almuerzo']}, follow=True)
+        self.assertContains(respuesta, 'son más que el tiempo entre las dos horas')
+        viaje.refresh_from_db()
+        self.assertEqual(viaje.estado, 'AGENDADA')
+        self.assertEqual(self.estado(una), 'PENDIENTE')
+
+    def test_cancelar_lo_saca_del_plan_y_deja_las_ordenes_libres(self):
+        una = self._orden()
+        self.agendar([una])
+        viaje = self.viaje()
+        respuesta = self.client.post(self.panel, {'submit_cancelar_viaje': '1', 'viaje': viaje.pk}, follow=True)
+        self.assertContains(respuesta, 'Se canceló la disposición')
+        viaje.refresh_from_db()
+        self.assertEqual(viaje.estado, 'CANCELADA')
+        self.assertEqual(self.asignaciones(), [])
+        self.assertEqual(self.estado(una), 'PENDIENTE')
+        # El enlace del ayudante avisa que se canceló.
+        ayudante = viaje.ayudantes.get()
+        self.client.logout()
+        pagina = self.client.get(reverse('gestion:acceso_ayudante_viaje', args=[ayudante.token]))
+        self.assertContains(pagina, 'se canceló')
+        # Y la orden ya se puede registrar en otro viaje.
+        self.entrar(self.admin)
+        self.registrar_desde_panel([una])
+        self.assertEqual(self.estado(una), 'DISPUESTA')
+
+    def test_quitar_a_todos_del_plan_cancela_el_viaje(self):
+        una = self._orden()
+        self.agendar([una])
+        viaje = self.viaje()
+        por_persona = {x.persona_id: x for x in self.asignaciones()}
+        # Primero el ayudante: deja de ir, el viaje sigue con el conductor.
+        self.client.post(reverse('planes:eliminar_asignacion', args=[por_persona[self.ayudante.pk].pk]))
+        viaje.refresh_from_db()
+        self.assertEqual(viaje.estado, 'AGENDADA')
+        self.assertFalse(viaje.ayudantes.exists(), "el ayudante quitado deja de ir")
+        # Sin nadie, se cancela.
+        self.client.post(reverse('planes:eliminar_asignacion', args=[por_persona[self.conductor.pk].pk]))
+        viaje.refresh_from_db()
+        self.assertEqual(viaje.estado, 'CANCELADA')
+        self.assertEqual(self.estado(una), 'PENDIENTE')
+
+    def test_el_popup_ofrece_agendar_y_muestra_el_rol_de_cada_persona(self):
+        self._orden()
+        pantalla = self.client.get(self.panel)
+        self.assertContains(pantalla, 'name="cuando" value="futura"')
+        self.assertContains(pantalla, f'data-rol="conductor" data-cargo="Conductores">Carlos Pérez', html=False)
+        self.assertContains(pantalla, f'data-rol="ayudante" data-cargo="Ayudantes">Luis Gómez', html=False)
+        self.assertContains(pantalla, 'name="nov___ID__" value="INICIA_CLIENTE"')
+        self.assertContains(pantalla, '<span class="cargo-mini">Conductores</span>', html=False)
 
 
 class DiagnosticarDisposicionesTests(BaseDisposicion):

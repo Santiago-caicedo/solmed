@@ -27,7 +27,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Avg, F, Min, Q, Sum, Count
 import base64
 import datetime
-from django.db.models.functions import ExtractYear, TruncMonth
+from django.db.models.functions import Coalesce, ExtractYear, TruncMonth
 from decimal import Decimal 
 from django.views.generic import ListView, CreateView, UpdateView, TemplateView, DetailView, FormView
 from django.utils import timezone
@@ -1667,7 +1667,7 @@ def _pdf_preoperacional(preoperacional, request):
     diseño es el de la encuesta de cierre, que es su documento hermano del
     PESV. Las fotos van embebidas para que el PDF no dependa del storage.
     """
-    recorrido = preoperacional.recorrido
+    recorrido = preoperacional.recorrido     # None en un viaje de disposición
     template = get_template('gestion/preoperacional_pdf.html')
 
     logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
@@ -1687,7 +1687,7 @@ def _pdf_preoperacional(preoperacional, request):
     html_string = template.render({
         'pre': preoperacional,
         'recorrido': recorrido,
-        'orden': recorrido.orden,
+        'orden': preoperacional.orden,
         'logo_b64': logo_b64,
         'fotos': fotos,
         'secciones': preoperacional.secciones(),
@@ -1704,20 +1704,28 @@ def _avisar_hallazgo_preoperacional(request, preoperacional):
     correo a gestión (administradores), a la SISO y al asesor de la orden.
     Si el correo falla, el conductor no se entera: su registro ya quedó.
     """
-    recorrido = preoperacional.recorrido
-    orden = recorrido.orden
-    personas = User.objects.filter(
-        Q(groups__name='Administradores') | Q(groups__name__in=GRUPOS_PESV)
-        | Q(pk=orden.asesor_id), is_active=True).distinct()
+    # Sirve para un servicio y para un viaje de disposición (oct-2026): el
+    # viaje no tiene asesor ni cliente; avisa a gestión y a la SISO.
+    orden = preoperacional.orden
+    vehiculo = preoperacional.vehiculo
+    filtro = Q(groups__name='Administradores') | Q(groups__name__in=GRUPOS_PESV)
+    if orden is not None:
+        filtro |= Q(pk=orden.asesor_id)
+    personas = User.objects.filter(filtro, is_active=True).distinct()
     destinatarios = sorted({p.email for p in personas if p.email})
     if not destinatarios:
         return
-    conductor = recorrido.conductor
+    conductor = preoperacional.conductor
     quien = (conductor.get_full_name() or conductor.username) if conductor else '—'
+    if orden is not None:
+        para = f"la orden #{orden.numero_orden} ({orden.cliente.nombre})"
+        url_pdf = reverse('gestion:preoperacional_pdf', kwargs={'pk': preoperacional.recorrido_id})
+    else:
+        para = f"la disposición final de las órdenes {preoperacional.viaje.numeros_ordenes()}"
+        url_pdf = reverse('gestion:preoperacional_viaje_pdf', kwargs={'pk': preoperacional.viaje_id})
     lineas = [
-        f"El preoperacional del vehículo {recorrido.vehiculo.placa} para la orden "
-        f"#{orden.numero_orden} ({orden.cliente.nombre}) del "
-        f"{recorrido.fecha_recorrido:%d/%m/%Y} tiene hallazgos.",
+        f"El preoperacional del vehículo {vehiculo.placa} para {para} del "
+        f"{preoperacional.fecha_servicio:%d/%m/%Y} tiene hallazgos.",
         "",
         f"Conductor: {quien}",
         f"Dictamen: {preoperacional.get_dictamen_display()}",
@@ -1730,14 +1738,13 @@ def _avisar_hallazgo_preoperacional(request, preoperacional):
         lineas += ["", "Observaciones del conductor:", preoperacional.observaciones]
     lineas += [
         "",
-        "PDF del preoperacional: " + request.build_absolute_uri(
-            reverse('gestion:preoperacional_pdf', kwargs={'pk': recorrido.pk})),
+        "PDF del preoperacional: " + request.build_absolute_uri(url_pdf),
         "",
         "Este aviso lo envía el sistema de gestión SOLMED SAS.",
     ]
     EmailMessage(
-        subject=(f"Preoperacional con hallazgos · {recorrido.vehiculo.placa} · "
-                 f"Orden #{orden.numero_orden}"),
+        subject=(f"Preoperacional con hallazgos · {vehiculo.placa} · "
+                 f"{preoperacional.referencia}"),
         body="\n".join(lineas), from_email=settings.DEFAULT_FROM_EMAIL,
         to=destinatarios,
     ).send(fail_silently=True)
@@ -1756,19 +1763,46 @@ class PreoperacionalView(LoginRequiredMixin, View):
     """
     template_name = 'gestion/preoperacional.html'
 
+    # ---- Ganchos: el viaje de disposición (PreoperacionalViajeView) los cambia ----
+    def _objeto(self, pk):
+        return get_object_or_404(Recorrido, pk=pk)
+
+    def _permitido(self, user, recorrido):
+        return _puede_gestionar_manifiesto(user, recorrido) or _puede_ver_pesv(user)
+
+    @staticmethod
+    def _vehiculo(recorrido):
+        return recorrido.vehiculo
+
+    @staticmethod
+    def _clave(recorrido):
+        """A qué se cuelga el preoperacional (update_or_create)."""
+        return {'recorrido': recorrido}
+
+    def _datos(self, request, recorrido):
+        """Lo que la pantalla muestra arriba (lo pone el sistema)."""
+        return {
+            'referencia': f"Orden #{recorrido.orden.numero_orden}",
+            'fecha': recorrido.fecha_recorrido,
+            'vehiculo': recorrido.vehiculo,
+            'conductor': recorrido.conductor,
+            'cliente_etiqueta': 'Cliente',
+            'cliente': recorrido.orden.cliente.nombre,
+            'es_suyo': recorrido.conductor_id == request.user.id,
+        }
+
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
-            recorrido = get_object_or_404(Recorrido, pk=kwargs.get('pk'))
-            if not (_puede_gestionar_manifiesto(request.user, recorrido)
-                    or _puede_ver_pesv(request.user)):
+            objeto = self._objeto(kwargs.get('pk'))
+            if not self._permitido(request.user, objeto):
                 messages.error(request, "No tienes permiso para llenar este preoperacional.")
                 return redirect('gestion:dashboard_redirect')
-            if not recorrido.vehiculo.tipo and not hasattr(recorrido, 'preoperacional'):
+            if not self._vehiculo(objeto).tipo and not hasattr(objeto, 'preoperacional'):
                 messages.error(
                     request,
-                    f"El vehículo {recorrido.vehiculo.placa} no tiene tipo registrado: "
+                    f"El vehículo {self._vehiculo(objeto).placa} no tiene tipo registrado: "
                     "la oficina debe ponerlo en su ficha para poder hacer el preoperacional.")
-                return redirect(self._volver(request, recorrido))
+                return redirect(self._volver(request, objeto))
         return super().dispatch(request, *args, **kwargs)
 
     @staticmethod
@@ -1785,16 +1819,15 @@ class PreoperacionalView(LoginRequiredMixin, View):
             return reverse('gestion:pesv')
         return reverse('gestion:detalle_orden', kwargs={'pk': recorrido.orden_id})
 
-    @staticmethod
-    def _tipo_de(recorrido):
+    def _tipo_de(self, recorrido):
         """La lista que se llena: la ya guardada manda sobre la ficha del vehículo."""
         existente = getattr(recorrido, 'preoperacional', None)
-        return existente.tipo_vehiculo if existente else recorrido.vehiculo.tipo
+        return existente.tipo_vehiculo if existente else self._vehiculo(recorrido).tipo
 
     def _contexto(self, request, recorrido, form):
         existente = getattr(recorrido, 'preoperacional', None)
         return {
-            'recorrido': recorrido,
+            'datos': self._datos(request, recorrido),
             'form': form,
             'tipo_nombre': nombre_tipo(self._tipo_de(recorrido)),
             'ya_diligenciado': existente is not None,
@@ -1803,7 +1836,7 @@ class PreoperacionalView(LoginRequiredMixin, View):
         }
 
     def get(self, request, pk):
-        recorrido = get_object_or_404(Recorrido, pk=pk)
+        recorrido = self._objeto(pk)
         existente = getattr(recorrido, 'preoperacional', None)
         initial = {}
         if existente:
@@ -1814,7 +1847,7 @@ class PreoperacionalView(LoginRequiredMixin, View):
         return render(request, self.template_name, self._contexto(request, recorrido, form))
 
     def post(self, request, pk):
-        recorrido = get_object_or_404(Recorrido, pk=pk)
+        recorrido = self._objeto(pk)
         tipo = self._tipo_de(recorrido)
         form = PreoperacionalForm(tipo, request.POST)
         if not form.is_valid():
@@ -1823,7 +1856,7 @@ class PreoperacionalView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             pre, creado = Preoperacional.objects.update_or_create(
-                recorrido=recorrido,
+                **self._clave(recorrido),
                 defaults={'tipo_vehiculo': tipo,
                           'dictamen': form.cleaned_data['dictamen'],
                           'observaciones': form.cleaned_data['observaciones'].strip(),
@@ -1861,6 +1894,76 @@ class PreoperacionalPDFView(LoginRequiredMixin, View):
                                  content_type='application/pdf')
         respuesta['Content-Disposition'] = (
             f'attachment; filename="preoperacional_recorrido_{recorrido.pk}.pdf"')
+        return respuesta
+
+
+def _es_conductor_del_viaje(user, viaje):
+    """¿Va en ese viaje de disposición y es conductor? (lo ve en su portal)."""
+    return (user.groups.filter(name='Conductores').exists()
+            and viaje.asignaciones.filter(persona=user).exists())
+
+
+class PreoperacionalViajeView(PreoperacionalView):
+    """
+    El preoperacional de un VIAJE DE DISPOSICIÓN agendado (oct-2026): el
+    mismo de un servicio, con el vehículo del viaje. Lo llena el conductor
+    del viaje desde su portal; gestión y la SISO pueden corregirlo.
+    """
+    def _objeto(self, pk):
+        from planes.models import ViajeDisposicion
+        return get_object_or_404(
+            ViajeDisposicion.objects.select_related('vehiculo'), pk=pk)
+
+    def _permitido(self, user, viaje):
+        return (_es_conductor_del_viaje(user, viaje) or es_administrador(user)
+                or _puede_ver_pesv(user))
+
+    @staticmethod
+    def _vehiculo(viaje):
+        return viaje.vehiculo
+
+    @staticmethod
+    def _clave(viaje):
+        return {'viaje': viaje}
+
+    def _datos(self, request, viaje):
+        existente = getattr(viaje, 'preoperacional', None)
+        es_suyo = _es_conductor_del_viaje(request.user, viaje)
+        return {
+            'referencia': 'Disposición final',
+            'fecha': viaje.fecha,
+            'vehiculo': viaje.vehiculo,
+            'conductor': (existente.diligenciado_por if existente
+                          else request.user if es_suyo else None),
+            'cliente_etiqueta': 'Órdenes',
+            'cliente': viaje.numeros_ordenes(),
+            'es_suyo': es_suyo,
+        }
+
+    @staticmethod
+    def _volver(request, viaje):
+        if _es_conductor_del_viaje(request.user, viaje):
+            return reverse('gestion:viaje_conductor', kwargs={'pk': viaje.pk})
+        if request.GET.get('volver') == 'pesv' or not es_administrador(request.user):
+            return reverse('gestion:pesv')
+        return reverse('gestion:trazabilidad_disposiciones')
+
+
+class PreoperacionalViajePDFView(LoginRequiredMixin, View):
+    """El PDF del preoperacional de un viaje de disposición: gestión y la SISO."""
+    def get(self, request, pk):
+        from django.core.exceptions import PermissionDenied
+        from planes.models import ViajeDisposicion
+        if not (es_administrador(request.user) or _puede_ver_pesv(request.user)):
+            raise PermissionDenied
+        viaje = get_object_or_404(ViajeDisposicion, pk=pk)
+        pre = getattr(viaje, 'preoperacional', None)
+        if pre is None:
+            raise Http404("Este viaje aún no tiene preoperacional.")
+        respuesta = HttpResponse(_pdf_preoperacional(pre, request),
+                                 content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="preoperacional_disposicion_{viaje.pk}.pdf"')
         return respuesta
 
 
@@ -3332,6 +3435,17 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
             .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
                             'vehiculo', 'manifiesto', 'encuesta_conductor')
             .order_by('orden__fecha_creacion')]
+        # Los viajes de disposición agendados de hoy (oct-2026): su tarjeta
+        # aparte, con el preoperacional como tarea.
+        from planes.models import ViajeDisposicion
+        viajes = (ViajeDisposicion.objects
+                  .filter(fecha=hoy, estado__in=('AGENDADA', 'REALIZADA'),
+                          asignaciones__persona=self.request.user)
+                  .select_related('vehiculo', 'dispositor', 'preoperacional')
+                  .prefetch_related('ordenes').distinct())
+        context['viajes_hoy'] = [{'viaje': v, 'pre': getattr(v, 'preoperacional', None)}
+                                 for v in viajes]
+        context['total_hoy'] = len(context['tarjetas_hoy']) + len(context['viajes_hoy'])
         return context
     
 
@@ -5243,7 +5357,7 @@ def _lineas_correo_servicio(ctx):
     p = ctx['programacion']
     lineas = [
         f"Hola {ctx['nombre']},", "",
-        f"Se te asignó un servicio para el {p.fecha.strftime('%d/%m/%Y')}.", "",
+        f"Se te asignó {ctx.get('que') or 'un servicio'} para el {p.fecha.strftime('%d/%m/%Y')}.", "",
     ]
     for etiqueta, valor in ctx['detalles']:
         lineas.append(f"{etiqueta}: {valor}")
@@ -5275,7 +5389,7 @@ def _enviar_correo_servicio(ctx, correo):
     from django.core.mail import EmailMultiAlternatives
     p = ctx['programacion']
     mensaje = EmailMultiAlternatives(
-        subject=f"SOLMED - Servicio del {p.fecha.strftime('%d/%m/%Y')}",
+        subject=ctx.get('asunto') or f"SOLMED - Servicio del {p.fecha.strftime('%d/%m/%Y')}",
         body="\n".join(_lineas_correo_servicio(ctx)),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[correo],
@@ -6634,9 +6748,16 @@ def _filas_trazabilidad(request):
     (filas_filtradas, todas_las_filas, filtros): los contadores y el popup
     usan las completas, que no dependen del filtro puesto.
     """
+    from planes.models import ViajeDisposicion
     ordenes = (OrdenServicio.objects.filter(estado_disposicion='PENDIENTE')
                .select_related('cliente').prefetch_related('recorridos__vehiculo')
                .order_by('numero_orden'))
+    # Las que ya van en un viaje AGENDADO (oct-2026): siguen debiéndose, pero
+    # no se pueden marcar en otro viaje.
+    agendadas = {}
+    for viaje in ViajeDisposicion.objects.filter(estado='AGENDADA').prefetch_related('ordenes'):
+        for o in viaje.ordenes.all():
+            agendadas[o.pk] = viaje
     hoy = timezone.localdate()
     filas = []
     for orden in ordenes:
@@ -6648,6 +6769,7 @@ def _filas_trazabilidad(request):
             'orden': orden, 'servicio': servicio,
             'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
             'desde': desde, 'dias': (hoy - desde).days,
+            'agendada': agendadas.get(orden.pk),
         })
 
     filtros = {
@@ -6673,11 +6795,16 @@ def _personal_por_cargo():
     (mismo personal que ofrece el plan de trabajo).
     """
     from planes.views import ORDEN_CARGOS, _cargo_de, _personal_activo
+    from planes.viajes import CARGOS_AYUDANTE, CARGOS_CONDUCTOR
     por_cargo = {}
     for persona in _personal_activo():
-        por_cargo.setdefault(_cargo_de(persona), []).append({
+        cargo = _cargo_de(persona)
+        por_cargo.setdefault(cargo, []).append({
             'pk': persona.pk,
             'nombre': persona.get_full_name() or persona.username,
+            # Qué le toca en un viaje AGENDADO (oct-2026): lo dice su cargo.
+            'rol': ('conductor' if cargo in CARGOS_CONDUCTOR
+                    else 'ayudante' if cargo in CARGOS_AYUDANTE else 'otro'),
         })
     posicion = {cargo: i for i, cargo in enumerate(ORDEN_CARGOS)}
     return [
@@ -6720,6 +6847,13 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         from planes.models import PlanDia
         from planes.views import _avisar_asignaciones
         volver = self._volver(request)
+
+        if 'submit_disposicion' in request.POST and request.POST.get('cuando') == 'futura':
+            return self._agendar(request, volver)
+        if 'submit_confirmar_viaje' in request.POST:
+            return self._confirmar(request, volver)
+        if 'submit_cancelar_viaje' in request.POST:
+            return self._cancelar(request, volver)
 
         if 'submit_disposicion' in request.POST:
             # La disposición es un hecho: se registra el día real del viaje
@@ -6765,10 +6899,149 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         messages.error(request, "No se reconoció la acción enviada.")
         return redirect(volver)
 
+    # ---------- Viajes AGENDADOS (oct-2026) ----------
+    def _agendar(self, request, volver):
+        """
+        Agenda el viaje para hoy o un día que viene: las órdenes no se
+        disponen todavía. Pide el vehículo (el conductor hace su
+        preoperacional) y avisa por correo a todos.
+        """
+        from django.utils.dateparse import parse_date
+        from planes.forms import AsignacionForm
+        from planes.models import PlanDia
+        from planes.viajes import agendar_viaje, leer_ayudantes
+        fecha = parse_date((request.POST.get('fecha') or '').strip())
+        if fecha is None:
+            messages.error(request, "Elige el día del viaje de disposición.")
+            return redirect(volver)
+        if fecha < timezone.localdate():
+            messages.error(request, "Para agendar, el día del viaje es hoy o uno que viene. "
+                                    "Si ya se hizo, elige «Ya se hizo».")
+            return redirect(volver)
+        if not (request.POST.get('vehiculo') or '').isdigit():
+            messages.error(request, "Para agendar, elige el vehículo del viaje: el conductor "
+                                    "hace el preoperacional de ese vehículo.")
+            return redirect(volver)
+        datos = request.POST.copy()
+        datos['tipo'] = 'DISPOSICION_FINAL'
+        # Al agendar solo va la hora programada; las reales, al confirmar.
+        datos['hora_fin'] = ''
+        datos.pop('suma_horas', None)
+        form = AsignacionForm(
+            datos,
+            personas_ids=request.POST.getlist('personas'),
+            ordenes_ids=request.POST.getlist('ordenes'),
+            vehiculo_viaje=request.POST.get('vehiculo'),
+        )
+        if not form.is_valid():
+            for lista in form.errors.values():
+                for error in lista:
+                    messages.error(request, error)
+            return redirect(volver)
+        ayudantes = leer_ayudantes(request.POST, form.personas, form.vehiculos[0])
+        with transaction.atomic():
+            plan, _ = PlanDia.objects.get_or_create(
+                fecha=fecha, defaults={'creado_por': request.user})
+            viaje, creadas = agendar_viaje(form, plan, request.user,
+                                           form.cleaned_data['hora'], ayudantes)
+        messages.success(
+            request,
+            f"Disposición agendada para el {fecha:%d/%m/%Y}: {viaje.numeros_ordenes()} "
+            f"con {', '.join(a.persona_nombre for a in creadas)}. Las órdenes siguen "
+            f"pendientes hasta que confirmes que el viaje se hizo.")
+        _avisar_viaje(request, viaje, creadas)
+        return redirect(volver)
+
+    def _viaje_agendado(self, request):
+        from planes.models import ViajeDisposicion
+        pk = request.POST.get('viaje') or ''
+        return ViajeDisposicion.objects.filter(
+            pk=pk if pk.isdigit() else None, estado='AGENDADA').first()
+
+    def _confirmar(self, request, volver):
+        """Se hizo: las horas reales de cada uno y las órdenes quedan dispuestas."""
+        from planes.forms import leer_tiempos_por_persona
+        from planes.viajes import confirmar_viaje
+        viaje = self._viaje_agendado(request)
+        if viaje is None:
+            messages.error(request, "Ese viaje ya no está agendado: quizá ya se confirmó o se canceló.")
+            return redirect(volver)
+        if viaje.fecha > timezone.localdate():
+            messages.error(request, f"El viaje es del {viaje.fecha:%d/%m/%Y}: se confirma "
+                                    f"desde ese día, cuando ya se haya hecho.")
+            return redirect(volver)
+        errores = _ErroresSueltos(request.POST)
+        tiempos = leer_tiempos_por_persona(errores, viaje.personas())
+        if errores.lista:
+            for error in errores.lista:
+                messages.error(request, error)
+            return redirect(volver)
+        with transaction.atomic():
+            ordenes = confirmar_viaje(viaje, tiempos, request.user)
+        messages.success(
+            request,
+            f"Disposición del {viaje.fecha:%d/%m/%Y} confirmada: "
+            + (', '.join(f'#{o.numero_orden}' for o in ordenes) + " quedan dispuestas."
+               if ordenes else "sus órdenes ya estaban dispuestas."))
+        return redirect(volver)
+
+    def _cancelar(self, request, volver):
+        """No se hizo: sale del plan y las órdenes siguen pendientes (y libres)."""
+        from planes.viajes import cancelar_viaje
+        viaje = self._viaje_agendado(request)
+        if viaje is None:
+            messages.error(request, "Ese viaje ya no está agendado.")
+            return redirect(volver)
+        cancelar_viaje(viaje, request.user)
+        messages.warning(
+            request,
+            f"Se canceló la disposición del {viaje.fecha:%d/%m/%Y}: salió del plan y "
+            f"{viaje.numeros_ordenes()} siguen pendientes.")
+        return redirect(volver)
+
+    @staticmethod
+    def _agendadas():
+        """Los viajes agendados, con lo que la oficina sigue: preoperacional y fotos."""
+        from planes.models import ViajeDisposicion
+        from planes.viajes import rol_en_viaje
+        viajes = list(
+            ViajeDisposicion.objects.filter(estado='AGENDADA')
+            .select_related('vehiculo', 'dispositor', 'preoperacional')
+            .prefetch_related('ordenes__cliente', 'asignaciones__persona__groups',
+                              'ayudantes__fotos', 'ayudantes__persona'))
+        hoy = timezone.localdate()
+        for v in viajes:
+            personas = [a.persona for a in sorted(v.asignaciones.all(), key=lambda a: a.pk)]
+            v.personas_info = [{'id': p.pk, 'nombre': p.get_full_name() or p.username,
+                                'rol': rol_en_viaje(p)} for p in personas]
+            v.personas_json = json.dumps([{'id': p['id'], 'nombre': p['nombre']}
+                                          for p in v.personas_info])
+            v.pre = getattr(v, 'preoperacional', None)
+            v.ayudantes_info = []
+            for a in v.ayudantes.all():
+                fotos = list(a.fotos.all())
+                pedidas = a.fotos_pedidas()
+                v.ayudantes_info.append({
+                    'nombre': a.persona_nombre,
+                    'novedades': a.novedades_display(),
+                    'pedidas': len(pedidas),
+                    'con_foto': len({f.novedad for f in fotos}),
+                    'fotos': fotos,
+                })
+            v.se_puede_confirmar = v.fecha <= hoy
+        return viajes
+
     def get(self, request):
         from planes.forms import DESCUENTO_HORAS, DESCUENTO_MINUTOS
+        from planes.models import AyudanteViaje
         filtradas, todas, filtros = _filas_trazabilidad(request)
         return render(request, self.template_name, {
+            # Viajes agendados (oct-2026): se confirman o se cancelan desde aquí.
+            'agendadas': self._agendadas(),
+            'hay_libres': any(not f['agendada'] for f in todas),
+            'novedades_ayudante': AyudanteViaje.NOVEDAD_CHOICES,
+            'novedades_con_foto': AyudanteViaje.NOVEDADES_CON_FOTO,
+            'apoya_disposicion': AyudanteViaje.APOYA_DISPOSICION,
             'filas': filtradas,
             'filtros': filtros,
             'n_pendientes': len(todas),
@@ -6787,6 +7060,222 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
             'descuento_horas': DESCUENTO_HORAS,
             'descuento_minutos': DESCUENTO_MINUTOS,
         })
+
+
+class _ErroresSueltos:
+    """Junta errores como un formulario (add_error) para leer_tiempos_por_persona."""
+    def __init__(self, data):
+        self.data = data
+        self.lista = []
+
+    def add_error(self, _campo, error):
+        self.lista.append(error)
+
+
+def _filas_viaje(viaje):
+    """Los datos del viaje que van en los correos (conductor) y su portal."""
+    filas = []
+    if viaje.hora:
+        filas.append(('Hora', viaje.hora.strftime('%H:%M')))
+    filas.append(('Vehículo', viaje.vehiculo.placa))
+    if viaje.dispositor_id:
+        filas.append(('Gestor', viaje.dispositor.nombre))
+    filas.append(('Órdenes', viaje.numeros_ordenes()))
+    if viaje.detalle:
+        filas.append(('Nota', viaje.detalle))
+    return filas
+
+
+def _ctx_correo_viaje(viaje, persona, rol):
+    nombre = persona.get_full_name() or persona.username
+    return {
+        'nombre': nombre,
+        'primer_nombre': (persona.first_name or nombre).split(' ')[0],
+        # El correo de programación lee `programacion.fecha` y sus observaciones.
+        'programacion': viaje,
+        'rol': rol,
+        'que': 'un viaje de disposición',
+        'encabezado': 'Viaje de disposición',
+        'titulo_fecha': 'Disposición del',
+        'asunto': f"SOLMED - Disposición final del {viaje.fecha:%d/%m/%Y}",
+        'observacion': '',
+        'novedades': [],
+        'fotos_pedidas': [],
+        'fecha_limite': None,
+    }
+
+
+def _correo_conductor_viaje(request, viaje, persona):
+    """El conductor: los datos del viaje y que ese día lo abre en su portal."""
+    correo = (persona.email or '').strip()
+    nombre = persona.get_full_name() or persona.username
+    if not correo:
+        return False, f"El conductor {nombre} no tiene correo registrado: no se le pudo avisar"
+    otros = [p.get_full_name() or p.username for p in viaje.personas() if p.pk != persona.pk]
+    ctx = _ctx_correo_viaje(viaje, persona, 'conductor')
+    ctx['detalles'] = _filas_viaje(viaje) + ([('Van contigo', ', '.join(otros))] if otros else [])
+    ctx['url'] = request.build_absolute_uri(reverse('gestion:dashboard_conductor'))
+    ctx['url_texto'] = ('Ese día lo verás en tu portal: antes de salir haz el '
+                        'preoperacional del vehículo')
+    ctx['url_boton'] = 'Abrir mi portal'
+    _enviar_correo_servicio(ctx, correo)
+    return True, None
+
+
+def _correo_ayudante_viaje(request, ayudante):
+    """El ayudante: su hora, sus fotos y su enlace personal (como en una orden)."""
+    persona = ayudante.persona
+    correo = (persona.email or '').strip()
+    if not correo:
+        return False, f"El ayudante {ayudante.persona_nombre} no tiene correo registrado: no se le pudo avisar"
+    viaje = ayudante.viaje
+    fotos = ayudante.fotos_pedidas()
+    ctx = _ctx_correo_viaje(viaje, persona, 'ayudante')
+    filas = []
+    if viaje.hora:
+        filas.append(('Hora', viaje.hora.strftime('%H:%M')))
+    filas.append(('Vehículo', viaje.vehiculo.placa))
+    ctx.update({
+        'detalles': filas,
+        'observacion': ayudante.observacion,
+        'novedades': ayudante.novedades_display(),
+        'fotos_pedidas': fotos,
+        'url': request.build_absolute_uri(reverse(
+            'gestion:acceso_ayudante_viaje', kwargs={'token': ayudante.token})),
+        'url_texto': ('Entra aquí para verlo y subir las fotos '
+                      '(no necesitas usuario ni contraseña)'
+                      if fotos else 'Entra aquí para ver los detalles del viaje'),
+        'url_boton': 'Ver mi viaje y subir fotos' if fotos else 'Ver mi viaje',
+        'fecha_limite': ayudante.fecha_limite_acceso,
+    })
+    _enviar_correo_servicio(ctx, correo)
+    return True, None
+
+
+def _avisar_viaje(request, viaje, asignaciones):
+    """
+    El correo de cada persona del viaje agendado según su rol: el conductor
+    (su portal y el preoperacional), el ayudante (su enlace y sus fotos) y
+    los demás (el aviso de la actividad del plan). Un correo que falla no
+    frena nada: el viaje ya quedó agendado.
+    """
+    from planes.views import _correo_asignacion
+    from planes.viajes import rol_en_viaje
+    ayudantes = {a.persona_id: a for a in viaje.ayudantes.select_related('persona', 'viaje')}
+    avisados = []
+    for asignacion in asignaciones:
+        persona = asignacion.persona
+        try:
+            rol = rol_en_viaje(persona)
+            if rol == 'conductor':
+                enviado, aviso = _correo_conductor_viaje(request, viaje, persona)
+            elif rol == 'ayudante' and persona.pk in ayudantes:
+                enviado, aviso = _correo_ayudante_viaje(request, ayudantes[persona.pk])
+            else:
+                enviado, aviso = _correo_asignacion(asignacion)
+        except Exception as e:
+            messages.warning(request, f"No salió el correo de {asignacion.persona_nombre} ({e}); "
+                                      f"el viaje quedó agendado igual.")
+            continue
+        if enviado:
+            avisados.append(asignacion.persona_nombre)
+        else:
+            messages.warning(request, aviso)
+    if avisados:
+        messages.success(request, "Se avisó por correo a " + ", ".join(avisados) + ".")
+
+
+class ViajeConductorView(ConductorRequiredMixin, View):
+    """
+    El viaje de disposición agendado, en el portal del CONDUCTOR (oct-2026):
+    a dónde va, con qué vehículo, cuáles órdenes y con quién, y su única
+    tarea: el preoperacional del vehículo. Como sus servicios, solo el día
+    del viaje (el conductor solo ve lo de hoy).
+    """
+    template_name = 'gestion/viaje_conductor.html'
+
+    def get(self, request, pk):
+        from planes.models import ViajeDisposicion
+        viaje = get_object_or_404(
+            ViajeDisposicion.objects.select_related('vehiculo', 'dispositor'), pk=pk)
+        if not viaje.asignaciones.filter(persona=request.user).exists():
+            messages.error(request, "Ese viaje de disposición no es tuyo.")
+            return redirect('gestion:dashboard_conductor')
+        if viaje.fecha != timezone.localdate():
+            messages.info(request, f"Ese viaje de disposición es del {viaje.fecha:%d/%m/%Y}: "
+                                   f"ese día te aparece en tu jornada.")
+            return redirect('gestion:dashboard_conductor')
+        ordenes = []
+        for o in viaje.ordenes.select_related('cliente').prefetch_related('recorridos__vehiculo').order_by('pk'):
+            ordenes.append({'orden': o, 'placas': ', '.join(sorted(
+                {r.vehiculo.placa for r in o.recorridos.all() if r.vehiculo_id}))})
+        return render(request, self.template_name, {
+            'viaje': viaje,
+            'ordenes': ordenes,
+            'companeros': [p.get_full_name() or p.username for p in viaje.personas()
+                           if p.pk != request.user.pk],
+            'pre': getattr(viaje, 'preoperacional', None),
+        })
+
+
+class AccesoAyudanteViajeView(View):
+    """
+    El enlace PÚBLICO (sin login) del ayudante de un viaje agendado: lo mismo
+    que el de una orden (hora, observaciones y las fotos que le piden sus
+    novedades), con el viaje en vez del servicio. Vence días después.
+    """
+    template_name = 'gestion/acceso_ayudante.html'
+
+    def _ayudante(self, token):
+        from planes.models import AyudanteViaje
+        return get_object_or_404(
+            AyudanteViaje.objects.select_related('viaje', 'viaje__vehiculo', 'viaje__dispositor',
+                                                 'persona'), token=token)
+
+    def get(self, request, token):
+        ayudante = self._ayudante(token)
+        viaje = ayudante.viaje
+        por_novedad = {}
+        for foto in ayudante.fotos.all():
+            por_novedad.setdefault(foto.novedad, []).append(foto)
+        pedidas = [{**p, 'fotos': por_novedad.get(p['codigo'], [])}
+                   for p in ayudante.fotos_pedidas()]
+        return render(request, self.template_name, {
+            'ayudante': ayudante.persona,
+            'programacion': viaje,
+            'titulo_servicio': 'Disposición del',
+            'cancelado': viaje.estado == 'CANCELADA',
+            'hora_ayudante': viaje.hora,
+            'lugar_ayudante': (viaje.dispositor.nombre if viaje.dispositor_id
+                               else f"Vehículo {viaje.vehiculo.placa}"),
+            'observacion': ayudante.observacion,
+            'fotos_pedidas': pedidas,
+            'pendientes': [p for p in pedidas if not p['fotos']],
+            'vigente': ayudante.acceso_vigente,
+            'fecha_limite': ayudante.fecha_limite_acceso,
+        })
+
+    def post(self, request, token):
+        from planes.models import FotoAyudanteViaje
+        ayudante = self._ayudante(token)
+        if not ayudante.acceso_vigente:
+            messages.error(request, "Este enlace ya no sirve: habla con tu coordinador.")
+            return redirect('gestion:acceso_ayudante_viaje', token=token)
+        novedad = request.POST.get('novedad', '')
+        codigos = {f['codigo'] for f in ayudante.fotos_pedidas()}
+        fotos = request.FILES.getlist('fotos')
+        if novedad not in codigos:
+            messages.error(request, "Esa foto no corresponde a tu viaje.")
+        elif not fotos:
+            messages.error(request, "Selecciona o toma la foto antes de enviarla.")
+        else:
+            for foto in fotos:
+                FotoAyudanteViaje.objects.create(ayudante=ayudante, novedad=novedad, archivo=foto)
+            messages.success(
+                request,
+                f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} enviada"
+                f"{'s' if len(fotos) != 1 else ''}. ¡Gracias!")
+        return redirect('gestion:acceso_ayudante_viaje', token=token)
 
 
 class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
@@ -9819,9 +10308,17 @@ def _datos_pesv(request, completo=False):
         filtro &= Q(recorrido__vehiculo_id=vehiculo_id)
     if conductor_id:
         filtro &= Q(recorrido__conductor_id=conductor_id)
+    # Los preoperacionales de los viajes de disposición agendados (oct-2026)
+    # también son del PESV: su fecha y su vehículo salen del viaje, y su
+    # conductor es quien lo diligenció.
+    filtro_viaje = Q(viaje__fecha__range=(inicio, fin))
+    if vehiculo_id:
+        filtro_viaje &= Q(viaje__vehiculo_id=vehiculo_id)
+    if conductor_id:
+        filtro_viaje &= Q(diligenciado_por_id=conductor_id)
     relacionados = ('recorrido', 'recorrido__vehiculo', 'recorrido__conductor',
                     'recorrido__orden', 'recorrido__orden__cliente')
-    pre_periodo = Preoperacional.objects.filter(filtro)
+    pre_periodo = Preoperacional.objects.filter(filtro | filtro_viaje)
     enc_periodo = EncuestaConductor.objects.filter(filtro)
 
     # --- El resumen: del periodo completo, con conteos en la base ---
@@ -9871,8 +10368,9 @@ def _datos_pesv(request, completo=False):
     if solo_hallazgos:
         pre_qs = pre_qs.filter(pk__in=pre_periodo.filter(Q_HALLAZGO_PREOPERACIONAL).values('pk'))
         enc_qs = enc_qs.filter(q_alerta)
-    pre_qs = (pre_qs.select_related(*relacionados, 'diligenciado_por')
-              .prefetch_related('items').order_by('recorrido__fecha_recorrido', 'recorrido_id'))
+    pre_qs = (pre_qs.select_related(*relacionados, 'diligenciado_por', 'viaje', 'viaje__vehiculo')
+              .prefetch_related('items')
+              .order_by(Coalesce('recorrido__fecha_recorrido', 'viaje__fecha'), 'recorrido_id', 'viaje_id'))
     enc_qs = enc_qs.select_related(*relacionados).order_by('recorrido__fecha_recorrido', 'recorrido_id')
     totales = {
         'pre': resumen['pre_con_hallazgos'] if solo_hallazgos else resumen['preoperacionales'],
@@ -9899,12 +10397,20 @@ def _datos_pesv(request, completo=False):
                      .values('recorrido__fecha_recorrido__month').annotate(n=Count('pk'))):
             numero = fila['recorrido__fecha_recorrido__month']
             conteo_meses[numero] = conteo_meses.get(numero, 0) + fila['n']
+    for fila in (Preoperacional.objects.filter(viaje__fecha__year=anio)
+                 .values('viaje__fecha__month').annotate(n=Count('pk'))):
+        numero = fila['viaje__fecha__month']
+        conteo_meses[numero] = conteo_meses.get(numero, 0) + fila['n']
     meses = [{'numero': i + 1, 'nombre': nombre, 'total': conteo_meses.get(i + 1, 0),
               'activo': (i + 1) == mes and not a_medida}
              for i, nombre in enumerate(HistoricoClienteView.MESES)]
     anios = {hoy.year, anio}
     for modelo in (Preoperacional, EncuestaConductor):
         anios.update(modelo.objects.values_list('recorrido__fecha_recorrido__year', flat=True).distinct())
+    # Los de los viajes de disposición (oct-2026) no tienen recorrido: su año es el del viaje.
+    anios.update(Preoperacional.objects.filter(viaje__isnull=False)
+                 .values_list('viaje__fecha__year', flat=True).distinct())
+    anios.discard(None)
 
     # Los chips «Todo» / «Solo lo que exige atención» y las pestañas
     # conservan el resto del filtro (y vuelven a la página 1).
@@ -10011,9 +10517,9 @@ class CarpetaPESVExcelView(PESVRequiredMixin, View):
             libro, 'Preoperacionales',
             ['Fecha', 'N° Orden', 'Cliente', 'Placa', 'Tipo de vehículo', 'Conductor',
              'Dictamen', 'Ítems malos', 'Hallazgos', 'Observaciones', 'Registrado'],
-            [[p.recorrido.fecha_recorrido, p.recorrido.orden.numero_orden,
-              p.recorrido.orden.cliente.nombre, p.recorrido.vehiculo.placa,
-              nombre_tipo(p.tipo_vehiculo), nombre(p.recorrido.conductor),
+            [[p.fecha_servicio, p.referencia,
+              p.cliente_texto, p.vehiculo.placa,
+              nombre_tipo(p.tipo_vehiculo), nombre(p.conductor),
               p.get_dictamen_display(), len(p.items_malos),
               '; '.join(f"{i.numero}. {i.texto}" for i in p.items_malos) or '—',
               p.observaciones or '—', registrado(p.fecha_diligenciamiento)]
@@ -10023,8 +10529,8 @@ class CarpetaPESVExcelView(PESVRequiredMixin, View):
         _hoja_excel(
             libro, 'Ítems malos',
             ['Fecha', 'N° Orden', 'Placa', 'Conductor', 'N°', 'Sección', 'Ítem'],
-            [[p.recorrido.fecha_recorrido, p.recorrido.orden.numero_orden,
-              p.recorrido.vehiculo.placa, nombre(p.recorrido.conductor),
+            [[p.fecha_servicio, p.referencia,
+              p.vehiculo.placa, nombre(p.conductor),
               i.numero, i.seccion, i.texto]
              for p in datos['preoperacionales'] for i in p.items_malos],
             [12, 11, 10, 24, 6, 34, 60], fechas=(1,))
