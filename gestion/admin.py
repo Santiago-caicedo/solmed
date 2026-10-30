@@ -243,8 +243,34 @@ class ConceptoFacturaInline(admin.TabularInline):
     extra = 0
 
 
+class SoloAdministradoresAdmin(admin.ModelAdmin):
+    """
+    La facturación es solo de administradores, también en este panel
+    (oct-2026): una cuenta «staff» que no sea administradora no la ve.
+    """
+    @staticmethod
+    def _es_admin(request):
+        u = request.user
+        return u.is_active and (u.is_superuser or u.groups.filter(name='Administradores').exists())
+
+    def has_module_permission(self, request):
+        return self._es_admin(request) and super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        return self._es_admin(request) and super().has_view_permission(request, obj)
+
+    def has_add_permission(self, request, *args):
+        return self._es_admin(request) and super().has_add_permission(request, *args)
+
+    def has_change_permission(self, request, obj=None):
+        return self._es_admin(request) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return self._es_admin(request) and super().has_delete_permission(request, obj)
+
+
 @admin.register(LineaFactura)
-class LineaFacturaAdmin(admin.ModelAdmin):
+class LineaFacturaAdmin(SoloAdministradoresAdmin):
     """La orden dentro de una preliquidación, con sus conceptos adicionales."""
     list_display = ('factura', 'orden', 'lleva_global', 'precio')
     list_filter = ('lleva_global',)
@@ -264,7 +290,7 @@ class AdjuntoFacturaInline(admin.TabularInline):
 
 
 @admin.register(Factura)
-class FacturaAdmin(admin.ModelAdmin):
+class FacturaAdmin(SoloAdministradoresAdmin):
     list_display = ('codigo', 'cliente', 'numero_externo', 'estado', 'creada_en', 'creada_por')
     list_filter = ('estado',)
     search_fields = ('numero', 'numero_externo', 'cliente__nombre', 'corte_facturacion')

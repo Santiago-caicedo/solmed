@@ -1,0 +1,95 @@
+{% comment %}
+Tiempo laborado del personal en el mes (tablero, oct-2026): por persona, dos
+barras —lunes a sábado (azul) y domingos y festivos (naranja)— con su valor
+encima. «Jornada alta» (ícono + texto, nunca solo color) marca a quien pasa
+en promedio la jornada máxima semanal legal. Paleta validada para daltonismo
+(#2a78d6 / #eb6834). Recibe `tl` (ver _tiempo_laborado en views.py).
+{% endcomment %}
+<style>
+.tl{ --serie-1:#2a78d6; --serie-2:#eb6834; }
+.tl-ley{ display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; font-size:.76rem; color:var(--ink-2); margin-bottom:.4rem; }
+.tl-ley i{ display:inline-block; width:.75rem; height:.75rem; border-radius:2px; vertical-align:-1px; margin-right:.3rem; }
+.tl-sub{ font-size:.74rem; color:var(--ink-3); margin-bottom:.6rem; }
+.tl-plano{ display:grid; grid-template-columns:2.4rem 1fr; }
+.tl-eje{ position:relative; height:220px; margin-top:1.4rem; }
+.tl-eje span{ position:absolute; right:.35rem; transform:translateY(50%); font-family:var(--mono); font-size:.64rem; color:var(--ink-3); }
+.tl-scroll{ overflow-x:auto; }
+.tl-area{ position:relative; height:220px; margin-top:1.4rem; display:flex; gap:10px; align-items:flex-end; min-width:max-content; padding:0 4px; }
+.tl-linea{ position:absolute; left:0; right:0; border-top:1px solid var(--line-2); pointer-events:none; }
+.tl-linea.base{ border-top-color:var(--line); }
+.tl-grupo{ position:relative; display:flex; flex-direction:column; align-items:center; width:64px; height:100%; }
+.tl-barras{ flex:1; width:100%; display:flex; align-items:flex-end; justify-content:center; gap:2px; }
+.tl-barra{ position:relative; width:22px; border-radius:4px 4px 0 0; min-height:2px; }
+.tl-barra.s1{ background:var(--serie-1); }
+.tl-barra.s2{ background:var(--serie-2); }
+.tl-barra .v{ position:absolute; bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:2px;
+    font-family:var(--mono); font-size:.66rem; font-weight:600; color:var(--ink-2); white-space:nowrap; }
+.tl-grupo:hover .tl-barra{ filter:brightness(.9); }
+.tl-alta{ position:absolute; top:-1.35rem; left:50%; transform:translateX(-50%); white-space:nowrap;
+    font-size:.64rem; font-weight:700; color:#8a5a00; background:#fff4d6; border:1px solid #f0d58a; border-radius:99px; padding:0 .35rem; }
+.tl-nombres{ display:flex; gap:10px; min-width:max-content; padding:0 4px; }
+.tl-nombres span{ width:64px; font-size:.7rem; color:var(--ink-2); text-align:center; line-height:1.15; padding-top:.35rem;
+    overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.tl-tip{ position:fixed; z-index:2000; pointer-events:none; white-space:pre-line; background:var(--g-900,#16222F); color:#fff;
+    font-size:.76rem; line-height:1.4; padding:.45rem .6rem; border-radius:6px; box-shadow:0 4px 14px rgba(0,0,0,.2); max-width:260px; }
+.tl details{ margin-top:.8rem; font-size:.8rem; }
+.tl details summary{ cursor:pointer; color:var(--steel); }
+.tl table{ font-size:.78rem; }
+</style>
+<div class="tl">
+    <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+        <div class="tl-ley">
+            <span><i style="background:var(--serie-1)"></i>Lunes a sábado</span>
+            <span><i style="background:var(--serie-2)"></i>Domingos y festivos</span>
+            <span><span class="tl-alta" style="position:static; transform:none">⚠ Jornada alta</span> promedio de más de {{ tl.maxima }} h por semana</span>
+        </div>
+    </div>
+    <div class="tl-sub">{{ tl.mes_nombre }}{% if tl.dias %} · {{ tl.dias }} día{{ tl.dias|pluralize }} transcurrido{{ tl.dias|pluralize }}{% endif %} · las mismas horas del centro de control (servicios, actividades y novedades que suman, con sus descuentos).</div>
+
+    {% if tl.futuro %}
+    <div class="db-vacio"><i class="bi bi-calendar-event"></i>Ese mes aún no empieza: no hay tiempo laborado.</div>
+    {% elif not tl.filas %}
+    <div class="db-vacio"><i class="bi bi-clock-history"></i>Nadie tiene horas trabajadas registradas en {{ tl.mes_nombre }}.</div>
+    {% else %}
+    <div class="tl-plano">
+        <div class="tl-eje" aria-hidden="true">
+            {% for m in tl.marcas %}<span style="bottom:{{ m.pct }}%">{{ m.h }}h</span>{% endfor %}
+        </div>
+        <div class="tl-scroll">
+            <div class="tl-area" role="img" aria-label="Horas trabajadas en {{ tl.mes_nombre }}, de lunes a sábado y en domingos y festivos, por persona">
+                {% for m in tl.marcas %}<div class="tl-linea {% if not m.h %}base{% endif %}" style="bottom:{{ m.pct }}%"></div>{% endfor %}
+                {% for f in tl.filas %}
+                <div class="tl-grupo" data-tip="{{ f.nombre }}
+Lunes a sábado: {{ f.semanal_txt|default:'0 h' }}
+Domingos y festivos: {{ f.dominical_txt|default:'0 h' }}
+Total: {{ f.total_txt }} · promedio {{ f.promedio_txt }} por semana{% if f.alta %}
+⚠ Jornada alta: pasa de {{ tl.maxima }} h semanales{% endif %}">
+                    {% if f.alta %}<span class="tl-alta">⚠ Jornada alta</span>{% endif %}
+                    <div class="tl-barras">
+                        <div class="tl-barra s1" style="height:{{ f.pct_semanal }}%"><span class="v">{{ f.semanal_h }}h</span></div>
+                        <div class="tl-barra s2" style="height:{{ f.pct_dominical }}%"><span class="v">{{ f.dominical_h }}h</span></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="tl-nombres">{% for f in tl.filas %}<span title="{{ f.nombre }}">{{ f.nombre }}</span>{% endfor %}</div>
+        </div>
+    </div>
+
+    <details>
+        <summary>Ver como tabla</summary>
+        <div class="table-responsive mt-2">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>Persona</th><th class="text-end">Lunes a sábado</th><th class="text-end">Domingos y festivos</th><th class="text-end">Total</th><th class="text-end">Promedio semanal</th></tr></thead>
+                <tbody>
+                {% for f in tl.filas %}
+                <tr><td>{{ f.nombre }}{% if f.alta %} <span class="tl-alta" style="position:static; transform:none">⚠ Jornada alta</span>{% endif %}</td>
+                    <td class="text-end">{{ f.semanal_txt|default:"0 h" }}</td><td class="text-end">{{ f.dominical_txt|default:"0 h" }}</td>
+                    <td class="text-end">{{ f.total_txt }}</td><td class="text-end">{{ f.promedio_txt }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+    {% endif %}
+</div>

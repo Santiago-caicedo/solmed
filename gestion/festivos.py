@@ -54,3 +54,25 @@ def es_festivo(fecha):
 def es_fin_de_semana_o_festivo(fecha):
     """Sábado, domingo o festivo de Colombia."""
     return fecha.weekday() >= 5 or es_festivo(fecha)
+
+
+def es_dominical(fecha):
+    """Domingo o festivo: lo que en Colombia se paga como dominical."""
+    return fecha.weekday() == 6 or es_festivo(fecha)
+
+
+# Jornada máxima semanal (Ley 2101 de 2021): baja por etapas cada 15 de julio.
+JORNADA_MAXIMA = [
+    (datetime.date(2026, 7, 15), 42),
+    (datetime.date(2025, 7, 15), 44),
+    (datetime.date(2024, 7, 15), 46),
+    (datetime.date(2023, 7, 15), 47),
+]
+
+
+def jornada_maxima_semanal(fecha):
+    """Las horas semanales máximas vigentes en esa fecha."""
+    for desde, horas in JORNADA_MAXIMA:
+        if fecha >= desde:
+            return horas
+    return 48

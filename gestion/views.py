@@ -186,6 +186,81 @@ ETIQUETAS_PESV = {
 
 # --- Vista Principal (Dashboard) ---
 # Se protege con LoginRequiredMixin para que sea la página de inicio después del login.
+def _tiempo_laborado(anio, mes, grupo):
+    """
+    El tiempo laborado de cada persona en el mes (oct-2026, gráfico del
+    tablero): las horas de lunes a sábado y las de domingos y festivos (lo
+    dominical), de la MISMA fuente del centro de control (servicios,
+    actividades y novedades que suman, con sus descuentos). Marca «jornada
+    alta» a quien, en promedio semanal, pasa la jornada máxima legal de esa
+    fecha (Ley 2101). Solo cuenta lo que ya pasó (hasta hoy).
+    """
+    from .festivos import es_dominical, jornada_maxima_semanal
+    inicio = datetime.date(anio, mes, 1)
+    fin = datetime.date(anio, mes, calendar.monthrange(anio, mes)[1])
+    hoy = timezone.localdate()
+    corte = min(fin, hoy)
+    cargos = (CARGOS_ESTADISTICA['conductores'] + CARGOS_ESTADISTICA['ayudantes']
+              if grupo == 'todos' else CARGOS_ESTADISTICA[grupo])
+    # Sin filtrar por is_active: los ayudantes no entran al sistema (cuenta
+    # inactiva a propósito); el que ya no trabaja está retirado.
+    personas = (User.objects.filter(groups__name__in=cargos, is_superuser=False)
+                .exclude(perfil__retirado=True).distinct())
+    dias = (corte - inicio).days + 1 if corte >= inicio else 0
+    semanas = dias / 7 if dias else 0
+    maxima = jornada_maxima_semanal(corte if dias else inicio)
+    filas = []
+    for p in personas:
+        por_dia = _datos_centro_control(p, inicio, fin)['horas']['por_dia']
+        dominical = sum(m for d, m in por_dia.items() if es_dominical(d))
+        semanal = sum(m for d, m in por_dia.items() if not es_dominical(d))
+        total = semanal + dominical
+        promedio = round(total / semanas) if semanas else 0
+        filas.append({
+            'nombre': p.get_full_name() or p.username,
+            'semanal': semanal, 'dominical': dominical, 'total': total,
+            'semanal_h': round(semanal / 60), 'dominical_h': round(dominical / 60),
+            'semanal_txt': _texto_horas(semanal), 'dominical_txt': _texto_horas(dominical),
+            'total_txt': _texto_horas(total), 'promedio_txt': _texto_horas(promedio),
+            'alta': bool(semanas) and promedio > maxima * 60,
+        })
+    filas = [f for f in filas if f['total']]
+    filas.sort(key=lambda f: (-f['total'], f['nombre'].lower()))
+    # El eje: de 10 en 10 horas hasta pasar la barra más alta.
+    tope_h = max([f['semanal_h'] for f in filas] + [f['dominical_h'] for f in filas] + [0])
+    tope = max(10, -(-tope_h // 10) * 10)
+    for f in filas:
+        f['pct_semanal'] = round(f['semanal'] / 60 * 100 / tope, 1)
+        f['pct_dominical'] = round(f['dominical'] / 60 * 100 / tope, 1)
+    return {
+        'filas': filas,
+        'marcas': [{'h': h, 'pct': round(h * 100 / tope, 1)} for h in range(tope, -1, -10)],
+        'mes_nombre': f"{HistoricoClienteView.MESES[mes - 1]} de {anio}",
+        'mes_valor': f"{anio}-{mes:02d}",
+        'grupo': grupo,
+        'maxima': maxima,
+        'dias': dias,
+        'futuro': dias == 0,
+        'n_altas': sum(1 for f in filas if f['alta']),
+    }
+
+
+class TiempoLaboradoView(AdministradorRequiredMixin, View):
+    """El gráfico de tiempo laborado del tablero (fragmento: cambia de mes y de grupo sin recargar)."""
+    def get(self, request):
+        hoy = timezone.localdate()
+        try:
+            anio, mes = (int(x) for x in (request.GET.get('mes') or '').split('-'))
+            datetime.date(anio, mes, 1)
+        except ValueError:
+            anio, mes = hoy.year, hoy.month
+        grupo = request.GET.get('grupo')
+        if grupo not in ('conductores', 'ayudantes', 'todos'):
+            grupo = 'conductores'
+        return render(request, 'gestion/partials/_tiempo_laborado.html',
+                      {'tl': _tiempo_laborado(anio, mes, grupo)})
+
+
 class DashboardView(AdministradorRequiredMixin, TemplateView):
     """
     Parte de operaciones: estadísticas clave de todo lo mapeado en el sistema
@@ -1094,8 +1169,8 @@ class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
             'sedes': cliente.sedes.all(),
             'terceros': cliente.terceros.all(),
             'documentos_ambientales': cliente.documentos_ambientales.all(),
-            'correos_enviados': EnvioCorreo.objects.filter(
-                cliente=cliente).order_by('-fecha')[:5],
+            'correos_enviados': _sin_facturacion(EnvioCorreo.objects.filter(
+                cliente=cliente), self.request.user).order_by('-fecha')[:5],
         })
         return context
 
@@ -3798,7 +3873,8 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
 
 
 
-class RegistrarPagoView(AsesorRequiredMixin, CreateView):
+class RegistrarPagoView(AdministradorRequiredMixin, CreateView):
+    # Los pagos son de la facturación: solo administradores (oct-2026).
     model = Pago
     form_class = PagoForm
     template_name = 'gestion/registrar_pago.html'
@@ -4821,12 +4897,25 @@ class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
         return JsonResponse({'items': items, 'mas': max(total - self.LIMITE, 0)})
 
 
+def _sin_facturacion(envios, user):
+    """
+    La FACTURACIÓN es solo de administradores, entera (decisión de Santiago,
+    oct-2026): el correo con el que se envió una factura o una preliquidación
+    (adjunto «factura:<pk>») no se le muestra a nadie más, ni en el Centro de
+    correos ni en la ficha del cliente.
+    """
+    if es_administrador(user):
+        return envios
+    return envios.exclude(adjuntos__icontains='"factura:')
+
+
 def _envios_correo_de(user):
     """
     Los envíos del Centro de correos al alcance de la persona. Cartera
     (oct-2026): la asesora ve los de sus clientes y los suyos sin cliente.
+    Los de facturación, solo administradores (_sin_facturacion).
     """
-    qs = EnvioCorreo.objects.all()
+    qs = _sin_facturacion(EnvioCorreo.objects.all(), user)
     if not tiene_cartera(user):
         return qs
     return qs.filter(Q(cliente__in=clientes_de(user)) | Q(cliente__isnull=True, enviado_por=user))
@@ -6382,14 +6471,21 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
         clave = (fecha.year, fecha.month)
         por_mes[clave] = por_mes.get(clave, 0) + (hasta - desde)
 
-    # Descuentos (almuerzo, etc.): se restan a su lista, al total y al mes;
-    # el tramo no se acorta porque el descuento no dice a qué hora fue.
+    # Día por día (oct-2026, gráfico de tiempo laborado del tablero): cada
+    # tramo unido cuenta en el día en que empezó, como en el mes.
+    por_dia = {}
+    for desde, hasta, fecha in unidos:
+        por_dia[fecha] = por_dia.get(fecha, 0) + (hasta - desde)
+
+    # Descuentos (almuerzo, etc.): se restan a su lista, al total, al mes y
+    # al día; el tramo no se acorta porque el descuento no dice a qué hora fue.
     def restar(fecha, descuento, lista):
         nonlocal total
         clave = (fecha.year, fecha.month)
         total -= descuento
         por_lista[lista] -= descuento
         por_mes[clave] = max(por_mes.get(clave, 0) - descuento, 0)
+        por_dia[fecha] = max(por_dia.get(fecha, 0) - descuento, 0)
 
     for s in servicios:
         if s.get('descuento_min'):
@@ -6421,6 +6517,7 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
 
     return {
         'minutos': total,
+        'por_dia': por_dia,
         'total': _texto_horas(total),
         'servicios': _texto_horas(por_lista['servicios']),
         'actividades': _texto_horas(por_lista['actividades']),

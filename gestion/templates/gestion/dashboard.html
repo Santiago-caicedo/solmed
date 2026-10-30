@@ -148,6 +148,26 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
             </div>
         </div>
 
+        {# --- Tiempo laborado del mes: lunes a sábado vs. domingos y festivos (oct-2026) --- #}
+        <div class="card shadow" id="tiempo-laborado" data-url="{% url 'gestion:tiempo_laborado' %}">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0">Tiempo laborado del personal</h5>
+                <form class="d-flex flex-wrap gap-2 align-items-center tl-filtros" onsubmit="return false">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Quiénes">
+                        <input type="radio" class="btn-check" name="grupo" id="tl-g-c" value="conductores" checked>
+                        <label class="btn btn-outline-secondary" for="tl-g-c">Conductores</label>
+                        <input type="radio" class="btn-check" name="grupo" id="tl-g-a" value="ayudantes">
+                        <label class="btn btn-outline-secondary" for="tl-g-a">Ayudantes</label>
+                        <input type="radio" class="btn-check" name="grupo" id="tl-g-t" value="todos">
+                        <label class="btn btn-outline-secondary" for="tl-g-t">Todos</label>
+                    </div>
+                    <label class="visually-hidden" for="tl-mes">Mes</label>
+                    <input type="month" id="tl-mes" name="mes" class="form-control form-control-sm" style="width:auto" value="{% now 'Y-m' %}">
+                </form>
+            </div>
+            <div class="card-body" id="tl-cuerpo" aria-live="polite"><div class="db-vacio">Cargando…</div></div>
+        </div>
+
         <div class="row g-3">
             {# --- Órdenes por estado --- #}
             <div class="col-md-6">
@@ -364,4 +384,35 @@ a.metric:hover{ text-decoration:none; color:inherit; box-shadow:0 4px 16px rgba(
         </div>
     </div>
 </div>
+<script>
+// Tiempo laborado: se recarga al cambiar de mes o de grupo, sin recargar el tablero.
+(function () {
+    var caja = document.getElementById('tiempo-laborado');
+    if (!caja) return;
+    var cuerpo = document.getElementById('tl-cuerpo');
+    var form = caja.querySelector('.tl-filtros');
+    function cargar() {
+        var datos = new URLSearchParams(new FormData(form));
+        fetch(caja.dataset.url + '?' + datos.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.text(); })
+            .then(function (html) { cuerpo.innerHTML = html; })
+            .catch(function () { cuerpo.innerHTML = '<div class="db-vacio">No se pudo cargar el tiempo laborado.</div>'; });
+    }
+    form.addEventListener('change', cargar);
+    // Tooltip por barra (delegado: el contenido se recarga).
+    var tip = document.createElement('div');
+    tip.className = 'tl-tip'; tip.hidden = true; document.body.appendChild(tip);
+    cuerpo.addEventListener('mousemove', function (e) {
+        var g = e.target.closest('[data-tip]');
+        if (!g) { tip.hidden = true; return; }
+        // Texto plano (los nombres vienen de la base): una línea por dato.
+        tip.textContent = g.dataset.tip;
+        tip.hidden = false;
+        var x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+        tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+    });
+    cuerpo.addEventListener('mouseleave', function () { tip.hidden = true; });
+    cargar();
+})();
+</script>
 {% endblock %}

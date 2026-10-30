@@ -29,7 +29,7 @@ import tempfile
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import Group, Permission, User
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -3129,6 +3129,69 @@ class FacturacionTests(BaseCRM):
         self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:lista_facturas'))
         self.entrar(self.admin)
         self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:lista_facturas'))
+
+    def test_nadie_mas_que_administradores_ni_sin_sesion(self):
+        """Oct-2026: la facturación entera, solo administradores y superadministradores."""
+        f = Factura.objects.create(cliente=self.cli)
+        urls = [reverse('gestion:lista_facturas'), reverse('gestion:crear_factura'),
+                reverse('gestion:previa_factura'),
+                reverse('gestion:detalle_factura', args=[f.pk]),
+                reverse('gestion:editar_factura', args=[f.pk]),
+                reverse('gestion:factura_pdf', args=[f.pk]),
+                reverse('gestion:factura_excel', args=[f.pk]),
+                reverse('gestion:ordenes_por_preliquidar'),
+                reverse('gestion:registrar_pago', args=[self.una.pk])]
+        # Sin sesión: a iniciar sesión, nunca la página.
+        self.client.logout()
+        for url in urls:
+            with self.subTest(url=url, quien='sin sesión'):
+                respuesta = self.client.get(url)
+                self.assertEqual(respuesta.status_code, 302)
+                self.assertIn('login', respuesta['Location'])
+        # Ningún otro rol, ni por GET ni por POST.
+        roles = ['Asesores', 'Conductores', 'Ayudantes', 'SISO', 'Talento Humano', 'Planificadores',
+                 'Auxiliares Administrativas', 'Administrativo', 'Director Técnico']
+        for i, rol in enumerate(roles):
+            persona = self.persona(f'rol{i}', rol)
+            persona.set_password('Clave-123!'); persona.is_active = True; persona.save()
+            self.client.force_login(persona)
+            for url in urls:
+                with self.subTest(url=url, rol=rol):
+                    self.assertNotEqual(self.client.get(url).status_code, 200)
+                    self.assertNotEqual(self.client.post(url, {}).status_code, 200)
+            self.assertEqual(Factura.objects.count(), 1, "nadie más crea facturas")
+        # El administrador (grupo, no superusuario) sí.
+        jefe = self.persona('jefa', 'Administradores')
+        self.client.force_login(jefe)
+        for url in urls:
+            with self.subTest(url=url, quien='administradora'):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_los_correos_de_facturas_no_se_ven_fuera_de_administracion(self):
+        de_factura = EnvioCorreo.objects.create(
+            cliente=self.cli, destinatarios='a@b.co', asunto='Factura SOL-0001',
+            adjuntos=['factura:1'], enviado_por=self.admin)
+        normal = EnvioCorreo.objects.create(
+            cliente=self.cli, destinatarios='a@b.co', asunto='Documentos del servicio',
+            adjuntos=['acta:1'], enviado_por=self.admin)
+        self.entrar(self.asesor)
+        centro = self.client.get(reverse('gestion:centro_correos'))
+        self.assertIn(normal, centro.context['envios'])
+        self.assertNotIn(de_factura, centro.context['envios'])
+        self.assertEqual(self.client.get(reverse('gestion:detalle_envio_correo', args=[de_factura.pk])).status_code, 404)
+        ficha = self.client.get(reverse('gestion:ficha_cliente', args=[self.cli.pk]))
+        self.assertNotContains(ficha, 'Factura SOL-0001')
+        self.entrar(self.admin)
+        self.assertIn(de_factura, self.client.get(reverse('gestion:centro_correos')).context['envios'])
+
+    def test_el_panel_admin_de_django_no_le_muestra_facturas_a_un_staff_cualquiera(self):
+        staff = self.persona('staff', 'Asesores')
+        staff.is_staff = True
+        staff.save()
+        staff.user_permissions.set(Permission.objects.filter(codename__in=['view_factura', 'view_lineafactura']))
+        self.client.force_login(staff)
+        self.assertNotEqual(self.client.get('/admin/gestion/factura/').status_code, 200)
+        self.assertNotEqual(self.client.get('/admin/gestion/lineafactura/').status_code, 200)
 
     # ---- Lo que se le adjunta al cliente: siete cosas, en el orden pedido ----
 
@@ -8733,6 +8796,85 @@ class CuadrarPendientesTests(BaseDisposicion):
         self.assertIn('#99999 no existe', salida)
 
 
+class TiempoLaboradoTests(BaseCRM):
+    """
+    Oct-2026: en el tablero, el tiempo laborado de cada persona en el mes —de
+    lunes a sábado y en domingos y festivos— con «jornada alta» para quien
+    pasa en promedio la jornada máxima semanal legal.
+    """
+
+    def setUp(self):
+        self.admin = self.persona('jefe', 'Administradores', 'Marta', 'Gil')
+        self.conductor = self.persona('cond', 'Conductores', 'Carlos', 'Pérez')
+        self.ayudante = self.persona('ayu', 'Ayudantes', 'Luis', 'Gómez')
+        User.objects.filter(pk=self.ayudante.pk).update(is_active=False)
+        self.entrar(self.admin)
+        self.url = reverse('gestion:tiempo_laborado')
+        from planes.models import Asignacion, PlanDia
+        self.Asignacion, self.PlanDia = Asignacion, PlanDia
+
+    def trabajo(self, persona, dia, desde, hasta):
+        plan, _ = self.PlanDia.objects.get_or_create(fecha=dia)
+        return self.Asignacion.objects.create(
+            plan=plan, persona=persona, tipo='LAVADA', suma_horas=True,
+            hora=datetime.time(desde), hora_fin=datetime.time(hasta))
+
+    def fila(self, respuesta, persona):
+        return next(f for f in respuesta.context['tl']['filas'] if f['nombre'] == persona.get_full_name())
+
+    def test_la_jornada_maxima_baja_por_etapas(self):
+        from gestion.festivos import jornada_maxima_semanal, es_dominical
+        self.assertEqual(jornada_maxima_semanal(datetime.date(2025, 7, 14)), 46)
+        self.assertEqual(jornada_maxima_semanal(datetime.date(2025, 7, 15)), 44)
+        self.assertEqual(jornada_maxima_semanal(datetime.date(2026, 10, 1)), 42)
+        self.assertTrue(es_dominical(datetime.date(2026, 8, 9)), "domingo")
+        self.assertTrue(es_dominical(datetime.date(2026, 8, 17)), "festivo")
+        self.assertFalse(es_dominical(datetime.date(2026, 8, 8)), "sábado no es dominical")
+
+    def test_separa_lunes_a_sabado_de_domingos_y_festivos(self):
+        self.trabajo(self.conductor, datetime.date(2026, 8, 8), 7, 15)    # sábado: 8 h
+        self.trabajo(self.conductor, datetime.date(2026, 8, 9), 8, 12)    # domingo: 4 h
+        self.trabajo(self.conductor, datetime.date(2026, 8, 17), 8, 11)   # festivo: 3 h
+        self.trabajo(self.ayudante, datetime.date(2026, 8, 10), 6, 8)     # lunes: 2 h
+        respuesta = self.client.get(self.url, {'mes': '2026-08', 'grupo': 'conductores'})
+        c = self.fila(respuesta, self.conductor)
+        self.assertEqual((c['semanal_txt'], c['dominical_txt'], c['total_txt']), ('8 h', '7 h', '15 h'))
+        self.assertEqual([f['nombre'] for f in respuesta.context['tl']['filas']], ['Carlos Pérez'])
+        # Los ayudantes (cuenta inactiva a propósito) sí salen en su pestaña.
+        a = self.fila(self.client.get(self.url, {'mes': '2026-08', 'grupo': 'ayudantes'}), self.ayudante)
+        self.assertEqual(a['semanal_txt'], '2 h')
+        todos = self.client.get(self.url, {'mes': '2026-08', 'grupo': 'todos'})
+        self.assertEqual(len(todos.context['tl']['filas']), 2)
+        self.assertContains(todos, 'Domingos y festivos')
+
+    def test_marca_la_jornada_alta(self):
+        # Agosto de 2026 completo (31 días): 42 h por semana = ~186 h; 12 h diarias de lunes a sábado lo pasan.
+        dia = datetime.date(2026, 8, 1)
+        while dia.month == 8:
+            if dia.weekday() < 6:
+                self.trabajo(self.conductor, dia, 6, 18)
+            dia += datetime.timedelta(days=1)
+        self.trabajo(self.ayudante, datetime.date(2026, 8, 3), 8, 12)
+        respuesta = self.client.get(self.url, {'mes': '2026-08', 'grupo': 'todos'})
+        self.assertTrue(self.fila(respuesta, self.conductor)['alta'])
+        self.assertFalse(self.fila(respuesta, self.ayudante)['alta'])
+        self.assertEqual(respuesta.context['tl']['maxima'], 42)
+        self.assertContains(respuesta, 'Jornada alta')
+
+    def test_un_mes_que_no_empieza_y_un_mes_sin_horas(self):
+        futuro = timezone.localdate().replace(day=1) + datetime.timedelta(days=62)
+        respuesta = self.client.get(self.url, {'mes': f'{futuro.year}-{futuro.month:02d}'})
+        self.assertTrue(respuesta.context['tl']['futuro'])
+        respuesta = self.client.get(self.url, {'mes': '2025-02'})
+        self.assertEqual(respuesta.context['tl']['filas'], [])
+        self.assertContains(respuesta, 'Nadie tiene horas trabajadas')
+
+    def test_esta_en_el_tablero_y_solo_lo_ve_gestion(self):
+        self.assertContains(self.client.get(reverse('gestion:dashboard')), self.url)
+        self.entrar(self.persona('asesora', 'Asesores'))
+        self.assertNotEqual(self.client.get(self.url).status_code, 200)
+
+
 class EstadisticaPersonalTests(BaseCRM):
     """
     Oct-2026: debajo del formulario de programación, cuántas órdenes lleva en
@@ -10917,7 +11059,8 @@ class CarteraDeClientesTests(BaseCRM):
         for nombre, args, esperado in (
                 ('detalle_orden', [self.orden_ajena.pk], 404),
                 ('actualizar_orden', [self.orden_ajena.pk], 404),
-                ('registrar_pago', [self.orden_ajena.pk], 404),
+                # Registrar pagos es de la facturación: solo administradores (oct-2026).
+                ('registrar_pago', [self.orden_ajena.pk], 403),
                 ('acta_pdf', [self.recorrido_ajeno.pk], 404),
                 ('acta_formato', [self.recorrido_ajeno.pk], 404),
                 ('editar_recorrido', [self.recorrido_ajeno.pk], 404),

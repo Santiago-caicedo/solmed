@@ -152,6 +152,8 @@ urlpatterns = [
     path('programaciones/nueva/', views.CrearProgramacionView.as_view(), name='crear_programacion'),
     # Debajo del formulario: cuánto lleva cada conductor y ayudante en el mes (oct-2026).
     path('programaciones/estadistica/', views.EstadisticaPersonalView.as_view(), name='estadistica_personal'),
+    # Tablero: el tiempo laborado de cada persona en el mes, semanal vs. dominical (oct-2026).
+    path('tablero/tiempo-laborado/', views.TiempoLaboradoView.as_view(), name='tiempo_laborado'),
     path('programaciones/<int:pk>/editar/', views.ActualizarProgramacionView.as_view(), name='actualizar_programacion'),
     path('programaciones/<int:pk>/convertir/', views.ConvertirProgramacionView.as_view(), name='convertir_programacion'),
     path('programaciones/<int:pk>/cancelar/', views.CancelarProgramacionView.as_view(), name='cancelar_programacion'),
