@@ -5,6 +5,8 @@ encima. «Jornada alta» (ícono + texto, nunca solo color) marca a quien pasa
 en promedio la jornada máxima semanal legal. Paleta validada para daltonismo
 (#2a78d6 / #eb6834). Recibe `tl` (ver _tiempo_laborado en views.py).
 {% endcomment %}
+{% load l10n %}
+{# Los % van SIN formato regional: «90,0%» (coma) no es CSS válido y las barras no subían. #}
 <style>
 .tl{ --serie-1:#2a78d6; --serie-2:#eb6834; }
 .tl-ley{ display:flex; flex-wrap:wrap; gap:.3rem 1.1rem; font-size:.76rem; color:var(--ink-2); margin-bottom:.4rem; }
@@ -17,8 +19,10 @@ en promedio la jornada máxima semanal legal. Paleta validada para daltonismo
 .tl-area{ position:relative; height:220px; margin-top:1.4rem; display:flex; gap:10px; align-items:flex-end; min-width:max-content; padding:0 4px; }
 .tl-linea{ position:absolute; left:0; right:0; border-top:1px solid var(--line-2); pointer-events:none; }
 .tl-linea.base{ border-top-color:var(--line); }
-.tl-grupo{ position:relative; display:flex; flex-direction:column; align-items:center; width:64px; height:100%; }
-.tl-barras{ flex:1; width:100%; display:flex; align-items:flex-end; justify-content:center; gap:2px; }
+/* Alto FIJO en cada nivel: un alto en % solo se resuelve contra un padre de alto definido
+   (con flex:1 el navegador lo ignoraba y todas las barras quedaban en 2px). */
+.tl-grupo{ position:relative; width:64px; height:220px; flex:0 0 64px; }
+.tl-barras{ position:absolute; left:0; right:0; bottom:0; height:220px; display:flex; align-items:flex-end; justify-content:center; gap:2px; }
 .tl-barra{ position:relative; width:22px; border-radius:4px 4px 0 0; min-height:2px; }
 .tl-barra.s1{ background:var(--serie-1); }
 .tl-barra.s2{ background:var(--serie-2); }
@@ -53,11 +57,11 @@ en promedio la jornada máxima semanal legal. Paleta validada para daltonismo
     {% else %}
     <div class="tl-plano">
         <div class="tl-eje" aria-hidden="true">
-            {% for m in tl.marcas %}<span style="bottom:{{ m.pct }}%">{{ m.h }}h</span>{% endfor %}
+            {% for m in tl.marcas %}<span style="bottom:{{ m.pct|unlocalize }}%">{{ m.h }}h</span>{% endfor %}
         </div>
         <div class="tl-scroll">
             <div class="tl-area" role="img" aria-label="Horas trabajadas en {{ tl.mes_nombre }}, de lunes a sábado y en domingos y festivos, por persona">
-                {% for m in tl.marcas %}<div class="tl-linea {% if not m.h %}base{% endif %}" style="bottom:{{ m.pct }}%"></div>{% endfor %}
+                {% for m in tl.marcas %}<div class="tl-linea {% if not m.h %}base{% endif %}" style="bottom:{{ m.pct|unlocalize }}%"></div>{% endfor %}
                 {% for f in tl.filas %}
                 <div class="tl-grupo" data-tip="{{ f.nombre }}
 Lunes a sábado: {{ f.semanal_txt|default:'0 h' }}
@@ -66,8 +70,8 @@ Total: {{ f.total_txt }} · promedio {{ f.promedio_txt }} por semana{% if f.alta
 ⚠ Jornada alta: pasa de {{ tl.maxima }} h semanales{% endif %}">
                     {% if f.alta %}<span class="tl-alta">⚠ Jornada alta</span>{% endif %}
                     <div class="tl-barras">
-                        <div class="tl-barra s1" style="height:{{ f.pct_semanal }}%"><span class="v">{{ f.semanal_h }}h</span></div>
-                        <div class="tl-barra s2" style="height:{{ f.pct_dominical }}%"><span class="v">{{ f.dominical_h }}h</span></div>
+                        <div class="tl-barra s1" style="height:{{ f.pct_semanal|unlocalize }}%"><span class="v">{{ f.semanal_h }}h</span></div>
+                        <div class="tl-barra s2" style="height:{{ f.pct_dominical|unlocalize }}%"><span class="v">{{ f.dominical_h }}h</span></div>
                     </div>
                 </div>
                 {% endfor %}

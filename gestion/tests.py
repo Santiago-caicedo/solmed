@@ -3165,7 +3165,8 @@ class FacturacionTests(BaseCRM):
         self.client.force_login(jefe)
         for url in urls:
             with self.subTest(url=url, quien='administradora'):
-                self.assertEqual(self.client.get(url).status_code, 200)
+                # Sin negarle nada (la vista previa solo recibe POST: 405 al GET).
+                self.assertNotIn(self.client.get(url).status_code, (302, 403, 404))
 
     def test_los_correos_de_facturas_no_se_ven_fuera_de_administracion(self):
         de_factura = EnvioCorreo.objects.create(
@@ -8846,6 +8847,11 @@ class TiempoLaboradoTests(BaseCRM):
         todos = self.client.get(self.url, {'mes': '2026-08', 'grupo': 'todos'})
         self.assertEqual(len(todos.context['tl']['filas']), 2)
         self.assertContains(todos, 'Domingos y festivos')
+        # Las alturas van con PUNTO decimal: «66,7%» (coma, por el idioma) no es CSS
+        # válido y las barras se quedaban sin subir (pasó en oct-2026).
+        html = todos.content.decode()
+        self.assertRegex(html, r'height:\d+(\.\d+)?%')
+        self.assertNotRegex(html, r'(height|bottom):\d+,\d+%')
 
     def test_marca_la_jornada_alta(self):
         # Agosto de 2026 completo (31 días): 42 h por semana = ~186 h; 12 h diarias de lunes a sábado lo pasan.
