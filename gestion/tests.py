@@ -8823,6 +8823,14 @@ class TiempoLaboradoTests(BaseCRM):
     def fila(self, respuesta, persona):
         return next(f for f in respuesta.context['tl']['filas'] if f['nombre'] == persona.get_full_name())
 
+    def test_los_festivos_de_colombia(self):
+        from gestion.festivos import es_festivo, es_fin_de_semana_o_festivo
+        for dia in ('2026-01-12', '2026-04-02', '2026-04-03', '2026-06-15', '2026-08-17', '2026-11-16', '2026-12-08'):
+            self.assertTrue(es_festivo(datetime.date.fromisoformat(dia)), dia)
+        self.assertFalse(es_festivo(datetime.date(2026, 1, 6)), "Reyes se corrió al lunes 12")
+        self.assertTrue(es_fin_de_semana_o_festivo(datetime.date(2026, 8, 8)), "sábado")
+        self.assertFalse(es_fin_de_semana_o_festivo(datetime.date(2026, 8, 10)), "lunes normal")
+
     def test_la_jornada_maxima_baja_por_etapas(self):
         from gestion.festivos import jornada_maxima_semanal, es_dominical
         self.assertEqual(jornada_maxima_semanal(datetime.date(2025, 7, 14)), 46)
@@ -8878,79 +8886,6 @@ class TiempoLaboradoTests(BaseCRM):
     def test_esta_en_el_tablero_y_solo_lo_ve_gestion(self):
         self.assertContains(self.client.get(reverse('gestion:dashboard')), self.url)
         self.entrar(self.persona('asesora', 'Asesores'))
-        self.assertNotEqual(self.client.get(self.url).status_code, 200)
-
-
-class EstadisticaPersonalTests(BaseCRM):
-    """
-    Oct-2026: debajo del formulario de programación, cuántas órdenes lleva en
-    el mes cada conductor y cada ayudante y qué fines de semana o festivos
-    trabajó, para repartir la carga.
-    """
-
-    def setUp(self):
-        self.asesor = self.persona('asesora', 'Asesores', 'Ana', 'Ruiz')
-        self.conductor = self.persona('cond', 'Conductores', 'Carlos', 'Pérez')
-        self.ayudante = self.persona('ayu', 'Ayudantes', 'Luis', 'Gómez')
-        self.entrar(self.asesor)
-        self.url = reverse('gestion:estadistica_personal')
-
-    def fila(self, respuesta, rol, persona):
-        nombre = persona.get_full_name()
-        return next(f for f in respuesta.context['est'][rol] if f['nombre'] == nombre)
-
-    def test_los_festivos_de_colombia(self):
-        from gestion.festivos import es_festivo, es_fin_de_semana_o_festivo
-        for dia in ('2026-01-12', '2026-04-02', '2026-04-03', '2026-06-15', '2026-08-17', '2026-11-16', '2026-12-08'):
-            self.assertTrue(es_festivo(datetime.date.fromisoformat(dia)), dia)
-        self.assertFalse(es_festivo(datetime.date(2026, 1, 6)), "Reyes se corrió al lunes 12")
-        self.assertTrue(es_fin_de_semana_o_festivo(datetime.date(2026, 8, 8)), "sábado")
-        self.assertFalse(es_fin_de_semana_o_festivo(datetime.date(2026, 8, 10)), "lunes normal")
-
-    def test_cuenta_las_ordenes_del_mes_y_los_fines_de_semana(self):
-        for dia in (datetime.date(2026, 8, 8), datetime.date(2026, 8, 17), datetime.date(2026, 8, 19)):
-            self.programacion(conductor=self.conductor, ayudante=self.ayudante, fecha=dia).convertir_en_orden(self.asesor)
-        # Otra en septiembre: no es del mes.
-        self.programacion(conductor=self.conductor, fecha=datetime.date(2026, 9, 2)).convertir_en_orden(self.asesor)
-        respuesta = self.client.get(self.url, {'fecha': '2026-08-20'})
-        self.assertEqual(respuesta.context['est']['mes'], 'Agosto de 2026')
-        c = self.fila(respuesta, 'conductores', self.conductor)
-        self.assertEqual((c['hechas'], c['programadas'], c['total']), (3, 0, 3))
-        self.assertEqual([(d['fecha'].day, d['festivo']) for d in c['dias_fds']], [(8, False), (17, True)])
-        a = self.fila(respuesta, 'ayudantes', self.ayudante)
-        self.assertEqual(a['total'], 3)
-        self.assertContains(respuesta, 'Carlos Pérez')
-        self.assertContains(respuesta, 'Cómo va el personal')
-
-    def test_lo_programado_cuenta_aparte_y_sin_contarse_dos_veces(self):
-        futura = timezone.localdate() + datetime.timedelta(days=40)
-        programacion = self.programacion(conductor=self.conductor, fecha=futura)
-        respuesta = self.client.get(self.url, {'fecha': futura.isoformat()})
-        c = self.fila(respuesta, 'conductores', self.conductor)
-        self.assertEqual((c['hechas'], c['programadas']), (0, 1))
-        programacion.convertir_en_orden(self.asesor)
-        c = self.fila(self.client.get(self.url, {'fecha': futura.isoformat()}), 'conductores', self.conductor)
-        self.assertEqual((c['hechas'], c['programadas'], c['total']), (0, 1, 1), "convertida no suma doble")
-
-    def test_quien_no_tiene_nada_sale_en_cero_y_las_canceladas_no_cuentan(self):
-        orden = self.programacion(conductor=self.conductor, fecha=datetime.date(2026, 8, 5)).convertir_en_orden(self.asesor)
-        orden.estado_orden = 'CANCELADA'
-        orden.save()
-        c = self.fila(self.client.get(self.url, {'fecha': '2026-08-01'}), 'conductores', self.conductor)
-        self.assertEqual(c['total'], 0)
-
-    def test_los_ayudantes_sin_acceso_al_sistema_si_salen(self):
-        """Su cuenta es inactiva a propósito (no entran): igual cuentan. El retirado no."""
-        User.objects.filter(pk=self.ayudante.pk).update(is_active=False)
-        retirado = self.persona('ayu2', 'Ayudantes', 'Pedro', 'Ríos')
-        PerfilPersona.objects.update_or_create(usuario=retirado, defaults={'retirado': True})
-        nombres = [f['nombre'] for f in self.client.get(self.url).context['est']['ayudantes']]
-        self.assertEqual(nombres, ['Luis Gómez'])
-
-    def test_el_formulario_la_carga_y_solo_entra_gestion(self):
-        pantalla = self.client.get(reverse('gestion:crear_programacion'))
-        self.assertContains(pantalla, 'id="estadistica-personal"')
-        self.entrar(self.conductor)
         self.assertNotEqual(self.client.get(self.url).status_code, 200)
 
 

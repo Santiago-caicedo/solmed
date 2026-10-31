@@ -565,10 +565,6 @@
     </div>
 </form>
 
-{# Cómo va el mes del servicio para conductores y ayudantes (oct-2026): ayuda a repartir la carga. #}
-<div id="estadistica-personal" class="mt-4" data-url="{% url 'gestion:estadistica_personal' %}"
-     aria-live="polite"><div class="text-muted small">Cargando lo que lleva el personal este mes…</div></div>
-
 {% comment %}
 ============ POPUPS DE CATÁLOGOS (fuera del form principal) ============
 Los tres funcionan igual: se agrega arriba, se elimina en el listado y el
@@ -722,43 +718,6 @@ el bloque de scripts). Las clases catalogo-* son las que busca ese JS.
 {% endblock %}
 
 {% block scripts %}
-<script>
-// La estadística del personal se recarga con el mes de la fecha del servicio.
-(function () {
-    var caja = document.getElementById('estadistica-personal');
-    var fecha = document.getElementById('{{ form.fecha.id_for_label }}');
-    if (!caja) return;
-    var mes = null;
-    function cargar() {
-        var valor = fecha && fecha.value ? fecha.value : '';
-        var este = valor.slice(0, 7);
-        if (este && este === mes) return;
-        mes = este;
-        fetch(caja.dataset.url + (valor ? '?fecha=' + encodeURIComponent(valor) : ''),
-              { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                caja.innerHTML = html;
-                // Pestañas Conductores / Ayudantes (sin depender del objeto bootstrap).
-                caja.querySelectorAll('[data-est-tab]').forEach(function (b) {
-                    b.addEventListener('click', function () {
-                        caja.querySelectorAll('[data-est-tab]').forEach(function (x) {
-                            var activo = x === b;
-                            x.classList.toggle('active', activo);
-                            x.setAttribute('aria-selected', activo ? 'true' : 'false');
-                        });
-                        caja.querySelectorAll('[data-est-panel]').forEach(function (p) {
-                            p.hidden = p.dataset.estPanel !== b.dataset.estTab;
-                        });
-                    });
-                });
-            })
-            .catch(function () { caja.innerHTML = '<div class="text-muted small">No se pudo cargar la estadística del personal.</div>'; });
-    }
-    if (fecha) fecha.addEventListener('change', cargar);
-    cargar();
-})();
-</script>
 {{ personal_docs|json_script:"personal-docs-data" }}
 {{ direcciones_clientes|json_script:"direcciones-clientes-data" }}
 {{ sedes_por_cliente|json_script:"sedes-cliente-data" }}
