@@ -2678,6 +2678,40 @@ class EncuestaConductorView(LoginRequiredMixin, View):
         })
 
 
+class AnularFirmaActaView(AsesorRequiredMixin, View):
+    """
+    Anula la firma y la encuesta del cliente de un acta (oct-2026, pedido de
+    Santiago): pasa cuando se le envía a un cliente el enlace de otra orden.
+    Doble confirmación: el motivo es obligatorio y hay que escribir el número
+    de la orden. Gestión y las asesoras (solo en su cartera). Solo POST.
+    """
+    def post(self, request, pk):
+        recorrido = get_object_or_404(
+            solo_cartera(Recorrido.objects.select_related('orden'), request.user, 'orden__cliente'), pk=pk)
+        volver = redirect('gestion:detalle_orden', pk=recorrido.orden_id)
+        manifiesto = Manifiesto.objects.filter(recorrido=recorrido).first()
+        if manifiesto is None or manifiesto.estado_firma != 'FIRMADO':
+            messages.error(request, "Esa acta no está firmada: no hay firma que anular.")
+            return volver
+        motivo = (request.POST.get('motivo') or '').strip()
+        confirmacion = (request.POST.get('confirmacion') or '').strip().lstrip('#')
+        if not motivo:
+            messages.error(request, "Para anular la firma, escribe el motivo.")
+            return volver
+        if confirmacion != str(recorrido.orden.numero_orden):
+            messages.error(request, "No se anuló: el número de orden escrito no coincide.")
+            return volver
+        with transaction.atomic():
+            firmante = manifiesto.nombre_responsable_cliente
+            manifiesto.anular_firma(request.user, motivo)
+        messages.warning(
+            request,
+            f"Se anuló la firma y la encuesta del acta ({recorrido.vehiculo.placa}) que había "
+            f"firmado {firmante or 'el cliente'}. El enlace anterior ya no sirve: envíale al "
+            f"cliente correcto el NUEVO desde «QR y enlace del cliente».")
+        return volver
+
+
 class EncuestaPublicaView(View):
     """
     Página PÚBLICA (sin login) que abre el cliente al escanear el QR.

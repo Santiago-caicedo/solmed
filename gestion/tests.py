@@ -8797,6 +8797,88 @@ class CuadrarPendientesTests(BaseDisposicion):
         self.assertIn('#99999 no existe', salida)
 
 
+class AnularFirmaActaTests(BaseCRM):
+    """
+    Oct-2026: a veces se le envía a un cliente el enlace de OTRA orden y firma
+    la que no es. Gestión o la asesora anula la firma y la encuesta con doble
+    confirmación (motivo + número de orden); queda el rastro y el enlace
+    viejo deja de servir.
+    """
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())
+        from django.core.files.base import ContentFile
+        self.acta = Manifiesto.objects.create(
+            recorrido=self.recorrido, estado_firma='FIRMADO', nombre_responsable_cliente='Pepe Equivocado',
+            eval_atencion=5, eval_amabilidad=4, tiempo_inicio_operativo=datetime.time(7, 0))
+        self.acta.firma_cliente.save('firma.png', ContentFile(png_bytes()), save=True)
+        self.token_viejo = self.acta.token_publico
+        self.url = reverse('gestion:anular_firma_acta', args=[self.recorrido.pk])
+        self.entrar(self.asesor)
+
+    def anular(self, **datos):
+        base = {'motivo': 'Se le envió el enlace a otro cliente', 'confirmacion': str(self.orden.numero_orden)}
+        base.update(datos)
+        return self.client.post(self.url, base, follow=True)
+
+    def test_anula_la_firma_y_la_encuesta_y_deja_el_rastro(self):
+        from gestion.models import AnulacionFirmaActa
+        respuesta = self.anular()
+        self.assertContains(respuesta, 'Se anuló la firma y la encuesta')
+        self.acta.refresh_from_db()
+        self.assertEqual(self.acta.estado_firma, 'PENDIENTE_FIRMA')
+        self.assertEqual((self.acta.eval_atencion, self.acta.eval_amabilidad), (None, None))
+        self.assertEqual(self.acta.nombre_responsable_cliente, '')
+        self.assertFalse(self.acta.firma_cliente)
+        self.assertNotEqual(self.acta.token_publico, self.token_viejo)
+        self.assertEqual(self.acta.tiempo_inicio_operativo, datetime.time(7, 0), "los datos del servicio no se tocan")
+        registro = AnulacionFirmaActa.objects.get()
+        self.assertEqual((registro.anulada_por, registro.firmante), (self.asesor, 'Pepe Equivocado'))
+        self.assertEqual(registro.encuesta['eval_atencion'], 5)
+        self.assertTrue(registro.firma)
+        # El enlace que se envió por error ya no sirve; el nuevo sí abre la encuesta.
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('gestion:encuesta_publica', args=[self.token_viejo])).status_code, 404)
+        nuevo = self.client.get(reverse('gestion:encuesta_publica', args=[self.acta.token_publico]))
+        self.assertEqual(nuevo.status_code, 200)
+        self.assertNotIn('ya_firmado', nuevo.context or {})
+        # El expediente muestra el rastro.
+        self.entrar(self.asesor)
+        detalle = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertContains(detalle, 'Firmas anuladas de esta acta')
+        self.assertContains(detalle, 'Pepe Equivocado')
+
+    def test_doble_confirmacion_motivo_y_numero_de_orden(self):
+        for datos, mensaje in (({'motivo': '  '}, 'escribe el motivo'),
+                               ({'confirmacion': '999'}, 'no coincide'),
+                               ({'confirmacion': ''}, 'no coincide')):
+            with self.subTest(datos=datos):
+                self.assertContains(self.anular(**datos), mensaje)
+                self.acta.refresh_from_db()
+                self.assertEqual(self.acta.estado_firma, 'FIRMADO')
+        # Con «#» delante también vale.
+        self.anular(confirmacion=f'#{self.orden.numero_orden}')
+        self.acta.refresh_from_db()
+        self.assertEqual(self.acta.estado_firma, 'PENDIENTE_FIRMA')
+
+    def test_el_boton_sale_solo_con_el_acta_firmada(self):
+        detalle = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertContains(detalle, 'Anular firma y encuesta')
+        self.assertContains(detalle, self.url)
+        self.anular()
+        detalle = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertNotContains(detalle, f'data-url="{self.url}"')
+        # Sin firma no hay nada que anular.
+        self.assertContains(self.anular(), 'no hay firma que anular')
+
+    def test_el_conductor_no(self):
+        self.entrar(self.conductor)
+        respuesta = self.client.post(self.url, {'motivo': 'x', 'confirmacion': str(self.orden.numero_orden)})
+        self.assertNotEqual(respuesta.status_code, 200)
+        self.acta.refresh_from_db()
+        self.assertEqual(self.acta.estado_firma, 'FIRMADO')
+
+
 class TiempoLaboradoTests(BaseCRM):
     """
     Oct-2026: en el tablero, el tiempo laborado de cada persona en el mes —de

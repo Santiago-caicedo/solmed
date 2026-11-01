@@ -32,6 +32,8 @@ urlpatterns = [
     path('recorrido/<int:pk>/encuesta-pdf/', views.EncuestaConductorPDFView.as_view(), name='encuesta_conductor_pdf'),
     # --- Preoperacional del vehículo (PESV): lo llena el conductor antes de salir ---
     path('recorrido/<int:pk>/preoperacional/', views.PreoperacionalView.as_view(), name='preoperacional'),
+    # Anular la firma y la encuesta del cliente (se le envió el enlace equivocado, oct-2026).
+    path('recorrido/<int:pk>/anular-firma/', views.AnularFirmaActaView.as_view(), name='anular_firma_acta'),
     path('recorrido/<int:pk>/preoperacional-pdf/', views.PreoperacionalPDFView.as_view(), name='preoperacional_pdf'),
     # --- Viajes de disposición agendados (oct-2026): preoperacional, portal del conductor y enlace del ayudante ---
     path('disposicion/<int:pk>/preoperacional/', views.PreoperacionalViajeView.as_view(), name='preoperacional_viaje'),

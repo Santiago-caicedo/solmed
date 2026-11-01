@@ -275,6 +275,14 @@ en el número pedido y las que estorben se corren un puesto.
                                        title="El acta ya está firmada: corrige tiempos, kilómetros o novedades sin tocar la firma">
                                         <i class="bi bi-pen me-1"></i>Corregir datos
                                     </a>
+                                    {# Se envió el enlace equivocado: deshace la firma y la encuesta (doble confirmación). #}
+                                    <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modal-anular-firma"
+                                            data-url="{% url 'gestion:anular_firma_acta' recorrido.pk %}"
+                                            data-placa="{{ recorrido.vehiculo.placa }}"
+                                            data-firmante="{{ recorrido.manifiesto.nombre_responsable_cliente }}"
+                                            title="Se le envió al cliente el enlace equivocado: borra su firma y su encuesta">
+                                        <i class="bi bi-x-octagon me-1"></i>Anular firma y encuesta
+                                    </button>
                                 {% else %}
                                     {% comment %}
                                     El QR y el enlace se pueden generar aunque el conductor no
@@ -953,6 +961,19 @@ en el número pedido y las que estorben se corren un puesto.
         </div>
         <div class="card-body">
             {% include 'gestion/partials/_acta_documento.html' with manifiesto=item.acta recorrido=item.recorrido orden=orden %}
+            {# Firmas anuladas de esta acta (se envió el enlace equivocado): el rastro queda. #}
+            {% if item.acta.anulaciones.all %}
+            <div class="alert alert-warning small mt-3 mb-0">
+                <div class="fw-semibold mb-1"><i class="bi bi-x-octagon me-1"></i>Firmas anuladas de esta acta</div>
+                {% for a in item.acta.anulaciones.all %}
+                <div class="d-flex flex-wrap gap-2 align-items-center{% if not forloop.first %} mt-2 pt-2 border-top{% endif %}">
+                    <span>{{ a.anulada_en|date:"d/m/Y H:i" }} · por {{ a.anulada_por.get_full_name|default:a.anulada_por.username }}.
+                        Había firmado <strong>{{ a.firmante|default:"—" }}</strong>. Motivo: {{ a.motivo }}</span>
+                    {% if a.firma %}<a href="{{ a.firma.url }}" target="_blank" rel="noopener" class="small">ver la firma anulada</a>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
     </div>
     {% empty %}
@@ -960,4 +981,60 @@ en el número pedido y las que estorben se corren un puesto.
     {% endfor %}
 </div>{# /tab-acta #}
 </div>{# /tab-content #}
+
+{# ===== Anular la firma y la encuesta del cliente: DOBLE confirmación (motivo + número de orden) ===== #}
+<div class="modal fade" id="modal-anular-firma" tabindex="-1" aria-labelledby="anular-titulo">
+    <div class="modal-dialog">
+        <form method="post" class="modal-content" id="form-anular-firma">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title" id="anular-titulo"><i class="bi bi-x-octagon text-danger me-1"></i>Anular firma y encuesta</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger small">
+                    Vas a borrar la <strong>firma</strong> y la <strong>encuesta de satisfacción</strong> del acta
+                    <strong id="anular-placa"></strong>, que firmó <strong id="anular-firmante"></strong>.
+                    El acta vuelve a quedar pendiente de firma y el enlace que se envió <strong>deja de servir</strong>:
+                    luego envía el nuevo desde «QR y enlace del cliente». Los tiempos y novedades del servicio no se tocan.
+                </div>
+                <label class="form-label fw-semibold" for="anular-motivo">1. ¿Por qué se anula?</label>
+                <textarea name="motivo" id="anular-motivo" class="form-control" rows="2" required
+                          placeholder="Ej.: se le envió el enlace de esta orden a otro cliente"></textarea>
+                <label class="form-label fw-semibold mt-3" for="anular-confirmacion">2. Para confirmar, escribe el número de la orden: <span class="font-monospace">{{ orden.numero_orden }}</span></label>
+                <input type="text" name="confirmacion" id="anular-confirmacion" class="form-control" autocomplete="off" inputmode="numeric">
+                <div class="form-text">Queda registrado quién anuló, cuándo y por qué, con la firma anulada.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No anular</button>
+                <button type="submit" class="btn btn-danger" id="anular-boton" disabled><i class="bi bi-x-octagon me-1"></i>Sí, anular firma y encuesta</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+(function () {
+    // El botón final solo se habilita con el motivo y el número de orden exacto.
+    var modal = document.getElementById('modal-anular-firma');
+    if (!modal) return;
+    var form = document.getElementById('form-anular-firma');
+    var motivo = document.getElementById('anular-motivo');
+    var confirmacion = document.getElementById('anular-confirmacion');
+    var boton = document.getElementById('anular-boton');
+    var numero = '{{ orden.numero_orden }}';
+    function revisar() {
+        boton.disabled = !(motivo.value.trim() && confirmacion.value.trim().replace(/^#/, '') === numero);
+    }
+    modal.addEventListener('show.bs.modal', function (e) {
+        var b = e.relatedTarget;
+        form.action = b.dataset.url;
+        document.getElementById('anular-placa').textContent = b.dataset.placa;
+        document.getElementById('anular-firmante').textContent = b.dataset.firmante || 'el cliente';
+        motivo.value = ''; confirmacion.value = ''; revisar();
+    });
+    motivo.addEventListener('input', revisar);
+    confirmacion.addEventListener('input', revisar);
+    form.addEventListener('submit', function () { boton.disabled = true; });
+})();
+</script>
 {% endblock %}

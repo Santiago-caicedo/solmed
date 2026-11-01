@@ -961,6 +961,71 @@ class Manifiesto(models.Model):
 
     def __str__(self):
         return f"Manifiesto del Recorrido #{self.recorrido.id}"
+
+    # Campos de la encuesta de satisfacción que llena el cliente al firmar.
+    CAMPOS_ENCUESTA = (
+        'eval_atencion', 'eval_amabilidad', 'eval_solucion_inquietudes', 'eval_asesoria',
+        'eval_puntualidad', 'eval_calidad_servicio', 'eval_oportunidad',
+        'eval_cumplimiento_condiciones', 'eval_solucion_problemas',
+        'eval_volveria_contratar', 'eval_nos_recomendaria',
+    )
+
+    def anular_firma(self, usuario, motivo):
+        """
+        Deshace la firma y la encuesta del cliente (oct-2026): a veces se le
+        envía al cliente el enlace de OTRA orden y firma la que no es. Guarda
+        un registro (AnulacionFirmaActa) con quién había firmado, su firma y
+        sus respuestas; limpia el acta, la deja PENDIENTE DE FIRMA y le da un
+        token NUEVO, así el enlace que se envió por error ya no sirve. Los
+        datos del servicio (tiempos, novedades) no se tocan.
+        """
+        from django.core.files.base import ContentFile
+        registro = AnulacionFirmaActa(
+            manifiesto=self, anulada_por=usuario, motivo=motivo.strip(),
+            firmante=self.nombre_responsable_cliente,
+            encuesta={c: getattr(self, c) for c in self.CAMPOS_ENCUESTA})
+        if self.firma_cliente:
+            try:
+                with self.firma_cliente.open('rb') as fh:
+                    registro.firma.save(f'firma_anulada_{self.recorrido_id}.png',
+                                        ContentFile(fh.read()), save=False)
+            except (OSError, ValueError):
+                pass    # sin el archivo, el registro queda igual con el nombre y la encuesta
+        registro.save()
+        if self.firma_cliente:
+            self.firma_cliente.delete(save=False)
+        for campo in self.CAMPOS_ENCUESTA:
+            setattr(self, campo, None)
+        self.nombre_responsable_cliente = ''
+        self.firma_cliente = None
+        self.estado_firma = 'PENDIENTE_FIRMA'
+        self.token_publico = uuid.uuid4()
+        self.save()
+        return registro
+
+
+class AnulacionFirmaActa(models.Model):
+    """
+    Registro de una firma y encuesta del cliente que se ANULÓ (oct-2026):
+    quién la anuló, cuándo, por qué, y lo que había quedado (quién firmó, su
+    firma y sus respuestas), por si toca revisarlo después.
+    """
+    manifiesto = models.ForeignKey(Manifiesto, on_delete=models.CASCADE, related_name='anulaciones')
+    anulada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                    related_name='firmas_anuladas')
+    anulada_en = models.DateTimeField(auto_now_add=True)
+    motivo = models.TextField()
+    firmante = models.CharField(max_length=200, blank=True, verbose_name="Quién había firmado")
+    firma = models.ImageField(upload_to='firmas_anuladas/', blank=True, null=True)
+    encuesta = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-anulada_en']
+        verbose_name = "Firma de acta anulada"
+        verbose_name_plural = "Firmas de actas anuladas"
+
+    def __str__(self):
+        return f"Firma anulada · acta del recorrido #{self.manifiesto.recorrido_id}"
     
 
 
