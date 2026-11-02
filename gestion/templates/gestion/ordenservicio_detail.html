@@ -962,7 +962,8 @@ en el número pedido y las que estorben se corren un puesto.
         <div class="card-body">
             {% include 'gestion/partials/_acta_documento.html' with manifiesto=item.acta recorrido=item.recorrido orden=orden %}
             {# Firmas anuladas de esta acta (se envió el enlace equivocado): el rastro queda. #}
-            {% if item.acta.anulaciones.all %}
+            {# Solo si el acta ya existe: sin acta, la vista previa es un Manifiesto sin guardar (sin pk) y consultar su relación revienta. #}
+            {% if item.acta.pk and item.acta.anulaciones.all %}
             <div class="alert alert-warning small mt-3 mb-0">
                 <div class="fw-semibold mb-1"><i class="bi bi-x-octagon me-1"></i>Firmas anuladas de esta acta</div>
                 {% for a in item.acta.anulaciones.all %}

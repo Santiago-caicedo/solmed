@@ -8871,6 +8871,13 @@ class AnularFirmaActaTests(BaseCRM):
         # Sin firma no hay nada que anular.
         self.assertContains(self.anular(), 'no hay firma que anular')
 
+    def test_el_expediente_abre_con_un_servicio_que_aun_no_tiene_acta(self):
+        """Nov-2026, error en producción: la vista previa del acta no está guardada."""
+        otra = BaseCRM.programacion(cliente=self.cli, conductor=self.conductor,
+                                 vehiculo=self.camion).convertir_en_orden(self.asesor)
+        self.assertFalse(Manifiesto.objects.filter(recorrido__orden=otra).exists())
+        self.assertEqual(self.client.get(reverse('gestion:detalle_orden', args=[otra.pk])).status_code, 200)
+
     def test_el_conductor_no(self):
         self.entrar(self.conductor)
         respuesta = self.client.post(self.url, {'motivo': 'x', 'confirmacion': str(self.orden.numero_orden)})
