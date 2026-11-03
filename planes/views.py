@@ -508,7 +508,11 @@ class EliminarAsignacionView(AdministradorRequiredMixin, View):
     """
     acceso = 'plan.editar'
     def post(self, request, pk):
-        asignacion = get_object_or_404(Asignacion, pk=pk)
+        asignacion = Asignacion.objects.filter(pk=pk).select_related('plan').first()
+        if asignacion is None:
+            # Ya se quitó (otra pestaña, doble clic): se vuelve al plan sin 404.
+            messages.info(request, "Esa asignación ya se había quitado del plan.")
+            return redirect(f"{reverse('planes:plan_dia')}?fecha={_fecha_de(request).isoformat()}")
         fecha = asignacion.plan.fecha
         # De un viaje agendado (oct-2026): esa persona deja de ir; sin nadie,
         # el viaje se cancela y sus órdenes quedan libres.
@@ -539,11 +543,17 @@ class EliminarNovedadView(AdministradorRequiredMixin, View):
     """Borra una novedad registrada por error. Solo POST."""
     acceso = 'plan.editar'
     def post(self, request, pk):
-        novedad = get_object_or_404(Novedad, pk=pk)
         fecha = _fecha_de(request)
+        volver = f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}"
+        # Ya no existe (se quitó desde otro día o pestaña, o doble clic): no es
+        # un 404, se vuelve al plan con el aviso (la clienta lo sufrió, nov-2026).
+        novedad = Novedad.objects.filter(pk=pk).first()
+        if novedad is None:
+            messages.info(request, "Esa novedad ya se había quitado del registro.")
+            return redirect(volver)
         novedad.delete()
         messages.success(request, "Novedad eliminada del registro.")
-        return redirect(f"{reverse('planes:plan_dia')}?fecha={fecha.isoformat()}")
+        return redirect(volver)
 
 
 class HistorialPlanesView(AdministradorRequiredMixin, PaginadoMixin, ListView):

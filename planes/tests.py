@@ -1431,3 +1431,35 @@ class ActividadesYNovedadesCreadasTests(BasePlan):
         self.entrar(self.asesor)
         self.assertEqual(self.crear('ACTIVIDAD', 'Algo').status_code, 403)
         self.assertFalse(TipoPersonalizado.objects.exists())
+
+
+class QuitarDosVecesTests(BasePlan):
+    """
+    Nov-2026: la clienta vio un 404 al quitar una novedad que ya se había
+    quitado (sale en varios días; pestaña vieja o doble clic). Ahora se vuelve
+    al plan con un aviso, también para las asignaciones.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def test_quitar_una_novedad_que_ya_no_existe_vuelve_al_plan(self):
+        novedad = Novedad.objects.create(persona=self.ayudante, tipo='INCAPACIDAD_EPS', fecha_inicio=self.hoy,
+                                         fecha_fin=self.hoy + datetime.timedelta(days=3))
+        url = reverse('planes:eliminar_novedad', args=[novedad.pk])
+        volver = f"{reverse('planes:plan_dia')}?fecha={self.hoy.isoformat()}"
+        self.assertRedirects(self.client.post(url, {'fecha': self.hoy.isoformat()}), volver)
+        respuesta = self.client.post(url, {'fecha': self.hoy.isoformat()}, follow=True)
+        self.assertRedirects(respuesta, volver)
+        self.assertContains(respuesta, 'ya se había quitado')
+
+    def test_quitar_una_asignacion_que_ya_no_existe_vuelve_al_plan(self):
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        asignacion = Asignacion.objects.create(plan=plan, persona=self.conductor, tipo='LAVADA')
+        url = reverse('planes:eliminar_asignacion', args=[asignacion.pk])
+        volver = f"{reverse('planes:plan_dia')}?fecha={self.hoy.isoformat()}"
+        self.assertRedirects(self.client.post(url, {'fecha': self.hoy.isoformat()}), volver)
+        respuesta = self.client.post(url, {'fecha': self.hoy.isoformat()}, follow=True)
+        self.assertRedirects(respuesta, volver)
+        self.assertContains(respuesta, 'ya se había quitado')
