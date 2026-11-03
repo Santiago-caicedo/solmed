@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Estado del personal · {{ fecha|date:"d/m/Y" }}</title>
+{% comment %}
+ESTADO DIARIO DEL PERSONAL (nov-2026, pedido de Santiago con una imagen guía):
+todo el personal agrupado por cargo, UNA línea por persona con su estado del
+día —trabajando (servicio, actividad o trabajo interno), con novedad, o sin
+asignación— y a la derecha todo lo que tiene ese día con su horario. Es la
+versión resumida del «Movimiento del personal» (movimiento_pdf.html): mismo
+diseño de cuadrículas azules del acta y misma fuente (_datos_centro_control).
+Sin emojis ni símbolos especiales: WeasyPrint no siempre trae la fuente.
+{% endcomment %}
+<style>
+    @page {
+        size: letter portrait; margin: 0.4in 0.5in 0.55in 0.5in;
+        @bottom-center {
+            content: "SOLMED S.A.S. · Estado del personal del {{ fecha|date:'d/m/Y' }} · página " counter(page) " de " counter(pages);
+            font-family: Helvetica, Arial, sans-serif; font-size: 6.5pt; color: #2C4D9E; font-weight: bold;
+        }
+    }
+    body { font-family: "Helvetica", Arial, sans-serif; font-size: 7.3pt; color: #000; line-height: 1.25; }
+
+    .section { border: 1.4px solid #2C4D9E; border-radius: 8px; margin-bottom: 5px; overflow: hidden; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    td, th { padding: 2.5px 5px; vertical-align: middle; word-wrap: break-word; }
+    .grid td, .grid th { border: 0.9px solid #2C4D9E; }
+    .grid tr:first-child > * { border-top: none; }
+    .grid tr:last-child > * { border-bottom: none; }
+    .grid tr > *:first-child { border-left: none; }
+    .grid tr > *:last-child { border-right: none; }
+    .band { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center;
+            text-transform: uppercase; letter-spacing: .4px; }
+    .th-s { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; font-size: 6.4pt;
+            text-transform: uppercase; letter-spacing: .3px; }
+    .center { text-align: center; }
+    .mono { font-family: "Courier New", monospace; font-weight: bold; }
+    .tenue { color: #51606E; font-size: 6.6pt; }
+
+    /* ---- Cabecera ---- */
+    .header td { vertical-align: middle; }
+    .header .h-left { width: 26%; }
+    .header .h-mid { width: 46%; text-align: center; color: #2C4D9E; }
+    .header .h-mid .empresa { font-weight: bold; font-size: 8.6pt; }
+    .header .h-mid .titulo { font-weight: bold; font-size: 10pt; letter-spacing: .6px; margin-top: 2px; }
+    .header .h-fecha { width: 28%; }
+    .fecha-box { border: 1.4px solid #2C4D9E; border-radius: 6px; text-align: center; padding: 3px 2px; }
+    .fecha-box .t { color: #2C4D9E; font-weight: bold; font-size: 7pt; text-transform: uppercase; }
+    .fecha-box .n { color: #C00000; font-weight: bold; font-size: 13pt; letter-spacing: .5px; }
+    .fecha-box .d { color: #2C4D9E; font-size: 6.8pt; }
+
+    /* ---- Grupo por cargo: la banda lleva el cargo y cuántos son ---- */
+    .grupo { page-break-inside: auto; }
+    .grupo tr { page-break-inside: avoid; }
+    .cargo-cab td { background: #EDF1FA; color: #2C4D9E; font-weight: bold; font-size: 7.8pt;
+                    text-transform: uppercase; letter-spacing: .6px; }
+    .nombre { font-weight: bold; font-size: 7.8pt; }
+
+    /* ---- Estado: punto de color + etiqueta (verde trabaja, rojo novedad, gris sin asignación) ---- */
+    .punto { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
+    .punto.trabaja { background: #1F6B3A; }
+    .punto.novedad { background: #C00000; }
+    .punto.libre { border: 1px solid #8A97A5; width: 5px; height: 5px; }
+    .estado { display: inline-block; font-size: 6.2pt; font-weight: bold; text-transform: uppercase; letter-spacing: .3px;
+              padding: 0.5px 4px; border-radius: 3px; border: 0.8px solid; }
+    .estado.trabaja { color: #1F6B3A; border-color: #1F6B3A; }
+    .estado.novedad { color: #C00000; border-color: #C00000; }
+    .estado.libre { color: #8A97A5; border-color: #8A97A5; }
+    .item { margin: 0.5px 0; }
+    .item .k { color: #2C4D9E; font-weight: bold; font-size: 6.3pt; text-transform: uppercase; }
+    .item.nov .k { color: #C00000; }
+    .marca { display: inline-block; font-size: 5.8pt; font-weight: bold; padding: 0 3px; border: 0.8px solid #9A6206;
+             border-radius: 2px; color: #9A6206; margin-left: 2px; }
+
+    .obs { min-height: 24px; padding: 3px 6px; }
+    .firmas td { padding: 22px 10px 2px; }
+    .firmas .linea { border-top: 0.9px solid #2C4D9E; text-align: center; color: #2C4D9E; font-weight: bold; padding-top: 2px; }
+</style>
+</head>
+<body>
+
+    <!-- ================= CABECERA ================= -->
+    <table class="header" style="margin-bottom: 5px;">
+        <tr>
+            <td class="h-left"><img src="{{ logo_b64 }}" style="max-width: 125px;"></td>
+            <td class="h-mid">
+                <span class="empresa">SOLUCIONES MEDIOAMBIENTALES S.A.S.</span><br>
+                <b>SOLMED S.A.S.</b> · NIT 830.514.597-2
+                <div class="titulo">ESTADO DIARIO DEL PERSONAL</div>
+            </td>
+            <td class="h-fecha">
+                <div class="fecha-box">
+                    <div class="t">{% if futuro %}Día programado{% else %}Día{% endif %}</div>
+                    <div class="n">{{ fecha|date:"d/m/Y" }}</div>
+                    <div class="d">{{ fecha|date:"l"|capfirst }}</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- ================= RESUMEN ================= -->
+    <div class="section" style="page-break-inside: avoid;">
+        <table class="grid">
+            <tr>
+                <td class="th-s">Personal</td>
+                <td class="th-s"><span class="punto trabaja"></span> Trabajando</td>
+                <td class="th-s"><span class="punto novedad"></span> Con novedad</td>
+                <td class="th-s"><span class="punto libre"></span> Sin asignación</td>
+            </tr>
+            <tr>
+                <td class="center mono" style="font-size: 10pt;">{{ total }}</td>
+                <td class="center mono" style="font-size: 10pt;">{{ conteo.trabaja }}</td>
+                <td class="center mono" style="font-size: 10pt;">{{ conteo.novedad }}</td>
+                <td class="center mono" style="font-size: 10pt;">{{ conteo.libre }}</td>
+            </tr>
+            {% if futuro %}
+            <tr><td colspan="4" class="center tenue">Es un día que aún no llega: lo que sale es lo PROGRAMADO.</td></tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- ================= UN GRUPO POR CARGO ================= -->
+    {% for grupo in grupos %}
+    <div class="section grupo">
+        <table class="grid">
+            <colgroup><col style="width: 4%;"><col style="width: 27%;"><col style="width: 15%;"><col style="width: 54%;"></colgroup>
+            <tr class="cargo-cab"><td colspan="4">{{ grupo.cargo }} ({{ grupo.personas|length }})</td></tr>
+            {% for p in grupo.personas %}
+            <tr>
+                <td class="center"><span class="punto {{ p.estado }}"></span></td>
+                <td class="nombre">{{ p.nombre }}</td>
+                <td class="center">
+                    {% if p.estado == 'trabaja' %}
+                        <span class="estado trabaja">{% if p.datos.servicios %}En servicio{% elif p.datos.asignaciones %}En actividad{% else %}Trabajo interno{% endif %}</span>
+                    {% elif p.estado == 'novedad' %}<span class="estado novedad">Novedad</span>
+                    {% else %}<span class="estado libre">Sin asignación</span>{% endif %}
+                </td>
+                <td>
+                    {% for s in p.datos.servicios %}
+                    <div class="item"><span class="k">Servicio</span> <b>Orden #{{ s.recorrido.orden.numero_orden }}</b> · {{ s.recorrido.orden.cliente.nombre }}{% if s.recorrido.vehiculo %} · {{ s.recorrido.vehiculo.placa }}{% endif %}{% if s.horas %} · <span class="tenue">{{ s.horas }}</span>{% endif %}</div>
+                    {% endfor %}
+                    {% for a in p.datos.asignaciones %}
+                    <div class="item"><span class="k">{% if a.tipo == 'DISPOSICION_FINAL' %}Disposición{% else %}Actividad{% endif %}</span> <b>{{ a.get_tipo_display }}</b>{% if a.viaje and a.viaje.agendada %}<span class="marca">AGENDADA</span>{% endif %}{% if a.placas %} · {{ a.placas }}{% endif %}{% if a.horario %} · <span class="tenue">{{ a.horario }}</span>{% endif %}</div>
+                    {% endfor %}
+                    {% for f in p.datos.novedades %}
+                    <div class="item{% if not f.novedad.es_trabajo %} nov{% endif %}"><span class="k">Novedad</span> <b>{{ f.novedad.get_tipo_display }}</b>{% if f.novedad.fecha_fin %} · <span class="tenue">del {{ f.novedad.fecha_inicio|date:"d/m" }} al {{ f.novedad.fecha_fin|date:"d/m/Y" }}</span>{% endif %}{% if f.novedad.horario %} · <span class="tenue">{{ f.novedad.horario }}</span>{% endif %}</div>
+                    {% endfor %}
+                    {% if p.estado == 'libre' %}<span class="tenue">Sin nada en el plan este día.</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% empty %}
+    <div class="section"><table class="grid"><tr><td class="center tenue" style="padding: 10px;">No hay personal activo registrado.</td></tr></table></div>
+    {% endfor %}
+
+    <!-- ================= OBSERVACIONES / FIRMAS ================= -->
+    <div class="section" style="page-break-inside: avoid;">
+        <table class="grid">
+            <tr><td class="band">Observaciones del día</td></tr>
+            <tr><td class="obs">{{ plan.notas|default:""|linebreaksbr }}</td></tr>
+        </table>
+    </div>
+
+    <table class="firmas">
+        <tr>
+            <td><div class="linea">Elaboró</div></td>
+            <td><div class="linea">Revisó · Talento Humano / Operaciones</div></td>
+        </tr>
+    </table>
+    <div class="tenue center" style="margin-top: 6px;">Generado el {{ generado|date:"d/m/Y" }} a las {{ generado|date:"H:i" }} desde el plan de trabajo de SOLMED SAS.</div>
+</body>
+</html>

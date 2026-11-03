@@ -736,6 +736,71 @@ def _pdf_movimiento(fecha, request):
     return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
 
 
+def _estado_persona(datos):
+    """
+    El estado del día de una persona para el «Estado diario del personal»
+    (nov-2026): 'trabaja' si tiene un servicio, una actividad o una novedad
+    que suma horas (bodega, oficina…); 'novedad' si solo tiene novedades que
+    no son trabajo (incapacidad, permiso, vacaciones…); 'libre' si no tiene
+    nada en el plan («Sin asignación», decisión de Santiago).
+    """
+    if datos['sin_nada']:
+        return 'libre'
+    if (datos['servicios'] or datos['asignaciones']
+            or any(f['novedad'].es_trabajo for f in datos['novedades'])):
+        return 'trabaja'
+    return 'novedad'
+
+
+def _pdf_estado(fecha, request):
+    """
+    El ESTADO DIARIO DEL PERSONAL en PDF (nov-2026, pedido de Santiago con una
+    imagen guía): TODO el personal agrupado por cargo, una línea por persona
+    con su estado (trabajando, con novedad o sin asignación) y, a la derecha,
+    todo lo que tiene ese día. Es la versión resumida del «Movimiento del
+    personal»: misma fuente (_datos_centro_control) y mismo diseño del acta.
+    """
+    from gestion.views import _datos_centro_control
+    posicion = {cargo: i for i, cargo in enumerate(ORDEN_CARGOS)}
+    por_cargo = {}
+    conteo = {'trabaja': 0, 'novedad': 0, 'libre': 0}
+    for persona in sorted(_personal_activo(),
+                          key=lambda p: (p.get_full_name() or p.username).lower()):
+        datos = _datos_centro_control(persona, fecha, fecha)
+        estado = _estado_persona(datos)
+        conteo[estado] += 1
+        por_cargo.setdefault(_cargo_de(persona), []).append({
+            'nombre': persona.get_full_name() or persona.username,
+            'estado': estado, 'datos': datos,
+        })
+    grupos = [{'cargo': cargo, 'personas': personas}
+              for cargo, personas in sorted(por_cargo.items(), key=lambda kv: posicion.get(kv[0], 99))]
+
+    logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png')
+    with open(logo_path, 'rb') as archivo:
+        logo_b64 = 'data:image/png;base64,' + base64.b64encode(archivo.read()).decode()
+    html = get_template('planes/estado_pdf.html').render({
+        'fecha': fecha, 'futuro': fecha > timezone.localdate(),
+        'plan': PlanDia.objects.filter(fecha=fecha).first(),
+        'grupos': grupos, 'conteo': conteo, 'total': sum(conteo.values()),
+        'logo_b64': logo_b64, 'generado': timezone.localtime(),
+    })
+    return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
+
+
+class EstadoPDFView(AdministradorRequiredMixin, View):
+    """Descarga el PDF del estado diario del personal (pasado o futuro)."""
+    def get(self, request, fecha):
+        try:
+            dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
+        except ValueError:
+            raise Http404("Fecha inválida.")
+        respuesta = HttpResponse(_pdf_estado(dia, request), content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="estado_personal_{dia.isoformat()}.pdf"')
+        return respuesta
+
+
 class MovimientoPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del movimiento del personal de un día (pasado o futuro)."""
     def get(self, request, fecha):

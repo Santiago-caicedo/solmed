@@ -38,13 +38,13 @@
                            class="btn btn-outline-secondary btn-sm" title="Abrir el plan de ese día">
                             <i class="bi bi-pencil-square"></i>
                         </a>
-                        <a href="{% url 'planes:plan_pdf' p.fecha|date:'Y-m-d' %}"
-                           class="btn btn-outline-secondary btn-sm" title="Descargar el PDF">
-                            <i class="bi bi-file-earmark-pdf"></i>
-                        </a>
                         <a href="{% url 'planes:movimiento_pdf' p.fecha|date:'Y-m-d' %}"
                            class="btn btn-outline-secondary btn-sm" title="Movimiento del personal (PDF)">
-                            <i class="bi bi-people"></i>
+                            <i class="bi bi-file-earmark-pdf"></i>
+                        </a>
+                        <a href="{% url 'planes:estado_pdf' p.fecha|date:'Y-m-d' %}"
+                           class="btn btn-outline-secondary btn-sm" title="Estado del personal (PDF)">
+                            <i class="bi bi-person-check"></i>
                         </a>
                     </td>
                 </tr>

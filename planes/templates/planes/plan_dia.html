@@ -111,12 +111,13 @@
             <a href="?fecha={{ manana|date:'Y-m-d' }}" title="Día siguiente"><i class="bi bi-chevron-right"></i></a>
             {% if fecha != hoy %}<a class="hoy" href="{% url 'planes:plan_dia' %}">Hoy</a>{% endif %}
         </form>
-        <a href="{% url 'planes:plan_pdf' fecha|date:'Y-m-d' %}" class="btn btn-primary btn-sm">
-            <i class="bi bi-file-earmark-pdf me-1"></i> PDF del día
+        {# Todo lo de cada persona ese día, con horas y descuentos (oct-2026). Reemplaza al «PDF del día» (nov-2026, pedido de Santiago). #}
+        <a href="{% url 'planes:movimiento_pdf' fecha|date:'Y-m-d' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-file-earmark-pdf me-1"></i> Movimiento del personal
         </a>
-        {# Todo lo de cada persona ese día, con horas y descuentos (oct-2026). #}
-        <a href="{% url 'planes:movimiento_pdf' fecha|date:'Y-m-d' %}" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-people me-1"></i> Movimiento del personal
+        {# Una línea por persona: trabajando, con novedad o sin asignación (nov-2026). #}
+        <a href="{% url 'planes:estado_pdf' fecha|date:'Y-m-d' %}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-person-check me-1"></i> Estado del personal
         </a>
         <a href="{% url 'planes:historial' %}" class="btn btn-secondary btn-sm">
             <i class="bi bi-archive me-1"></i> Historial

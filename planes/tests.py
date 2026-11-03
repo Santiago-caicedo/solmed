@@ -133,7 +133,79 @@ class MovimientoDelPersonalTests(BasePlan):
         self.entrar(self.conductor)
         self.assertNotEqual(self.pdf(self.hoy).status_code, 200)
 
-    def test_el_plan_y_el_historial_tienen_el_boton(self):
+
+class EstadoDelPersonalTests(BasePlan):
+    """
+    Nov-2026: el PDF «Estado diario del personal»: todo el personal por cargo,
+    una línea por persona (trabajando, con novedad o sin asignación).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entrar(self.admin)
+
+    def pdf(self, fecha):
+        return self.client.get(reverse('planes:estado_pdf', args=[fecha.isoformat()]))
+
+    def test_baja_el_pdf_de_cualquier_dia(self):
+        for fecha in (self.hoy, self.hoy + datetime.timedelta(days=5), self.hoy - datetime.timedelta(days=40)):
+            with self.subTest(fecha=fecha):
+                respuesta = self.pdf(fecha)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+                self.assertIn(f'estado_personal_{fecha.isoformat()}.pdf', respuesta['Content-Disposition'])
+        self.assertEqual(self.client.get(reverse('planes:estado_pdf', args=['no-es-fecha'])).status_code, 404)
+
+    def test_el_estado_de_cada_persona(self):
+        from django.template import loader
+        from unittest import mock
+        plan = PlanDia.objects.create(fecha=self.hoy, creado_por=self.admin)
+        Asignacion.objects.create(plan=plan, persona=self.conductor, tipo='LAVADA', suma_horas=True,
+                                  hora=datetime.time(8, 0), hora_fin=datetime.time(10, 0))
+        Novedad.objects.create(persona=self.ayudante, tipo='INCAPACIDAD_EPS', fecha_inicio=self.hoy)
+        capturado = {}
+        original = loader.get_template
+
+        def espiar(nombre, *a, **k):
+            plantilla = original(nombre, *a, **k)
+            if nombre == 'planes/estado_pdf.html':
+                render = plantilla.render
+
+                def render_espiado(contexto=None, *args, **kwargs):
+                    capturado.update(contexto or {})
+                    capturado['html'] = render(contexto, *args, **kwargs)
+                    return capturado['html']
+                plantilla.render = render_espiado
+            return plantilla
+        with mock.patch('planes.views.get_template', side_effect=espiar):
+            self.pdf(self.hoy)
+        estados = {p['nombre']: p['estado'] for g in capturado['grupos'] for p in g['personas']}
+        nombre = lambda u: u.get_full_name() or u.username  # noqa: E731
+        self.assertEqual(estados[nombre(self.conductor)], 'trabaja')
+        self.assertEqual(estados[nombre(self.ayudante)], 'novedad')
+        # Todo el personal sale, también quien no tiene nada (decisión de Santiago).
+        self.assertEqual(capturado['total'], len(estados))
+        self.assertIn('libre', estados.values())
+        self.assertIn('Sin asignación', capturado['html'])
+        self.assertIn('Incapacidad EPS', capturado['html'])
+        self.assertIn('ESTADO DIARIO DEL PERSONAL', capturado['html'])
+
+    def test_una_novedad_de_bodega_cuenta_como_trabajo(self):
+        from planes.views import _estado_persona
+        Novedad.objects.create(persona=self.ayudante, tipo='TRABAJO_BODEGA', fecha_inicio=self.hoy,
+                               suma_horas=True, hora=datetime.time(7, 0), hora_fin=datetime.time(15, 0))
+        from gestion.views import _datos_centro_control
+        self.assertEqual(_estado_persona(_datos_centro_control(self.ayudante, self.hoy, self.hoy)), 'trabaja')
+
+    def test_el_plan_tiene_el_boton(self):
+        url = reverse('planes:estado_pdf', args=[self.hoy.isoformat()])
+        self.assertContains(self.client.get(reverse('planes:plan_dia')), url)
+
+    def test_solo_administradores(self):
+        self.entrar(self.conductor)
+        self.assertNotEqual(self.pdf(self.hoy).status_code, 200)
+
+    def test_el_plan_tiene_el_boton(self):
         self.assertContains(self.client.get(self.url),
                             reverse('planes:movimiento_pdf', args=[self.hoy.isoformat()]))
 
