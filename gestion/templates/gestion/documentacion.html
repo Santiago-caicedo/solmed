@@ -207,6 +207,7 @@ punteado los que faltan — y cada uno salta a su fila.
                    class="btn btn-sm btn-outline-secondary" title="Abrir el documento">
                     <i class="bi bi-box-arrow-up-right"></i>
                 </a>
+                {% if acceso.documentacion.editar %}
                 <form method="post" action="{% url 'gestion:eliminar_documento_interno' s.docs.0.pk %}"
                       onsubmit="return confirm('¿Eliminar «{{ s.label }}» del expediente?');">
                     {% csrf_token %}
@@ -214,6 +215,7 @@ punteado los que faltan — y cada uno salta a su fila.
                         <i class="bi bi-trash"></i>
                     </button>
                 </form>
+                {% endif %}
                 {% endif %}
                 <button class="btn btn-sm {% if s.completo %}btn-outline-secondary{% else %}btn-primary{% endif %}"
                         type="button" data-bs-toggle="collapse" data-bs-target="#carga-{{ s.tipo }}"
@@ -239,11 +241,13 @@ punteado los que faltan — y cada uno salta a su fila.
                    class="btn btn-sm btn-outline-secondary ms-auto" title="Abrir">
                     <i class="bi bi-box-arrow-up-right"></i>
                 </a>
+                {% if acceso.documentacion.editar %}
                 <form method="post" action="{% url 'gestion:eliminar_documento_interno' d.pk %}"
                       onsubmit="return confirm('¿Eliminar la certificación de {{ d.entidad|default:"esta cuenta" }}?');">
                     {% csrf_token %}
                     <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
                 </form>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -251,6 +255,7 @@ punteado los que faltan — y cada uno salta a su fila.
 
         <div class="collapse" id="carga-{{ s.tipo }}">
             <div class="doc-panel">
+                {% if acceso.documentacion.editar %}
                 <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
                     {% csrf_token %}
                     <input type="hidden" name="tipo" value="{{ s.tipo }}">
@@ -293,6 +298,7 @@ punteado los que faltan — y cada uno salta a su fila.
                         </div>
                     </div>
                 </form>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -308,6 +314,7 @@ punteado los que faltan — y cada uno salta a su fila.
 <div class="doc-lista">
     <div class="doc-fila">
         <div class="doc-panel" style="padding:1rem; border-top:0;">
+            {% if acceso.documentacion.editar %}
             <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
                 {% csrf_token %}
                 <input type="hidden" name="tipo" value="OTRO">
@@ -330,6 +337,7 @@ punteado los que faltan — y cada uno salta a su fila.
                     </div>
                 </div>
             </form>
+            {% endif %}
         </div>
     </div>
 
@@ -349,11 +357,13 @@ punteado los que faltan — y cada uno salta a su fila.
                    class="btn btn-sm btn-outline-secondary" title="Abrir el documento">
                     <i class="bi bi-box-arrow-up-right"></i>
                 </a>
+                {% if acceso.documentacion.editar %}
                 <form method="post" action="{% url 'gestion:eliminar_documento_interno' d.pk %}"
                       onsubmit="return confirm('¿Eliminar «{{ d.descripcion }}»?');">
                     {% csrf_token %}
                     <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
                 </form>
+                {% endif %}
             </div>
         </div>
     </div>

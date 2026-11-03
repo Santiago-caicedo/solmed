@@ -11235,3 +11235,176 @@ class CarteraDeClientesTests(BaseCRM):
         self.assertContains(lista, 'Lácteos del Valle')
         self.assertNotContains(lista, self.cli.nombre)
         self.assertEqual(self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk])).status_code, 404)
+
+
+# ============================================================
+#  ACCESOS POR PERSONA DEL ASESOR (nov-2026)
+# ============================================================
+class AccesosDeAsesorTests(BaseCRM):
+    """
+    «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca
+    con casillas lo que cada ASESOR puede hacer (gestion/accesos.py). Sin
+    registro, el asesor tiene lo de siempre; se le puede recortar y también
+    abrir módulos de administradores. A los demás roles no les cambia nada.
+    """
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())
+        self.admin = self.persona('admin', 'Administradores')
+        self.talento = self.persona('talento', 'Talento Humano')
+
+    def accesos(self, claves, persona=None):
+        from .models import AccesosAsesor
+        AccesosAsesor.objects.update_or_create(
+            usuario=persona or self.asesor, defaults={'claves': sorted(claves)})
+
+    def estado(self, nombre_url, *args):
+        return self.client.get(reverse(nombre_url, args=args)).status_code
+
+    def test_sin_registro_el_asesor_tiene_lo_de_siempre(self):
+        from .accesos import BASE, TODAS, accesos_de
+        self.assertEqual(accesos_de(self.asesor), BASE)
+        self.assertEqual(accesos_de(self.admin), TODAS)
+        self.assertEqual(accesos_de(self.conductor), frozenset())
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('gestion:lista_ordenes'), 200)
+        self.assertEqual(self.estado('gestion:detalle_orden', self.orden.pk), 200)
+        self.assertEqual(self.estado('gestion:lista_personal'), 200)
+        # Lo de administradores sigue cerrado hasta que se abra.
+        self.assertEqual(self.estado('planes:plan_dia'), 403)
+        self.assertEqual(self.estado('gestion:lista_facturas'), 403)
+        self.assertEqual(self.estado('gestion:dashboard'), 403)
+        menu = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertContains(menu, 'Órdenes de servicio')
+        self.assertNotContains(menu, 'Plan de trabajo')
+        self.assertNotContains(menu, 'Facturación')
+
+    def test_quitar_ver_cierra_la_pantalla_el_menu_y_cambia_su_casa(self):
+        from .accesos import BASE
+        self.accesos(BASE - {'ordenes.ver', 'ordenes.editar', 'ordenes.conciliar', 'ordenes.anular_firma'})
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('gestion:lista_ordenes'), 403)
+        self.assertEqual(self.estado('gestion:detalle_orden', self.orden.pk), 403)
+        self.assertEqual(self.estado('gestion:acta_pdf', self.recorrido.pk), 403)
+        self.assertEqual(self.estado('gestion:conciliaciones'), 403)
+        self.assertEqual(self.estado('gestion:feed_calendario'), 200)
+        menu = self.client.get(reverse('gestion:lista_programaciones'))
+        self.assertNotContains(menu, 'Órdenes de servicio')
+        self.assertContains(menu, 'Programación')
+        # Su casa ya no son las órdenes: la primera pantalla que sí puede abrir.
+        self.assertRedirects(self.client.get(reverse('gestion:dashboard_redirect')),
+                             reverse('gestion:lista_programaciones'))
+        # Sin NINGÚN acceso, aterriza en «sin acceso», no en un 403.
+        self.accesos([])
+        self.assertRedirects(self.client.get(reverse('gestion:dashboard_redirect')),
+                             reverse('gestion:sin_acceso'))
+
+    def test_solo_ver_sin_editar(self):
+        from .accesos import BASE
+        self.accesos(BASE - {'ordenes.editar', 'ordenes.anular_firma', 'clientes.editar'})
+        self.entrar(self.asesor)
+        expediente = self.client.get(reverse('gestion:detalle_orden', args=[self.orden.pk]))
+        self.assertEqual(expediente.status_code, 200)
+        self.assertNotContains(expediente, 'Editar orden / recorrido')
+        self.assertEqual(self.estado('gestion:actualizar_orden', self.orden.pk), 403)
+        # El POST del expediente (soportes, fotos) exige editar.
+        self.assertEqual(self.client.post(reverse('gestion:detalle_orden', args=[self.orden.pk]), {}).status_code, 403)
+        # El acta: ver el QR sí; llenarla no.
+        self.assertEqual(self.estado('gestion:manifiesto_qr', self.recorrido.pk), 200)
+        self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto', args=[self.recorrido.pk])).status_code, 302)
+        lista = self.client.get(reverse('gestion:lista_clientes'))
+        self.assertEqual(lista.status_code, 200)
+        self.assertNotContains(lista, 'Añadir Nuevo Cliente')
+        self.assertEqual(self.estado('gestion:crear_cliente'), 403)
+
+    def test_abrirle_un_modulo_de_administradores(self):
+        from .accesos import BASE
+        self.accesos(BASE | {'plan.ver', 'facturacion.ver', 'disposiciones.ver'})
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('planes:plan_dia'), 200)
+        self.assertEqual(self.estado('planes:historial'), 200)
+        self.assertEqual(self.estado('gestion:lista_facturas'), 200)
+        self.assertEqual(self.estado('gestion:trazabilidad_disposiciones'), 200)
+        self.assertEqual(self.estado('gestion:dashboard'), 403)
+        menu = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertContains(menu, 'Plan de trabajo')
+        self.assertContains(menu, 'Facturación')
+        self.assertNotContains(menu, 'Tablero')
+        # Ver no es editar: el POST del plan se bloquea y sus controles no salen.
+        plan = self.client.get(reverse('planes:plan_dia'))
+        self.assertNotContains(plan, 'submit_asignacion')
+        self.assertEqual(self.client.post(reverse('planes:plan_dia'), {}).status_code, 403)
+        self.assertEqual(self.estado('gestion:crear_factura'), 403)
+        self.accesos(BASE | {'plan.ver', 'plan.editar'})
+        self.assertNotEqual(self.client.post(reverse('planes:plan_dia'),
+                                             {'fecha': timezone.localdate().isoformat()}).status_code, 403)
+        self.assertContains(self.client.get(reverse('planes:plan_dia')), 'submit_asignacion')
+
+    def test_gestionar_accesos_es_solo_de_administradores_y_solo_sobre_asesores(self):
+        url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.entrar(self.talento)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.entrar(self.admin)
+        pagina = self.client.get(url)
+        self.assertEqual(pagina.status_code, 200)
+        self.assertContains(pagina, 'Gestionar accesos')
+        self.assertContains(pagina, 'value="ordenes.ver" checked')
+        self.assertContains(pagina, 'value="plan.ver" ')
+        self.assertNotContains(pagina, 'value="plan.ver" checked')
+        # Sobre un conductor o un administrador no aplica: vuelve a la ficha con aviso.
+        for persona in (self.conductor, self.admin):
+            respuesta = self.client.get(reverse('gestion:accesos_persona', args=[persona.pk]), follow=True)
+            self.assertRedirects(respuesta, reverse('gestion:ficha_persona', args=[persona.pk]))
+            self.assertContains(respuesta, 'solo para el rol Asesores')
+        # El botón solo sale en la ficha de un asesor, y solo al administrador.
+        self.assertContains(self.client.get(reverse('gestion:ficha_persona', args=[self.asesor.pk])), 'Gestionar accesos')
+        self.assertNotContains(self.client.get(reverse('gestion:ficha_persona', args=[self.conductor.pk])), 'Gestionar accesos')
+        self.entrar(self.asesor)
+        self.assertNotContains(self.client.get(reverse('gestion:ficha_persona', args=[self.asesor.pk])), 'Gestionar accesos')
+
+    def test_guardar_completa_el_ver_y_deja_rastro(self):
+        from .models import AccesosAsesor
+        self.entrar(self.admin)
+        url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
+        respuesta = self.client.post(url, {'claves': ['clientes.editar', 'ordenes.ver', 'no.existe']}, follow=True)
+        self.assertRedirects(respuesta, reverse('gestion:ficha_persona', args=[self.asesor.pk]))
+        registro = AccesosAsesor.objects.get(usuario=self.asesor)
+        self.assertEqual(registro.claves, ['clientes.editar', 'clientes.ver', 'ordenes.ver'])
+        self.assertEqual(registro.actualizado_por, self.admin)
+        self.assertContains(respuesta, 'personalizados')
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('gestion:lista_clientes'), 200)
+        self.assertEqual(self.estado('gestion:lista_personal'), 403)
+        self.assertEqual(self.estado('gestion:lista_programaciones'), 403)
+
+    def test_a_los_administradores_y_a_los_demas_roles_no_les_cambia_nada(self):
+        from .accesos import TODAS, accesos_de
+        # Un administrador que además esté en Asesores con casillas: hace todo igual.
+        self.admin.groups.add(Group.objects.get(name='Asesores'))
+        self.accesos([], persona=self.admin)
+        self.assertEqual(accesos_de(self.admin), TODAS)
+        self.entrar(self.admin)
+        for nombre in ('gestion:lista_ordenes', 'planes:plan_dia', 'gestion:lista_facturas', 'gestion:dashboard'):
+            with self.subTest(url=nombre):
+                self.assertEqual(self.estado(nombre), 200)
+        # Talento Humano sigue con su módulo y nada más.
+        self.entrar(self.talento)
+        self.assertEqual(self.estado('gestion:lista_personal'), 200)
+        self.assertContains(self.client.get(reverse('gestion:lista_personal')), 'Nueva persona')
+        self.assertEqual(self.estado('gestion:crear_persona'), 200)
+        self.assertEqual(self.estado('gestion:lista_ordenes'), 403)
+        # El conductor, igual que siempre.
+        self.entrar(self.conductor)
+        self.assertEqual(self.estado('gestion:dashboard_conductor'), 200)
+        self.assertEqual(self.estado('gestion:lista_ordenes'), 403)
+
+    def test_la_cartera_sigue_aplicando_aunque_tenga_la_casilla(self):
+        from .accesos import BASE
+        self.accesos(BASE)
+        ajeno = self.cliente('Lácteos del Valle', identificacion='800111222-3')
+        ajeno.asesoras.remove(self.asesor)
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('gestion:ficha_cliente', ajeno.pk), 404)
+        self.assertEqual(self.estado('gestion:ficha_cliente', self.cli.pk), 200)

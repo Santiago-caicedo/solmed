@@ -24,9 +24,11 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
         </div>
     </div>
 
+    {% if acceso.vehiculos.editar %}
     <a href="{% url 'gestion:actualizar_vehiculo' vehiculo.pk %}" class="btn btn-outline-secondary vh-editar">
         <i class="bi bi-pencil-square me-1"></i>Editar vehículo
     </a>
+    {% endif %}
 </div>
 
 {# El veredicto: lo primero que hay que leer, con sus motivos concretos. #}

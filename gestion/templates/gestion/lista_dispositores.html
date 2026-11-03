@@ -6,9 +6,11 @@
         <h1 class="mb-1"><i class="bi bi-recycle me-2"></i>Proveedores de disposición final</h1>
         <div class="text-muted">Gestores y plantas autorizadas, con su expediente documental.</div>
     </div>
+    {% if acceso.proveedores.editar %}
     <a href="{% url 'gestion:crear_dispositor' %}" class="btn btn-primary">
         <i class="bi bi-plus-circle me-1"></i> Añadir proveedor
     </a>
+    {% endif %}
 </div>
 
 {% include 'gestion/partials/_nav_proveedores.html' with activa='disposicion' %}
@@ -52,10 +54,12 @@
                             <a href="{% url 'gestion:ficha_dispositor' d.pk %}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-folder2-open"></i> Expediente
                             </a>
+                            {% if acceso.proveedores.editar %}
                             <a href="{% url 'gestion:actualizar_dispositor' d.pk %}" class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-pencil-square"></i> Editar
                             </a>
-                {% if es_administrador %}
+                            {% endif %}
+                {% if acceso.proveedores.eliminar %}
                 <form method="post" action="{% url 'gestion:eliminar_dispositor' d.pk %}" class="d-inline"
                       onsubmit="return confirm('¿Eliminar este proveedor? Solo se puede si aún no tiene movimientos.');">
                     {% csrf_token %}

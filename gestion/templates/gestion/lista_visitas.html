@@ -26,7 +26,9 @@
         <h1 class="mb-0">Visitas técnicas</h1>
         <small class="text-muted">Formato GC-F-01 · la oficina solicita, el cliente aprueba y firma, el ejecutivo la llena en campo · {{ n_total }} en total</small>
     </div>
+    {% if acceso.visitas.gestionar %}
     <a href="{% url 'gestion:crear_visita' %}" class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>Solicitar visita</a>
+    {% endif %}
 </div>
 
 <div class="card shadow mb-3">

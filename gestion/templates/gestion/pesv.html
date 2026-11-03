@@ -194,7 +194,7 @@
             {% if p.viaje_id %}
             <td>Disposición final<div class="hal">Órdenes {{ p.viaje.numeros_ordenes }}</div></td>
             {% else %}
-            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a>{% else %}#{{ p.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
+            <td>{% if acceso.ordenes.ver %}<a href="{% url 'gestion:detalle_orden' p.recorrido.orden_id %}">#{{ p.recorrido.orden.numero_orden }}</a>{% else %}#{{ p.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ p.recorrido.orden.cliente.nombre }}</div></td>
             {% endif %}
             <td><span class="mono">{{ p.vehiculo.placa }}</span><div class="hal">{{ p.get_tipo_vehiculo_display }}</div></td>
             <td>{% if p.conductor %}{{ p.conductor.get_full_name|default:p.conductor.username }}{% else %}—{% endif %}</td>
@@ -218,7 +218,7 @@
         {% for e in encuestas %}
         <tr>
             <td class="mono">{{ e.recorrido.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' e.recorrido.orden_id %}">#{{ e.recorrido.orden.numero_orden }}</a>{% else %}#{{ e.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ e.recorrido.orden.cliente.nombre }}</div></td>
+            <td>{% if acceso.ordenes.ver %}<a href="{% url 'gestion:detalle_orden' e.recorrido.orden_id %}">#{{ e.recorrido.orden.numero_orden }}</a>{% else %}#{{ e.recorrido.orden.numero_orden }}{% endif %}<div class="hal">{{ e.recorrido.orden.cliente.nombre }}</div></td>
             <td class="mono">{{ e.recorrido.vehiculo.placa }}</td>
             <td>{% if e.recorrido.conductor %}{{ e.recorrido.conductor.get_full_name|default:e.recorrido.conductor.username }}{% else %}—{% endif %}</td>
             <td>{% if e.condicion_riesgo == 'SI' %}<span class="pv-badge malo">Casi-accidente</span>{% elif e.tiene_alertas %}<span class="pv-badge alerta">Exige atención</span>{% else %}<span class="pv-badge ok">Sin novedad</span>{% endif %}</td>
@@ -242,7 +242,7 @@
         {% for r in sin_preoperacional %}
         <tr>
             <td class="mono">{{ r.fecha_recorrido|date:"d/m/Y" }}</td>
-            <td>{% if es_asesor %}<a href="{% url 'gestion:detalle_orden' r.orden_id %}">#{{ r.orden.numero_orden }}</a>{% else %}#{{ r.orden.numero_orden }}{% endif %}<div class="hal">{{ r.orden.cliente.nombre }}</div></td>
+            <td>{% if acceso.ordenes.ver %}<a href="{% url 'gestion:detalle_orden' r.orden_id %}">#{{ r.orden.numero_orden }}</a>{% else %}#{{ r.orden.numero_orden }}{% endif %}<div class="hal">{{ r.orden.cliente.nombre }}</div></td>
             <td class="mono">{{ r.vehiculo.placa }}{% if not r.vehiculo.tipo %}<div class="hal text-danger">Sin tipo de vehículo</div>{% endif %}</td>
             <td>{{ r.conductor.get_full_name|default:r.conductor.username }}</td>
             <td>{{ r.get_estado_display }}</td>

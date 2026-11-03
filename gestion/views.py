@@ -39,6 +39,7 @@ from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
+from .accesos import autoriza, casa_de_asesor, es_asesor, tiene_acceso
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -95,20 +96,42 @@ def es_administrador(user):
     )
 
 
-class PlanificadorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+class AccesoMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """
+    Base de los mixins de rol (nov-2026, accesos por persona del asesor; ver
+    gestion/accesos.py). Cada mixin dice en `por_rol()` lo que decidía de
+    siempre. Una vista puede declarar `acceso = 'ordenes.ver'` (y
+    `acceso_escribir = 'ordenes.editar'` para POST): a un ASESOR se le exige
+    esa casilla en vez de decidir por rol; a los administradores y a los demás
+    roles no les cambia nada. Una vista sin `acceso` se decide por rol, como
+    antes.
+    """
+    acceso = None
+    acceso_escribir = None
+
+    def por_rol(self, user):
+        raise NotImplementedError
+
     def test_func(self):
-        user = self.request.user
+        request = self.request
+        return autoriza(request.user, self.por_rol(request.user),
+                        self.acceso, self.acceso_escribir,
+                        escribe=request.method not in ('GET', 'HEAD', 'OPTIONS'))
+
+
+class PlanificadorRequiredMixin(AccesoMixin):
+    def por_rol(self, user):
         return es_administrador(user) or user.groups.filter(name='Planificadores').exists()
 
 
 # --- NUEVO MIXIN DE SEGURIDAD PARA ASESORES Y ADMINS ---
-class AsesorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+class AsesorRequiredMixin(AccesoMixin):
     """
     Restringe el acceso a administradores (superusuario o rol Administradores)
-    y a miembros del grupo 'Asesores'.
+    y a miembros del grupo 'Asesores' (según sus casillas si la vista declara
+    `acceso`).
     """
-    def test_func(self):
-        user = self.request.user
+    def por_rol(self, user):
         return es_administrador(user) or user.groups.filter(name='Asesores').exists()
 
 
@@ -118,33 +141,30 @@ def es_talento_humano(user):
     return user.is_authenticated and user.groups.filter(name='Talento Humano').exists()
 
 
-class PersonalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+class PersonalRequiredMixin(AccesoMixin):
     """
     Módulo de Personal: lo trabajan gestión (administradores y asesores) y el
     rol Talento Humano, que NO ve nada más del sistema.
     """
-    def test_func(self):
-        user = self.request.user
+    def por_rol(self, user):
         return (es_administrador(user)
                 or user.groups.filter(name='Asesores').exists()
                 or es_talento_humano(user))
 
 
-class BasculaRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+class BasculaRequiredMixin(AccesoMixin):
     """
     La pantalla de básculas: gestión y los cargos de oficina a los que la
     clienta les dedicó el trabajo de subir los tiquetes (ver GRUPOS_BASCULA).
     """
-    def test_func(self):
-        user = self.request.user
+    def por_rol(self, user):
         return (es_administrador(user)
                 or user.groups.filter(name__in=GRUPOS_BASCULA).exists())
 
 
-class DisposicionFinalRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+class DisposicionFinalRequiredMixin(AccesoMixin):
     """El gestor de disposiciones finales: gestión y GRUPOS_DISPOSICION_FINAL."""
-    def test_func(self):
-        user = self.request.user
+    def por_rol(self, user):
         return (es_administrador(user)
                 or user.groups.filter(name__in=GRUPOS_DISPOSICION_FINAL).exists())
 
@@ -154,14 +174,19 @@ def _puede_ver_pesv(user):
     return es_administrador(user) or user.groups.filter(name__in=GRUPOS_PESV).exists()
 
 
-class PESVRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
-    def test_func(self):
-        return _puede_ver_pesv(self.request.user)
+class PESVRequiredMixin(AccesoMixin):
+    def por_rol(self, user):
+        return _puede_ver_pesv(user)
 
 
-class AdministradorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
-    def test_func(self):
-        return es_administrador(self.request.user)
+class AdministradorRequiredMixin(AccesoMixin):
+    """
+    Solo administradores… salvo que la vista declare `acceso`: entonces un
+    asesor con esa casilla marcada también entra (es como se le AMPLÍA un
+    módulo de administradores, decisión de Santiago, nov-2026).
+    """
+    def por_rol(self, user):
+        return es_administrador(user)
 
 
 SuperuserRequiredMixin = AdministradorRequiredMixin
@@ -247,6 +272,7 @@ def _tiempo_laborado(anio, mes, grupo):
 
 class TiempoLaboradoView(AdministradorRequiredMixin, View):
     """El gráfico de tiempo laborado del tablero (fragmento: cambia de mes y de grupo sin recargar)."""
+    acceso = 'tablero.ver'
     def get(self, request):
         hoy = timezone.localdate()
         try:
@@ -276,6 +302,7 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
     iniciado sesión va al login. A cada rol se le manda a SU pantalla desde
     `dashboard_redirect_view`, que es donde aterrizan al entrar.
     """
+    acceso = 'tablero.ver'
     template_name = 'gestion/dashboard.html'
 
     def get_context_data(self, **kwargs):
@@ -591,6 +618,7 @@ def _pendientes_orden(orden):
 
 
 class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'ordenes.ver'
     model = OrdenServicio
     template_name = 'gestion/lista_ordenes.html'
     context_object_name = 'ordenes'
@@ -681,6 +709,7 @@ class OrdenHistoricaView(AsesorRequiredMixin, FormView):
     y por fuera de conciliación y cobros; no dispara correos ni validaciones
     de personal.
     """
+    acceso = 'ordenes.ver'
     template_name = 'gestion/orden_historica_form.html'
     form_class = OrdenHistoricaForm
 
@@ -734,6 +763,7 @@ class CambiarNumeroOrdenView(AdministradorRequiredMixin, View):
     coloca en su sitio, corriendo un puesto las que estorben para que la
     numeración no quede con huecos ni repetidos.
     """
+    acceso = 'ordenes.numero'
     def post(self, request, pk):
         orden = get_object_or_404(OrdenServicio, pk=pk)
         crudo = (request.POST.get('numero_orden') or '').strip()
@@ -850,6 +880,7 @@ class ActualizarOrdenView(AsesorRequiredMixin, View):
     enlazada como la de cualquier orden. En históricas no se valida SS ni
     cursos (el servicio ya pasó, y pudo atenderlo personal hoy retirado).
     """
+    acceso = 'ordenes.editar'
     template_name = 'gestion/form_programacion.html'
 
     @staticmethod
@@ -1001,6 +1032,7 @@ class FichaClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
     paginada y filtrable de TODAS sus órdenes, y sus datos de contacto, sedes,
     terceros y documentos.
     """
+    acceso = 'clientes.ver'
     model = OrdenServicio
     template_name = 'gestion/ficha_cliente.html'
     context_object_name = 'ordenes'
@@ -1183,6 +1215,7 @@ class HistoricoClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
     mes del año elegido para saltar directo. Mismo acceso que la ficha del
     cliente (solo gestión: administradores, asesores y superusuario).
     """
+    acceso = 'clientes.ver'
     model = OrdenServicio
     template_name = 'gestion/historico_cliente.html'
     context_object_name = 'ordenes'
@@ -1257,6 +1290,7 @@ class HistoricoClienteView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
 
 class ListaVehiculosView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'vehiculos.ver'
     model = Vehiculo
     template_name = 'gestion/lista_vehiculos.html'
     context_object_name = 'vehiculos'
@@ -1264,12 +1298,14 @@ class ListaVehiculosView(AsesorRequiredMixin, PaginadoMixin, ListView):
     ordering = ['placa']
 
 class CrearVehiculoView(AsesorRequiredMixin, CreateView):
+    acceso = 'vehiculos.editar'
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
 class ActualizarVehiculoView(AsesorRequiredMixin, UpdateView):
+    acceso = 'vehiculos.editar'
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
@@ -1277,6 +1313,7 @@ class ActualizarVehiculoView(AsesorRequiredMixin, UpdateView):
 
 # --- Vistas para Clientes ---
 class ListaClientesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'clientes.ver'
     model = Cliente
     template_name = 'gestion/lista_clientes.html'
     context_object_name = 'clientes'
@@ -1379,12 +1416,14 @@ class ClienteFormMixin:
 
 
 class CrearClienteView(ClienteFormMixin, AsesorRequiredMixin, CreateView):
+    acceso = 'clientes.editar'
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
     success_url = reverse_lazy('gestion:lista_clientes')
 
 class ActualizarClienteView(ClienteFormMixin, AsesorRequiredMixin, UpdateView):
+    acceso = 'clientes.editar'
     model = Cliente
     form_class = ClienteForm
     template_name = 'gestion/form_cliente.html'
@@ -1479,6 +1518,7 @@ def _puede_programarse(vehiculo):
 
 
 class VehiculoDetailView(AsesorRequiredMixin, DetailView):
+    acceso = 'vehiculos.ver'
     model = Vehiculo
     template_name = 'gestion/vehiculo_detail.html'
     context_object_name = 'vehiculo'
@@ -1525,17 +1565,19 @@ class VehiculoDetailView(AsesorRequiredMixin, DetailView):
         context['filtros_resumen'] = resumen
         context['form_filtro_aceite'] = FiltroAceiteForm(
             initial={'fecha_cambio': timezone.localdate()})
-        # El registro lo gestionan asesores y superusuarios (el resto solo consulta).
-        context['puede_gestionar_filtros'] = (
-            es_administrador(self.request.user)
-            or self.request.user.groups.filter(name='Asesores').exists()
-        )
+        # El registro lo gestionan asesores (con «vehiculos.editar») y
+        # administradores; el resto solo consulta.
+        context['puede_gestionar_filtros'] = autoriza(
+            self.request.user,
+            es_administrador(self.request.user) or es_asesor(self.request.user),
+            'vehiculos.editar')
         return context
 
 
 
 class RegistrarFiltroAceiteView(AsesorRequiredMixin, View):
     """Registra un cambio de filtro o aceite en el expediente del vehículo (solo POST)."""
+    acceso = 'vehiculos.editar'
     def post(self, request, pk):
         vehiculo = get_object_or_404(Vehiculo, pk=pk)
         form = FiltroAceiteForm(request.POST)
@@ -1558,6 +1600,7 @@ class RegistrarFiltroAceiteView(AsesorRequiredMixin, View):
 
 class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
     """Elimina un registro de filtro/aceite del expediente del vehículo (solo POST)."""
+    acceso = 'vehiculos.editar'
     def post(self, request, pk):
         registro = get_object_or_404(FiltroAceite, pk=pk)
         vehiculo_pk = registro.vehiculo_id
@@ -1568,16 +1611,18 @@ class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
 
 # --- HELPERS COMPARTIDOS PARA EL MANIFIESTO ---
 
-def _puede_gestionar_manifiesto(user, recorrido):
+def _puede_gestionar_manifiesto(user, recorrido, acceso='ordenes.editar'):
     """
     Quién llena el acta y los demás pasos del servicio: gestión (admins y
     asesores) siempre; el conductor asignado solo si el recorrido es de HOY
     (oct-2026: el conductor no ve ni toca servicios de otros días).
+    Al asesor se le exige además su casilla (`acceso`, nov-2026): editar
+    para llenar el acta; solo ver para consultar el QR y su estado.
     """
     return (
         es_administrador(user)
         # Cartera (oct-2026): la asesora, solo si el cliente es suyo.
-        or (user.groups.filter(name='Asesores').exists()
+        or (es_asesor(user) and tiene_acceso(user, acceso)
             and puede_ver_cliente(user, recorrido.orden.cliente_id))
         or (recorrido.conductor_id == user.id
             and recorrido.fecha_recorrido == timezone.localdate())
@@ -1652,6 +1697,7 @@ class ActaPDFView(AsesorRequiredMixin, View):
     Descarga el PDF del acta de servicio, generado al momento con los datos
     vigentes. Solo gestión: el conductor no accede al acta como documento.
     """
+    acceso = 'ordenes.ver'
     def get(self, request, pk):
         recorrido = get_object_or_404(solo_cartera(Recorrido.objects.all(), request.user, 'orden__cliente'), pk=pk)
         manifiesto = getattr(recorrido, 'manifiesto', None)
@@ -1725,7 +1771,7 @@ def _recorrido_para_pdf_pesv(request, pk):
     recorrido = get_object_or_404(Recorrido, pk=pk)
     user = request.user
     if not (es_administrador(user)
-            or (user.groups.filter(name='Asesores').exists()
+            or (es_asesor(user) and tiene_acceso(user, 'ordenes.ver')
                 and puede_ver_cliente(user, recorrido.orden.cliente_id))
             or _puede_ver_pesv(user)):
         raise PermissionDenied
@@ -2113,6 +2159,7 @@ class ActaFormatoView(AsesorRequiredMixin, View):
     Solo para gestión (asesor/superusuario): el CONDUCTOR NO accede al acta como
     documento ni la descarga; él solo la diligencia (asistente) y muestra el QR.
     """
+    acceso = 'ordenes.ver'
     template_name = 'gestion/acta_formato.html'
 
     def get(self, request, pk):
@@ -2280,7 +2327,7 @@ def _llena_tiempos(user):
     Los tiempos del acta (y las horas de las novedades) los llena gestión, no
     el conductor (oct-2026, pedido de Santiago): a él se le quitaron de la hoja.
     """
-    return es_administrador(user) or user.groups.filter(name='Asesores').exists()
+    return es_administrador(user) or (es_asesor(user) and tiene_acceso(user, 'ordenes.editar'))
 
 
 # ============================================================
@@ -2564,7 +2611,7 @@ class ManifiestoQRView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         recorrido = get_object_or_404(Recorrido, pk=pk)
-        if not _puede_gestionar_manifiesto(request.user, recorrido):
+        if not _puede_gestionar_manifiesto(request.user, recorrido, 'ordenes.ver'):
             messages.error(request, "No tienes permiso para ver esta acta de servicio.")
             return redirect('gestion:dashboard_redirect')
 
@@ -2591,7 +2638,7 @@ def manifiesto_estado_json(request, pk):
     # Solo el conductor asignado, un asesor o un superusuario (mismo criterio
     # del asistente del acta): sin esto, cualquier usuario podía sondear el
     # estado y el PDF de actas ajenas.
-    if not _puede_gestionar_manifiesto(request.user, recorrido):
+    if not _puede_gestionar_manifiesto(request.user, recorrido, 'ordenes.ver'):
         return JsonResponse({'error': 'Sin permiso para consultar esta acta.'}, status=403)
     try:
         manifiesto = recorrido.manifiesto
@@ -2685,6 +2732,7 @@ class AnularFirmaActaView(AsesorRequiredMixin, View):
     Doble confirmación: el motivo es obligatorio y hay que escribir el número
     de la orden. Gestión y las asesoras (solo en su cartera). Solo POST.
     """
+    acceso = 'ordenes.anular_firma'
     def post(self, request, pk):
         recorrido = get_object_or_404(
             solo_cartera(Recorrido.objects.select_related('orden'), request.user, 'orden__cliente'), pk=pk)
@@ -2825,6 +2873,7 @@ def _eliminar_si_no_tiene_uso(request, objeto, etiqueta, destino):
 # SuperuserRequiredMixin se conserva como alias por compatibilidad.
 class EliminarClienteView(AdministradorRequiredMixin, View):
     """Elimina un cliente que aún no tiene órdenes ni programaciones (solo POST)."""
+    acceso = 'clientes.eliminar'
     def post(self, request, pk):
         cliente = get_object_or_404(Cliente, pk=pk)
         return _eliminar_si_no_tiene_uso(request, cliente, 'el cliente', 'gestion:lista_clientes')
@@ -2832,6 +2881,7 @@ class EliminarClienteView(AdministradorRequiredMixin, View):
 
 class EliminarVehiculoView(AdministradorRequiredMixin, View):
     """Elimina un vehículo que aún no se ha usado en recorridos ni cuadrillas."""
+    acceso = 'vehiculos.eliminar'
     def post(self, request, pk):
         vehiculo = get_object_or_404(Vehiculo, pk=pk)
         return _eliminar_si_no_tiene_uso(request, vehiculo, 'el vehículo', 'gestion:lista_vehiculos')
@@ -2839,6 +2889,7 @@ class EliminarVehiculoView(AdministradorRequiredMixin, View):
 
 class EliminarDispositorView(AdministradorRequiredMixin, View):
     """Elimina un proveedor de disposición que aún no se ha usado."""
+    acceso = 'proveedores.eliminar'
     def post(self, request, pk):
         dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
         return _eliminar_si_no_tiene_uso(
@@ -2852,6 +2903,7 @@ class EliminarPersonaView(AdministradorRequiredMixin, View):
     expediente y perfil, que son datos suyos. No se puede eliminar a un
     superusuario ni a uno mismo.
     """
+    acceso = 'personal.eliminar'
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
         if persona.is_superuser:
@@ -2966,6 +3018,8 @@ def _cargar_soporte_orden(request, orden):
 
 
 class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
+    acceso = 'ordenes.ver'
+    acceso_escribir = 'ordenes.editar'
     model = OrdenServicio
     template_name = 'gestion/ordenservicio_detail.html'
     context_object_name = 'orden'
@@ -3139,9 +3193,8 @@ class OrdenServicioDetailView(AsesorRequiredMixin, DetailView):
         # Corrección a mano del estado de disposición (SOLO administradores,
         # decisión del usuario, sep-2026): para lo que no pasó por el plan.
         if 'submit_marcar_sin_disponer' in request.POST or 'submit_marcar_dispuesta' in request.POST:
-            es_admin = (request.user.is_superuser
-                        or request.user.groups.filter(name='Administradores').exists())
-            if not es_admin:
+            # Administradores, o un asesor con «disposiciones.editar» (nov-2026).
+            if not tiene_acceso(request.user, 'disposiciones.editar'):
                 return HttpResponseForbidden("Solo los administradores corrigen la disposición.")
             nota = (request.POST.get('nota') or '').strip()
             if not nota:
@@ -3326,6 +3379,7 @@ class EditarRecorridoView(AsesorRequiredMixin, UpdateView):
     Corrige un recorrido que quedó mal (fecha, vehículo, conductor, ayudante).
     Es la forma de arreglar una orden sin borrarla.
     """
+    acceso = 'ordenes.editar'
     model = Recorrido
     form_class = RecorridoForm
     template_name = 'gestion/form_recorrido.html'
@@ -3350,6 +3404,7 @@ class EliminarRecorridoView(AsesorRequiredMixin, View):
     su encuesta (CASCADE) y se recalcula el estado de la orden. La orden completa
     solo se elimina desde el admin de Django.
     """
+    acceso = 'ordenes.editar'
     def post(self, request, pk):
         recorrido = get_object_or_404(solo_cartera(Recorrido.objects.all(), request.user, 'orden__cliente'), pk=pk)
         orden = recorrido.orden
@@ -3390,7 +3445,7 @@ def feed_calendario(request):
     jornada» con lo de hoy.
     """
     user = request.user
-    es_gestion = es_administrador(user) or user.groups.filter(name='Asesores').exists()
+    es_gestion = autoriza(user, es_administrador(user) or es_asesor(user), 'calendario.ver')
     if not es_gestion:
         return JsonResponse({'error': 'Sin acceso al calendario.'}, status=403)
 
@@ -3421,15 +3476,12 @@ def feed_calendario(request):
     return JsonResponse(eventos, safe=False)
 
 
-class CalendarioView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
+class CalendarioView(AsesorRequiredMixin, TemplateView):
     """
     Agenda de servicios. Muestra órdenes y placas, así que la ve solo gestión
     (superusuario, Administradores, Asesores). El conductor ya no (oct-2026).
     """
-    def test_func(self):
-        user = self.request.user
-        return es_administrador(user) or user.groups.filter(name='Asesores').exists()
-
+    acceso = 'calendario.ver'
     template_name = 'gestion/calendario.html'
 
 
@@ -3437,6 +3489,7 @@ class CalendarioView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 # --- VISTA PARA REPORTES (SOLO SUPERUSUARIOS) ---
 
 class ReportesView(SuperuserRequiredMixin, ListView):
+    acceso = 'reportes.ver'
     template_name = 'gestion/reportes.html'
     
     def get_queryset(self):
@@ -3583,9 +3636,10 @@ def dashboard_redirect_view(request):
     if es_talento_humano(user):
         # Su casa es el listado de personal: no ve nada más del sistema.
         return redirect('gestion:lista_personal')
-    if user.groups.filter(name='Asesores').exists():
-        # El asesor vive en las órdenes (su lista de seguimiento).
-        return redirect('gestion:lista_ordenes')
+    if es_asesor(user):
+        # El asesor vive en las órdenes (su lista de seguimiento); si se las
+        # quitaron, en la primera pantalla que sí pueda abrir (accesos.CASAS).
+        return redirect(casa_de_asesor(user) or 'gestion:sin_acceso')
     if user.groups.filter(name='Planificadores').exists():
         return redirect('gestion:planificacion')
     if user.groups.filter(name__in=GRUPOS_BASCULA).exists():
@@ -3908,6 +3962,7 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
 
 
 class RegistrarPagoView(AdministradorRequiredMixin, CreateView):
+    acceso = 'facturacion.editar'
     # Los pagos son de la facturación: solo administradores (oct-2026).
     model = Pago
     form_class = PagoForm
@@ -3939,6 +3994,7 @@ class ConciliarOrdenView(AsesorRequiredMixin, View):
     provisional, ver OrdenServicio.conciliar_transporte) y limpia el estado
     PENDIENTE de la orden.
     """
+    acceso = 'ordenes.conciliar'
     def post(self, request, pk):
         orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         # Desde la página de Conciliaciones cada fila se guarda sola: por
@@ -3979,6 +4035,7 @@ class ConciliacionesView(AsesorRequiredMixin, View):
 
     Mismo acceso que conciliar desde el expediente: gestión.
     """
+    acceso = 'ordenes.conciliar'
     template_name = 'gestion/conciliaciones.html'
 
     def get(self, request):
@@ -4025,6 +4082,8 @@ class BasculasView(BasculaRequiredMixin, View):
     primero: la primera página es la cola de trabajo. El tiquete se sube en
     la misma fila, sin entrar al expediente.
     """
+    acceso = 'basculas.ver'
+    acceso_escribir = 'basculas.subir'
     template_name = 'gestion/basculas.html'
     por_pagina = 25
 
@@ -4095,6 +4154,7 @@ class SubirBasculaView(BasculaRequiredMixin, View):
     lo reemplaza (la clienta pidió poder corregir); no se puede dejar la orden
     sin tiquete desde aquí.
     """
+    acceso = 'basculas.subir'
     def post(self, request, pk):
         orden = get_object_or_404(solo_cartera(OrdenServicio.objects.all(), request.user), pk=pk)
         volver = f"{reverse('gestion:basculas')}?{request.POST.get('filtros', '')}#fila-{orden.pk}"
@@ -4544,6 +4604,7 @@ class CrearPuntoRegistroView(AsesorRequiredMixin, View):
     (oct-2026). Queda guardado en el cliente para sus próximas programaciones.
     Si ya existe uno con ese nombre (aunque esté oculto), se reutiliza.
     """
+    acceso = 'programacion.editar'
     def post(self, request):
         from .models import PuntoRegistro
         nombre = ' '.join((request.POST.get('nombre') or '').split())[:150]
@@ -4566,6 +4627,7 @@ class QuitarPuntoRegistroView(AsesorRequiredMixin, View):
     Quita un punto de la lista del cliente: lo OCULTA (no se borra), así las
     órdenes que ya lo usaron conservan sus fotos agrupadas por él.
     """
+    acceso = 'programacion.editar'
     def post(self, request, pk):
         from .models import PuntoRegistro
         punto = get_object_or_404(solo_cartera(PuntoRegistro.objects.all(), request.user), pk=pk)
@@ -4753,6 +4815,7 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
     docs: [{token, label}]}]}], 'mas': {fuente: cuántos quedaron por fuera},
     'siguiente': desde para la página que sigue (solo al explorar una fuente)}.
     """
+    acceso = 'correos.enviar'
     LIMITE = 6            # búsqueda global: resultados por fuente
     LIMITE_EXPLORAR = 20  # exploración de una categoría: tamaño de página
 
@@ -4892,6 +4955,7 @@ class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
     Devuelve {'items': [{token, label, detalle}], 'mas': cuántas quedaron
     por fuera} — las más recientes primero, tope de 60.
     """
+    acceso = 'correos.enviar'
     LIMITE = 60
 
     def get(self, request):
@@ -4936,9 +5000,10 @@ def _sin_facturacion(envios, user):
     La FACTURACIÓN es solo de administradores, entera (decisión de Santiago,
     oct-2026): el correo con el que se envió una factura o una preliquidación
     (adjunto «factura:<pk>») no se le muestra a nadie más, ni en el Centro de
-    correos ni en la ficha del cliente.
+    correos ni en la ficha del cliente. A un asesor, solo con la casilla
+    «facturacion.ver» (nov-2026).
     """
-    if es_administrador(user):
+    if tiene_acceso(user, 'facturacion.ver'):
         return envios
     return envios.exclude(adjuntos__icontains='"factura:')
 
@@ -4957,6 +5022,7 @@ def _envios_correo_de(user):
 
 class ListaEnviosCorreoView(AsesorRequiredMixin, PaginadoMixin, ListView):
     """Historial del Centro de correos, con buscador, filtro y estadísticas."""
+    acceso = 'correos.ver'
     model = EnvioCorreo
     template_name = 'gestion/centro_correos.html'
     context_object_name = 'envios'
@@ -4995,6 +5061,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
     (con ?copiar=<id> se precarga desde un envío anterior, para reenviar o
     usarlo de plantilla); POST valida, envía y registra el resultado.
     """
+    acceso = 'correos.enviar'
     template_name = 'gestion/form_envio_correo.html'
 
     def _render(self, request, datos, seleccionados, errores=None):
@@ -5150,6 +5217,7 @@ class PesoAdjuntosCorreoView(AsesorRequiredMixin, View):
     por token): así el buscador no paga el costo de preguntar tamaños al
     storage, que en producción (S3) es una petición por archivo.
     """
+    acceso = 'correos.enviar'
     def get(self, request):
         pesos = {}
         for t in request.GET.getlist('t')[:80]:
@@ -5162,6 +5230,7 @@ class PesoAdjuntosCorreoView(AsesorRequiredMixin, View):
 
 class DetalleEnvioCorreoView(AsesorRequiredMixin, DetailView):
     """Copia fiel de un envío del historial (lo que se mandó y a quién)."""
+    acceso = 'correos.ver'
     model = EnvioCorreo
     template_name = 'gestion/detalle_envio_correo.html'
     context_object_name = 'envio'
@@ -5210,6 +5279,7 @@ CARGOS_ESTADISTICA = {
 
 
 class ListaProgramacionesView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'programacion.ver'
     model = Programacion
     template_name = 'gestion/lista_programaciones.html'
     context_object_name = 'programaciones'
@@ -5280,6 +5350,7 @@ def _contexto_programacion(context, usuario=None):
 
 
 class CrearProgramacionView(AsesorRequiredMixin, CreateView):
+    acceso = 'programacion.editar'
     model = Programacion
     form_class = ProgramacionForm
     template_name = 'gestion/form_programacion.html'
@@ -5372,6 +5443,7 @@ class CrearProgramacionView(AsesorRequiredMixin, CreateView):
 
 
 class ActualizarProgramacionView(AsesorRequiredMixin, UpdateView):
+    acceso = 'programacion.editar'
     model = Programacion
     form_class = ProgramacionForm
     template_name = 'gestion/form_programacion.html'
@@ -5775,6 +5847,7 @@ class CrearItemCatalogoView(AsesorRequiredMixin, View):
     Si el nombre ya existe no se duplica: se reutiliza y, si estaba oculto,
     se vuelve a mostrar.
     """
+    acceso = 'programacion.editar'
     modelo = None
     etiqueta = 'registro'          # cómo se nombra en los mensajes
     con_direccion = False          # solo las básculas tienen dirección
@@ -5808,6 +5881,7 @@ class EliminarItemCatalogoView(AsesorRequiredMixin, View):
     ya se usó en programaciones no se borra: se oculta del desplegable y el
     histórico queda intacto.
     """
+    acceso = 'programacion.editar'
     modelo = None
     etiqueta = 'registro'
     articulo = 'Ese'               # concordancia del mensaje: Ese / Esa
@@ -5896,6 +5970,7 @@ def _olvidar_guardado(*instancias):
 
 class ConvertirProgramacionView(AsesorRequiredMixin, View):
     """Genera la Orden de Servicio + un recorrido por cuadrilla (solo POST)."""
+    acceso = 'programacion.convertir'
     def post(self, request, pk):
         programacion = get_object_or_404(solo_cartera(Programacion.objects.all(), request.user), pk=pk)
 
@@ -5941,6 +6016,7 @@ class ConvertirProgramacionView(AsesorRequiredMixin, View):
 
 class CancelarProgramacionView(AsesorRequiredMixin, View):
     """Marca la programación como CANCELADA (solo POST). No aplica si ya generó orden."""
+    acceso = 'programacion.convertir'
     def post(self, request, pk):
         programacion = get_object_or_404(solo_cartera(Programacion.objects.all(), request.user), pk=pk)
         if programacion.orden_id:
@@ -6001,6 +6077,7 @@ def _protege_gestion(request, persona):
 
 
 class ListaPersonalView(PersonalRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'personal.ver'
     model = User
     template_name = 'gestion/lista_personal.html'
     context_object_name = 'usuarios'
@@ -6059,6 +6136,7 @@ class CrearPersonaView(PersonalRequiredMixin, View):
     contraseña; los ayudantes NO acceden al sistema, así que solo se registran
     sus datos y su expediente documental.
     """
+    acceso = 'personal.editar'
     template_name = 'gestion/form_persona.html'
 
     def get(self, request):
@@ -6101,6 +6179,8 @@ class CrearPersonaView(PersonalRequiredMixin, View):
 
 class FichaPersonaView(PersonalRequiredMixin, View):
     """Ficha completa de la persona: accesos, datos personales y expediente."""
+    acceso = 'personal.ver'
+    acceso_escribir = 'personal.editar'
     template_name = 'gestion/ficha_persona.html'
 
     def _context(self, persona):
@@ -6172,6 +6252,10 @@ class FichaPersonaView(PersonalRequiredMixin, View):
             'ss_total': len(ss_todos),
             'otros': otros,
             'faltan_requeridos': faltan_requeridos,
+            # «Gestionar accesos» (nov-2026): administradores, sobre un asesor.
+            'puede_gestionar_accesos': (es_administrador(self.request.user)
+                                        and es_asesor(persona) and not es_administrador(persona)),
+            'accesos_personalizados': hasattr(persona, 'accesos'),
         }
 
     def _fotos(self, request, persona):
@@ -6181,8 +6265,9 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         orden). Solo para gestión: Talento Humano no ve la operación. Sin mes
         elegido se muestra el último mes con fotos.
         """
-        if not (es_administrador(request.user)
-                or request.user.groups.filter(name='Asesores').exists()):
+        if not autoriza(request.user,
+                        es_administrador(request.user) or es_asesor(request.user),
+                        'fotos.ver'):
             return None
         ultima = (FotoAyudante.objects
                   .filter(Q(slot=1, cuadrilla__ayudante=persona) | Q(slot=2, cuadrilla__ayudante2=persona))
@@ -6628,6 +6713,7 @@ class CentroControlPersonaView(AdministradorRequiredMixin, View):
     acceso restringido en el plan de trabajo; abrirlo al resto del módulo de
     Personal las expondría por otra puerta.
     """
+    acceso = 'personal.centro_control'
     template_name = 'gestion/centro_control_persona.html'
     # Los mismos nombres de mes que el histórico del cliente.
     MESES = HistoricoClienteView.MESES
@@ -6686,6 +6772,7 @@ class CentroControlPDFView(AdministradorRequiredMixin, View):
     de SOLMED. Se genera al descargar (no se guarda): es un reporte interno
     derivado de datos, como el plan de trabajo y la encuesta de cierre.
     """
+    acceso = 'personal.centro_control'
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
         anio, mes, inicio, fin, a_medida = _periodo_centro(request)
@@ -6764,6 +6851,7 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
     actividades y novedades) con encabezados fijos y filtros, para cruzarlo o
     seguir trabajándolo en la oficina.
     """
+    acceso = 'personal.centro_control'
     # Azul del formato físico de SOLMED, para que el libro se vea de la casa.
     AZUL = '2C4D9E'
     AZUL_SUAVE = 'EDF1FA'
@@ -6969,6 +7057,8 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     SOLO administradores (decisión del usuario, sep-2026): el «quién» sale
     del plan de trabajo, que ya es de acceso restringido.
     """
+    acceso = 'disposiciones.ver'
+    acceso_escribir = 'disposiciones.editar'
     template_name = 'gestion/trazabilidad_disposiciones.html'
 
     def _volver(self, request):
@@ -7219,6 +7309,8 @@ class DisposicionesAgendadasView(AdministradorRequiredMixin, View):
     confirman (con los tiempos de cada persona) o se cancelan; el envío lo
     resuelve el panel de Disposiciones y vuelve aquí.
     """
+    acceso = 'disposiciones.ver'
+    acceso_escribir = 'disposiciones.editar'
     template_name = 'gestion/disposiciones_agendadas.html'
     PESTANAS = [('pendientes', 'Por confirmar', 'AGENDADA'),
                 ('realizadas', 'Realizadas', 'REALIZADA'),
@@ -7469,6 +7561,7 @@ class AccesoAyudanteViajeView(View):
 
 class TrazabilidadDisposicionesExcelView(AdministradorRequiredMixin, View):
     """Las órdenes sin disponer en Excel, con el filtro puesto, para cruzarlas con la oficina."""
+    acceso = 'disposiciones.ver'
 
     def get(self, request):
         from openpyxl import Workbook
@@ -7603,6 +7696,8 @@ class HistorialDisposicionesView(AdministradorRequiredMixin, View):
 
     SOLO administradores y superusuario (decisión de Santiago).
     """
+    acceso = 'disposiciones.ver'
+    acceso_escribir = 'disposiciones.editar'
     template_name = 'gestion/historial_disposiciones.html'
 
     def _volver(self, request):
@@ -7767,6 +7862,7 @@ class FotosAyudantesView(AsesorRequiredMixin, View):
     filtra por persona, fechas del servicio, cliente y novedad. Por defecto
     muestra los últimos 30 días. Gestión y asesores; Talento Humano no entra.
     """
+    acceso = 'fotos.ver'
     template_name = 'gestion/fotos_ayudantes.html'
 
     def get(self, request):
@@ -7877,6 +7973,7 @@ class FotosServiciosView(AsesorRequiredMixin, View):
     y quién subió la foto. Por defecto muestra los últimos 30 días. Gestión y
     asesores, igual que «Fotos de ayudantes».
     """
+    acceso = 'fotos.ver'
     template_name = 'gestion/fotos_servicios.html'
 
     def get(self, request):
@@ -7922,6 +8019,7 @@ class FotosServiciosView(AsesorRequiredMixin, View):
 
 class EditarCuentaPersonaView(PersonalRequiredMixin, View):
     """Edita la cuenta (usuario, nombre, correo, rol, estado) y el perfil de datos."""
+    acceso = 'personal.editar'
     template_name = 'gestion/form_persona.html'
 
     def get(self, request, pk):
@@ -7982,6 +8080,7 @@ class EditarCuentaPersonaView(PersonalRequiredMixin, View):
 
 class CambiarPasswordPersonaView(PersonalRequiredMixin, View):
     """Cambia la contraseña de acceso de una persona (no aplica a los ayudantes)."""
+    acceso = 'personal.editar'
     template_name = 'gestion/cambiar_password.html'
 
     def dispatch(self, request, *args, **kwargs):
@@ -8025,6 +8124,8 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
     vigencia (fecha de vencimiento) puesta a mano: está vigente mientras no venza,
     y las vencidas quedan aquí como soporte histórico.
     """
+    acceso = 'personal.ver'
+    acceso_escribir = 'personal.editar'
     template_name = 'gestion/historial_seguridad_social.html'
     REGISTROS_POR_PAGINA = 12
 
@@ -8090,6 +8191,7 @@ class ActualizarVigenciaDocumentoView(PersonalRequiredMixin, View):
     Fija o edita la vigencia (fecha de vencimiento) de un documento del
     expediente desde el pop-up de la ficha. Solo POST.
     """
+    acceso = 'personal.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
         frenar = (_protege_superusuario(request, documento.usuario)
@@ -8151,6 +8253,7 @@ class CambiarEstadoPersonaView(PersonalRequiredMixin, View):
     día pasado, nunca futuro (retirar bloquea el acceso desde ya). Sin fecha
     se toma la de hoy.
     """
+    acceso = 'personal.editar'
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
         frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
@@ -8189,6 +8292,7 @@ class CambiarFechaRetiroView(AdministradorRequiredMixin, View):
     reactivarlo (solo POST). Solo administradores (pedido del usuario,
     oct-2026); mismas reglas de fecha que al retirar.
     """
+    acceso = 'personal.centro_control'
     def post(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
         frenar = _protege_superusuario(request, persona)
@@ -8208,8 +8312,61 @@ class CambiarFechaRetiroView(AdministradorRequiredMixin, View):
         return redirect('gestion:ficha_persona', pk=pk)
 
 
+class GestionarAccesosView(AdministradorRequiredMixin, View):
+    """
+    «Gestionar accesos» de un ASESOR (nov-2026, pedido de Santiago): las
+    casillas de lo que puede y no puede hacer, por módulo (gestion/accesos.py).
+    Solo administradores y superadministradores; solo para personas del rol
+    Asesores que no sean administradores (a los administradores las casillas
+    no les aplican: lo hacen todo).
+    """
+    template_name = 'gestion/accesos_persona.html'
+
+    def _persona(self, request, pk):
+        persona = get_object_or_404(User, pk=pk)
+        if es_administrador(persona) or not es_asesor(persona):
+            messages.error(request, "Los accesos por casillas son solo para el rol Asesores. "
+                                    "A los administradores no se les recorta nada.")
+            return None
+        return persona
+
+    def get(self, request, pk):
+        from .accesos import BASE, MODULOS
+        from .models import AccesosAsesor
+        persona = self._persona(request, pk)
+        if persona is None:
+            return redirect('gestion:ficha_persona', pk=pk)
+        registro = AccesosAsesor.objects.filter(usuario=persona).select_related('actualizado_por').first()
+        marcadas = set(registro.claves) if registro else BASE
+        modulos = [{
+            **m,
+            'acciones': [{
+                'sufijo': sufijo, 'clave': f"{m['clave']}.{sufijo}", 'nombre': nombre,
+                'descripcion': descripcion, 'marcada': f"{m['clave']}.{sufijo}" in marcadas,
+            } for sufijo, nombre, descripcion, _base in m['acciones']],
+        } for m in MODULOS]
+        return render(request, self.template_name, {
+            'persona': persona, 'registro': registro, 'modulos': modulos,
+            'base_json': json.dumps(sorted(BASE)),
+        })
+
+    def post(self, request, pk):
+        from .accesos import normalizar
+        from .models import AccesosAsesor
+        persona = self._persona(request, pk)
+        if persona is None:
+            return redirect('gestion:ficha_persona', pk=pk)
+        claves = sorted(normalizar(request.POST.getlist('claves')))
+        AccesosAsesor.objects.update_or_create(
+            usuario=persona, defaults={'claves': claves, 'actualizado_por': request.user})
+        messages.success(request, f"Accesos de {persona.get_full_name() or persona.username} guardados: "
+                                  f"{len(claves)} marcados.")
+        return redirect('gestion:ficha_persona', pk=persona.pk)
+
+
 class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
     """Elimina un documento del expediente (solo POST)."""
+    acceso = 'personal.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
         frenar = (_protege_superusuario(request, documento.usuario)
@@ -8231,6 +8388,8 @@ class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
 #  etc.), a la mano para las áreas. Gestionado por asesores y superusuarios.
 # ============================================================
 class DocumentacionSolmedView(AsesorRequiredMixin, View):
+    acceso = 'documentacion.ver'
+    acceso_escribir = 'documentacion.editar'
     template_name = 'gestion/documentacion.html'
 
     @staticmethod
@@ -8342,6 +8501,7 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
 
 class EliminarDocumentoInternoView(AsesorRequiredMixin, View):
     """Elimina un documento interno de SOLMED (solo POST)."""
+    acceso = 'documentacion.editar'
     def post(self, request, pk):
         from .models import DocumentoInterno
         documento = get_object_or_404(DocumentoInterno, pk=pk)
@@ -8363,6 +8523,7 @@ from .forms import DispositorForm, DocumentoDispositorForm
 
 
 class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'proveedores.ver'
     model = Dispositor
     template_name = 'gestion/lista_dispositores.html'
     context_object_name = 'dispositores'
@@ -8389,6 +8550,7 @@ class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
 
 
 class CrearDispositorView(AsesorRequiredMixin, CreateView):
+    acceso = 'proveedores.editar'
     model = Dispositor
     form_class = DispositorForm
     template_name = 'gestion/form_dispositor.html'
@@ -8405,6 +8567,7 @@ class CrearDispositorView(AsesorRequiredMixin, CreateView):
 
 
 class ActualizarDispositorView(AsesorRequiredMixin, UpdateView):
+    acceso = 'proveedores.editar'
     model = Dispositor
     form_class = DispositorForm
     template_name = 'gestion/form_dispositor.html'
@@ -8422,6 +8585,7 @@ class FichaDispositorView(AsesorRequiredMixin, View):
     (RUT, cámara, cédula del representante, certificación bancaria) y los
     documentos ambientales, que admiten varios.
     """
+    acceso = 'proveedores.ver'
     template_name = 'gestion/ficha_dispositor.html'
 
     def _context(self, dispositor):
@@ -8467,6 +8631,7 @@ class FichaDispositorView(AsesorRequiredMixin, View):
 
 class EliminarDocumentoDispositorView(AsesorRequiredMixin, View):
     """Elimina un documento del expediente del proveedor (solo POST)."""
+    acceso = 'proveedores.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoDispositor, pk=pk)
         dispositor_pk = documento.dispositor_id
@@ -8486,6 +8651,7 @@ from .forms import ContactoProveedorFormSet, DocumentoProveedorForm, ProveedorFo
 
 
 class ListaProveedoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
+    acceso = 'proveedores.ver'
     model = Proveedor
     template_name = 'gestion/lista_proveedores.html'
     context_object_name = 'proveedores'
@@ -8509,6 +8675,7 @@ class _FormularioProveedorMixin:
 
 
 class CrearProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
+    acceso = 'proveedores.editar'
     def get(self, request):
         return self._render(request, ProveedorForm(), ContactoProveedorFormSet())
 
@@ -8530,6 +8697,7 @@ class CrearProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
 
 
 class ActualizarProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
+    acceso = 'proveedores.editar'
     def get(self, request, pk):
         proveedor = get_object_or_404(Proveedor, pk=pk)
         return self._render(request, ProveedorForm(instance=proveedor),
@@ -8552,6 +8720,7 @@ class FichaProveedorView(AsesorRequiredMixin, View):
     Ficha del proveedor general: datos de facturación, contactos, datos
     bancarios y su expediente (documentos con nombre libre).
     """
+    acceso = 'proveedores.ver'
     template_name = 'gestion/ficha_proveedor.html'
 
     def _context(self, proveedor, form=None):
@@ -8585,6 +8754,7 @@ class EliminarProveedorView(AdministradorRequiredMixin, View):
     Elimina un proveedor general (solo POST). Sus contactos y documentos se
     van con él; como nada más lo referencia, se puede borrar siempre.
     """
+    acceso = 'proveedores.eliminar'
     def post(self, request, pk):
         proveedor = get_object_or_404(Proveedor, pk=pk)
         nombre = str(proveedor)
@@ -8595,6 +8765,7 @@ class EliminarProveedorView(AdministradorRequiredMixin, View):
 
 class EliminarDocumentoProveedorView(AsesorRequiredMixin, View):
     """Elimina un documento del expediente del proveedor general (solo POST)."""
+    acceso = 'proveedores.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoProveedor, pk=pk)
         proveedor_pk = documento.proveedor_id
@@ -8845,6 +9016,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     cliente y el filtro «ver» (oct-2026): las pendientes por emitir (sin
     factura electrónica), las ya emitidas o las enviadas al cliente.
     """
+    acceso = 'facturacion.ver'
     model = Factura
     template_name = 'gestion/lista_facturas.html'
     context_object_name = 'facturas'
@@ -8914,6 +9086,7 @@ class OrdenesPorPreliquidarView(AdministradorRequiredMixin, View):
     placa o sede). Cada fila abre el formulario con esa orden ya marcada; con
     un cliente filtrado, un botón las marca todas.
     """
+    acceso = 'facturacion.editar'
     template_name = 'gestion/ordenes_por_preliquidar.html'
     por_pagina = 50
 
@@ -9009,6 +9182,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
     y se llenan descripción, orden de compra, correo y qué se le copia al
     cliente. Un solo formulario; sin cliente elegido solo se pide el cliente.
     """
+    acceso = 'facturacion.editar'
     template_name = 'gestion/form_factura.html'
 
     def _factura(self, pk):
@@ -9229,6 +9403,8 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
     factura electrónica (número, XML, PDF oficial), los otros adjuntos, qué
     se le copia al cliente, el envío y su historial de correos.
     """
+    acceso = 'facturacion.ver'
+    acceso_escribir = 'facturacion.editar'
     template_name = 'gestion/detalle_factura.html'
 
     def get(self, request, pk):
@@ -9739,6 +9915,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
     formulario tal como va (sin guardar nada) y devuelve el HTML de la misma
     plantilla del PDF. El formulario la pide cada vez que algo cambia.
     """
+    acceso = 'facturacion.editar'
     def post(self, request):
         from decimal import Decimal, InvalidOperation
         from django.db.models import Max
@@ -9825,6 +10002,7 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
 
 class FacturaPDFView(AdministradorRequiredMixin, View):
     """El PDF interno: con ?ver=1 se muestra en la página (vista previa); sin él se descarga."""
+    acceso = 'facturacion.ver'
     def get(self, request, pk):
         factura = get_object_or_404(Factura, pk=pk)
         respuesta = HttpResponse(_pdf_factura(factura, request), content_type='application/pdf')
@@ -10105,6 +10283,7 @@ def _excel_factura(factura):
 
 class FacturaExcelView(AdministradorRequiredMixin, View):
     """La factura en Excel, con el mismo formato del PDF."""
+    acceso = 'facturacion.ver'
     def get(self, request, pk):
         factura = get_object_or_404(Factura, pk=pk)
         respuesta = HttpResponse(
@@ -10186,6 +10365,8 @@ class DisposicionesFinalesView(DisposicionFinalRequiredMixin, View):
     del último. Con «desde/hasta» las cifras se cuentan solo en ese rango.
     Desde aquí también se sube (eligiendo el cliente).
     """
+    acceso = 'certificados.ver'
+    acceso_escribir = 'certificados.gestionar'
     template_name = 'gestion/disposiciones_finales.html'
 
     def get(self, request):
@@ -10237,6 +10418,8 @@ class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
     La carpeta de UN cliente: sus certificados, del más reciente al más viejo,
     agrupados por mes. Filtros: nombre, desde/hasta y el año (atajos).
     """
+    acceso = 'certificados.ver'
+    acceso_escribir = 'certificados.gestionar'
     template_name = 'gestion/carpeta_disposicion.html'
 
     def get(self, request, pk):
@@ -10283,6 +10466,7 @@ class CarpetaDisposicionView(DisposicionFinalRequiredMixin, View):
 
 class EliminarCertificadoDisposicionView(AdministradorRequiredMixin, View):
     """Quita un certificado de la carpeta (solo gestión, solo POST)."""
+    acceso = 'certificados.eliminar'
     def post(self, request, pk):
         certificado = get_object_or_404(CertificadoDisposicion, pk=pk)
         cliente_pk, titulo = certificado.cliente_id, certificado.titulo
@@ -10318,6 +10502,7 @@ class DatosEnvioCertificadosView(AsesorRequiredMixin, View):
       ?q=<texto>     clientes CON certificados que coinciden (máx. 8)
       ?cliente=<id>  ese cliente con su correo sugerido y sus certificados
     """
+    acceso = 'certificados.gestionar'
     def get(self, request):
         cliente_pk = request.GET.get('cliente') or ''
         if cliente_pk.isdigit():
@@ -10349,6 +10534,7 @@ class EnviarCertificadosView(AsesorRequiredMixin, View):
     falla no sale ninguno. Cada envío queda en el historial del Centro de
     correos, también los que el servidor rechace.
     """
+    acceso = 'certificados.gestionar'
     def post(self, request):
         from django.core.exceptions import ValidationError
         from django.core.validators import validate_email

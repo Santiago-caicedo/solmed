@@ -11,9 +11,11 @@
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="mb-0"><i class="bi bi-people-fill me-2"></i>Personal</h1>
+    {% if edita_personal %}
     <a href="{% url 'gestion:crear_persona' %}" class="btn btn-primary">
         <i class="bi bi-person-plus-fill me-1"></i> Nueva persona
     </a>
+    {% endif %}
 </div>
 
 <div class="card shadow mb-3">
@@ -117,7 +119,7 @@
                             <a href="{% url 'gestion:ficha_persona' usuario.pk %}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-folder2-open me-1"></i> Ver ficha
                             </a>
-                            {% if es_administrador and usuario.pk != request.user.pk %}
+                            {% if acceso.personal.eliminar and usuario.pk != request.user.pk %}
                             <form method="post" action="{% url 'gestion:eliminar_persona' usuario.pk %}" class="d-inline"
                                   onsubmit="return confirm('¿Eliminar a {{ usuario.get_full_name|default:usuario.username }}? Solo se puede si aún no ha participado en ningún servicio.');">
                                 {% csrf_token %}

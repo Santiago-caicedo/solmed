@@ -204,6 +204,7 @@ def _visitas_de(user):
 
 class ListaVisitasView(AsesorRequiredMixin, PaginadoMixin, ListView):
     """Las visitas, la próxima arriba, con filtro por estado, ejecutivo y buscador."""
+    acceso = 'visitas.ver'
     model = VisitaTecnica
     template_name = 'gestion/lista_visitas.html'
     context_object_name = 'visitas'
@@ -254,6 +255,7 @@ class ProgramarVisitaView(AsesorRequiredMixin, View):
     después cambia la fecha o la hora de ingreso, la aprobación anterior ya no
     vale: la visita pasa a «reprogramada» y el cliente recibe la nueva solicitud.
     """
+    acceso = 'visitas.gestionar'
     template_name = 'gestion/form_visita.html'
 
     def _visita(self, pk):
@@ -325,6 +327,7 @@ class ProgramarVisitaView(AsesorRequiredMixin, View):
 
 class DetalleVisitaView(AsesorRequiredMixin, View):
     """La visita completa: solicitud y aprobación, lo levantado en campo, fotos, firmas y PDF."""
+    acceso = 'visitas.ver'
     template_name = 'gestion/detalle_visita.html'
 
     def get(self, request, pk):
@@ -345,6 +348,7 @@ class CambiarEstadoVisitaView(AsesorRequiredMixin, View):
     cancelar desde el detalle. «Realizada» solo la pone la firma del cliente.
     Reprogramar borra la aprobación anterior y le reenvía la solicitud.
     """
+    acceso = 'visitas.gestionar'
 
     def post(self, request, pk):
         visita = get_object_or_404(_visitas_de(request.user), pk=pk)
@@ -370,6 +374,7 @@ class CambiarEstadoVisitaView(AsesorRequiredMixin, View):
 
 class ReenviarSolicitudVisitaView(AsesorRequiredMixin, View):
     """Vuelve a mandar el correo de la solicitud (mismo enlace) mientras esté pendiente."""
+    acceso = 'visitas.gestionar'
 
     def post(self, request, pk):
         visita = get_object_or_404(_visitas_de(request.user), pk=pk)
@@ -481,6 +486,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
     guardar por partes y volver; «Guardar y pasar a la firma del cliente»
     lleva al QR con el que el cliente firma (eso la marca realizada).
     """
+    acceso = 'visitas.gestionar'
     template_name = 'gestion/campo_visita.html'
 
     def dispatch(self, request, *args, **kwargs):
@@ -543,6 +549,7 @@ class CampoVisitaView(AsesorRequiredMixin, View):
 
 
 class EliminarFotoVisitaView(AsesorRequiredMixin, View):
+    acceso = 'visitas.gestionar'
     def post(self, request, pk, foto_pk):
         foto = get_object_or_404(FotoVisita, pk=foto_pk, visita_id=pk, visita__in=_visitas_de(request.user))
         foto.archivo.delete(save=False)
@@ -562,6 +569,7 @@ class FirmaVisitaView(AsesorRequiredMixin, View):
     firma nace aquí, al terminar en campo. Con POST se le manda el enlace al
     correo del cliente.
     """
+    acceso = 'visitas.gestionar'
     template_name = 'gestion/firma_visita.html'
 
     def _visita(self, request, pk):
@@ -597,6 +605,7 @@ class FirmaVisitaView(AsesorRequiredMixin, View):
 
 class EstadoFirmaVisitaView(AsesorRequiredMixin, View):
     """Sondeo de la pantalla del QR: ¿ya firmó el cliente?"""
+    acceso = 'visitas.ver'
 
     def get(self, request, pk):
         visita = get_object_or_404(_visitas_de(request.user), pk=pk)
@@ -708,6 +717,7 @@ def _pdf_visita(visita, request):
 
 
 class VisitaPDFView(AsesorRequiredMixin, View):
+    acceso = 'visitas.ver'
     def get(self, request, pk):
         visita = get_object_or_404(_visitas_de(request.user), pk=pk)
         respuesta = HttpResponse(_pdf_visita(visita, request), content_type='application/pdf')

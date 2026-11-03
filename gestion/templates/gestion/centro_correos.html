@@ -3,9 +3,11 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <h1 class="mb-0"><i class="bi bi-envelope-paper me-2"></i>Centro de correos</h1>
+    {% if acceso.correos.enviar %}
     <a href="{% url 'gestion:crear_envio_correo' %}" class="btn btn-primary">
         <i class="bi bi-send-fill me-1"></i> Nuevo envío
     </a>
+    {% endif %}
 </div>
 <p class="text-muted mb-4">
     Envía la seguridad social y cualquier documento del sistema por correo, sin
@@ -143,10 +145,12 @@
                             <a href="{% url 'gestion:detalle_envio_correo' envio.pk %}" class="btn btn-sm btn-outline-primary" title="Ver el detalle">
                                 <i class="bi bi-eye"></i> Ver
                             </a>
+                            {% if acceso.correos.enviar %}
                             <a href="{% url 'gestion:crear_envio_correo' %}?copiar={{ envio.pk }}"
                                class="btn btn-sm btn-outline-secondary" title="Usar como plantilla para un nuevo envío">
                                 <i class="bi bi-arrow-repeat"></i>
                             </a>
+                            {% endif %}
                         </td>
                     </tr>
                     {% empty %}

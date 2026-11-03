@@ -15,9 +15,11 @@
         </div>
     </div>
     <div>
+        {% if acceso.proveedores.editar %}
         <a href="{% url 'gestion:actualizar_dispositor' dispositor.pk %}" class="btn btn-outline-secondary">
             <i class="bi bi-pencil-square me-1"></i> Editar datos
         </a>
+        {% endif %}
         <a href="{% url 'gestion:lista_dispositores' %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i> Volver al listado
         </a>
@@ -64,11 +66,13 @@
                                 Cargado el {{ d.fecha_subida|date:"d/m/Y" }}{% if d.descripcion %} · {{ d.descripcion }}{% endif %}
                             </small>
                         </span>
+                        {% if acceso.proveedores.editar %}
                         <form method="post" action="{% url 'gestion:eliminar_documento_dispositor' d.pk %}"
                               onsubmit="return confirm('¿Eliminar este documento del expediente?');">
                             {% csrf_token %}
                             <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                         </form>
+                        {% endif %}
                     </li>
                     {% endfor %}
                 </ul>
@@ -77,6 +81,7 @@
                 {% endif %}
 
                 {# Formulario de carga #}
+                {% if acceso.proveedores.editar %}
                 <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
                     {% csrf_token %}
                     <input type="hidden" name="tipo" value="{{ s.tipo }}">
@@ -95,6 +100,7 @@
                         <button class="btn btn-sm btn-success"><i class="bi bi-upload me-1"></i>Cargar</button>
                     </div>
                 </form>
+                {% endif %}
             </div>
         </div>
     </div>

@@ -18,9 +18,11 @@
         <a href="{% url 'gestion:lista_clientes' %}" class="btn btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Clientes
         </a>
+        {% if acceso.clientes.editar %}
         <a href="{% url 'gestion:actualizar_cliente' cliente.pk %}" class="btn btn-primary">
             <i class="bi bi-pencil-square me-1"></i>Editar cliente
         </a>
+        {% endif %}
     </div>
 </div>
 

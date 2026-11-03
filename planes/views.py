@@ -262,6 +262,7 @@ class CrearTipoPersonalizadoView(AdministradorRequiredMixin, View):
     nombre ya existe en ese ámbito no se duplica: se reutiliza y, si estaba
     oculto, vuelve a aparecer.
     """
+    acceso = 'plan.editar'
     def post(self, request):
         ambito = request.POST.get('ambito', '')
         nombre = ' '.join(request.POST.get('nombre', '').split())
@@ -291,6 +292,7 @@ class EliminarTipoPersonalizadoView(AdministradorRequiredMixin, View):
     Quita del popup una actividad o novedad creada ahí. Si ya se registró
     alguna vez no se borra (lo registrado conserva su nombre): se oculta.
     """
+    acceso = 'plan.editar'
     def post(self, request, pk):
         tipo = get_object_or_404(TipoPersonalizado, pk=pk)
         if tipo.asignaciones.exists() or tipo.novedades.exists():
@@ -305,6 +307,8 @@ class EliminarTipoPersonalizadoView(AdministradorRequiredMixin, View):
 
 class PlanDiaView(AdministradorRequiredMixin, View):
     """El plan de UN día: tablero de formación + registro de actividades y novedades."""
+    acceso = 'plan.ver'
+    acceso_escribir = 'plan.editar'
     template_name = 'planes/plan_dia.html'
 
     def get(self, request):
@@ -420,6 +424,7 @@ class FichaPersonaPlanView(AdministradorRequiredMixin, View):
     Se sirve como fragmento y bajo demanda —una petición por persona al abrir
     el popup— en vez de incrustar una ficha oculta por cada fila del tablero.
     """
+    acceso = 'plan.ver'
     template_name = 'planes/ficha_persona.html'
 
     def get(self, request, pk):
@@ -501,6 +506,7 @@ class EliminarAsignacionView(AdministradorRequiredMixin, View):
     queda nadie más encargado de ella, sus órdenes vuelven a quedar SIN
     DISPONER: si la disposición no se hizo, el residuo sigue pendiente.
     """
+    acceso = 'plan.editar'
     def post(self, request, pk):
         asignacion = get_object_or_404(Asignacion, pk=pk)
         fecha = asignacion.plan.fecha
@@ -531,6 +537,7 @@ class EliminarAsignacionView(AdministradorRequiredMixin, View):
 
 class EliminarNovedadView(AdministradorRequiredMixin, View):
     """Borra una novedad registrada por error. Solo POST."""
+    acceso = 'plan.editar'
     def post(self, request, pk):
         novedad = get_object_or_404(Novedad, pk=pk)
         fecha = _fecha_de(request)
@@ -546,6 +553,7 @@ class HistorialPlanesView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     hacen parte del histórico del plan, porque los recorridos entran solos
     al tablero y al PDF de su fecha.
     """
+    acceso = 'plan.ver'
     template_name = 'planes/historial.html'
     context_object_name = 'planes'
 
@@ -578,6 +586,7 @@ class HistorialNovedadesView(AdministradorRequiredMixin, PaginadoMixin, ListView
     21 — que es como se pregunta de verdad ("¿quién estaba incapacitado esa
     semana?"). Sin fecha final, la novedad vale solo su día de inicio.
     """
+    acceso = 'plan.ver'
     model = Novedad
     template_name = 'planes/novedades.html'
     context_object_name = 'novedades'
@@ -790,6 +799,7 @@ def _pdf_estado(fecha, request):
 
 class EstadoPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del estado diario del personal (pasado o futuro)."""
+    acceso = 'plan.ver'
     def get(self, request, fecha):
         try:
             dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
@@ -803,6 +813,7 @@ class EstadoPDFView(AdministradorRequiredMixin, View):
 
 class MovimientoPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del movimiento del personal de un día (pasado o futuro)."""
+    acceso = 'plan.ver'
     def get(self, request, fecha):
         try:
             dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()
@@ -816,6 +827,7 @@ class MovimientoPDFView(AdministradorRequiredMixin, View):
 
 class PlanPDFView(AdministradorRequiredMixin, View):
     """Descarga el PDF del plan de un día."""
+    acceso = 'plan.ver'
     def get(self, request, fecha):
         try:
             dia = datetime.datetime.strptime(fecha, '%Y-%m-%d').date()

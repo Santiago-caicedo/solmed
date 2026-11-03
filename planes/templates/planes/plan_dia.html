@@ -153,10 +153,12 @@
                         {% for a in fila.asignaciones %}
                         <span class="pt-chip c-actividad">
                             {{ a.get_tipo_display }}{% if a.placas %} · <span class="mono">{{ a.placas }}</span>{% endif %}{% if a.ordenes_texto %} · <span class="mono">{{ a.ordenes_texto }}</span>{% endif %}{% if a.proveedor %} · {{ a.proveedor }}{% endif %}{% if a.hora %} · <span class="mono">{{ a.horario }}</span>{% endif %}{% if a.detalle %} · {{ a.detalle }}{% endif %}
+                            {% if acceso.plan.editar %}
                             <form method="post" action="{% url 'planes:eliminar_asignacion' a.pk %}">
                                 {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
                                 <button class="quitar" title="Quitar esta asignación"><i class="bi bi-x-lg"></i></button>
                             </form>
+                            {% endif %}
                         </span>
                         {% endfor %}
                         {% for n in fila.novedades %}
@@ -164,20 +166,24 @@
                             <i class="bi bi-person-dash"></i> {{ n.get_tipo_display }}
                             · <span class="mono">{{ n.fecha_inicio|date:"d/m" }}{% if n.fecha_fin %}–{{ n.fecha_fin|date:"d/m" }}{% endif %}{% if n.hora %} {{ n.horario }}{% endif %}</span>
                             {% if n.detalle %} · {{ n.detalle }}{% endif %}
+                            {% if acceso.plan.editar %}
                             <form method="post" action="{% url 'planes:eliminar_novedad' n.pk %}">
                                 {% csrf_token %}<input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
                                 <button class="quitar" title="Eliminar esta novedad"><i class="bi bi-x-lg"></i></button>
                             </form>
+                            {% endif %}
                         </span>
                         {% endfor %}
                         {% if not fila.con_plan %}<span class="pt-chip c-libre">Sin plan para este día</span>{% endif %}
                     </div>
                 </div>
                 {% if not fila.servicios and not fila.novedades %}
+                {% if acceso.plan.editar %}
                 <button type="button" class="btn btn-outline-secondary btn-sm btn-asignar"
                         data-persona="{{ fila.persona.pk }}" title="Asignarle una actividad">
                     <i class="bi bi-plus-lg"></i>
                 </button>
+                {% endif %}
                 {% endif %}
             </div>
             {% endfor %}
@@ -200,6 +206,7 @@
 
                 {# ---- Pestaña 1: actividad ---- #}
                 <div class="card-body pt-2" id="tab-actividad">
+                    {% if acceso.plan.editar %}
                     <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
@@ -345,10 +352,12 @@
                             <i class="bi bi-check-lg me-1"></i> Asignar al plan
                         </button>
                     </form>
+                    {% endif %}
                 </div>
 
                 {# ---- Pestaña 2: novedad ---- #}
                 <div class="card-body pt-2 d-none" id="tab-novedad">
+                    {% if acceso.plan.editar %}
                     <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
@@ -401,6 +410,7 @@
                             <i class="bi bi-check-lg me-1"></i> Registrar novedad
                         </button>
                     </form>
+                    {% endif %}
                     <div class="text-end mt-2">
                         <a href="{% url 'planes:novedades' %}" style="font-size:.78rem">
                             Ver el registro completo de novedades <i class="bi bi-arrow-right"></i>
@@ -413,6 +423,7 @@
             <div class="card">
                 <div class="card-header"><h5>Observaciones del día</h5></div>
                 <div class="card-body">
+                    {% if acceso.plan.editar %}
                     <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
@@ -420,6 +431,7 @@
                                   placeholder="Lo que el equipo deba tener presente (sale en el PDF).">{{ plan.notas|default:'' }}</textarea>
                         <button name="submit_notas" value="1" class="btn btn-outline-secondary btn-sm mt-2">Guardar</button>
                     </form>
+                    {% endif %}
                 </div>
             </div>
         </div>

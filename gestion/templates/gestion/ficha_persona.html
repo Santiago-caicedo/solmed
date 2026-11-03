@@ -42,7 +42,7 @@
             <i class="bi bi-person-dash me-1"></i> Marcar retirado
         </button>
         {% endif %}
-        {% if es_administrador %}
+        {% if acceso.personal.centro_control %}
         {# Todo lo que se le tiene registrado mes a mes (solo administradores). #}
         <a href="{% url 'gestion:centro_control_persona' persona.pk %}" class="btn btn-primary">
             <i class="bi bi-speedometer2 me-1"></i> Centro de control
@@ -61,7 +61,7 @@
         <strong>Persona retirada{% if fecha_retiro %} desde el {{ fecha_retiro|date:"d/m/Y" }}{% endif %}.</strong>
         No aparece en programaciones, recorridos ni planificación. Su expediente e historial se conservan para trazabilidad.
     </div>
-    {% if es_administrador %}
+    {% if acceso.personal.centro_control %}
     <button type="button" class="btn btn-sm btn-outline-dark ms-auto text-nowrap" data-bs-toggle="modal" data-bs-target="#modalFechaRetiro">
         <i class="bi bi-calendar-event me-1"></i>Cambiar fecha de retiro
     </button>
@@ -272,7 +272,7 @@
                     {% if persona.is_active %}<span class="badge bg-success">Activo</span>{% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
                 </p>
                 <p class="mb-3"><strong>Último acceso:</strong> {% if persona.last_login %}{{ persona.last_login|date:"d/m/Y H:i" }}{% else %}Nunca{% endif %}</p>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
                     <a href="{% url 'gestion:editar_cuenta_persona' persona.pk %}" class="btn btn-outline-secondary btn-sm">
                         <i class="bi bi-pencil-square me-1"></i> Editar cuenta
                     </a>
@@ -280,6 +280,13 @@
                         <i class="bi bi-key me-1"></i> Cambiar contraseña
                     </a>
                 </div>
+                {% if puede_gestionar_accesos %}
+                {# Las casillas de lo que este asesor puede hacer (nov-2026, solo administradores). #}
+                <a href="{% url 'gestion:accesos_persona' persona.pk %}" class="btn btn-primary btn-sm w-100 mt-2">
+                    <i class="bi bi-shield-check me-1"></i> Gestionar accesos
+                    {% if accesos_personalizados %}<span class="badge bg-light text-dark border ms-1">personalizados</span>{% endif %}
+                </a>
+                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -322,7 +329,7 @@
     </div>
     {% endif %}
 {% endfor %}
-{% if retirado and es_administrador %}
+{% if retirado and acceso.personal.centro_control %}
 <div class="modal fade" id="modalFechaRetiro" tabindex="-1" aria-labelledby="modalFechaRetiroTitulo" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <form method="post" action="{% url 'gestion:cambiar_fecha_retiro' persona.pk %}" class="modal-content">

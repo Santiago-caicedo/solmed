@@ -198,6 +198,8 @@ urlpatterns = [
     path('personal/<int:pk>/password/', views.CambiarPasswordPersonaView.as_view(), name='cambiar_password_persona'),
     path('personal/<int:pk>/estado/', views.CambiarEstadoPersonaView.as_view(), name='cambiar_estado_persona'),
     path('personal/<int:pk>/fecha-retiro/', views.CambiarFechaRetiroView.as_view(), name='cambiar_fecha_retiro'),
+    # Las casillas de lo que un ASESOR puede hacer (nov-2026, ver gestion/accesos.py).
+    path('personal/<int:pk>/accesos/', views.GestionarAccesosView.as_view(), name='accesos_persona'),
     path('personal/<int:pk>/eliminar/', views.EliminarPersonaView.as_view(), name='eliminar_persona'),
     path('documento-personal/<int:pk>/eliminar/', views.EliminarDocumentoPersonalView.as_view(), name='eliminar_documento_personal'),
     path('documento-personal/<int:pk>/vigencia/', views.ActualizarVigenciaDocumentoView.as_view(), name='vigencia_documento_personal'),

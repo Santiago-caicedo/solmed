@@ -71,14 +71,16 @@
         <div class="sub">{% if cliente.identificacion %}NIT <span class="mono">{{ cliente.identificacion }}</span> · {% endif %}<span class="mono">{{ n_total }}</span> certificado{{ n_total|pluralize }} de disposición final</div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        {% if es_asesor %}
+        {% if gestiona_certificados %}
         <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#ec-modal">
             <i class="bi bi-envelope-paper me-1"></i>Enviar por correo
         </button>
         {% endif %}
+        {% if gestiona_certificados %}
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
             <i class="bi bi-cloud-arrow-up me-1"></i>Subir certificados
         </button>
+        {% endif %}
     </div>
 </div>
 
@@ -133,7 +135,7 @@
                 <div class="dc-acc">
                     <a class="btn btn-sm btn-outline-secondary" href="{{ c.archivo.url }}" target="_blank" rel="noopener"
                        aria-label="Ver {{ c.titulo }}"><i class="bi bi-eye me-1"></i>Ver</a>
-                    {% if es_administrador %}
+                    {% if acceso.certificados.eliminar %}
                     <form method="post" action="{% url 'gestion:eliminar_certificado_disposicion' c.pk %}"
                           onsubmit="return confirm('¿Quitar «{{ c.titulo|escapejs }}» de la carpeta? No se puede deshacer.');">
                         {% csrf_token %}
@@ -155,8 +157,10 @@
     {% else %}
     <i class="bi bi-folder2" aria-hidden="true"></i>
     <p class="mb-2">Esta carpeta está vacía.</p>
+    {% if gestiona_certificados %}
     <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#df-subir">
         <i class="bi bi-cloud-arrow-up me-1"></i>Subir el primero</button>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}
@@ -179,5 +183,5 @@
         </form>
     </div>
 </div>
-{% if es_asesor %}{% include 'gestion/partials/_enviar_certificados.html' %}{% endif %}
+{% if gestiona_certificados %}{% include 'gestion/partials/_enviar_certificados.html' %}{% endif %}
 {% endblock %}

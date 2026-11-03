@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1 class="mb-1">Expediente de Orden #{{ orden.numero_orden }}
-            {% if es_administrador %}
+            {% if acceso.ordenes.numero %}
             <button class="btn btn-link btn-sm align-baseline p-0 ms-1" data-bs-toggle="modal"
                     data-bs-target="#modal-numero-orden" title="Cambiar el número de la orden">
                 <i class="bi bi-pencil"></i>
@@ -21,17 +21,19 @@
                 <i class="bi bi-calculator me-1"></i>Conciliada
             </span>
         {% endif %}
-        {% if es_administrador %}{% for l in orden.lineas_factura.all %}
+        {% if acceso.facturacion.ver %}{% for l in orden.lineas_factura.all %}
         {# El global va en una sola preliquidación; por conceptos adicionales puede estar en otra. #}
         <a class="badge {% if l.lleva_global %}bg-success{% else %}bg-secondary{% endif %} text-decoration-none" href="{% url 'gestion:detalle_factura' l.factura_id %}"><i class="bi bi-receipt me-1"></i>{% if l.lleva_global %}Facturada en{% else %}Conceptos adicionales en{% endif %} {{ l.factura.codigo }}</a>
         {% endfor %}{% endif %}
     </div>
+    {% if acceso.ordenes.editar %}
     <a href="{% url 'gestion:actualizar_orden' orden.pk %}" class="btn btn-primary">
         <i class="bi bi-pencil-square me-1"></i> Editar orden / recorrido
     </a>
+    {% endif %}
 </div>
 
-{% if es_administrador %}
+{% if acceso.ordenes.numero %}
 {% comment %}
 Cambiar el consecutivo de la orden (solo administradores). La orden se coloca
 en el número pedido y las que estorben se corren un puesto.
@@ -276,6 +278,7 @@ en el número pedido y las que estorben se corren un puesto.
                                         <i class="bi bi-pen me-1"></i>Corregir datos
                                     </a>
                                     {# Se envió el enlace equivocado: deshace la firma y la encuesta (doble confirmación). #}
+                                    {% if acceso.ordenes.anular_firma %}
                                     <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#modal-anular-firma"
                                             data-url="{% url 'gestion:anular_firma_acta' recorrido.pk %}"
                                             data-placa="{{ recorrido.vehiculo.placa }}"
@@ -283,6 +286,7 @@ en el número pedido y las que estorben se corren un puesto.
                                             title="Se le envió al cliente el enlace equivocado: borra su firma y su encuesta">
                                         <i class="bi bi-x-octagon me-1"></i>Anular firma y encuesta
                                     </button>
+                                    {% endif %}
                                 {% else %}
                                     {% comment %}
                                     El QR y el enlace se pueden generar aunque el conductor no
@@ -876,7 +880,7 @@ en el número pedido y las que estorben se corren un puesto.
             <div class="card-body">
                 {% if orden.sin_disponer %}
                 <p class="text-muted small mb-2">El residuo de este servicio aún no se ha dispuesto. Se registra desde el plan de trabajo o el panel de disposiciones.</p>
-                {% if es_administrador %}
+                {% if acceso.disposiciones.editar %}
                 <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="btn btn-success btn-sm w-100 mb-2">
                     <i class="bi bi-truck-flatbed me-1"></i>Registrar la disposición
                 </a>
@@ -888,7 +892,7 @@ en el número pedido y las que estorben se corren un puesto.
                 {% if disposicion.nota %}<p class="mb-0 text-muted small">{{ disposicion.nota }}</p>{% endif %}
                 {% endif %}
 
-                {% if es_administrador %}
+                {% if acceso.disposiciones.editar %}
                 {# Corrección a mano, con nota obligatoria: queda en la trazabilidad #}
                 <details class="mt-2">
                     <summary class="small text-muted" style="cursor:pointer">Corregir a mano</summary>

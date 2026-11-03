@@ -3272,3 +3272,27 @@ class FotoVisita(models.Model):
 
     def __str__(self):
         return f"Foto {self.pk} · {self.visita.codigo}"
+
+
+class AccesosAsesor(models.Model):
+    """
+    Los accesos por persona de un ASESOR (nov-2026, ver gestion/accesos.py):
+    las claves `modulo.accion` que un administrador le marcó en «Gestionar
+    accesos». Sin registro, el asesor tiene lo de siempre (accesos.BASE). Solo
+    se consulta para el rol Asesores; a los demás roles no les aplica.
+    """
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='accesos',
+        verbose_name="Asesor")
+    claves = models.JSONField(default=list, blank=True, verbose_name="Accesos marcados")
+    actualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+', verbose_name="Último cambio por")
+    actualizado_en = models.DateTimeField(auto_now=True, verbose_name="Último cambio")
+
+    class Meta:
+        verbose_name = "Accesos de asesor"
+        verbose_name_plural = "Accesos de asesores"
+
+    def __str__(self):
+        return f"Accesos de {self.usuario.get_full_name() or self.usuario.username}"

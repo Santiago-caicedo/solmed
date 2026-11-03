@@ -377,7 +377,8 @@
 
     <div class="sidebar-scroll">
     <ul class="nav flex-column">
-        {% if es_administrador %}
+        {# Nov-2026: el menú va por `acceso` (gestion/accesos.py): administradores todo; asesores, sus casillas. #}
+        {% if acceso.tablero.ver %}
         <li class="nav-section">Panel</li>
         <li>
             <a href="{% url 'gestion:dashboard' %}" class="nav-link {% if 'dashboard' == request.resolver_match.view_name %}active{% endif %}">
@@ -396,12 +397,12 @@
         {# «Mis recorridos» se fundió con «Mi jornada» y el «Historial» se quitó (oct-2026): el conductor solo ve lo de hoy. #}
         {% endif %}
 
-        {% if es_asesor %}
+        {% if ve_operacion %}<li class="nav-section">Operación</li>{% endif %}
+        {% if acceso.calendario.ver %}
         {% comment %}
         El calendario muestra órdenes y placas: lo ve gestión. Al conductor se
         le quitó (oct-2026): su casa es «Mi jornada» con lo de hoy.
         {% endcomment %}
-        <li class="nav-section">Operación</li>
         <li>
             <a href="{% url 'gestion:calendario' %}" class="nav-link {% if 'calendario' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar3"></i>Calendario
@@ -414,17 +415,19 @@
         quitó el enlace. Para reponerlo, restaurar este bloque:
             {% if es_planificador %} <li><a href="{% url 'gestion:planificacion' %}" ...>Planificación</a></li> {% endif %}
         {% endcomment %}
-        {% if es_administrador %}
+        {% if acceso.plan.ver %}
         {% comment %}
-        El plan de trabajo es SOLO de administradores: reparte a todo el
-        personal y registra sus novedades de recursos humanos.
+        El plan de trabajo es de administradores (y de los asesores a los que
+        se les abra): reparte a todo el personal y registra sus novedades.
         {% endcomment %}
         <li>
             <a href="{% url 'planes:plan_dia' %}" class="nav-link {% if request.resolver_match.namespace == 'planes' %}active{% endif %}">
                 <i class="bi bi-journal-check"></i>Plan de trabajo
             </a>
         </li>
-        {# Trazabilidad de disposiciones: el «quién» sale del plan, mismo acceso. #}
+        {% endif %}
+        {% if acceso.disposiciones.ver %}
+        {# Trazabilidad de disposiciones: el «quién» sale del plan. #}
         <li>
             <a href="{% url 'gestion:trazabilidad_disposiciones' %}" class="nav-link {% if request.path|slice:':19' == '/app/disposiciones/' %}active{% endif %}">
                 <i class="bi bi-recycle"></i>Disposiciones
@@ -436,7 +439,7 @@
         Básculas: los cargos de oficina a los que la clienta les dedicó este
         trabajo entran aquí y no ven nada más (ver GRUPOS_BASCULA en roles.py).
         {% endcomment %}
-        {% if not es_asesor and not es_administrador %}<li class="nav-section">Operación</li>{% endif %}
+        {% if not ve_operacion %}<li class="nav-section">Operación</li>{% endif %}
         <li>
             <a href="{% url 'gestion:basculas' %}" class="nav-link {% if request.path == '/app/basculas/' %}active{% endif %}">
                 <i class="bi bi-speedometer2"></i>Básculas
@@ -459,23 +462,29 @@
             </a>
         </li>
         {% endif %}
-        {% if es_asesor %}
+        {% if acceso.visitas.ver %}
         {# Visitas técnicas (formato GC-F-01 v03, oct-2026): antes de cotizar y programar. #}
         <li>
             <a href="{% url 'gestion:lista_visitas' %}" class="nav-link {% if request.path|slice:':13' == '/app/visitas/' %}active{% endif %}">
                 <i class="bi bi-clipboard2-pulse"></i>Visitas técnicas
             </a>
         </li>
+        {% endif %}
+        {% if acceso.programacion.ver %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">
                 <i class="bi bi-calendar-plus"></i>Programación
             </a>
         </li>
+        {% endif %}
+        {% if acceso.ordenes.ver %}
         <li>
             <a href="{% url 'gestion:lista_ordenes' %}" class="nav-link {% if 'ordenes' in request.path %}active{% endif %}">
                 <i class="bi bi-clipboard-data"></i>Órdenes de servicio
             </a>
         </li>
+        {% endif %}
+        {% if acceso.fotos.ver %}
         {# Una sola entrada «Fotos» que se despliega (pedido de Santiago, oct-2026). Abierta si se está en una de sus pantallas. #}
         {% with en_fotos=request.path|slice:':11' %}
         <li>
@@ -498,41 +507,51 @@
             </ul>
         </li>
         {% endwith %}
+        {% endif %}
+        {% if acceso.correos.ver %}
         <li>
             <a href="{% url 'gestion:centro_correos' %}" class="nav-link {% if '/correos' in request.path %}active{% endif %}">
                 <i class="bi bi-envelope-paper"></i>Centro de correos
             </a>
         </li>
+        {% endif %}
 
-        <li class="nav-section">Gestión</li>
+        {% if ve_gestion %}<li class="nav-section">Gestión</li>{% endif %}
+        {% if acceso.clientes.ver %}
         <li>
             <a href="{% url 'gestion:lista_clientes' %}" class="nav-link {% if 'clientes' in request.path %}active{% endif %}">
                 <i class="bi bi-buildings"></i>Clientes
             </a>
         </li>
+        {% endif %}
+        {% if acceso.vehiculos.ver %}
         <li>
             <a href="{% url 'gestion:lista_vehiculos' %}" class="nav-link {% if 'vehiculos' in request.path %}active{% endif %}">
                 <i class="bi bi-truck-front"></i>Vehículos
             </a>
         </li>
+        {% endif %}
+        {% if acceso.proveedores.ver %}
         <li>
             <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if 'proveedores' in request.path %}active{% endif %}">
                 <i class="bi bi-recycle"></i>Proveedores
             </a>
         </li>
+        {% endif %}
+        {% if acceso.documentacion.ver %}
         <li>
             <a href="{% url 'gestion:documentacion' %}" class="nav-link {% if 'documentacion' in request.path %}active{% endif %}">
                 <i class="bi bi-folder-fill"></i>Documentación
             </a>
         </li>
-        {% if es_administrador %}
-        {# Facturación interna: solo administradores (decisión del usuario, sep-2026). #}
+        {% endif %}
+        {% if acceso.facturacion.ver %}
+        {# Facturación interna: administradores (sep-2026) y los asesores a los que se les abra (nov-2026). #}
         <li>
             <a href="{% url 'gestion:lista_facturas' %}" class="nav-link {% if 'facturacion' in request.path %}active{% endif %}">
                 <i class="bi bi-receipt"></i>Facturación
             </a>
         </li>
-        {% endif %}
         {% endif %}
 
         {% if ve_personal %}
@@ -546,7 +565,7 @@
         </li>
         {% endif %}
 
-        {% if es_administrador %}
+        {% if acceso.reportes.ver %}
         <li class="nav-section">Sistema</li>
         <li>
             <a href="{% url 'gestion:reportes' %}" class="nav-link {% if 'reportes' in request.path %}active{% endif %}">

@@ -1,0 +1,124 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+{% comment %}
+GESTIONAR ACCESOS de un asesor (nov-2026, pedido de Santiago): una casilla
+por cada cosa que puede hacer en la plataforma, por módulo. Solo la abren
+administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
+{% endcomment %}
+<style>
+.ga-modulo{ border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); margin-bottom:.75rem; overflow:hidden; }
+.ga-cab{ display:flex; align-items:center; gap:.75rem; padding:.7rem 1rem; background:var(--panel-2); border-bottom:1px solid var(--line); }
+.ga-cab .ico{ width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    background:var(--brand-tint); color:var(--brand-700); font-size:1.05rem; flex:0 0 auto; }
+.ga-cab .t{ font-weight:700; }
+.ga-cab .d{ font-size:.8rem; color:var(--ink-3); }
+.ga-cab .ver{ margin-left:auto; display:flex; align-items:center; gap:.45rem; font-size:.85rem; font-weight:600; white-space:nowrap; }
+.ga-acciones{ display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:.35rem .9rem; padding:.6rem 1rem .75rem; }
+.ga-item{ display:flex; align-items:flex-start; gap:.55rem; margin:0; padding:.4rem .5rem; border-radius:var(--r-sm); cursor:pointer; }
+.ga-item:hover{ background:var(--panel-2); }
+.ga-item input{ margin-top:.2rem; flex-shrink:0; }
+.ga-item .n{ font-weight:600; font-size:.9rem; line-height:1.2; }
+.ga-item .s{ display:block; font-size:.76rem; color:var(--ink-3); margin-top:.1rem; }
+.ga-item.apagado{ opacity:.45; }
+.ga-admin .ga-cab{ background:#fff7ed; }
+.ga-admin .ga-cab .ico{ background:#ffedd5; color:#9a3412; }
+.ga-etq{ font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.3px; padding:.1rem .45rem; border-radius:999px;
+    background:#ffedd5; color:#9a3412; margin-left:.4rem; white-space:nowrap; }
+.ga-barra{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 0; margin-top:1rem;
+    display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+.ga-barra .resumen{ margin-left:auto; font-size:.85rem; color:var(--ink-3); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-shield-check me-2"></i>Gestionar accesos</h1>
+        <div class="text-muted">
+            <strong>{{ persona.get_full_name|default:persona.username }}</strong> · Asesor
+            {% if registro %}· último cambio {{ registro.actualizado_en|date:"d/m/Y H:i" }}{% if registro.actualizado_por %} por {{ registro.actualizado_por.get_full_name|default:registro.actualizado_por.username }}{% endif %}
+            {% else %}· tiene los accesos de siempre del rol (nadie los ha cambiado){% endif %}
+        </div>
+    </div>
+    <a href="{% url 'gestion:ficha_persona' persona.pk %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Ficha de la persona
+    </a>
+</div>
+
+<div class="alert alert-light border small mb-3">
+    Marca lo que esta persona puede hacer. Sin <strong>Ver</strong> en un módulo, no le sale en el menú ni puede abrirlo,
+    y las demás casillas del módulo se apagan. Los módulos marcados <span class="ga-etq">de administradores</span> eran
+    solo de administradores: ábrelos únicamente si de verdad hace falta. La cartera de clientes sigue aplicando aparte.
+</div>
+
+<form method="post" id="ga-form">
+    {% csrf_token %}
+    {% for m in modulos %}
+    <div class="ga-modulo{% if m.de_administradores %} ga-admin{% endif %}" data-modulo="{{ m.clave }}">
+        <div class="ga-cab">
+            <div class="ico"><i class="bi {{ m.icono }}"></i></div>
+            <div>
+                <div class="t">{{ m.nombre }}{% if m.de_administradores %}<span class="ga-etq">de administradores</span>{% endif %}</div>
+                <div class="d">{{ m.descripcion }}</div>
+            </div>
+            {% for a in m.acciones %}{% if a.sufijo == 'ver' %}
+            <label class="ver form-check m-0">
+                <input type="checkbox" class="form-check-input ga-ver" name="claves" value="{{ a.clave }}" {% if a.marcada %}checked{% endif %}>
+                {{ a.nombre }}
+            </label>
+            {% endif %}{% endfor %}
+        </div>
+        {% if m.acciones|length > 1 %}
+        <div class="ga-acciones">
+            {% for a in m.acciones %}{% if a.sufijo != 'ver' %}
+            <label class="ga-item">
+                <input type="checkbox" class="form-check-input ga-accion" name="claves" value="{{ a.clave }}" {% if a.marcada %}checked{% endif %}>
+                <span><span class="n">{{ a.nombre }}</span><span class="s">{{ a.descripcion }}</span></span>
+            </label>
+            {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="ga-barra">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>Guardar accesos</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="ga-base" title="Lo que el rol Asesores tenía de siempre">Lo de siempre</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="ga-todo">Marcar todo</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="ga-nada">Desmarcar todo</button>
+        <span class="resumen" id="ga-resumen"></span>
+    </div>
+</form>
+
+<script>
+(function () {
+    var form = document.getElementById('ga-form');
+    var BASE = {{ base_json|safe }};
+    var total = form.querySelectorAll('input[name="claves"]').length;
+
+    // Sin «Ver» el módulo no se puede abrir: sus demás casillas se apagan.
+    function refrescar() {
+        form.querySelectorAll('.ga-modulo').forEach(function (bloque) {
+            var ver = bloque.querySelector('.ga-ver');
+            var activo = !ver || ver.checked;
+            bloque.querySelectorAll('.ga-accion').forEach(function (c) {
+                c.disabled = !activo;
+                if (!activo) c.checked = false;
+                c.closest('.ga-item').classList.toggle('apagado', !activo);
+            });
+        });
+        var n = form.querySelectorAll('input[name="claves"]:checked').length;
+        document.getElementById('ga-resumen').textContent = n + ' de ' + total + ' accesos marcados';
+    }
+    function poner(fn) {
+        form.querySelectorAll('input[name="claves"]').forEach(function (c) { c.checked = fn(c.value); });
+        refrescar();
+    }
+    form.addEventListener('change', refrescar);
+    document.getElementById('ga-base').addEventListener('click', function () { poner(function (v) { return BASE.indexOf(v) !== -1; }); });
+    document.getElementById('ga-todo').addEventListener('click', function () { poner(function () { return true; }); });
+    document.getElementById('ga-nada').addEventListener('click', function () { poner(function () { return false; }); });
+    // Al enviar, las casillas apagadas también viajan desmarcadas (disabled no se envía: ya están en false).
+    refrescar();
+})();
+</script>
+{% endblock %}

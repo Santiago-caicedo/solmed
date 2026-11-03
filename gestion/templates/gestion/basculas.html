@@ -50,7 +50,7 @@ tr.bs-hecha .estado{ color:var(--ok); }
         <h2>Básculas</h2>
         <div class="sub">Los tiquetes de pesaje, orden por orden. Elige el archivo en la fila y queda guardado.</div>
     </div>
-    {% if es_asesor %}
+    {% if acceso.ordenes.ver %}
     <a href="{% url 'gestion:lista_ordenes' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Órdenes de servicio</a>
     {% endif %}
 </div>
@@ -98,7 +98,7 @@ tr.bs-hecha .estado{ color:var(--ok); }
                 {% for f in filas %}
                     <tr id="fila-{{ f.orden.pk }}" class="{% if f.archivo %}bs-hecha{% else %}bs-falta{% endif %}">
                         <td class="num">
-                            {% if es_asesor %}<a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
+                            {% if acceso.ordenes.ver %}<a href="{% url 'gestion:detalle_orden' f.orden.pk %}">#{{ f.orden.numero_orden }}</a>
                             {% else %}#{{ f.orden.numero_orden }}{% endif %}
                             {% if f.pesa_el_cliente %}<div class="tipo">Pesa el cliente</div>{% endif %}
                         </td>
@@ -114,6 +114,7 @@ tr.bs-hecha .estado{ color:var(--ok); }
                                 <button type="button" class="cambiar" data-cambiar="{{ f.orden.pk }}">cambiarlo</button>
                             </div>
                             {% endif %}
+                            {% if sube_basculas %}
                             <form method="post" action="{% url 'gestion:subir_bascula' f.orden.pk %}"
                                   enctype="multipart/form-data" class="bs-subir"
                                   id="subir-{{ f.orden.pk }}" {% if f.archivo %}hidden{% endif %}>
@@ -126,6 +127,7 @@ tr.bs-hecha .estado{ color:var(--ok); }
                                     <i class="bi bi-upload me-1"></i>{% if f.archivo %}Reemplazar{% else %}Subir{% endif %}
                                 </button>
                             </form>
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}
