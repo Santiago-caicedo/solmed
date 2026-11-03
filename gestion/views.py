@@ -312,8 +312,15 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         context['hoy'] = hoy
 
         # ================= HOY (agenda operativa) =================
+        # Cartera (nov-2026): a una asesora con el tablero abierto, las cifras
+        # de clientes (servicios, órdenes, actas, cobranza) son solo las suyas.
+        # Lo que no es de clientes (PESV, flota, personal, proveedores) es de
+        # toda la empresa.
+        usuario = self.request.user
+        ordenes_visibles = solo_cartera(OrdenServicio.objects.all(), usuario)
+        recorridos_visibles = solo_cartera(Recorrido.objects.all(), usuario, 'orden__cliente')
         recorridos_hoy = (
-            Recorrido.objects.filter(fecha_recorrido=hoy)
+            recorridos_visibles.filter(fecha_recorrido=hoy)
             .exclude(orden__estado_orden='CANCELADA')
             .select_related('orden__cliente', 'vehiculo', 'conductor')
             .order_by('orden__fecha_creacion')
@@ -327,7 +334,7 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
 
         # ================= ÓRDENES =================
         conteo_estados = dict(
-            OrdenServicio.objects.values_list('estado_orden')
+            ordenes_visibles.values_list('estado_orden')
             .annotate(c=Count('numero_orden'))
         )
         colores_estado = {
@@ -345,7 +352,7 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         context['ordenes_activas'] = conteo_estados.get('EN_EJECUCION', 0)
 
         # ================= SERVICIOS (recorridos completados) =================
-        completados = Recorrido.objects.filter(estado='COMPLETADO')
+        completados = recorridos_visibles.filter(estado='COMPLETADO')
         context['servicios_completados_mes'] = completados.filter(
             fecha_recorrido__gte=inicio_mes, fecha_recorrido__lte=hoy
         ).count()
@@ -386,8 +393,9 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         context['top_clientes_max'] = max([c['total'] for c in top_clientes] + [1])
 
         # ================= ACTAS DE SERVICIO =================
-        context['actas_firmadas'] = Manifiesto.objects.filter(estado_firma='FIRMADO').count()
-        context['actas_por_firmar'] = Manifiesto.objects.filter(estado_firma='PENDIENTE_FIRMA').count()
+        actas_visibles = solo_cartera(Manifiesto.objects.all(), usuario, 'recorrido__orden__cliente')
+        context['actas_firmadas'] = actas_visibles.filter(estado_firma='FIRMADO').count()
+        context['actas_por_firmar'] = actas_visibles.filter(estado_firma='PENDIENTE_FIRMA').count()
 
         # ================= PESV (encuestas de cierre del conductor) =================
         # Una fila por pregunta: cuántas respuestas exigen atención este mes.
@@ -432,7 +440,7 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         context['flota'] = flota
         # Órdenes cuyo residuo sigue sin disponer: la tarjeta lleva a la lista
         # filtrada; se disponen desde el plan de trabajo o el panel.
-        context['ordenes_sin_disponer'] = OrdenServicio.objects.filter(
+        context['ordenes_sin_disponer'] = ordenes_visibles.filter(
             estado_disposicion='PENDIENTE').count()
         context['vehiculos_con_alerta'] = [v for v in vehiculos if v.tiene_alerta_documentos]
 
@@ -467,15 +475,15 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
         }
 
         # ================= COBRANZA Y CONCILIACIÓN =================
-        context['cobranza_pendiente'] = OrdenServicio.objects.filter(
+        context['cobranza_pendiente'] = ordenes_visibles.filter(
             estado_pago='PENDIENTE'
         ).aggregate(total=Sum('valor_servicio'))['total'] or 0
         context['cobranza_prioritaria'] = (
-            OrdenServicio.objects.filter(estado_orden='FINALIZADA', estado_pago='PENDIENTE')
+            ordenes_visibles.filter(estado_orden='FINALIZADA', estado_pago='PENDIENTE')
             .select_related('cliente').order_by('fecha_creacion')[:6]
         )
         pendientes_conciliacion = (
-            OrdenServicio.objects.filter(estado_conciliacion='PENDIENTE')
+            ordenes_visibles.filter(estado_conciliacion='PENDIENTE')
             .exclude(estado_orden='CANCELADA')
             .select_related('cliente').order_by('fecha_creacion')
         )
@@ -1535,14 +1543,17 @@ class VehiculoDetailView(AsesorRequiredMixin, DetailView):
             fecha_seleccionada = timezone.localdate()
         
         context['fecha_seleccionada'] = fecha_seleccionada
-        context['programacion_del_dia'] = Recorrido.objects.filter(
+        # Cartera (nov-2026): la asesora solo ve en el vehículo los servicios
+        # de sus clientes; a los demás roles no les cambia nada.
+        recorridos = solo_cartera(Recorrido.objects.all(), self.request.user, 'orden__cliente')
+        context['programacion_del_dia'] = recorridos.filter(
             vehiculo=vehiculo,
             fecha_recorrido=fecha_seleccionada
         ).order_by('orden__fecha_creacion')
 
         # --- LÓGICA CORREGIDA PARA HISTORIAL Y MÉTRICAS ---
         # Ahora el historial se basa en los recorridos completados, no en las órdenes.
-        historial_recorridos = Recorrido.objects.filter(vehiculo=vehiculo, estado='COMPLETADO').order_by('-fecha_recorrido')
+        historial_recorridos = recorridos.filter(vehiculo=vehiculo, estado='COMPLETADO').order_by('-fecha_recorrido')
         context['historial_recorridos'] = historial_recorridos
         
         context['total_servicios_realizados'] = historial_recorridos.count()
@@ -3508,14 +3519,17 @@ class ReportesView(SuperuserRequiredMixin, ListView):
         chart_type = 'bar' # Por defecto
         total_general = 0
 
+        # Cartera (nov-2026): a la asesora los reportes le salen solo con sus clientes.
+        recorridos = solo_cartera(Recorrido.objects.all(), self.request.user, 'orden__cliente')
+
         if form.is_valid() and report_type:
-            
+
             # --- REPORTE 1: FACTURACIÓN POR CLIENTE ---
             if report_type == 'facturacion_cliente' and form.cleaned_data.get('fecha_inicio'):
                 fecha_inicio = form.cleaned_data['fecha_inicio']
                 fecha_fin = form.cleaned_data['fecha_fin']
-                
-                resultados = Recorrido.objects.filter(
+
+                resultados = recorridos.filter(
                     estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
                 ).values('orden__cliente__nombre').annotate(
                     total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
@@ -3529,8 +3543,8 @@ class ReportesView(SuperuserRequiredMixin, ListView):
             elif report_type == 'rendimiento_vehiculo' and form.cleaned_data.get('fecha_inicio'):
                 fecha_inicio = form.cleaned_data['fecha_inicio']
                 fecha_fin = form.cleaned_data['fecha_fin']
-                
-                resultados = Recorrido.objects.filter(
+
+                resultados = recorridos.filter(
                     estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
                 ).values('vehiculo__placa').annotate(
                     total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
@@ -3544,7 +3558,7 @@ class ReportesView(SuperuserRequiredMixin, ListView):
             elif report_type == 'tendencia_mensual' and form.cleaned_data.get('año'):
                 año = form.cleaned_data['año']
                 
-                resultados = Recorrido.objects.filter(
+                resultados = recorridos.filter(
                     estado='COMPLETADO', fecha_recorrido__year=año
                 ).annotate(
                     mes=TruncMonth('fecha_recorrido') # Agrupa por mes
@@ -3922,7 +3936,9 @@ class PlanificacionView(PlanificadorRequiredMixin, TemplateView):
         context['fecha_seleccionada'] = fecha_seleccionada
 
         # 2. Obtener los recorridos del día
-        recorridos_del_dia = Recorrido.objects.filter(fecha_recorrido=fecha_seleccionada).select_related('vehiculo', 'conductor', 'orden__cliente')
+        recorridos_del_dia = (solo_cartera(Recorrido.objects.all(), self.request.user, 'orden__cliente')
+                              .filter(fecha_recorrido=fecha_seleccionada)
+                              .select_related('vehiculo', 'conductor', 'orden__cliente'))
         context['recorridos_del_dia'] = recorridos_del_dia
 
         # 3. Identificar recursos OCUPADOS
@@ -6975,13 +6991,15 @@ def _filas_trazabilidad(request):
     usan las completas, que no dependen del filtro puesto.
     """
     from planes.models import ViajeDisposicion
-    ordenes = (OrdenServicio.objects.filter(estado_disposicion='PENDIENTE')
+    # Cartera (nov-2026): la asesora solo debe lo de sus clientes.
+    ordenes = (solo_cartera(OrdenServicio.objects.all(), request.user)
+               .filter(estado_disposicion='PENDIENTE')
                .select_related('cliente').prefetch_related('recorridos__vehiculo')
                .order_by('numero_orden'))
     # Las que ya van en un viaje AGENDADO (oct-2026): siguen debiéndose, pero
     # no se pueden marcar en otro viaje.
     agendadas = {}
-    for viaje in ViajeDisposicion.objects.filter(estado='AGENDADA').prefetch_related('ordenes'):
+    for viaje in _viajes_visibles(request.user).filter(estado='AGENDADA').prefetch_related('ordenes'):
         for o in viaje.ordenes.all():
             agendadas[o.pk] = viaje
     hoy = timezone.localdate()
@@ -7012,6 +7030,19 @@ def _filas_trazabilidad(request):
                      if q in str(f['orden'].numero_orden)
                      or q in f['orden'].cliente.nombre.upper()]
     return filtradas, filas, filtros
+
+
+def _viajes_visibles(user):
+    """
+    Los viajes de disposición al alcance de la persona. Cartera (nov-2026): a
+    la asesora, los viajes en que va alguna orden de SUS clientes (un viaje
+    puede llevar órdenes de varios clientes: se ve entero). A los demás, todos.
+    """
+    from planes.models import ViajeDisposicion
+    if not tiene_cartera(user):
+        return ViajeDisposicion.objects.all()
+    return ViajeDisposicion.objects.filter(
+        ordenes__cliente__in=clientes_de(user)).distinct()
 
 
 def _personal_por_cargo():
@@ -7183,7 +7214,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
     def _viaje_agendado(self, request):
         from planes.models import ViajeDisposicion
         pk = request.POST.get('viaje') or ''
-        return ViajeDisposicion.objects.filter(
+        return _viajes_visibles(request.user).filter(
             pk=pk if pk.isdigit() else None, estado='AGENDADA').first()
 
     def _confirmar(self, request, volver):
@@ -7228,10 +7259,9 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         return redirect(volver)
 
     @staticmethod
-    def _agendadas():
+    def _agendadas(user):
         """Los viajes agendados, con lo que la oficina sigue: preoperacional y fotos."""
-        from planes.models import ViajeDisposicion
-        return _info_viajes(ViajeDisposicion.objects.filter(estado='AGENDADA'))
+        return _info_viajes(_viajes_visibles(user).filter(estado='AGENDADA'))
 
     def get(self, request):
         from planes.forms import DESCUENTO_HORAS, DESCUENTO_MINUTOS
@@ -7239,7 +7269,7 @@ class TrazabilidadDisposicionesView(AdministradorRequiredMixin, View):
         filtradas, todas, filtros = _filas_trazabilidad(request)
         return render(request, self.template_name, {
             # Viajes agendados (oct-2026): se confirman o se cancelan desde aquí.
-            'agendadas': self._agendadas(),
+            'agendadas': self._agendadas(request.user),
             'hay_libres': any(not f['agendada'] for f in todas),
             'novedades_ayudante': AyudanteViaje.NOVEDAD_CHOICES,
             'novedades_con_foto': AyudanteViaje.NOVEDADES_CON_FOTO,
@@ -7323,8 +7353,9 @@ class DisposicionesAgendadasView(AdministradorRequiredMixin, View):
         estados = {clave: estado for clave, _, estado in self.PESTANAS}
         if ver not in estados:
             ver = 'pendientes'
-        conteos = dict(ViajeDisposicion.objects.values_list('estado').annotate(n=Count('pk')))
-        viajes = ViajeDisposicion.objects.filter(estado=estados[ver])
+        visibles = _viajes_visibles(request.user)
+        conteos = dict(visibles.values_list('estado').annotate(n=Count('pk')))
+        viajes = visibles.filter(estado=estados[ver])
         # Por confirmar: de la más vieja a la más nueva; lo cerrado, lo último primero.
         viajes = viajes.order_by('fecha', 'hora', 'pk') if ver == 'pendientes' \
             else viajes.order_by('-fecha', '-hora', '-pk')
@@ -7634,7 +7665,8 @@ def _filas_historial(request):
         # vigentes (lo que hoy cuenta), deshechas o todas.
         'estado': (request.GET.get('estado') or 'vigentes').strip(),
     }
-    registros = (DisposicionOrden.objects
+    # Cartera (nov-2026): la asesora solo ve lo dispuesto de sus clientes.
+    registros = (solo_cartera(DisposicionOrden.objects.all(), request.user, 'orden__cliente')
                  .select_related('orden__cliente', 'dispositor', 'registrado_por', 'deshecha_por')
                  .prefetch_related('asignaciones_plan__persona', 'orden__recorridos__vehiculo')
                  .order_by('-fecha', '-pk'))
@@ -7717,7 +7749,8 @@ class HistorialDisposicionesView(AdministradorRequiredMixin, View):
         from django.utils.dateparse import parse_date
         volver = self._volver(request)
         registro = get_object_or_404(
-            DisposicionOrden.objects.select_related('orden'), pk=request.POST.get('registro'))
+            solo_cartera(DisposicionOrden.objects.select_related('orden'), request.user, 'orden__cliente'),
+            pk=request.POST.get('registro'))
         orden = registro.orden
         nota = (request.POST.get('nota') or '').strip()
         if not nota:
@@ -7788,9 +7821,12 @@ class HistorialDisposicionesView(AdministradorRequiredMixin, View):
         return render(request, self.template_name, {
             'filas': filas,
             'filtros': filtros,
-            'n_vigentes': DisposicionOrden.objects.filter(deshecha=False).count(),
-            'n_deshechas': DisposicionOrden.objects.filter(deshecha=True).count(),
-            'n_pendientes': OrdenServicio.objects.filter(estado_disposicion='PENDIENTE').count(),
+            'n_vigentes': solo_cartera(DisposicionOrden.objects.filter(deshecha=False),
+                                       request.user, 'orden__cliente').count(),
+            'n_deshechas': solo_cartera(DisposicionOrden.objects.filter(deshecha=True),
+                                        request.user, 'orden__cliente').count(),
+            'n_pendientes': solo_cartera(OrdenServicio.objects.filter(estado_disposicion='PENDIENTE'),
+                                         request.user).count(),
             'gestores': Dispositor.objects.filter(tipo='PROVEEDOR').order_by('nombre'),
             'vias': DisposicionOrden.VIA_CHOICES,
             'hoy': timezone.localdate(),
@@ -9033,7 +9069,9 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         return ver if ver in self.VISTAS else 'todas'
 
     def get_queryset(self):
-        qs = (Factura.objects.select_related('cliente', 'fe_realizada_por', 'principal')
+        # Cartera (nov-2026): a la asesora, solo las facturas de sus clientes.
+        qs = (solo_cartera(Factura.objects.all(), self.request.user)
+              .select_related('cliente', 'fe_realizada_por', 'principal')
               .prefetch_related('lineas').filter(self.VISTAS[self._ver()][1]))
         q = self.request.GET.get('q', '').strip()
         if q:
@@ -9049,13 +9087,14 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         context['q'] = self.request.GET.get('q', '').strip()
         context['ver'] = self._ver()
         context['vistas'] = [(clave, nombre) for clave, (nombre, _f) in self.VISTAS.items()]
-        context['n_total'] = Factura.objects.count()
-        context['n_enviadas'] = Factura.objects.filter(estado='ENVIADA').count()
+        facturas = solo_cartera(Factura.objects.all(), self.request.user)
+        context['n_total'] = facturas.count()
+        context['n_enviadas'] = facturas.filter(estado='ENVIADA').count()
         # Cuántas ya tienen hecha la factura electrónica (marcada como realizada).
-        context['n_electronica'] = Factura.objects.filter(fe_realizada_en__isnull=False).count()
+        context['n_electronica'] = facturas.filter(fe_realizada_en__isnull=False).count()
         context['n_sin_electronica'] = context['n_total'] - context['n_electronica']
         # La alerta de arriba: cuántas órdenes faltan por preliquidar (oct-2026).
-        pendientes = _ordenes_por_preliquidar()
+        pendientes = _ordenes_por_preliquidar(self.request.user)
         resumen = pendientes.aggregate(n=Count('pk', distinct=True), mas_vieja=Min('servicio'))
         context['por_preliquidar'] = {
             'n': resumen['n'],
@@ -9065,15 +9104,19 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         return context
 
 
-def _ordenes_por_preliquidar():
+def _ordenes_por_preliquidar(user=None):
     """
     Las órdenes que faltan por preliquidar (oct-2026, criterio de Santiago):
     TODAS las no canceladas, de todo el historial, cuyo global aún no está en
     ninguna preliquidación. Es el mismo criterio con que el formulario las
     ofrece (_ordenes_facturables), así que la alerta y la tabla cuadran con él.
-    `servicio` es la fecha del primer recorrido.
+    `servicio` es la fecha del primer recorrido. Con `user`, solo las de su
+    cartera (nov-2026).
     """
-    return (OrdenServicio.objects
+    ordenes = OrdenServicio.objects.all()
+    if user is not None:
+        ordenes = solo_cartera(ordenes, user)
+    return (ordenes
             .exclude(estado_orden='CANCELADA')
             .exclude(lineas_factura__lleva_global=True)
             .annotate(servicio=Min('recorridos__fecha_recorrido')))
@@ -9101,12 +9144,12 @@ class OrdenesPorPreliquidarView(AdministradorRequiredMixin, View):
                 return None
 
         cliente_pk = request.GET.get('cliente') or ''
-        cliente = Cliente.objects.filter(pk=cliente_pk).first() if cliente_pk.isdigit() else None
+        cliente = clientes_de(request.user).filter(pk=cliente_pk).first() if cliente_pk.isdigit() else None
         desde, hasta = fecha('desde'), fecha('hasta')
         acta = request.GET.get('acta') or ''
         q = (request.GET.get('q') or '').strip()
 
-        todas = _ordenes_por_preliquidar()
+        todas = _ordenes_por_preliquidar(request.user)
         ordenes = todas.annotate(
             firmadas=Count('recorridos__manifiesto', distinct=True,
                            filter=Q(recorridos__manifiesto__estado_firma='FIRMADO')))
@@ -9186,7 +9229,9 @@ class FacturaFormView(AdministradorRequiredMixin, View):
     template_name = 'gestion/form_factura.html'
 
     def _factura(self, pk):
-        return get_object_or_404(Factura.objects.select_related('cliente'), pk=pk) if pk else None
+        # Cartera (nov-2026): una factura de un cliente ajeno no existe para la asesora.
+        return get_object_or_404(solo_cartera(Factura.objects.select_related('cliente'), self.request.user),
+                                 pk=pk) if pk else None
 
     def _render(self, request, factura, cliente, datos=None, errores=(), filas=None):
         datos = datos or {}
@@ -9195,7 +9240,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         return render(request, self.template_name, {
             'factura': factura,
             'cliente': cliente,
-            'clientes': Cliente.objects.order_by('nombre'),
+            'clientes': clientes_de(request.user).order_by('nombre'),
             'prefijo': Factura.PREFIJO,
             'sedes': _sedes_de_las_filas(filas),
             'filas': filas,
@@ -9209,7 +9254,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             messages.info(request, f"{factura.codigo} es un PDF aparte: se edita desde su global, "
                                    f"{factura.principal.codigo}.")
             return redirect('gestion:editar_factura', pk=factura.principal_id)
-        cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.GET.get('cliente') or 0).first()
+        cliente = factura.cliente if factura else clientes_de(request.user).filter(pk=request.GET.get('cliente') or 0).first()
         datos = {}
         if factura:
             datos = {
@@ -9241,7 +9286,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
     def post(self, request, pk=None):
         from decimal import Decimal, InvalidOperation
         factura = self._factura(pk)
-        cliente = factura.cliente if factura else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first()
+        cliente = factura.cliente if factura else clientes_de(request.user).filter(pk=request.POST.get('cliente') or 0).first()
         datos = {
             'numero': (request.POST.get('numero') or '').strip(),
             'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
@@ -9408,7 +9453,8 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
     template_name = 'gestion/detalle_factura.html'
 
     def get(self, request, pk):
-        factura = get_object_or_404(Factura.objects.select_related('cliente', 'creada_por'), pk=pk)
+        factura = get_object_or_404(
+            solo_cartera(Factura.objects.select_related('cliente', 'creada_por'), request.user), pk=pk)
         lineas = _lineas_con_detalle(factura)
         copiar = _documentos_para_reenviar(factura)
         return render(request, self.template_name, {
@@ -9429,7 +9475,7 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         })
 
     def post(self, request, pk):
-        factura = get_object_or_404(Factura.objects.select_related('cliente'), pk=pk)
+        factura = get_object_or_404(solo_cartera(Factura.objects.select_related('cliente'), request.user), pk=pk)
         volver = redirect('gestion:detalle_factura', pk=pk)
 
         if 'submit_electronica' in request.POST or 'submit_realizada' in request.POST:
@@ -9919,9 +9965,9 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
     def post(self, request):
         from decimal import Decimal, InvalidOperation
         from django.db.models import Max
-        factura = Factura.objects.filter(pk=request.POST.get('factura') or 0).first()
+        factura = solo_cartera(Factura.objects.all(), request.user).filter(pk=request.POST.get('factura') or 0).first()
         cliente = (factura.cliente if factura
-                   else Cliente.objects.filter(pk=request.POST.get('cliente') or 0).first())
+                   else clientes_de(request.user).filter(pk=request.POST.get('cliente') or 0).first())
         if cliente is None:
             return HttpResponse('<p style="font-family:Helvetica,Arial;color:#51606E;padding:2rem;'
                                 'text-align:center">Elige el cliente para ver la vista previa.</p>')
@@ -10004,7 +10050,7 @@ class FacturaPDFView(AdministradorRequiredMixin, View):
     """El PDF interno: con ?ver=1 se muestra en la página (vista previa); sin él se descarga."""
     acceso = 'facturacion.ver'
     def get(self, request, pk):
-        factura = get_object_or_404(Factura, pk=pk)
+        factura = get_object_or_404(solo_cartera(Factura.objects.all(), request.user), pk=pk)
         respuesta = HttpResponse(_pdf_factura(factura, request), content_type='application/pdf')
         ver = bool(request.GET.get('ver'))
         modo = 'inline' if ver else 'attachment'
@@ -10285,7 +10331,7 @@ class FacturaExcelView(AdministradorRequiredMixin, View):
     """La factura en Excel, con el mismo formato del PDF."""
     acceso = 'facturacion.ver'
     def get(self, request, pk):
-        factura = get_object_or_404(Factura, pk=pk)
+        factura = get_object_or_404(solo_cartera(Factura.objects.all(), request.user), pk=pk)
         respuesta = HttpResponse(
             _excel_factura(factura),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

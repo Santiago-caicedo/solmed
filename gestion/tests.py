@@ -11240,6 +11240,91 @@ class CarteraDeClientesTests(BaseCRM):
 # ============================================================
 #  ACCESOS POR PERSONA DEL ASESOR (nov-2026)
 # ============================================================
+    def test_los_modulos_de_administradores_abiertos_a_la_asesora_siguen_la_cartera(self):
+        """
+        Nov-2026 (pedido de Santiago): la cartera no es solo la lista de
+        clientes. Si con «Gestionar accesos» se le abre a la asesora la
+        facturación, el tablero, los reportes o las disposiciones, ahí también
+        le sale SOLO lo de sus clientes.
+        """
+        from .accesos import TODAS
+        from .models import AccesosAsesor, DisposicionOrden, Factura
+        AccesosAsesor.objects.update_or_create(usuario=self.asesor, defaults={'claves': sorted(TODAS)})
+        mia = Factura.objects.create(cliente=self.cli)
+        ajena = Factura.objects.create(cliente=self.ajeno)
+        for recorrido in (self.recorrido, self.recorrido_ajeno):
+            recorrido.estado = 'COMPLETADO'
+            recorrido.save(update_fields=['estado'])
+        for orden in (self.orden, self.orden_ajena):
+            orden.estado_disposicion = 'PENDIENTE'
+            orden.save(update_fields=['estado_disposicion'])
+        DisposicionOrden.objects.create(orden=self.orden_ajena, fecha=timezone.localdate(),
+                                        via='MANUAL', registrado_por=self.admin)
+
+        # ---- Facturación: la lista, los contadores, el detalle, el PDF y el Excel.
+        lista = self.client.get(reverse('gestion:lista_facturas'))
+        self.assertEqual(lista.status_code, 200)
+        self.assertIn(mia, lista.context['object_list'])
+        self.assertNotIn(ajena, lista.context['object_list'])
+        self.assertEqual(lista.context['n_total'], 1)
+        for nombre in ('detalle_factura', 'editar_factura', 'factura_pdf', 'factura_excel'):
+            with self.subTest(pantalla=nombre):
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=[mia.pk])).status_code, 200)
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=[ajena.pk])).status_code, 404)
+        # Por preliquidar: solo sus órdenes; y el formulario solo ofrece sus clientes.
+        pendientes = self.client.get(reverse('gestion:ordenes_por_preliquidar'))
+        self.assertContains(pendientes, f'#{self.orden.numero_orden}')
+        self.assertNotContains(pendientes, 'Curtiembres Norte')
+        nueva = self.client.get(reverse('gestion:crear_factura'))
+        self.assertEqual([c.pk for c in nueva.context['clientes']], [self.cli.pk])
+        # Un cliente ajeno colado por la URL no se toma: queda sin cliente elegido.
+        colado = self.client.get(reverse('gestion:crear_factura'), {'cliente': self.ajeno.pk})
+        self.assertIsNone(colado.context['cliente'])
+
+        # ---- Tablero: las cifras de clientes son solo las suyas.
+        tablero = self.client.get(reverse('gestion:dashboard'))
+        self.assertEqual(tablero.status_code, 200)
+        self.assertEqual(tablero.context['ordenes_total'], 1)
+        self.assertEqual(tablero.context['servicios_completados_total'], 1)
+        self.assertEqual(tablero.context['ordenes_sin_disponer'], 1)
+        self.assertNotContains(tablero, 'Curtiembres Norte')
+
+        # ---- Reportes: el de facturación por cliente no trae al ajeno.
+        hoy = timezone.localdate()
+        reporte = self.client.get(reverse('gestion:reportes'), {
+            'report_type': 'facturacion_cliente', 'fecha_inicio': hoy - datetime.timedelta(days=400),
+            'fecha_fin': hoy + datetime.timedelta(days=400)})
+        self.assertEqual(reporte.status_code, 200)
+        self.assertNotIn('Curtiembres Norte', reporte.context['chart_labels'])
+
+        # ---- Disposiciones: el panel, el historial y sus contadores.
+        panel = self.client.get(reverse('gestion:trazabilidad_disposiciones'))
+        self.assertEqual(panel.status_code, 200)
+        self.assertEqual([f['orden'] for f in panel.context['filas']], [self.orden])
+        historial = self.client.get(reverse('gestion:historial_disposiciones'))
+        self.assertEqual(historial.status_code, 200)
+        self.assertEqual(historial.context['filas'], [])
+        self.assertEqual(historial.context['n_vigentes'], 0)
+        self.assertEqual(historial.context['n_pendientes'], 1)
+        self.assertEqual(self.client.get(reverse('gestion:disposiciones_agendadas')).status_code, 200)
+
+        # ---- El vehículo del cliente ajeno: sin historial para ella.
+        ajeno_vehiculo = self.recorrido_ajeno.vehiculo
+        ficha = self.client.get(reverse('gestion:detalle_vehiculo', args=[ajeno_vehiculo.pk]))
+        self.assertEqual(ficha.status_code, 200)
+        self.assertEqual(ficha.context['total_servicios_realizados'], 0)
+
+        # ---- El administrador sigue viendo todo.
+        self.entrar(self.admin)
+        self.assertEqual(self.client.get(reverse('gestion:lista_facturas')).context['n_total'], 2)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_factura', args=[ajena.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:dashboard')).context['ordenes_total'], 2)
+        self.assertEqual(len(self.client.get(reverse('gestion:trazabilidad_disposiciones')).context['filas']), 2)
+        self.assertEqual(self.client.get(reverse('gestion:historial_disposiciones')).context['n_vigentes'], 1)
+        self.assertEqual(self.client.get(reverse('gestion:detalle_vehiculo', args=[ajeno_vehiculo.pk]))
+                         .context['total_servicios_realizados'], 1)
+
+
 class AccesosDeAsesorTests(BaseCRM):
     """
     «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca

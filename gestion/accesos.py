@@ -145,7 +145,7 @@ MODULOS = [
     # ----- Lo que era SOLO de administradores (se le puede abrir a un asesor) -----
     {
         'clave': 'tablero', 'nombre': 'Tablero', 'icono': 'bi-grid-1x2-fill', 'de_administradores': True,
-        'descripcion': 'El tablero general y el gráfico de tiempo laborado. Muestra cifras de toda la empresa.',
+        'descripcion': 'El tablero general y el gráfico de tiempo laborado. Las cifras de clientes salen solo de su cartera; flota, personal y PESV son de toda la empresa.',
         'acciones': [
             ('ver', 'Ver el tablero', 'El tablero y el tiempo laborado de todo el personal.', False),
         ],
@@ -160,7 +160,7 @@ MODULOS = [
     },
     {
         'clave': 'disposiciones', 'nombre': 'Disposiciones', 'icono': 'bi-recycle', 'de_administradores': True,
-        'descripcion': 'La trazabilidad del residuo de cada servicio hasta su disposición final.',
+        'descripcion': 'La trazabilidad del residuo de cada servicio hasta su disposición final. Solo lo de los clientes de su cartera.',
         'acciones': [
             ('ver', 'Ver las disposiciones', 'La trazabilidad, las agendadas, el historial y el Excel.', False),
             ('editar', 'Registrar y corregir', 'Registrar, agendar, confirmar y cancelar disposiciones, y corregirlas a mano en el expediente.', False),
@@ -168,7 +168,7 @@ MODULOS = [
     },
     {
         'clave': 'facturacion', 'nombre': 'Facturación', 'icono': 'bi-receipt', 'de_administradores': True,
-        'descripcion': 'Las preliquidaciones y facturas internas. OJO: muestra las de TODOS los clientes, no solo las de su cartera.',
+        'descripcion': 'Las preliquidaciones y facturas internas, solo las de los clientes de su cartera.',
         'acciones': [
             ('ver', 'Ver la facturación', 'Las facturas, su PDF y Excel, y los correos con los que se enviaron.', False),
             ('editar', 'Preliquidar y facturar', 'Preliquidar órdenes, crear y editar facturas y registrar pagos.', False),
@@ -176,7 +176,7 @@ MODULOS = [
     },
     {
         'clave': 'reportes', 'nombre': 'Reportes', 'icono': 'bi-bar-chart-line-fill', 'de_administradores': True,
-        'descripcion': 'Los reportes del sistema.',
+        'descripcion': 'Los reportes del sistema, calculados solo con los clientes de su cartera.',
         'acciones': [
             ('ver', 'Ver los reportes', 'La pantalla de reportes.', False),
         ],
