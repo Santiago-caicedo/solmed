@@ -11,6 +11,8 @@ asignación— y a la derecha todo lo que tiene ese día con su horario. Es la
 versión resumida del «Movimiento del personal» (movimiento_pdf.html): mismo
 diseño de cuadrículas azules del acta y misma fuente (_datos_centro_control).
 Sin emojis ni símbolos especiales: WeasyPrint no siempre trae la fuente.
+Sin clientes ni placas en las líneas (pedido de Santiago, nov-2026): solo la
+orden, la actividad y su horario.
 {% endcomment %}
 <style>
     @page {
@@ -138,10 +140,10 @@ Sin emojis ni símbolos especiales: WeasyPrint no siempre trae la fuente.
                 </td>
                 <td>
                     {% for s in p.datos.servicios %}
-                    <div class="item"><span class="k">Servicio</span> <b>Orden #{{ s.recorrido.orden.numero_orden }}</b> · {{ s.recorrido.orden.cliente.nombre }}{% if s.recorrido.vehiculo %} · {{ s.recorrido.vehiculo.placa }}{% endif %}{% if s.horas %} · <span class="tenue">{{ s.horas }}</span>{% endif %}</div>
+                    <div class="item"><span class="k">Servicio</span> <b>Orden #{{ s.recorrido.orden.numero_orden }}</b>{% if s.horas %} · <span class="tenue">{{ s.horas }}</span>{% endif %}</div>
                     {% endfor %}
                     {% for a in p.datos.asignaciones %}
-                    <div class="item"><span class="k">{% if a.tipo == 'DISPOSICION_FINAL' %}Disposición{% else %}Actividad{% endif %}</span> <b>{{ a.get_tipo_display }}</b>{% if a.viaje and a.viaje.agendada %}<span class="marca">AGENDADA</span>{% endif %}{% if a.placas %} · {{ a.placas }}{% endif %}{% if a.horario %} · <span class="tenue">{{ a.horario }}</span>{% endif %}</div>
+                    <div class="item"><span class="k">{% if a.tipo == 'DISPOSICION_FINAL' %}Disposición{% else %}Actividad{% endif %}</span> <b>{{ a.get_tipo_display }}</b>{% if a.viaje and a.viaje.agendada %}<span class="marca">AGENDADA</span>{% endif %}{% if a.horario %} · <span class="tenue">{{ a.horario }}</span>{% endif %}</div>
                     {% endfor %}
                     {% for f in p.datos.novedades %}
                     <div class="item{% if not f.novedad.es_trabajo %} nov{% endif %}"><span class="k">Novedad</span> <b>{{ f.novedad.get_tipo_display }}</b>{% if f.novedad.fecha_fin %} · <span class="tenue">del {{ f.novedad.fecha_inicio|date:"d/m" }} al {{ f.novedad.fecha_fin|date:"d/m/Y" }}</span>{% endif %}{% if f.novedad.horario %} · <span class="tenue">{{ f.novedad.horario }}</span>{% endif %}</div>
