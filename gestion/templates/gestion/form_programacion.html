@@ -1254,6 +1254,17 @@ var tercerosPorCliente = JSON.parse(document.getElementById('terceros-cliente-da
         aviso.className = 'pr-aviso ' + (tipo === 'error' ? 'text-danger' : 'text-success');
         aviso.textContent = texto || '';
     }
+    // Si el servidor no responde JSON (sesión vencida → página de login, CSRF,
+    // error 500…) se dice la causa en vez de un «Error de conexión» genérico.
+    function leerJson(r) {
+        var tipo = r.headers.get('Content-Type') || '';
+        if (tipo.indexOf('application/json') !== -1) return r.json();
+        var msg;
+        if (r.redirected || r.status === 401) msg = 'Tu sesión se cerró. Vuelve a iniciar sesión en otra pestaña y prueba de nuevo.';
+        else if (r.status === 403) msg = 'El servidor rechazó el pedido (403). Recarga la página y prueba de nuevo.';
+        else msg = 'El servidor respondió con un error (' + r.status + '). Avísale a soporte.';
+        return { ok: false, error: msg };
+    }
     function leerMarcados() {
         marcados = Array.prototype.map.call(lista.querySelectorAll('input:checked'), function (i) { return i.value; });
     }
@@ -1288,7 +1299,7 @@ var tercerosPorCliente = JSON.parse(document.getElementById('terceros-cliente-da
         datos.append('cliente', selCliente.value); datos.append('nombre', texto);
         agregar.disabled = true;
         fetch(URL_CREAR, { method: 'POST', body: datos, headers: { 'X-CSRFToken': csrf } })
-            .then(function (r) { return r.json(); })
+            .then(leerJson)
             .then(function (data) {
                 if (!data.ok) { avisar(data.error || 'No se pudo crear el punto.', 'error'); return; }
                 var puntos = puntosPorCliente[selCliente.value] = puntosPorCliente[selCliente.value] || [];
@@ -1303,15 +1314,15 @@ var tercerosPorCliente = JSON.parse(document.getElementById('terceros-cliente-da
                 pintar();
                 nombre.focus();
             })
-            .catch(function () { avisar('Error de conexión al crear el punto.', 'error'); })
+            .catch(function (e) { console.error(e); avisar('No hubo conexión con el servidor al crear el punto. Revisa el internet y prueba de nuevo.', 'error'); })
             .then(function () { agregar.disabled = false; });
     }
     function quitar(p) {
         if (!window.confirm('¿Quitar «' + p.nombre + '» de la lista de puntos de este cliente? Las órdenes que ya lo usaron no cambian.')) return;
         fetch(URL_QUITAR.replace('/0/', '/' + p.id + '/'), { method: 'POST', headers: { 'X-CSRFToken': csrf } })
-            .then(function (r) { return r.json(); })
+            .then(leerJson)
             .then(function (data) {
-                if (!data.ok) { avisar('No se pudo quitar el punto.', 'error'); return; }
+                if (!data.ok) { avisar(data.error || 'No se pudo quitar el punto.', 'error'); return; }
                 leerMarcados();
                 marcados = marcados.filter(function (id) { return id !== String(p.id); });
                 puntosPorCliente[selCliente.value] = (puntosPorCliente[selCliente.value] || [])
