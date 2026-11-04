@@ -38,17 +38,33 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
 .fc-alerta .btn{ min-height:38px; display:inline-flex; align-items:center; }
 .fc-al-dia{ display:flex; align-items:center; gap:.5rem; padding:.6rem 1rem; margin-bottom:1rem; font-size:.88rem;
     border:1px solid var(--ok-line); border-radius:var(--r-md); background:var(--ok-tint); color:var(--ok); }
+/* El proceso en una línea (nov-2026): quién hace cada etapa */
+.fc-proceso{ display:flex; align-items:center; flex-wrap:wrap; gap:.35rem; margin-bottom:1rem; padding:.55rem .85rem;
+    border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel-2); font-size:.78rem; color:var(--ink-2); }
+.fc-proceso .k{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3); margin-right:.3rem; }
+.fc-proceso .et{ display:inline-flex; flex-direction:column; line-height:1.15; padding:.2rem .5rem; border-radius:var(--r-sm); background:var(--panel); border:1px solid var(--line); }
+.fc-proceso .et small{ font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); }
+.fc-proceso .et.com{ border-color:var(--brand-600); }
+.fc-proceso i{ color:var(--ink-3); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h2 class="mb-0">Facturación</h2>
-        <div class="text-muted">Las facturas se arman con las órdenes del cliente; el PDF se pasa al software de facturación electrónica</div>
+        <div class="text-muted">La comercial arma la preliquidación y la pasa a facturación; la administradora la aprueba, hace la factura electrónica y la envía</div>
     </div>
-    <a href="{% url 'gestion:crear_factura' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Nueva factura</a>
+    {% if acceso.facturacion.preliquidar %}
+    <a href="{% url 'gestion:crear_factura' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Nueva preliquidación</a>
+    {% endif %}
 </div>
 
-{% if por_preliquidar.n %}
+{# El proceso (nov-2026, bosquejo de la clienta): seis etapas entre la comercial y la administradora. #}
+<div class="fc-proceso" role="note">
+    <span class="k">Proceso</span>
+    {% for clave, nombre, quien, que in etapas %}<span class="et{% if quien == 'comercial' %} com{% endif %}" title="{{ que }}">{{ nombre }}<small>{{ quien }}</small></span>{% if not forloop.last %}<i class="bi bi-arrow-right"></i>{% endif %}{% endfor %}
+</div>
+
+{% if por_preliquidar.n and acceso.facturacion.preliquidar %}
 <div class="fc-alerta" role="status">
     <span class="n" aria-hidden="true">{{ por_preliquidar.n }}</span>
     <div class="txt">
@@ -57,14 +73,17 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
     </div>
     <a href="{% url 'gestion:ordenes_por_preliquidar' %}" class="btn btn-warning">Ver las órdenes<i class="bi bi-arrow-right ms-1"></i></a>
 </div>
-{% else %}
+{% elif acceso.facturacion.preliquidar %}
 <div class="fc-al-dia" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Todas las órdenes están preliquidadas.</div>
 {% endif %}
 
 {# Cada cifra es también el filtro de la tabla (oct-2026). #}
 <div class="fc-tiles mb-4">
-    <a href="?ver=todas" class="fc-tile {% if ver == 'todas' %}act{% endif %}"><div class="v">{{ n_total }}</div><div class="k">Facturas</div></a>
-    <a href="?ver=por_emitir" class="fc-tile pendiente {% if ver == 'por_emitir' %}act{% endif %}"><div class="v">{{ n_sin_electronica }}</div><div class="k">Pendientes por emitir</div></a>
+    <a href="?ver=todas" class="fc-tile {% if ver == 'todas' %}act{% endif %}"><div class="v">{{ n_total }}</div><div class="k">Todas</div></a>
+    <a href="?ver=preliquidaciones" class="fc-tile {% if ver == 'preliquidaciones' %}act{% endif %}"><div class="v">{{ n_estado.PRELIQUIDACION|default:0 }}</div><div class="k">En preliquidación</div></a>
+    <a href="?ver=por_facturar" class="fc-tile pendiente {% if ver == 'por_facturar' %}act{% endif %}"><div class="v">{{ n_estado.POR_FACTURAR|default:0 }}</div><div class="k">Por facturar</div></a>
+    <a href="?ver=pendiente_cliente" class="fc-tile pendiente {% if ver == 'pendiente_cliente' %}act{% endif %}"><div class="v">{{ n_estado.PENDIENTE_CLIENTE|default:0 }}</div><div class="k">Pendiente aprobación del cliente</div></a>
+    <a href="?ver=proceder" class="fc-tile pendiente {% if ver == 'proceder' %}act{% endif %}"><div class="v">{{ n_estado.PROCEDER|default:0 }}</div><div class="k">Proceder a facturar</div></a>
     <a href="?ver=emitidas" class="fc-tile {% if ver == 'emitidas' %}act{% endif %}"><div class="v">{{ n_electronica }}</div><div class="k">Con factura electrónica</div></a>
     <a href="?ver=enviadas" class="fc-tile {% if ver == 'enviadas' %}act{% endif %}"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></a>
 </div>
@@ -119,7 +138,9 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
                         </td>
                         <td>
                             {% if f.estado == 'ENVIADA' %}<span class="badge bg-success">Enviada</span>
-                            {% else %}<span class="badge bg-secondary">Emitida</span>{% endif %}
+                            {% elif f.estado == 'EMITIDA' %}<span class="badge bg-primary">Facturada</span>
+                            {% elif f.estado == 'PRELIQUIDACION' %}<span class="badge bg-secondary">Preliquidación</span>
+                            {% else %}<span class="badge bg-warning text-dark">{{ f.get_estado_display }}</span>{% endif %}
                         </td>
                         <td class="text-end">
                             <a href="{% url 'gestion:detalle_factura' f.pk %}" class="btn btn-sm btn-outline-primary">Ver</a>
@@ -132,7 +153,7 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
         </div>
         {% include 'gestion/partials/_paginacion.html' with etiqueta="facturas" %}
         {% else %}
-        <p class="text-muted mb-0">{% if q %}Nada con esa búsqueda.{% else %}Todavía no hay facturas. Crea la primera con «Nueva factura».{% endif %}</p>
+        <p class="text-muted mb-0">{% if q %}Nada con esa búsqueda.{% elif ver != 'todas' %}Ninguna en esta etapa.{% else %}Todavía no hay preliquidaciones.{% if acceso.facturacion.preliquidar %} Crea la primera con «Nueva preliquidación».{% endif %}{% endif %}</p>
         {% endif %}
     </div>
 </div>

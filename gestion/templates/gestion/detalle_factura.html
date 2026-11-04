@@ -94,6 +94,24 @@
 .fc-fe{ display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; font-weight:500; white-space:nowrap; }
 .fc-fe.ok{ color:var(--ok); } .fc-fe.falta{ color:var(--warn); }
 .fd-paso{ font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--ink-3); font-weight:500; }
+/* El proceso (nov-2026): seis etapas entre la comercial y la administradora, la actual resaltada */
+.fp-etapas{ display:grid; grid-template-columns:repeat(6,1fr); gap:.4rem; margin:0; padding:0; list-style:none; counter-reset:fp; }
+.fp-etapas li{ counter-increment:fp; padding:.5rem .6rem; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--panel-2); font-size:.78rem; color:var(--ink-3); }
+.fp-etapas li::before{ content:counter(fp); display:inline-block; width:1.35rem; height:1.35rem; line-height:1.35rem; text-align:center; border-radius:50%;
+    background:var(--line); color:var(--ink-2); font-family:var(--mono); font-size:.7rem; font-weight:600; margin-bottom:.25rem; }
+.fp-etapas li.hecha{ color:var(--ink-2); }
+.fp-etapas li.hecha::before{ background:var(--ok); color:#fff; content:"\2713"; }
+.fp-etapas li.actual{ border-color:var(--brand-600); background:var(--brand-tint); color:var(--ink); box-shadow:0 0 0 2px var(--brand-600); }
+.fp-etapas li.actual::before{ background:var(--brand-600); color:#fff; }
+.fp-etapas .n{ display:block; font-weight:600; }
+.fp-etapas .q{ display:block; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; }
+.fp-sigue{ margin-top:.9rem; padding:.7rem .9rem; border-left:3px solid var(--brand-600); background:var(--brand-tint); border-radius:var(--r-sm); font-size:.9rem; }
+.fp-sigue .et{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--brand-700); font-weight:600; }
+.fp-concepto{ white-space:pre-line; padding:.7rem .9rem; border:1px solid var(--warn-line); border-left:3px solid var(--warn); border-radius:var(--r-sm); background:var(--warn-tint); font-size:.9rem; }
+.fp-concepto.vacio{ color:var(--ink-3); font-style:italic; }
+.fp-acciones{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.75rem; align-items:center; }
+.fp-acciones .form-control{ flex:1 1 14rem; }
+@media (max-width: 900px){ .fp-etapas{ grid-template-columns:repeat(3,1fr); } }
 </style>
 
 {% if factura.principal %}
@@ -106,7 +124,9 @@
         <div class="fd-meta">
             NIT {{ factura.cliente.identificacion }} · emitida el {{ factura.fecha_emision|date:"d/m/Y" }}{% if factura.creada_por %} · registrada por {{ factura.creada_por.get_full_name|default:factura.creada_por.username }} el {{ factura.creada_en|date:"d/m/Y H:i" }}{% endif %}
             {% if factura.estado == 'ENVIADA' %}<span class="badge bg-success ms-1">Enviada{% if factura.enviada_en %} el {{ factura.enviada_en|date:"d/m/Y" }}{% endif %}</span>
-            {% else %}<span class="badge bg-secondary ms-1">Emitida</span>{% endif %}
+            {% elif factura.estado == 'EMITIDA' %}<span class="badge bg-primary ms-1">Facturada</span>
+            {% elif factura.estado == 'PRELIQUIDACION' %}<span class="badge bg-secondary ms-1">Preliquidación</span>
+            {% else %}<span class="badge bg-warning text-dark ms-1">{{ factura.get_estado_display }}</span>{% endif %}
             {% if factura.numero_externo %}<span class="badge bg-dark ms-1">Electrónica {{ factura.numero_externo }}</span>{% endif %}
         </div>
     </div>
@@ -114,12 +134,89 @@
         <a href="#revisar" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>Ver PDF</a>
         <a href="{% url 'gestion:factura_pdf' factura.pk %}" class="btn btn-outline-secondary"><i class="bi bi-download me-1"></i>Descargar PDF</a>
         <a href="{% url 'gestion:factura_excel' factura.pk %}" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Descargar Excel</a>
+        {% if puede_editar %}
         {% if factura.principal %}
         <a href="{% url 'gestion:editar_factura' factura.principal_id %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar desde {{ factura.principal.codigo }}</a>
         {% else %}
         <a href="{% url 'gestion:editar_factura' factura.pk %}" class="btn btn-primary"><i class="bi bi-pencil-square me-1"></i>Editar</a>
         {% endif %}
+        {% endif %}
         <a href="{% url 'gestion:lista_facturas' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Facturas</a>
+    </div>
+</div>
+
+{# ---- El proceso (nov-2026, bosquejo de la clienta): en qué etapa va, qué sigue y quién lo hace ---- #}
+<div class="card shadow mb-4" id="proceso">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div><span class="fd-paso">Proceso de facturación</span><h5 class="mb-0"><i class="bi bi-diagram-3 me-1"></i>{{ factura.get_estado_display }}</h5></div>
+        <span class="text-muted small">Comercial: {% if comercial %}{{ comercial.get_full_name|default:comercial.username }}{% else %}—{% endif %}{% if factura.pasada_a_facturacion_en %} · pasada a facturación el {{ factura.pasada_a_facturacion_en|date:"d/m/Y H:i" }}{% endif %}</span>
+    </div>
+    <div class="card-body">
+        <ol class="fp-etapas">
+            {% for e in etapas %}
+            <li class="{% if e.hecha %}hecha{% elif e.actual %}actual{% endif %}" title="{{ e.que_sigue }}"><span class="n">{{ e.nombre }}</span><span class="q">{{ e.quien }}{% if e.opcional %} · si aplica{% endif %}</span></li>
+            {% endfor %}
+        </ol>
+        <div class="fp-sigue"><div class="et">Qué sigue</div>{{ factura.que_sigue }}</div>
+
+        <div class="row g-3 mt-1">
+            <div class="col-lg-7">
+                <div class="fd-etq">Orden de facturación · concepto a facturar y detalles</div>
+                {% if not factura.en_facturacion and puede_preliquidar or puede_facturar %}
+                <form method="post">
+                    {% csrf_token %}
+                    <textarea name="concepto_facturacion" class="form-control" rows="4"
+                              placeholder="Lo que la comercial le describe a la administradora: qué se factura, de qué órdenes y periodo, conceptos adicionales, orden de compra que cita el cliente, y cualquier detalle para que no se pierda nada.">{{ factura.concepto_facturacion }}</textarea>
+                    <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Interno: no sale en el PDF ni se le envía al cliente.</div>
+                    <div class="fp-acciones">
+                        <button name="submit_concepto" value="1" class="btn btn-outline-primary btn-sm">Guardar concepto</button>
+                        {% if not factura.en_facturacion %}
+                        <button name="submit_pasar" value="1" class="btn btn-primary btn-sm"
+                                onclick="return confirm('Pasa a la administradora para facturar: desde entonces solo ella la edita. ¿Seguir?');">
+                            <i class="bi bi-arrow-right-circle me-1"></i>Pasar a facturación
+                        </button>
+                        {% endif %}
+                    </div>
+                </form>
+                {% else %}
+                <div class="fp-concepto{% if not factura.concepto_facturacion %} vacio{% endif %}">{{ factura.concepto_facturacion|default:"La comercial aún no escribió el concepto a facturar." }}</div>
+                {% endif %}
+            </div>
+            <div class="col-lg-5">
+                {% if puede_facturar %}
+                <div class="fd-etq">Decisión de la administradora</div>
+                {% if factura.estado == 'PRELIQUIDACION' or factura.estado == 'POR_FACTURAR' or factura.estado == 'PENDIENTE_CLIENTE' or factura.estado == 'PROCEDER' %}
+                <form method="post" class="fp-acciones" id="fp-estado">
+                    {% csrf_token %}
+                    <input type="hidden" name="estado" value="">
+                    {% if factura.estado != 'PENDIENTE_CLIENTE' %}
+                    <button name="submit_estado" value="1" class="btn btn-warning btn-sm" onclick="this.form.estado.value='PENDIENTE_CLIENTE'"><i class="bi bi-hourglass-split me-1"></i>Pendiente aprobación del cliente</button>
+                    {% endif %}
+                    {% if factura.estado != 'PROCEDER' %}
+                    <button name="submit_estado" value="1" class="btn btn-success btn-sm" onclick="this.form.estado.value='PROCEDER'"><i class="bi bi-check2-circle me-1"></i>Proceder a facturar</button>
+                    {% endif %}
+                    <input type="text" name="nota" class="form-control form-control-sm" maxlength="500"
+                           placeholder="Nota para la comercial (opcional; obligatoria si la devuelves)">
+                    {% if factura.en_facturacion %}
+                    <button name="submit_estado" value="1" class="btn btn-outline-danger btn-sm"
+                            onclick="this.form.estado.value='PRELIQUIDACION'; return confirm('Vuelve a la comercial para que la corrija. ¿Seguir?');">
+                        <i class="bi bi-arrow-return-left me-1"></i>Devolver a la comercial
+                    </button>
+                    {% endif %}
+                </form>
+                {% if factura.estado == 'PROCEDER' %}<p class="text-muted small mt-2 mb-0">Ahora: haz la factura electrónica en el software y márcala <b>Realizada</b> en la tarjeta «Factura electrónica», con su número SMS, la FEV y el XML.</p>{% endif %}
+                {% if factura.estado == 'PRELIQUIDACION' %}<p class="text-muted small mt-2 mb-0">Todavía la tiene la comercial. Si la tomas desde aquí, queda anotado.</p>{% endif %}
+                {% elif factura.estado == 'EMITIDA' %}
+                <p class="text-muted small mb-0">Factura electrónica hecha. Ahora envíala al cliente desde «Copiar al cliente»: marca la factura electrónica de venta y el XML; van con copia a la comercial y a los contactos.</p>
+                {% else %}
+                <p class="text-muted small mb-0">Proceso terminado{% if factura.enviada_en %}: enviada el {{ factura.enviada_en|date:"d/m/Y H:i" }}{% endif %}.</p>
+                {% endif %}
+                {% else %}
+                <div class="fd-etq">Quién hace cada cosa</div>
+                <p class="text-muted small mb-0">La comercial arma la preliquidación, escribe el concepto y la pasa a facturación. De ahí en adelante la mueve la administradora: la deja pendiente del cliente o procede, hace la factura electrónica y la envía. Si hay que corregir algo, te la devuelve con una nota y vuelve a tus manos.</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 
@@ -224,6 +321,9 @@
                 {# Nada nace marcado: esto es para REENVIAR a la carta (sep-2026). #}
                 {# Primero la preliquidación (PDF y Excel) y cada PDF aparte; luego los siete. #}
                 <p class="text-muted small">Marca lo que le quieras mandar. La selección es solo de este envío.</p>
+                {% if not puede_facturar %}
+                <p class="text-muted small"><i class="bi bi-info-circle me-1"></i>La factura electrónica de venta se la envía la administradora; tú puedes mandar la preliquidación (PDF y Excel) y los soportes.</p>
+                {% endif %}
                 <form method="post" enctype="multipart/form-data" id="form-enviar">
                     {% csrf_token %}
                     <ol class="fd-adj">
@@ -254,6 +354,8 @@
                             <div class="subir"><input type="file" name="archivo_{{ a.clave }}" class="form-control form-control-sm"></div>
                             {% elif a.clave == 'otros' %}
                             <div class="subir"><input type="file" name="otros_archivos" class="form-control form-control-sm" multiple></div>
+                            {% elif a.clave == 'informes' %}
+                            <div class="subir"><input type="file" name="informes_archivos" class="form-control form-control-sm" multiple></div>
                             {% endif %}
                         </li>
                     {% endfor %}
@@ -261,6 +363,15 @@
                     <button name="submit_subir" value="1" class="btn btn-link btn-sm px-0 mt-1" formnovalidate>Solo subir los archivos elegidos, sin enviar</button>
                     <div class="fd-envio mt-2">
                         <div><strong>Se enviará a:</strong> {{ factura.correo_facturacion|default:"<span class='falta'>sin correo de facturación — edítala y ponlo</span>" }}</div>
+                        {# Con copia (nov-2026): la comercial y los contactos; lo que se marque aquí queda guardado. #}
+                        <div class="small mt-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="copiar_a_comercial" value="1" id="cc-comercial" {% if factura.copiar_a_comercial %}checked{% endif %}>
+                                <label class="form-check-label" for="cc-comercial">Con copia a la comercial{% if comercial %} · {{ comercial.get_full_name|default:comercial.username }}{% if not comercial.email %} <span class="falta">(sin correo en su ficha)</span>{% endif %}{% endif %}</label>
+                            </div>
+                            <input type="text" name="correos_copia" class="form-control form-control-sm mt-1" value="{{ factura.correos_copia }}"
+                                   placeholder="Otros contactos en copia, separados por coma" aria-label="Otros correos en copia">
+                        </div>
                         <div class="que" id="fd-resumen">Nada marcado.</div>
                         <div class="form-check mb-2">
                             <input class="form-check-input" type="checkbox" name="revisado" value="1" id="revisado">
@@ -308,6 +419,16 @@
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-file-earmark-code me-1"></i>Factura electrónica</h5></div>
             <div class="card-body">
+                {% if not puede_facturar %}
+                {# La comercial solo la ve: la registra la administradora (nov-2026). #}
+                {% if factura.fe_realizada_en %}
+                <div class="fd-hecha"><i class="bi bi-check-circle-fill me-1"></i><b>Realizada</b> por {{ factura.fe_realizada_por.get_full_name|default:factura.fe_realizada_por.username }} el {{ factura.fe_realizada_en|date:"d/m/Y H:i" }}{% if factura.numero_externo %} · <span class="mono">{{ factura.numero_externo }}</span>{% endif %}</div>
+                {% if factura.pdf_oficial %}<div class="fd-archivo mb-1"><i class="bi bi-file-earmark-pdf"></i><a href="{{ factura.pdf_oficial.url }}" target="_blank" rel="noopener">Ver la factura electrónica</a></div>{% endif %}
+                {% if factura.xml %}<div class="fd-archivo mb-1"><i class="bi bi-filetype-xml"></i><a href="{{ factura.xml.url }}" target="_blank" rel="noopener">Ver el XML</a></div>{% endif %}
+                {% else %}
+                <p class="text-muted small mb-0">Pendiente. La hace y la registra la administradora cuando la preliquidación llegue a «Proceder a facturar».</p>
+                {% endif %}
+                {% else %}
                 {% if factura.fe_realizada_en %}
                 <div class="fd-hecha"><i class="bi bi-check-circle-fill me-1"></i><b>Realizada</b> por {{ factura.fe_realizada_por.get_full_name|default:factura.fe_realizada_por.username }} el {{ factura.fe_realizada_en|date:"d/m/Y H:i" }}{% if factura.numero_externo %} · <span class="mono">{{ factura.numero_externo }}</span>{% endif %}</div>
                 <p class="text-muted small">Corrige el número o sube el XML y el PDF oficial si hace falta.</p>
@@ -337,6 +458,7 @@
                     <button name="submit_electronica" value="1" class="btn btn-link btn-sm w-100 mt-1">Solo guardar, sin marcarla</button>
                     {% endif %}
                 </form>
+                {% endif %}
             </div>
         </div>
 
@@ -344,19 +466,26 @@
         <div class="card shadow mb-4">
             <div class="card-header"><h5 class="mb-0"><i class="bi bi-clock-history me-1"></i>Trazabilidad</h5></div>
             <div class="card-body">
+                {# Cada paso del proceso, con quién y cuándo (EventoFactura, nov-2026). #}
                 <ol class="fd-traza">
+                    {% for ev in eventos %}
+                    <li class="hecho">
+                        <div class="que">{{ ev.titulo }}</div>
+                        {% if ev.nota %}<div class="small text-muted" style="white-space:pre-line">{{ ev.nota }}</div>{% endif %}
+                        <div class="quien">{% if ev.por %}{{ ev.por.get_full_name|default:ev.por.username }} · {% endif %}{{ ev.en|date:"d/m/Y H:i" }}</div>
+                    </li>
+                    {% empty %}
                     <li class="hecho">
                         <div class="que">Preliquidación {{ factura.codigo }} registrada</div>
                         <div class="quien">{% if factura.creada_por %}{{ factura.creada_por.get_full_name|default:factura.creada_por.username }} · {% endif %}{{ factura.creada_en|date:"d/m/Y H:i" }}</div>
                     </li>
-                    <li class="{% if factura.fe_realizada_en %}hecho{% else %}pendiente{% endif %}">
-                        <div class="que">Factura electrónica realizada{% if factura.numero_externo %} · <span class="mono">{{ factura.numero_externo }}</span>{% endif %}</div>
-                        <div class="quien">{% if factura.fe_realizada_en %}{{ factura.fe_realizada_por.get_full_name|default:factura.fe_realizada_por.username }} · {{ factura.fe_realizada_en|date:"d/m/Y H:i" }}{% else %}pendiente{% endif %}</div>
+                    {% endfor %}
+                    {% if factura.estado != 'ENVIADA' %}
+                    <li class="pendiente">
+                        <div class="que">Qué sigue</div>
+                        <div class="quien">{{ factura.que_sigue }}</div>
                     </li>
-                    <li class="{% if factura.enviada_en %}hecho{% else %}pendiente{% endif %}">
-                        <div class="que">Enviada al cliente</div>
-                        <div class="quien">{% if factura.enviada_en %}{% if ultimo_envio and ultimo_envio.enviado_por %}{{ ultimo_envio.enviado_por.get_full_name|default:ultimo_envio.enviado_por.username }} · {% endif %}{{ factura.enviada_en|date:"d/m/Y H:i" }}{% else %}pendiente{% endif %}</div>
-                    </li>
+                    {% endif %}
                 </ol>
             </div>
         </div>
@@ -392,7 +521,7 @@
             </div>
         </div>
 
-        {% if not factura.principal %}
+        {% if not factura.principal and puede_editar %}
         <form method="post" onsubmit="return confirm('¿Eliminar la factura {{ factura.codigo }}{% if apartes %} y sus {{ apartes|length }} PDF(s) aparte{% endif %}? Sus órdenes vuelven a poder facturarse.');" class="text-end">
             {% csrf_token %}
             <button name="submit_eliminar" value="1" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash me-1"></i>Eliminar factura</button>

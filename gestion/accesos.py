@@ -176,11 +176,15 @@ MODULOS = [
         ],
     },
     {
-        'clave': 'facturacion', 'nombre': 'Facturación', 'icono': 'bi-receipt', 'de_administradores': True,
-        'descripcion': 'Las preliquidaciones y facturas internas, solo las de los clientes de su cartera.',
+        # Nov-2026 (bosquejo de la clienta): la COMERCIAL arma la preliquidación
+        # y la pasa a facturación; la ADMINISTRADORA factura. Por eso ver y
+        # preliquidar son de base para las asesoras; facturar, de administradoras.
+        'clave': 'facturacion', 'nombre': 'Facturación', 'icono': 'bi-receipt',
+        'descripcion': 'Las preliquidaciones y facturas de los clientes de su cartera, y el proceso entre la comercial y la administradora.',
         'acciones': [
-            ('ver', 'Ver la facturación', 'Las facturas, su PDF y Excel, y los correos con los que se enviaron.', False),
-            ('editar', 'Preliquidar y facturar', 'Preliquidar órdenes, crear y editar facturas y registrar pagos.', False),
+            ('ver', 'Ver la facturación', 'Las preliquidaciones y facturas de sus clientes, su PDF y Excel, y los correos con los que se enviaron.', True),
+            ('preliquidar', 'Preliquidar (la comercial)', 'Armar la preliquidación: órdenes, precios, datos del cliente, documentos y el concepto a facturar; enviársela al cliente como adelanto y pasarla a facturación.', True),
+            ('facturar', 'Facturar (la administradora)', 'Recibir las órdenes de facturación, dejarlas pendientes del cliente o proceder, marcar la factura electrónica (FEV y XML), enviar la factura final, registrar pagos y eliminar.', False),
         ],
     },
     {
@@ -233,12 +237,16 @@ def es_asesor(user):
     return bool(user) and user.is_authenticated and user.groups.filter(name='Asesores').exists()
 
 
+RENOMBRADAS = {'facturacion.editar': 'facturacion.facturar'}
+
+
 def normalizar(claves):
     """
     Deja solo claves válidas y completa la coherencia: cualquier acción de un
     módulo exige poder VERLO (sin «ver» no hay menú ni pantalla donde hacerla).
     """
-    claves = set(claves) & TODAS
+    # Claves que cambiaron de nombre (nov-2026): lo guardado antes sigue valiendo.
+    claves = {RENOMBRADAS.get(c, c) for c in claves} & TODAS
     for clave in list(claves):
         modulo = clave.split('.', 1)[0]
         if f'{modulo}.ver' in TODAS:

@@ -3113,25 +3113,25 @@ class FacturacionTests(BaseCRM):
         follow = datos.pop('follow', follow)
         return self.client.post(reverse('gestion:crear_factura'), datos, follow=follow)
 
-    def test_solo_administradores(self):
+    def test_la_comercial_preliquida_y_la_administradora_factura(self):
+        """Nov-2026: la asesora (comercial) arma preliquidaciones de su cartera; facturar es de administración."""
         f = Factura.objects.create(cliente=self.cli)
-        urls = [reverse('gestion:lista_facturas'), reverse('gestion:crear_factura'),
-                reverse('gestion:detalle_factura', args=[f.pk]),
-                reverse('gestion:editar_factura', args=[f.pk]),
-                reverse('gestion:factura_pdf', args=[f.pk]),
-                reverse('gestion:factura_excel', args=[f.pk]),
-                reverse('gestion:ordenes_por_preliquidar')]
         self.entrar(self.asesor)
-        for url in urls:
-            with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, 403)
-        self.assertEqual(self.client.post(reverse('gestion:crear_factura'), {}).status_code, 403)
-        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:lista_facturas'))
+        for nombre, args in (('lista_facturas', []), ('crear_factura', []), ('detalle_factura', [f.pk]),
+                             ('editar_factura', [f.pk]), ('factura_pdf', [f.pk]), ('factura_excel', [f.pk]),
+                             ('ordenes_por_preliquidar', [])):
+            with self.subTest(url=nombre):
+                self.assertEqual(self.client.get(reverse(f'gestion:{nombre}', args=args)).status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:registrar_pago', args=[self.una.pk])).status_code, 403)
+        self.assertContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:lista_facturas'))
         self.entrar(self.admin)
         self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:lista_facturas'))
 
     def test_nadie_mas_que_administradores_ni_sin_sesion(self):
-        """Oct-2026: la facturación entera, solo administradores y superadministradores."""
+        """
+        Oct-2026: la facturación, solo administradores y superadministradores.
+        Nov-2026: también las asesoras (la comercial preliquida); los demás roles, no.
+        """
         f = Factura.objects.create(cliente=self.cli)
         urls = [reverse('gestion:lista_facturas'), reverse('gestion:crear_factura'),
                 reverse('gestion:previa_factura'),
@@ -3149,7 +3149,7 @@ class FacturacionTests(BaseCRM):
                 self.assertEqual(respuesta.status_code, 302)
                 self.assertIn('login', respuesta['Location'])
         # Ningún otro rol, ni por GET ni por POST.
-        roles = ['Asesores', 'Conductores', 'Ayudantes', 'SISO', 'Talento Humano', 'Planificadores',
+        roles = ['Conductores', 'Ayudantes', 'SISO', 'Talento Humano', 'Planificadores',
                  'Auxiliares Administrativas', 'Administrativo', 'Director Técnico']
         for i, rol in enumerate(roles):
             persona = self.persona(f'rol{i}', rol)
@@ -3194,10 +3194,12 @@ class FacturacionTests(BaseCRM):
         self.assertNotEqual(self.client.get('/admin/gestion/factura/').status_code, 200)
         self.assertNotEqual(self.client.get('/admin/gestion/lineafactura/').status_code, 200)
 
-    # ---- Lo que se le adjunta al cliente: siete cosas, en el orden pedido ----
+    # ---- Lo que se le adjunta al cliente: diez cosas, en el orden pedido ----
+    # (siete de sep-2026 y, de nov-2026, el Excel, los informes y las fotos antes de «Otros»)
 
     ORDEN_ADJUNTOS = ['Orden de compra', 'Orden de pedido', 'Factura electrónica de venta',
-                      'XML', 'Órdenes de servicio', 'Básculas', 'Otros']
+                      'XML', 'Órdenes de servicio', 'Básculas', 'Preliquidación en Excel',
+                      'Informes', 'Fotos del servicio', 'Otros']
 
     def _lista_de_adjuntos(self, contenido, clase):
         """Solo el bloque «Copiar al cliente»: fuera hay otros «Órdenes de servicio»."""
@@ -3209,7 +3211,7 @@ class FacturacionTests(BaseCRM):
         bloque = self._lista_de_adjuntos(contenido, 'fe-lista')
         self.assertEqual(sorted(self.ORDEN_ADJUNTOS, key=bloque.index), self.ORDEN_ADJUNTOS,
                          "el orden lo pidió la clienta: OC, pedido, factura electrónica, "
-                         "XML, órdenes de servicio, básculas y otros")
+                         "XML, órdenes de servicio, básculas, Excel, informes, fotos y otros")
         # Lo que no está en el sistema se sube desde el computador.
         self.assertIn('enctype="multipart/form-data"', contenido)
         for campo in ('archivo_orden_compra', 'archivo_orden_pedido', 'otros_archivos'):
@@ -3274,7 +3276,7 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(len(mail.outbox), 0)
         self.assertContains(respuesta, 'no se adjuntó la factura electrónica')
         factura.refresh_from_db()
-        self.assertEqual(factura.estado, 'EMITIDA', "nada se envió, sigue emitida")
+        self.assertEqual(factura.estado, 'PRELIQUIDACION', "nada se envió, sigue en preliquidación")
         # La interna sí sale, pero como PREFACTURA.
         mail.outbox.clear()
         self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), {
@@ -3413,7 +3415,7 @@ class FacturacionTests(BaseCRM):
         self.assertIn('soportes de la factura SMS-0001', correo.body)
         self.assertEqual([a[0] for a in correo.attachments], [f'Acta_servicio_{self.una.numero_orden}.pdf'])
         factura.refresh_from_db()
-        self.assertEqual(factura.estado, 'EMITIDA', "la factura misma no se ha enviado")
+        self.assertEqual(factura.estado, 'PRELIQUIDACION', "la factura misma no se ha enviado")
 
     def test_la_electronica_y_el_xml_se_suben_desde_el_popup_y_entonces_va_esa_y_no_la_prefactura(self):
         """Con la electrónica cargada, «Enviar ahora» es el envío de verdad."""
@@ -3985,7 +3987,7 @@ class FacturacionTests(BaseCRM):
         self.assertTrue(correo.attachments[1][1].startswith(b'PK'), "el .xlsx es un zip")
         self.assertIn(f'Preliquidación {principal.codigo}', correo.subject)
         principal.refresh_from_db()
-        self.assertEqual(principal.estado, 'EMITIDA', "la preliquidación es un adelanto")
+        self.assertEqual(principal.estado, 'PRELIQUIDACION', "la preliquidación es un adelanto")
 
         # Solo el PDF aparte.
         mail.outbox.clear()
@@ -4310,7 +4312,7 @@ class FacturacionTests(BaseCRM):
         self.assertIn('PRELIQUIDACIÓN INTERNA', correo.body)
         # Es un adelanto: la factura NO queda marcada como enviada.
         factura.refresh_from_db()
-        self.assertEqual(factura.estado, 'EMITIDA')
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
         self.assertIsNone(factura.enviada_en)
         # Y queda en el Centro de correos.
         self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle, ['Preliquidacion_SMS-0001.pdf'])
@@ -4355,14 +4357,14 @@ class FacturacionTests(BaseCRM):
                       'archivo_orden_compra', 'archivo_orden_pedido', 'pdf_oficial', 'xml',
                       'otros_archivos'):
             self.assertIn(f'name="{campo}" ', pop + ' ')
-        self.assertEqual(pop.count('form="form-factura"'), 12, "7 casillas + 5 campos de archivo")
+        self.assertEqual(pop.count('form="form-factura"'), 16, "10 casillas + 6 campos de archivo")
         self.assertNotIn('new bootstrap.', contenido)
 
     def test_guardar_sin_los_botones_de_envio_no_manda_nada(self):
         mail.outbox.clear()
         self._crear()
         self.assertEqual(len(mail.outbox), 0)
-        self.assertEqual(Factura.objects.get().estado, 'EMITIDA')
+        self.assertEqual(Factura.objects.get().estado, 'PRELIQUIDACION')
 
     def test_el_numero_y_la_fecha_de_la_factura_se_pueden_corregir(self):
         self._crear()
@@ -4465,7 +4467,7 @@ class FacturacionTests(BaseCRM):
         self.assertIn(f'#{self.una.numero_orden}', correo.body)
         # Es un envío de soportes: no toca el estado de la factura.
         factura.refresh_from_db()
-        self.assertEqual(factura.estado, 'EMITIDA')
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
         self.assertIsNone(factura.enviada_en)
         self.assertEqual(EnvioCorreo.objects.get().adjuntos_detalle,
                          [f'Bascula_orden_{self.una.numero_orden}.pdf'])
@@ -11478,6 +11480,179 @@ class CotizacionesTests(BaseCRM):
         # El conductor no entra.
         self.entrar(self.conductor)
         self.assertEqual(self.client.get(reverse('gestion:lista_cotizaciones')).status_code, 403)
+
+
+class ProcesoFacturacionTests(BaseCRM):
+    """
+    El proceso de facturación (nov-2026, bosquejo de la clienta): la COMERCIAL
+    arma la preliquidación y la pasa a facturación con el concepto; la
+    ADMINISTRADORA la recibe, la deja pendiente del cliente o procede, hace la
+    factura electrónica y la envía con copia a la comercial y a los contactos.
+    Cada paso queda en el rastro y se le avisa por correo a la otra parte.
+    """
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())   # cli, asesor (Ana: la comercial), orden
+        self.admin = self.persona('nancy', 'Administradores', 'Nancy', 'Sandoval', correo='nancy@solmed.co')
+        self.jefe = self.persona('jefe', superusuario=True, correo='jefe@solmed.co')
+        self.entrar(self.asesor)
+
+    def datos(self, **extra):
+        datos = {'cliente': self.cli.pk, 'ordenes': [self.orden.pk], f'precio_{self.orden.pk}': '500.000',
+                 'descripcion': 'Transporte de residuos', 'correo_facturacion': 'facturacion@cliente.co',
+                 'copiar_a_comercial': '1', 'correos_copia': 'compras@cliente.co'}
+        datos.update(extra)
+        return datos
+
+    def test_la_comercial_arma_la_preliquidacion_y_la_pasa_con_el_concepto(self):
+        self.client.post(reverse('gestion:crear_factura'), self.datos())
+        factura = Factura.objects.get()
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
+        self.assertEqual(factura.creada_por, self.asesor)
+        self.assertEqual([e.titulo for e in factura.eventos.all()], ['Preliquidación registrada'])
+        url_editar = reverse('gestion:editar_factura', args=[factura.pk])
+        url_detalle = reverse('gestion:detalle_factura', args=[factura.pk])
+        # Sin el concepto no pasa: es lo que la administradora necesita.
+        mail.outbox.clear()
+        respuesta = self.client.post(url_editar, self.datos(submit_pasar='1'))
+        self.assertContains(respuesta, 'escribe el concepto a facturar')
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
+        self.assertEqual(len(mail.outbox), 0)
+        # Con el concepto: «Por facturar», aviso a las administradoras y rastro.
+        respuesta = self.client.post(url_editar, self.datos(
+            submit_pasar='1', concepto_facturacion='Facturar el global, citar OC-1187'))
+        self.assertRedirects(respuesta, url_detalle)
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'POR_FACTURAR')
+        self.assertEqual(factura.pasada_a_facturacion_por, self.asesor)
+        self.assertEqual(factura.concepto_facturacion, 'Facturar el global, citar OC-1187')
+        self.assertEqual(len(mail.outbox), 1)
+        correo = mail.outbox[0]
+        self.assertEqual(sorted(correo.to), ['jefe@solmed.co', 'nancy@solmed.co'])
+        self.assertIn(f'Orden de facturación {factura.codigo}', correo.subject)
+        self.assertIn('Facturar el global, citar OC-1187', correo.body)
+        self.assertIn(url_detalle, correo.body)
+        self.assertEqual(factura.eventos.last().titulo, 'Pasada a facturación')
+        # Desde entonces la comercial ni la edita ni la mueve ni factura.
+        self.assertRedirects(self.client.get(url_editar), url_detalle)
+        self.client.post(url_detalle, {'submit_estado': '1', 'estado': 'PROCEDER'})
+        self.client.post(url_detalle, {'submit_realizada': '1', 'numero_externo': '77'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'POR_FACTURAR')
+        self.assertIsNone(factura.fe_realizada_en)
+        detalle = self.client.get(url_detalle)
+        self.assertContains(detalle, 'Por facturar')
+        self.assertContains(detalle, 'Quién hace cada cosa')
+        self.assertNotContains(detalle, 'submit_estado')
+        # La lista la cuenta en su etapa.
+        lista = self.client.get(reverse('gestion:lista_facturas'), {'ver': 'por_facturar'})
+        self.assertEqual([f.pk for f in lista.context['facturas']], [factura.pk])
+        self.assertEqual(lista.context['n_estado'], {'POR_FACTURAR': 1})
+
+    def test_la_administradora_decide_factura_y_envia_con_copia_a_la_comercial(self):
+        self.client.post(reverse('gestion:crear_factura'),
+                         self.datos(submit_pasar='1', concepto_facturacion='Facturar todo'))
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        self.entrar(self.admin)
+        detalle = self.client.get(url)
+        self.assertContains(detalle, 'Decisión de la administradora')
+        self.assertContains(detalle, 'Facturar todo')
+        # Pendiente aprobación del cliente: la comercial se entera, con la nota.
+        mail.outbox.clear()
+        self.client.post(url, {'submit_estado': '1', 'estado': 'PENDIENTE_CLIENTE', 'nota': 'Se le mandó al cliente'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'PENDIENTE_CLIENTE')
+        self.assertEqual(mail.outbox[0].to, [self.asesor.email])
+        self.assertIn('Pendiente aprobación del cliente', mail.outbox[0].subject)
+        self.assertIn('Se le mandó al cliente', mail.outbox[0].body)
+        # Proceder a facturar.
+        self.client.post(url, {'submit_estado': '1', 'estado': 'PROCEDER'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'PROCEDER')
+        # La factura electrónica realizada: «Facturada».
+        self.client.post(url, {'submit_realizada': '1', 'numero_externo': '1245',
+                               'pdf_oficial': SimpleUploadedFile('fe.pdf', b'%PDF-1.4 fe', 'application/pdf'),
+                               'xml': SimpleUploadedFile('fe.xml', b'<xml/>', 'application/xml')})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'EMITIDA')
+        self.assertEqual(factura.numero_externo, 'SMS-1245')
+        # El envío final: al cliente, con copia a la comercial y al contacto.
+        mail.outbox.clear()
+        self.client.post(url, {'submit_enviar': '1', 'revisado': '1', 'enviar_factura': '1', 'enviar_xml': '1',
+                               'copiar_a_comercial': '1', 'correos_copia': 'compras@cliente.co'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'ENVIADA')
+        al_cliente = [c for c in mail.outbox if c.to == ['facturacion@cliente.co']][0]
+        self.assertEqual(sorted(al_cliente.cc), [self.asesor.email, 'compras@cliente.co'])
+        self.assertEqual([a[0] for a in al_cliente.attachments], ['Factura_SMS-1245.pdf', 'Factura_SMS-1245.xml'])
+        self.assertIn('copia: ', EnvioCorreo.objects.get(asunto__startswith='Factura').destinatarios)
+        self.assertEqual([e.titulo for e in factura.eventos.all()], [
+            'Preliquidación registrada', 'Pasada a facturación', 'Pendiente aprobación del cliente',
+            'Proceder a facturar', 'Factura electrónica realizada · SMS-1245', 'Factura enviada al cliente'])
+        lista = self.client.get(reverse('gestion:lista_facturas'), {'ver': 'enviadas'})
+        self.assertEqual([f.pk for f in lista.context['facturas']], [factura.pk])
+        self.assertEqual(lista.context['n_estado'], {'ENVIADA': 1})
+
+    def test_devolver_a_la_comercial_exige_nota_y_le_devuelve_la_edicion(self):
+        self.client.post(reverse('gestion:crear_factura'),
+                         self.datos(submit_pasar='1', concepto_facturacion='Facturar todo'))
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        self.entrar(self.admin)
+        respuesta = self.client.post(url, {'submit_estado': '1', 'estado': 'PRELIQUIDACION'}, follow=True)
+        self.assertContains(respuesta, 'escribe qué hay que corregir')
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'POR_FACTURAR')
+        mail.outbox.clear()
+        self.client.post(url, {'submit_estado': '1', 'estado': 'PRELIQUIDACION', 'nota': 'Falta el precio de la orden'})
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
+        self.assertIn('Falta el precio de la orden', mail.outbox[0].body)
+        self.assertEqual(factura.eventos.last().titulo, 'Devuelta a la comercial')
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(reverse('gestion:editar_factura', args=[factura.pk])).status_code, 200)
+
+    def test_la_comercial_envia_la_preliquidacion_pero_no_la_factura_electronica(self):
+        self.client.post(reverse('gestion:crear_factura'), self.datos())
+        factura = Factura.objects.get()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        mail.outbox.clear()
+        self.client.post(url, {'submit_enviar': '1', 'revisado': '1', 'enviar_preliquidacion': '1',
+                               'enviar_excel': '1', 'copiar_a_comercial': '1'})
+        correo = mail.outbox[0]
+        self.assertIn('Preliquidación', correo.subject)
+        self.assertEqual([a[0] for a in correo.attachments],
+                         [f'Preliquidacion_{factura.codigo}.pdf', f'Preliquidacion_{factura.codigo}.xlsx'])
+        self.assertEqual(correo.cc, [self.asesor.email])
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'PRELIQUIDACION')
+        self.assertEqual(factura.eventos.last().titulo, 'Preliquidación enviada al cliente')
+        # La electrónica no la manda ella.
+        mail.outbox.clear()
+        respuesta = self.client.post(url, {'submit_enviar': '1', 'revisado': '1', 'enviar_factura': '1'}, follow=True)
+        self.assertContains(respuesta, 'se la envía la administradora')
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_los_informes_y_las_fotos_del_servicio_van_en_el_correo(self):
+        from .models import FotoRegistro
+        FotoRegistro.objects.create(orden=self.orden, archivo=SimpleUploadedFile('p1.jpg', b'JPG1', 'image/jpeg'))
+        self.client.post(reverse('gestion:crear_factura'), self.datos(
+            copiar_informes='1', copiar_fotos='1',
+            informes_archivos=SimpleUploadedFile('informe.pdf', b'%PDF-1.4 inf', 'application/pdf')))
+        factura = Factura.objects.get()
+        self.assertEqual([(a.tipo, a.nombre) for a in factura.adjuntos.all()], [('INFORME', 'informe.pdf')])
+        self.assertTrue(factura.copiar_informes and factura.copiar_fotos)
+        mail.outbox.clear()
+        self.client.post(reverse('gestion:detalle_factura', args=[factura.pk]),
+                         {'submit_enviar': '1', 'revisado': '1', 'enviar_informes': '1', 'enviar_fotos': '1'})
+        self.assertEqual([a[0] for a in mail.outbox[0].attachments],
+                         ['informe.pdf', f'Foto_orden_{self.orden.numero_orden}_1.jpg'])
+        detalle = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
+        self.assertContains(detalle, '1 informe')
+        self.assertContains(detalle, '1 foto del registro fotográfico')
+
 
 
 class AccesosDeAsesorTests(BaseCRM):

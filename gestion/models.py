@@ -2596,6 +2596,11 @@ ADJUNTOS_FACTURA = (
     ('xml', 'XML'),
     ('actas', 'Órdenes de servicio'),
     ('basculas', 'Básculas'),
+    # Nov-2026 (bosquejo de la clienta): también la preliquidación en Excel,
+    # los informes que suba la oficina y el registro fotográfico del servicio.
+    ('excel', 'Preliquidación en Excel'),
+    ('informes', 'Informes'),
+    ('fotos', 'Fotos del servicio'),
     ('otros', 'Otros'),
 )
 
@@ -2608,10 +2613,33 @@ class Factura(models.Model):
     cuando esa exista se le registra su número y se le adjuntan su XML y su
     PDF oficial, para dejar el cruce entre las dos. Consecutivo propio.
     """
-    ESTADO_CHOICES = [
-        ('EMITIDA', 'Emitida'),
-        ('ENVIADA', 'Enviada al cliente'),
+    # EL PROCESO (nov-2026, bosquejo de la clienta): la preliquidación la arma
+    # la COMERCIAL (cliente, órdenes, datos, documentos y el concepto a
+    # facturar) y la pasa a facturación; la ADMINISTRADORA la recibe, la deja
+    # pendiente de aprobación del cliente o procede a facturar, hace la
+    # factura electrónica (FEV + XML) y la envía con copia a la comercial y a
+    # los contactos. Cada paso queda en EventoFactura. Las etapas van en
+    # orden: (clave, nombre, quién la hace, qué sigue).
+    ETAPAS = [
+        ('PRELIQUIDACION', 'Preliquidación', 'comercial',
+         'La comercial arma la preliquidación (órdenes, precios, datos del cliente y documentos), '
+         'escribe el concepto a facturar y la pasa a facturación.'),
+        ('POR_FACTURAR', 'Por facturar', 'administradora',
+         'Llegó a facturación: la administradora revisa el concepto y decide si queda pendiente de '
+         'aprobación del cliente o si se procede a facturar. Si algo falta, se la devuelve a la comercial.'),
+        ('PENDIENTE_CLIENTE', 'Pendiente aprobación del cliente', 'administradora',
+         'Se le envió la preliquidación al cliente y se espera su visto bueno. Cuando apruebe, '
+         '«Proceder a facturar».'),
+        ('PROCEDER', 'Proceder a facturar', 'administradora',
+         'Aprobada: se hace la factura electrónica en el software y se marca «Realizada» con su número SMS, '
+         'la FEV y el XML.'),
+        ('EMITIDA', 'Facturada', 'administradora',
+         'La factura electrónica está hecha: se le envía al cliente con la FEV, el XML y los soportes, '
+         'con copia a la comercial y a los contactos que se marquen.'),
+        ('ENVIADA', 'Enviada al cliente', 'administradora',
+         'Proceso terminado: queda el rastro de cada paso y de cada envío.'),
     ]
+    ESTADO_CHOICES = [(clave, nombre) for clave, nombre, _quien, _que in ETAPAS]
 
     # El consecutivo interno. Se asigna solo (max + 1) y se puede corregir a
     # mano desde el formulario, a cualquier número que esté libre.
@@ -2672,7 +2700,27 @@ class Factura(models.Model):
     copiar_actas = models.BooleanField(default=False, verbose_name="Órdenes de servicio")
     copiar_basculas = models.BooleanField(default=False, verbose_name="Básculas")
     copiar_otros = models.BooleanField(default=False, verbose_name="Otros")
-    estado = models.CharField(max_length=10, choices=ESTADO_CHOICES, default='EMITIDA')
+    copiar_excel = models.BooleanField(default=False, verbose_name="Preliquidación en Excel")
+    copiar_informes = models.BooleanField(default=False, verbose_name="Informes")
+    copiar_fotos = models.BooleanField(default=False, verbose_name="Fotos del servicio")
+    # A quién más se le copia el correo (nov-2026): a la comercial que armó la
+    # preliquidación y a los contactos que se escriban (separados por coma).
+    copiar_a_comercial = models.BooleanField(default=True, verbose_name="Copiar a la comercial")
+    correos_copia = models.CharField(
+        max_length=500, blank=True, verbose_name="Otros correos en copia",
+        help_text="Contactos adicionales, separados por coma.")
+    # La ORDEN DE FACTURACIÓN (nov-2026): lo que la comercial le describe a la
+    # administradora —el concepto a facturar y sus detalles—. Es interno: no
+    # sale en el PDF ni se le envía al cliente.
+    concepto_facturacion = models.TextField(
+        blank=True, verbose_name="Concepto a facturar y detalles",
+        help_text="De la comercial para la administradora. No sale en el PDF ni al cliente.")
+    pasada_a_facturacion_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='facturas_pasadas', verbose_name="Pasada a facturación por")
+    pasada_a_facturacion_en = models.DateTimeField(null=True, blank=True,
+                                                   verbose_name="Pasada a facturación el")
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PRELIQUIDACION')
     creada_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
         related_name='facturas_creadas')
@@ -2709,6 +2757,45 @@ class Factura(models.Model):
     @property
     def codigo(self):
         return f"{self.PREFIJO}-{self.numero:04d}"
+
+    # ---- El proceso (nov-2026) ----
+    @property
+    def en_facturacion(self):
+        """¿Ya salió de manos de la comercial? (todo lo que no sea PRELIQUIDACION)."""
+        return self.estado != 'PRELIQUIDACION'
+
+    @property
+    def comercial(self):
+        """La comercial del proceso: quien la pasó a facturación o, si no, quien la creó."""
+        return self.pasada_a_facturacion_por or self.creada_por
+
+    @property
+    def etapa_actual(self):
+        claves = [e[0] for e in self.ETAPAS]
+        return claves.index(self.estado) if self.estado in claves else 0
+
+    def etapas(self):
+        """
+        Las etapas para pintar el proceso: cada una con si ya pasó, si es la
+        actual o si falta. «Pendiente aprobación del cliente» se puede saltar.
+        """
+        actual = self.etapa_actual
+        return [{'clave': clave, 'nombre': nombre, 'quien': quien, 'que_sigue': que,
+                 'hecha': i < actual, 'actual': i == actual, 'pendiente': i > actual,
+                 'opcional': clave == 'PENDIENTE_CLIENTE'}
+                for i, (clave, nombre, quien, que) in enumerate(self.ETAPAS)]
+
+    @property
+    def que_sigue(self):
+        return self.ETAPAS[self.etapa_actual][3]
+
+    @property
+    def otros_adjuntos(self):
+        return self.adjuntos.filter(tipo='OTRO')
+
+    @property
+    def informes(self):
+        return self.adjuntos.filter(tipo='INFORME')
 
     def formato(self, sedes=None):
         """
@@ -2839,8 +2926,14 @@ class ConceptoFactura(models.Model):
 
 
 class AdjuntoFactura(models.Model):
-    """«Adjuntar otros»: remisiones, cotizaciones, soportes… de una factura."""
+    """
+    «Adjuntar otros»: remisiones, cotizaciones, soportes… de una factura. Con
+    `tipo` INFORME (nov-2026) son los informes que se le mandan al cliente
+    en su propio punto del envío.
+    """
+    TIPO_CHOICES = [('OTRO', 'Otro'), ('INFORME', 'Informe')]
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='adjuntos')
+    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='OTRO')
     nombre = models.CharField(max_length=150)
     archivo = models.FileField(upload_to='facturas/adjuntos/')
     subido_en = models.DateTimeField(auto_now_add=True)
@@ -2850,6 +2943,30 @@ class AdjuntoFactura(models.Model):
 
     def __str__(self):
         return self.nombre
+
+
+class EventoFactura(models.Model):
+    """
+    El rastro del proceso de facturación (nov-2026): cada cambio de etapa,
+    cada envío y cada devolución, con quién lo hizo, cuándo y su nota. Es lo
+    que deja claro entre la comercial y la administradora en qué va cada
+    preliquidación, para que nada se pierda.
+    """
+    factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='eventos')
+    # La etapa que quedó (o '' si es un hecho que no cambia de etapa, como
+    # enviar la preliquidación al cliente).
+    estado = models.CharField(max_length=20, blank=True)
+    titulo = models.CharField(max_length=150)
+    nota = models.TextField(blank=True)
+    por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                            blank=True, related_name='+')
+    en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['en', 'pk']
+
+    def __str__(self):
+        return f"{self.factura.codigo}: {self.titulo}"
 
 
 class NovedadOperacional(models.Model):
