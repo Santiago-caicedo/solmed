@@ -386,6 +386,15 @@
             </a>
         </li>
         {% endif %}
+        {% if es_administrador %}
+        {# Tablero de gerencia (nov-2026): solo administradores, sin casilla. Reemplaza a «Reportes». #}
+        {% if not acceso.tablero.ver %}<li class="nav-section">Panel</li>{% endif %}
+        <li>
+            <a href="{% url 'gestion:gerencia' %}" class="nav-link {% if request.resolver_match.view_name == 'gestion:gerencia' %}active{% endif %}">
+                <i class="bi bi-bar-chart-line-fill"></i>Gerencia
+            </a>
+        </li>
+        {% endif %}
 
         {% if es_conductor %}
         <li class="nav-section">Mi trabajo</li>
@@ -573,14 +582,6 @@
         </li>
         {% endif %}
 
-        {% if acceso.reportes.ver %}
-        <li class="nav-section">Sistema</li>
-        <li>
-            <a href="{% url 'gestion:reportes' %}" class="nav-link {% if 'reportes' in request.path %}active{% endif %}">
-                <i class="bi bi-bar-chart-line-fill"></i>Reportes
-            </a>
-        </li>
-        {% endif %}
     </ul>
     </div>
 

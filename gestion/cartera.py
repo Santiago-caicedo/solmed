@@ -8,7 +8,7 @@ una o varias asesoras de SOLMED. Desde entonces:
   los clientes de su cartera: fichas, órdenes, programaciones, actas, visitas
   técnicas, correos, fotos, calendario, básculas y certificados; y si con
   «Gestionar accesos» se le abren módulos de administradores (facturación,
-  tablero, reportes, disposiciones, el historial de un vehículo), también
+  tablero, disposiciones, el historial de un vehículo), también
   ahí sale solo lo de su cartera (nov-2026). Lo demás no existe para ella
   (404) y los desplegables de cliente solo le ofrecen los suyos. Un cliente
   SIN asesora asignada no lo ve ninguna asesora.

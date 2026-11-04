@@ -1341,42 +1341,6 @@ class DocumentoPersonalForm(forms.ModelForm):
         return cleaned
 
 
-class ReporteFiltroForm(forms.Form):
-    REPORT_CHOICES = [
-        ('facturacion_cliente', 'Facturación por Cliente'),
-        ('rendimiento_vehiculo', 'Rendimiento por Vehículo'),
-        ('tendencia_mensual', 'Tendencia Mensual de Ingresos'),
-    ]
-
-    report_type = forms.ChoiceField(
-        label="Tipo de Reporte",
-        choices=REPORT_CHOICES,
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-
-    fecha_inicio = forms.DateField(
-        label="Fecha de Inicio",
-        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
-        required=False # Lo hacemos opcional
-    )
-    fecha_fin = forms.DateField(
-        label="Fecha de Fin",
-        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
-        required=False # Lo hacemos opcional
-    )
-    
-    # Creamos una lista de años para el filtro de tendencia
-    YEAR_CHOICES = [(r,r) for r in range(2023, datetime.date.today().year + 2)]
-    año = forms.ChoiceField(
-        label="Año",
-        choices=YEAR_CHOICES,
-        initial=datetime.date.today().year,
-        widget=forms.Select(attrs={'class': 'form-select'}),
-        required=False
-    )
-
-
-
 class PagoForm(forms.ModelForm):
     # El monto debe ser positivo: un pago de 0 o negativo marcaba la orden como
     # PAGADA sin ingresar dinero (y el negativo pasaba sin objeción).

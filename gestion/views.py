@@ -47,7 +47,7 @@ from .renumeracion import reubicar_orden
 # importa gestion.models (no gestion.views), así que no hay círculo.
 from planes.models import Asignacion, Novedad
 from .forms import ManifiestoHojaConductorForm
-from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, PreoperacionalForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, ReporteFiltroForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
+from .forms import DocumentoCorreoFormSet, DocumentoOrdenForm, DocumentoPersonalForm, EncuestaConductorForm, FiltroAceiteForm, PreoperacionalForm, ManifiestoPaso2Form, ManifiestoPaso3Form, ManifiestoPaso4Form, ManifiestoPaso5Form, OrdenHistoricaForm, OrdenServicioForm, PagoForm, PerfilPersonaForm, PersonaSinAccesoForm, ProgramacionForm, ProgramacionCuadrillaForm, RecorridoForm, SedeFormSet, TerceroFormSet, VehiculoForm, ClienteForm, CrearUsuarioForm, ActualizarUsuarioForm
 from .models import AdjuntoFactura, Bascula, ConceptoFactura, DisposicionOrden, EnvioCorreo, EventoFactura, Factura, FotoRegistro, LineaFactura, NovedadOperacional, OrdenServicio, SitioInicio, TipoResiduo, Vehiculo, Cliente, DocumentoAmbientalCliente, DocumentoCorreoCliente, DocumentoOrden, FiltroAceite, Tercero
 
 
@@ -3497,93 +3497,7 @@ class CalendarioView(AsesorRequiredMixin, TemplateView):
 
 
 
-# --- VISTA PARA REPORTES (SOLO SUPERUSUARIOS) ---
-
-class ReportesView(SuperuserRequiredMixin, ListView):
-    acceso = 'reportes.ver'
-    template_name = 'gestion/reportes.html'
-    
-    def get_queryset(self):
-        # No usamos un queryset por defecto, lo generamos dinámicamente
-        return None
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        form = ReporteFiltroForm(self.request.GET or None)
-        context['form'] = form
-
-        report_type = self.request.GET.get('report_type')
-        resultados = []
-        chart_labels = []
-        chart_data = []
-        chart_type = 'bar' # Por defecto
-        total_general = 0
-
-        # Cartera (nov-2026): a la asesora los reportes le salen solo con sus clientes.
-        recorridos = solo_cartera(Recorrido.objects.all(), self.request.user, 'orden__cliente')
-
-        if form.is_valid() and report_type:
-
-            # --- REPORTE 1: FACTURACIÓN POR CLIENTE ---
-            if report_type == 'facturacion_cliente' and form.cleaned_data.get('fecha_inicio'):
-                fecha_inicio = form.cleaned_data['fecha_inicio']
-                fecha_fin = form.cleaned_data['fecha_fin']
-
-                resultados = recorridos.filter(
-                    estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
-                ).values('orden__cliente__nombre').annotate(
-                    total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
-                ).order_by('-total_facturado')
-                
-                chart_labels = [item['orden__cliente__nombre'] for item in resultados]
-                chart_data = [float(item['total_facturado']) for item in resultados]
-                total_general = sum(chart_data)
-
-            # --- REPORTE 2: RENDIMIENTO POR VEHÍCULO ---
-            elif report_type == 'rendimiento_vehiculo' and form.cleaned_data.get('fecha_inicio'):
-                fecha_inicio = form.cleaned_data['fecha_inicio']
-                fecha_fin = form.cleaned_data['fecha_fin']
-
-                resultados = recorridos.filter(
-                    estado='COMPLETADO', fecha_recorrido__range=[fecha_inicio, fecha_fin]
-                ).values('vehiculo__placa').annotate(
-                    total_facturado=Sum('orden__valor_servicio'), numero_servicios=Count('id')
-                ).order_by('-total_facturado')
-
-                chart_labels = [item['vehiculo__placa'] for item in resultados]
-                chart_data = [float(item['total_facturado']) for item in resultados]
-                total_general = sum(chart_data)
-
-            # --- REPORTE 3: TENDENCIA MENSUAL ---
-            elif report_type == 'tendencia_mensual' and form.cleaned_data.get('año'):
-                año = form.cleaned_data['año']
-                
-                resultados = recorridos.filter(
-                    estado='COMPLETADO', fecha_recorrido__year=año
-                ).annotate(
-                    mes=TruncMonth('fecha_recorrido') # Agrupa por mes
-                ).values('mes').annotate(
-                    total_facturado=Sum('orden__valor_servicio')
-                ).order_by('mes')
-
-                meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-                chart_labels = [meses[item['mes'].month - 1] for item in resultados]
-                chart_data = [float(item['total_facturado']) for item in resultados]
-                chart_type = 'line' # Cambiamos a gráfico de líneas
-                total_general = sum(chart_data)
-
-        context['resultados'] = resultados
-        context['report_type'] = report_type
-        # Se pasan como listas crudas: la plantilla las serializa con
-        # `json_script`, que escapa `</script>` y evita XSS almacenado desde
-        # nombres de cliente/placa (a diferencia de json.dumps + |safe).
-        context['chart_labels'] = chart_labels
-        context['chart_data'] = chart_data
-        context['chart_type'] = chart_type
-        context['total_general'] = total_general
-        
-        return context
-
+# --- REPORTES: reemplazado por el tablero de gerencia (gestion/gerencia.py, nov-2026) ---
 
 
 # --- Mixin de Seguridad para Conductores ---
@@ -10141,12 +10055,18 @@ def _documentos_para_reenviar(factura):
     carta lo que se quiera, no para repetir lo que se marcó al crearla.
     """
     pdf = reverse('gestion:factura_pdf', args=[factura.pk])
-    # El Excel ya es uno de los adjuntos de siempre (ADJUNTOS_FACTURA, nov-2026).
     filas = [
         {'clave': 'preliquidacion', 'marcado': False,
          'etiqueta': f'Preliquidación {factura.codigo} · PDF',
          'listo': True, 'detalle': 'el PDF que genera el sistema', 'falta': '',
          'enlaces': [(f'Preliquidacion_{factura.codigo}.pdf', pdf + '?ver=1')]},
+        # El Excel ya es uno de los adjuntos de siempre (ADJUNTOS_FACTURA,
+        # nov-2026), pero en el expediente va aquí, al lado del PDF.
+        {'clave': 'excel', 'marcado': False,
+         'etiqueta': f'Preliquidación {factura.codigo} · Excel',
+         'listo': True, 'detalle': 'la misma preliquidación en hoja de cálculo', 'falta': '',
+         'enlaces': [(f'Preliquidacion_{factura.codigo}.xlsx',
+                      reverse('gestion:factura_excel', args=[factura.pk]))]},
     ]
     for hijo in factura.apartes.order_by('numero').prefetch_related('lineas__conceptos'):
         que = ' · '.join(c.descripcion for l in hijo.lineas.all() for c in l.conceptos.all())
@@ -10157,6 +10077,8 @@ def _documentos_para_reenviar(factura):
             'enlaces': [(f'Preliquidacion_{hijo.codigo}.pdf',
                          reverse('gestion:factura_pdf', args=[hijo.pk]) + '?ver=1')]})
     for fila in _copiar_al_cliente(factura):
+        if fila['clave'] == 'excel':
+            continue        # ya está arriba, junto al PDF
         # En el expediente ninguna nace marcada.
         filas.append(dict(fila, marcado=False))
     return filas

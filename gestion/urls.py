@@ -1,6 +1,8 @@
 # gestion/urls.py
 from django.urls import path
-from . import cotizaciones, views, visitas
+from django.views.generic import RedirectView
+
+from . import cotizaciones, gerencia, views, visitas
 
 app_name = 'gestion'
 
@@ -98,7 +100,9 @@ urlpatterns = [
     path('api/calendario/', views.feed_calendario, name='feed_calendario'),
     path('calendario/', views.CalendarioView.as_view(), name='calendario'),
 
-    path('reportes/', views.ReportesView.as_view(), name='reportes'),
+    # Tablero de gerencia (nov-2026): reemplaza a «Reportes». La URL vieja lleva aquí.
+    path('gerencia/', gerencia.GerenciaView.as_view(), name='gerencia'),
+    path('reportes/', RedirectView.as_view(pattern_name='gestion:gerencia', permanent=False), name='reportes'),
 
     # --- Documentación interna de SOLMED ---
     path('documentacion/', views.DocumentacionSolmedView.as_view(), name='documentacion'),

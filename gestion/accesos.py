@@ -187,13 +187,6 @@ MODULOS = [
             ('facturar', 'Facturar (la administradora)', 'Recibir las órdenes de facturación, dejarlas pendientes del cliente o proceder, marcar la factura electrónica (FEV y XML), enviar la factura final, registrar pagos y eliminar.', False),
         ],
     },
-    {
-        'clave': 'reportes', 'nombre': 'Reportes', 'icono': 'bi-bar-chart-line-fill', 'de_administradores': True,
-        'descripcion': 'Los reportes del sistema, calculados solo con los clientes de su cartera.',
-        'acciones': [
-            ('ver', 'Ver los reportes', 'La pantalla de reportes.', False),
-        ],
-    },
 ]
 
 # Todas las claves válidas, y las que el rol Asesores tenía de siempre.
@@ -221,7 +214,6 @@ CASAS = [
     ('plan.ver', 'planes:plan_dia'),
     ('disposiciones.ver', 'gestion:trazabilidad_disposiciones'),
     ('facturacion.ver', 'gestion:lista_facturas'),
-    ('reportes.ver', 'gestion:reportes'),
 ]
 
 

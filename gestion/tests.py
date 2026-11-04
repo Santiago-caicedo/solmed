@@ -1335,10 +1335,11 @@ class AccesoPorRolTests(BaseCRM):
         self.assertRedirects(self.client.get(reverse('gestion:dashboard_redirect')),
                              reverse('gestion:dashboard_conductor'))
 
-    def test_los_reportes_y_los_usuarios_son_solo_de_administradores(self):
-        self.assertEqual(self.estado(self.admin, 'gestion:reportes'), 200)
+    def test_la_gerencia_y_los_usuarios_son_solo_de_administradores(self):
+        # Nov-2026: «Reportes» se volvió el tablero de gerencia.
+        self.assertEqual(self.estado(self.admin, 'gestion:gerencia'), 200)
         self.assertEqual(self.estado(self.admin, 'gestion:lista_usuarios'), 200)
-        self.assertEqual(self.estado(self.asesor, 'gestion:reportes'), 403)
+        self.assertEqual(self.estado(self.asesor, 'gestion:gerencia'), 403)
         self.assertEqual(self.estado(self.asesor, 'gestion:lista_usuarios'), 403)
 
     def test_el_centro_de_correos_y_los_proveedores_son_de_asesores(self):
@@ -3168,7 +3169,11 @@ class FacturacionTests(BaseCRM):
                 # Sin negarle nada (la vista previa solo recibe POST: 405 al GET).
                 self.assertNotIn(self.client.get(url).status_code, (302, 403, 404))
 
-    def test_los_correos_de_facturas_no_se_ven_fuera_de_administracion(self):
+    def test_los_correos_de_facturas_no_se_ven_fuera_de_facturacion(self):
+        """
+        Oct-2026: solo administración. Nov-2026: también la comercial (tiene
+        «ver la facturación» de base); los cargos sin facturación siguen sin verlos.
+        """
         de_factura = EnvioCorreo.objects.create(
             cliente=self.cli, destinatarios='a@b.co', asunto='Factura SOL-0001',
             adjuntos=['factura:1'], enviado_por=self.admin)
@@ -3176,6 +3181,14 @@ class FacturacionTests(BaseCRM):
             cliente=self.cli, destinatarios='a@b.co', asunto='Documentos del servicio',
             adjuntos=['acta:1'], enviado_por=self.admin)
         self.entrar(self.asesor)
+        self.assertIn(de_factura, self.client.get(reverse('gestion:centro_correos')).context['envios'])
+        # A una asesora a la que se le quitó la facturación, no le salen.
+        from .accesos import BASE
+        from .models import AccesosAsesor
+        sin_facturacion = self.persona('sinfac', 'Asesores', 'Rosa', 'Paz')
+        AccesosAsesor.objects.create(usuario=sin_facturacion, claves=sorted(
+            BASE - {'facturacion.ver', 'facturacion.preliquidar'}))
+        self.entrar(sin_facturacion)
         centro = self.client.get(reverse('gestion:centro_correos'))
         self.assertIn(normal, centro.context['envios'])
         self.assertNotIn(de_factura, centro.context['envios'])
@@ -3962,7 +3975,8 @@ class FacturacionTests(BaseCRM):
         claves = [a['clave'] for a in detalle.context['copiar']]
         self.assertEqual(claves[:3], ['preliquidacion', 'excel', f'aparte_{aparte.pk}'],
                          "primero la preliquidación, su Excel y cada PDF aparte")
-        self.assertEqual(claves[3:], [c for c, _ in ADJUNTOS_FACTURA], "después los siete de siempre")
+        self.assertEqual(claves[3:], [c for c, _ in ADJUNTOS_FACTURA if c != 'excel'],
+                         "después los de siempre (el Excel ya salió arriba)")
         self.assertFalse(any(a['marcado'] for a in detalle.context['copiar']),
                          "en el expediente nada nace marcado")
         self.assertContains(detalle, f'Preliquidación {principal.codigo} · PDF')
@@ -4198,7 +4212,10 @@ class FacturacionTests(BaseCRM):
         url = reverse('gestion:previa_factura')
         self.assertContains(self.client.post(url, {}), 'Elige el cliente')
         self.assertContains(self.client.post(url, {'cliente': self.cli.pk}), 'Marca las órdenes')
+        # La comercial también la pide (nov-2026); otro rol, no.
         self.entrar(self.asesor)
+        self.assertContains(self.client.post(url, {'cliente': self.cli.pk}), 'Marca las órdenes')
+        self.entrar(self.conductor)
         self.assertEqual(self.client.post(url, {'cliente': self.cli.pk}).status_code, 403)
 
     def test_cada_orden_lleva_sus_observaciones_adicionales(self):
@@ -5720,7 +5737,7 @@ class PantallasPrincipalesTests(BaseCRM):
             ('gestion:centro_correos', []),
             ('gestion:crear_envio_correo', []),
             ('gestion:calendario', []),
-            ('gestion:reportes', []),
+            ('gestion:gerencia', []),
             ('gestion:orden_historica', []),
             ('gestion:actualizar_orden', [datos['orden'].pk]),
         ]
@@ -5773,13 +5790,13 @@ class PantallasPrincipalesTests(BaseCRM):
                 self.assertEqual(huerfanos, [],
                                  "campos obligatorios sin etiqueta asociada")
 
-    def test_los_reportes_responden_a_cada_tipo(self):
+    def test_la_gerencia_responde_en_cada_periodo(self):
         self.servicio_completo()
         self.entrar(self.admin)
-        for reporte in ('facturacion_cliente', 'servicios_vehiculo'):
-            with self.subTest(reporte=reporte):
-                respuesta = self.client.get(reverse('gestion:reportes'),
-                                            {'report_type': reporte})
+        for periodo in ('mes', 'trimestre', 'anio', '12m', 'personalizado', 'cualquiercosa'):
+            with self.subTest(periodo=periodo):
+                respuesta = self.client.get(reverse('gestion:gerencia'),
+                                            {'periodo': periodo, 'desde': '2026-01-01', 'hasta': 'mal'})
                 self.assertEqual(respuesta.status_code, 200)
 
 
@@ -11291,13 +11308,9 @@ class CarteraDeClientesTests(BaseCRM):
         self.assertEqual(tablero.context['ordenes_sin_disponer'], 1)
         self.assertNotContains(tablero, 'Curtiembres Norte')
 
-        # ---- Reportes: el de facturación por cliente no trae al ajeno.
-        hoy = timezone.localdate()
-        reporte = self.client.get(reverse('gestion:reportes'), {
-            'report_type': 'facturacion_cliente', 'fecha_inicio': hoy - datetime.timedelta(days=400),
-            'fecha_fin': hoy + datetime.timedelta(days=400)})
-        self.assertEqual(reporte.status_code, 200)
-        self.assertNotIn('Curtiembres Norte', reporte.context['chart_labels'])
+        # ---- Gerencia (nov-2026, reemplazó a Reportes): solo administradores,
+        # ni con todas las casillas se le abre a una asesora.
+        self.assertEqual(self.client.get(reverse('gestion:gerencia')).status_code, 403)
 
         # ---- Disposiciones: el panel, el historial y sus contadores.
         panel = self.client.get(reverse('gestion:trazabilidad_disposiciones'))
@@ -11655,6 +11668,112 @@ class ProcesoFacturacionTests(BaseCRM):
 
 
 
+class TableroGerenciaTests(BaseCRM):
+    """
+    El tablero de gerencia (nov-2026): lo preliquidado por periodo, con lo que
+    ya tiene factura electrónica y lo enviado; por vehículo (repartido entre
+    las placas de la orden), por cliente, por asesora, el proceso, el personal
+    y las correlaciones. Solo administradores. Reemplaza a «Reportes».
+    """
+
+    def setUp(self):
+        from .models import ConceptoFactura
+        self.__dict__.update(self.servicio_completo())
+        self.admin = self.persona('jefa', 'Administradores', 'Nancy', 'Sandoval')
+        self.recorrido.estado = 'COMPLETADO'
+        self.recorrido.save(update_fields=['estado'])
+        hoy = timezone.localdate()
+        # Una preliquidación de 900.000 con factura electrónica y enviada, y otra de 300.000 sin ella.
+        self.f1 = Factura.objects.create(cliente=self.cli, fecha_emision=hoy, estado='ENVIADA',
+                                         fe_realizada_en=timezone.now())
+        LineaFactura.objects.create(factura=self.f1, orden=self.orden, precio=Decimal('900000'))
+        otra = BaseCRM.programacion(cliente=self.cli, conductor=self.conductor,
+                                    vehiculo=self.vehiculo('OBB178')).convertir_en_orden(self.asesor)
+        self.f2 = Factura.objects.create(cliente=self.cli, fecha_emision=hoy)
+        linea = LineaFactura.objects.create(factura=self.f2, orden=otra, precio=Decimal('200000'))
+        ConceptoFactura.objects.create(linea=linea, descripcion='Viaje adicional', precio=Decimal('100000'))
+        self.entrar(self.admin)
+
+    def gerencia(self, **params):
+        return self.client.get(reverse('gestion:gerencia'), params or {'periodo': 'mes'})
+
+    def test_las_cifras_cuadran_con_facturacion(self):
+        respuesta = self.gerencia()
+        self.assertEqual(respuesta.status_code, 200)
+        d = respuesta.context['d']
+        k = d['kpis']
+        self.assertEqual(k['preliquidado'], 1200000)
+        self.assertEqual(k['fev'], 900000)
+        self.assertEqual(k['enviado'], 900000)
+        self.assertEqual(round(k['fev_pct']), 75)
+        self.assertEqual(k['servicios'], 1)
+        self.assertEqual(k['ticket'], 1200000)
+        vehiculos = {v['nombre']: v for v in d['vehiculos']}
+        self.assertEqual(vehiculos[self.camion.placa]['valor'], 900000)
+        self.assertEqual(vehiculos['OBB178']['valor'], 300000, "global + concepto adicional")
+        self.assertEqual([(c['nombre'], c['valor'], round(c['participacion'])) for c in d['clientes']],
+                         [(self.cli.nombre, 1200000, 100)])
+        proceso = {e['clave']: e for e in d['proceso']}
+        self.assertEqual((proceso['ENVIADA']['n'], proceso['ENVIADA']['valor']), (1, 900000))
+        self.assertEqual(proceso['PRELIQUIDACION']['valor'], 300000)
+        self.assertContains(respuesta, 'Tablero de gerencia')
+        self.assertContains(respuesta, '$1.200.000')
+        self.assertContains(respuesta, 'id="gerencia-datos"')
+
+    def test_una_orden_con_dos_vehiculos_reparte_su_valor(self):
+        Recorrido.objects.create(orden=self.orden, vehiculo=self.vehiculo('WGY347'),
+                                 conductor=self.conductor, fecha_recorrido=timezone.localdate())
+        vehiculos = {v['nombre']: v['valor'] for v in self.gerencia().context['d']['vehiculos']}
+        self.assertEqual(vehiculos[self.camion.placa], 450000)
+        self.assertEqual(vehiculos['WGY347'], 450000)
+
+    def test_lo_de_otro_periodo_no_cuenta_y_se_compara(self):
+        from .gerencia import periodo_anterior
+        hoy = timezone.localdate()
+        self.f2.fecha_emision = hoy.replace(year=hoy.year - 1)
+        self.f2.save(update_fields=['fecha_emision'])
+        k = self.gerencia(periodo='anio').context['d']['kpis']
+        self.assertEqual(k['preliquidado'], 900000)
+        self.assertEqual(k['preliquidado_delta'], 200.0, "900 mil contra 300 mil del mismo tramo del año pasado")
+        self.assertEqual(periodo_anterior(datetime.date(2026, 1, 1), datetime.date(2026, 11, 4), 'anio'),
+                         (datetime.date(2025, 1, 1), datetime.date(2025, 11, 4)))
+        self.assertEqual(periodo_anterior(datetime.date(2026, 11, 1), datetime.date(2026, 11, 4), 'mes'),
+                         (datetime.date(2026, 10, 1), datetime.date(2026, 10, 4)))
+
+    def test_el_personal_muestra_servicios_e_ingresos(self):
+        self.conductor.perfil.fecha_ingreso = timezone.localdate()
+        self.conductor.perfil.save(update_fields=['fecha_ingreso'])
+        personal = self.gerencia().context['d']['personal']
+        fila = next(p for p in personal['filas'] if p['nombre'] == 'Carlos Pérez')
+        self.assertEqual(fila['servicios'], 1)
+        self.assertEqual(fila['valor'], 1200000, "participó en las dos órdenes: no se reparte")
+        self.assertEqual([p['nombre'] for p in personal['ingresos']], ['Carlos Pérez'])
+
+    def test_la_correlacion_se_calcula_y_se_dice_en_palabras(self):
+        from .gerencia import _lectura_correlacion, _pearson
+        self.assertEqual(_pearson([1, 2, 3], [2, 4, 6]), 1.0)
+        self.assertEqual(_pearson([1, 2, 3], [6, 4, 2]), -1.0)
+        self.assertIsNone(_pearson([1, 2], [1, 2]))
+        self.assertIsNone(_pearson([1, 1, 1], [1, 2, 3]))
+        self.assertIn('muy fuerte', _lectura_correlacion(0.9, 'x', 'y'))
+        self.assertIn('menos', _lectura_correlacion(-0.7, 'x', 'y'))
+        self.assertIn('al menos tres', _lectura_correlacion(None, 'x', 'y'))
+
+    def test_solo_administradores_y_la_url_vieja_lleva_aqui(self):
+        from .accesos import TODAS
+        from .models import AccesosAsesor
+        self.assertRedirects(self.client.get('/app/reportes/'), reverse('gestion:gerencia'))
+        self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:gerencia'))
+        self.assertNotIn('reportes.ver', TODAS, "ya no hay casilla para Reportes")
+        AccesosAsesor.objects.create(usuario=self.asesor, claves=sorted(TODAS))
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(reverse('gestion:gerencia')).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:gerencia'))
+        self.entrar(self.conductor)
+        self.assertNotEqual(self.client.get(reverse('gestion:gerencia')).status_code, 200)
+
+
+
 class AccesosDeAsesorTests(BaseCRM):
     """
     «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca
@@ -11687,12 +11806,15 @@ class AccesosDeAsesorTests(BaseCRM):
         self.assertEqual(self.estado('gestion:lista_personal'), 200)
         # Lo de administradores sigue cerrado hasta que se abra.
         self.assertEqual(self.estado('planes:plan_dia'), 403)
-        self.assertEqual(self.estado('gestion:lista_facturas'), 403)
         self.assertEqual(self.estado('gestion:dashboard'), 403)
+        # Nov-2026: la comercial ve y preliquida de base; facturar sigue cerrado.
+        self.assertEqual(self.estado('gestion:lista_facturas'), 200)
+        self.assertEqual(self.estado('gestion:crear_factura'), 200)
+        self.assertEqual(self.estado('gestion:registrar_pago', self.orden.pk), 403)
         menu = self.client.get(reverse('gestion:lista_ordenes'))
         self.assertContains(menu, 'Órdenes de servicio')
         self.assertNotContains(menu, 'Plan de trabajo')
-        self.assertNotContains(menu, 'Facturación')
+        self.assertContains(menu, 'Facturación')
 
     def test_quitar_ver_cierra_la_pantalla_el_menu_y_cambia_su_casa(self):
         from .accesos import BASE
@@ -11734,7 +11856,7 @@ class AccesosDeAsesorTests(BaseCRM):
 
     def test_abrirle_un_modulo_de_administradores(self):
         from .accesos import BASE
-        self.accesos(BASE | {'plan.ver', 'facturacion.ver', 'disposiciones.ver'})
+        self.accesos((BASE - {'facturacion.preliquidar'}) | {'plan.ver', 'facturacion.ver', 'disposiciones.ver'})
         self.entrar(self.asesor)
         self.assertEqual(self.estado('planes:plan_dia'), 200)
         self.assertEqual(self.estado('planes:historial'), 200)
