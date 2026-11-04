@@ -46,6 +46,15 @@ MODULOS = [
         ],
     },
     {
+        'clave': 'cotizaciones', 'nombre': 'Cotizaciones', 'icono': 'bi-file-earmark-text',
+        'descripcion': 'Las cotizaciones con su consecutivo y su archivo, a clientes de su cartera o a quien todavía no es cliente.',
+        'acciones': [
+            ('ver', 'Ver las cotizaciones', 'La lista y el archivo de las cotizaciones de sus clientes y de las que registró sin cliente.', True),
+            ('editar', 'Registrar y editar', 'Registrar cotizaciones nuevas (el consecutivo lo pone el sistema) y corregirlas.', True),
+            ('eliminar', 'Eliminar cotizaciones', 'Borrar una cotización con su archivo. Era solo de administradores.', False),
+        ],
+    },
+    {
         'clave': 'programacion', 'nombre': 'Programación', 'icono': 'bi-calendar-plus',
         'descripcion': 'La programación de los servicios antes de volverse órdenes.',
         'acciones': [
@@ -194,6 +203,7 @@ CASAS = [
     ('programacion.ver', 'gestion:lista_programaciones'),
     ('calendario.ver', 'gestion:calendario'),
     ('visitas.ver', 'gestion:lista_visitas'),
+    ('cotizaciones.ver', 'gestion:lista_cotizaciones'),
     ('clientes.ver', 'gestion:lista_clientes'),
     ('correos.ver', 'gestion:centro_correos'),
     ('personal.ver', 'gestion:lista_personal'),

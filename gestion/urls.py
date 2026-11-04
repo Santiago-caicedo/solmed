@@ -1,6 +1,6 @@
 # gestion/urls.py
 from django.urls import path
-from . import views, visitas
+from . import cotizaciones, views, visitas
 
 app_name = 'gestion'
 
@@ -41,6 +41,11 @@ urlpatterns = [
     path('conductor/disposicion/<int:pk>/', views.ViajeConductorView.as_view(), name='viaje_conductor'),
     path('ayudante/disposicion/<uuid:token>/', views.AccesoAyudanteViajeView.as_view(), name='acceso_ayudante_viaje'),
     # --- Visitas técnicas (formato GC-F-01 v03): la oficina programa, el ejecutivo llena en campo ---
+    # Cotizaciones (nov-2026): consecutivo automático, archivo, cliente o nombre a mano.
+    path('cotizaciones/', cotizaciones.ListaCotizacionesView.as_view(), name='lista_cotizaciones'),
+    path('cotizaciones/nueva/', cotizaciones.CrearCotizacionView.as_view(), name='crear_cotizacion'),
+    path('cotizaciones/<int:pk>/editar/', cotizaciones.EditarCotizacionView.as_view(), name='editar_cotizacion'),
+    path('cotizaciones/<int:pk>/eliminar/', cotizaciones.EliminarCotizacionView.as_view(), name='eliminar_cotizacion'),
     path('visitas/', visitas.ListaVisitasView.as_view(), name='lista_visitas'),
     path('visitas/nueva/', visitas.ProgramarVisitaView.as_view(), name='crear_visita'),
     path('visitas/<int:pk>/', visitas.DetalleVisitaView.as_view(), name='detalle_visita'),

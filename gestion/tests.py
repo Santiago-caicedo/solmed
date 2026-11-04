@@ -11325,6 +11325,161 @@ class CarteraDeClientesTests(BaseCRM):
                          .context['total_servicios_realizados'], 1)
 
 
+class CotizacionesTests(BaseCRM):
+    """
+    Cotizaciones (nov-2026, pedido de Santiago): consecutivo automático que
+    pone el sistema, archivo obligatorio, y a quién se cotiza de dos formas:
+    un cliente activo o un nombre escrito a mano que NO crea cliente. La
+    asesora ve las de su cartera y las que registró sin cliente; eliminar es
+    de administradores salvo casilla.
+    """
+    CARTERA_AUTOMATICA = False
+
+    def setUp(self):
+        self.__dict__.update(self.servicio_completo())
+        self.cli.asesoras.add(self.asesor)
+        self.otra = self.persona('otra', 'Asesores', 'Luisa', 'Mora')
+        self.admin = self.persona('admin', 'Administradores', 'Marta', 'Gil')
+        self.ajeno = self.cliente('Curtiembres Norte', identificacion='800111222-3')
+        self.ajeno.asesoras.add(self.otra)
+        self.entrar(self.asesor)
+
+    @staticmethod
+    def pdf(nombre='cotizacion.pdf'):
+        return SimpleUploadedFile(nombre, b'%PDF-1.4 cotizacion de prueba', content_type='application/pdf')
+
+    def datos(self, **cambios):
+        datos = {'fecha': timezone.localdate().isoformat(), 'asunto': 'Succión de lodos',
+                 'tipo': 'cliente', 'cliente': self.cli.pk, 'nombre_manual': ''}
+        datos.update(cambios)
+        return datos
+
+    def registrar(self, **cambios):
+        datos = self.datos(**cambios)
+        if 'archivo' not in datos:
+            datos['archivo'] = self.pdf()
+        return self.client.post(reverse('gestion:crear_cotizacion'), datos)
+
+    def test_el_consecutivo_lo_pone_el_sistema_y_no_se_repite(self):
+        from .models import Cotizacion
+        self.assertRedirects(self.registrar(), reverse('gestion:lista_cotizaciones'))
+        self.assertRedirects(self.registrar(asunto='Transporte de residuos'), reverse('gestion:lista_cotizaciones'))
+        primera, segunda = Cotizacion.objects.order_by('numero')
+        self.assertEqual((primera.numero, segunda.numero), (1, 2))
+        self.assertEqual(primera.codigo, 'COT-0001')
+        self.assertEqual(primera.registrada_por, self.asesor)
+        self.assertEqual(primera.cliente, self.cli)
+        self.assertTrue(primera.archivo.name.startswith('cotizaciones/'))
+        # Si se borra la última, el número no se reutiliza en la práctica
+        # (máximo + 1): al borrar la segunda y crear otra, sale la 2 de nuevo
+        # solo porque ya no existe; nunca choca con una viva.
+        segunda.delete()
+        self.registrar(asunto='Otra')
+        self.assertEqual(Cotizacion.objects.order_by('-numero').first().numero, 2)
+        lista = self.client.get(reverse('gestion:lista_cotizaciones'))
+        self.assertContains(lista, 'COT-0001')
+        self.assertContains(lista, 'COT-0002')
+        self.assertContains(lista, self.cli.nombre)
+
+    def test_sin_cliente_se_escribe_el_nombre_y_no_se_crea_cliente(self):
+        from .models import Cotizacion
+        clientes_antes = Cliente.objects.count()
+        respuesta = self.registrar(tipo='otro', cliente='', nombre_manual='Ferretería La 30')
+        self.assertRedirects(respuesta, reverse('gestion:lista_cotizaciones'))
+        cotizacion = Cotizacion.objects.get()
+        self.assertIsNone(cotizacion.cliente)
+        self.assertEqual(cotizacion.nombre_manual, 'Ferretería La 30')
+        self.assertEqual(cotizacion.destinatario, 'Ferretería La 30')
+        self.assertEqual(Cliente.objects.count(), clientes_antes)
+        lista = self.client.get(reverse('gestion:lista_cotizaciones'))
+        self.assertContains(lista, 'Ferretería La 30')
+        self.assertContains(lista, 'No es cliente')
+        # Con «No es cliente» marcado, un cliente colado en el POST se ignora.
+        self.registrar(tipo='otro', cliente=self.cli.pk, nombre_manual='Panadería Sol')
+        self.assertIsNone(Cotizacion.objects.get(nombre_manual='Panadería Sol').cliente)
+        # Y con «Cliente activo», el nombre a mano se descarta.
+        self.registrar(tipo='cliente', cliente=self.cli.pk, nombre_manual='Sobra')
+        self.assertEqual(Cotizacion.objects.get(cliente=self.cli).nombre_manual, '')
+
+    def test_el_formulario_exige_lo_que_corresponde(self):
+        from .models import Cotizacion
+        # Cliente activo sin cliente elegido.
+        respuesta = self.registrar(tipo='cliente', cliente='')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Elige el cliente')
+        # No es cliente sin nombre.
+        respuesta = self.registrar(tipo='otro', cliente='', nombre_manual='  ')
+        self.assertContains(respuesta, 'Escribe a quién se le cotiza')
+        # Sin archivo al registrar.
+        respuesta = self.client.post(reverse('gestion:crear_cotizacion'), self.datos())
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Archivo de la cotización')
+        self.assertEqual(Cotizacion.objects.count(), 0)
+        # El desplegable solo ofrece los clientes de su cartera.
+        form = self.client.get(reverse('gestion:crear_cotizacion')).context['form']
+        self.assertEqual(list(form.fields['cliente'].queryset), [self.cli])
+        # Al editar, el archivo es opcional y se conserva.
+        self.registrar()
+        cotizacion = Cotizacion.objects.get()
+        archivo = cotizacion.archivo.name
+        respuesta = self.client.post(reverse('gestion:editar_cotizacion', args=[cotizacion.pk]),
+                                     self.datos(asunto='Asunto corregido'))
+        self.assertRedirects(respuesta, reverse('gestion:lista_cotizaciones'))
+        cotizacion.refresh_from_db()
+        self.assertEqual((cotizacion.asunto, cotizacion.archivo.name, cotizacion.numero),
+                         ('Asunto corregido', archivo, 1))
+
+    def test_la_asesora_ve_su_cartera_y_lo_suyo_sin_cliente(self):
+        from .models import Cotizacion
+        mia = Cotizacion.objects.create(cliente=self.cli, asunto='Mía', archivo=self.pdf(), registrada_por=self.asesor)
+        manual_mia = Cotizacion.objects.create(nombre_manual='Taller Pérez', asunto='Manual mía',
+                                               archivo=self.pdf(), registrada_por=self.asesor)
+        ajena = Cotizacion.objects.create(cliente=self.ajeno, asunto='Ajena', archivo=self.pdf(), registrada_por=self.otra)
+        manual_ajena = Cotizacion.objects.create(nombre_manual='Lavadero Sur', asunto='Manual ajena',
+                                                 archivo=self.pdf(), registrada_por=self.otra)
+        lista = self.client.get(reverse('gestion:lista_cotizaciones'))
+        self.assertEqual(set(lista.context['cotizaciones']), {mia, manual_mia})
+        self.assertNotContains(lista, 'Curtiembres Norte')
+        self.assertNotContains(lista, 'Lavadero Sur')
+        for cotizacion in (ajena, manual_ajena):
+            self.assertEqual(self.client.get(reverse('gestion:editar_cotizacion', args=[cotizacion.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:editar_cotizacion', args=[mia.pk])).status_code, 200)
+        # Buscar por consecutivo.
+        self.assertEqual(list(self.client.get(reverse('gestion:lista_cotizaciones'), {'q': mia.codigo})
+                              .context['cotizaciones']), [mia])
+        # El administrador ve las cuatro.
+        self.entrar(self.admin)
+        self.assertEqual(len(self.client.get(reverse('gestion:lista_cotizaciones')).context['cotizaciones']), 4)
+
+    def test_accesos_menu_y_eliminar(self):
+        from .accesos import BASE
+        from .models import AccesosAsesor, Cotizacion
+        cotizacion = Cotizacion.objects.create(cliente=self.cli, asunto='Mía', archivo=self.pdf(), registrada_por=self.asesor)
+        # Con lo de siempre: ve, registra, pero no elimina.
+        menu = self.client.get(reverse('gestion:lista_ordenes'))
+        self.assertContains(menu, 'Cotizaciones')
+        self.assertEqual(self.client.get(reverse('gestion:lista_cotizaciones')).status_code, 200)
+        self.assertEqual(self.client.post(reverse('gestion:eliminar_cotizacion', args=[cotizacion.pk])).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_cotizaciones')), 'eliminar_cotizacion')
+        # Sin la casilla «ver»: ni pantalla ni menú.
+        AccesosAsesor.objects.create(usuario=self.asesor,
+                                     claves=sorted(BASE - {'cotizaciones.ver', 'cotizaciones.editar'}))
+        self.assertEqual(self.client.get(reverse('gestion:lista_cotizaciones')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('gestion:crear_cotizacion')).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), 'Cotizaciones')
+        # Con la casilla «eliminar» abierta, sí borra (y el archivo se va con ella).
+        AccesosAsesor.objects.filter(usuario=self.asesor).update(claves=sorted(BASE | {'cotizaciones.eliminar'}))
+        self.assertRedirects(self.client.post(reverse('gestion:eliminar_cotizacion', args=[cotizacion.pk])),
+                             reverse('gestion:lista_cotizaciones'))
+        self.assertFalse(Cotizacion.objects.exists())
+        # El administrador elimina siempre; la casilla sale en «Gestionar accesos».
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(reverse('gestion:accesos_persona', args=[self.asesor.pk])), 'Cotizaciones')
+        # El conductor no entra.
+        self.entrar(self.conductor)
+        self.assertEqual(self.client.get(reverse('gestion:lista_cotizaciones')).status_code, 403)
+
+
 class AccesosDeAsesorTests(BaseCRM):
     """
     «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca

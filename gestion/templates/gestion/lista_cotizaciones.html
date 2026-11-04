@@ -1,0 +1,95 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+{# Cotizaciones (nov-2026): consecutivo automático, archivo, y a quién se cotiza (cliente activo o nombre a mano). #}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-1"><i class="bi bi-file-earmark-text me-2"></i>Cotizaciones</h1>
+        <div class="text-muted">Cada cotización con su consecutivo y su archivo, a un cliente o a quien todavía no lo es.</div>
+    </div>
+    {% if acceso.cotizaciones.editar %}
+    <a href="{% url 'gestion:crear_cotizacion' %}" class="btn btn-primary">
+        <i class="bi bi-plus-circle me-1"></i> Registrar cotización
+    </a>
+    {% endif %}
+</div>
+
+<form method="get" class="row g-2 mb-3">
+    <div class="col-md-5">
+        <div class="input-group">
+            <input type="search" name="q" value="{{ q }}" class="form-control"
+                   placeholder="Buscar por consecutivo, asunto o a quién se cotizó" aria-label="Buscar cotizaciones">
+            <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-search"></i></button>
+            {% if q %}<a href="{% url 'gestion:lista_cotizaciones' %}" class="btn btn-outline-secondary" title="Quitar la búsqueda"><i class="bi bi-x-lg"></i></a>{% endif %}
+        </div>
+    </div>
+</form>
+
+<div class="card shadow">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Consecutivo</th>
+                        <th>Fecha</th>
+                        <th>A quién</th>
+                        <th>Asunto</th>
+                        <th>Registró</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in cotizaciones %}
+                    <tr>
+                        <td class="mono fw-bold">{{ c.codigo }}</td>
+                        <td>{{ c.fecha|date:"d/m/Y" }}</td>
+                        <td>
+                            {% if c.cliente %}
+                                <a href="{% url 'gestion:ficha_cliente' c.cliente.pk %}">{{ c.cliente.nombre }}</a>
+                                <small class="text-muted d-block">Cliente</small>
+                            {% else %}
+                                {{ c.nombre_manual }}
+                                <small class="text-muted d-block">No es cliente</small>
+                            {% endif %}
+                        </td>
+                        <td>{{ c.asunto }}</td>
+                        <td>
+                            {% if c.registrada_por %}{{ c.registrada_por.get_full_name|default:c.registrada_por.username }}{% else %}<span class="text-muted">—</span>{% endif %}
+                            <small class="text-muted d-block">{{ c.creada_en|date:"d/m/Y H:i" }}</small>
+                        </td>
+                        <td class="text-end text-nowrap">
+                            {% if c.archivo %}
+                            <a href="{{ c.archivo.url }}" target="_blank" class="btn btn-sm btn-outline-primary" title="Abrir el archivo">
+                                <i class="bi bi-download"></i> Archivo
+                            </a>
+                            {% endif %}
+                            {% if acceso.cotizaciones.editar %}
+                            <a href="{% url 'gestion:editar_cotizacion' c.pk %}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil-square"></i> Editar
+                            </a>
+                            {% endif %}
+                            {% if acceso.cotizaciones.eliminar %}
+                            <form method="post" action="{% url 'gestion:eliminar_cotizacion' c.pk %}" class="d-inline"
+                                  onsubmit="return confirm('¿Eliminar la cotización {{ c.codigo }}? Se borra con su archivo y el consecutivo no se vuelve a usar.');">
+                                {% csrf_token %}
+                                <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            {% if q %}Ninguna cotización coincide con «{{ q }}».
+                            {% else %}No hay cotizaciones registradas.{% if acceso.cotizaciones.editar %} <a href="{% url 'gestion:crear_cotizacion' %}">Registra la primera</a>.{% endif %}{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% include 'gestion/partials/_paginacion.html' with etiqueta="cotizaciones" %}
+{% endblock %}

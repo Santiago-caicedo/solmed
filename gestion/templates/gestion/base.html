@@ -470,6 +470,14 @@
             </a>
         </li>
         {% endif %}
+        {% if acceso.cotizaciones.ver %}
+        {# Cotizaciones (nov-2026): consecutivo automático y archivo; a un cliente o a quien aún no lo es. #}
+        <li>
+            <a href="{% url 'gestion:lista_cotizaciones' %}" class="nav-link {% if request.path|slice:':18' == '/app/cotizaciones/' %}active{% endif %}">
+                <i class="bi bi-file-earmark-text"></i>Cotizaciones
+            </a>
+        </li>
+        {% endif %}
         {% if acceso.programacion.ver %}
         <li>
             <a href="{% url 'gestion:lista_programaciones' %}" class="nav-link {% if 'programaciones' in request.path %}active{% endif %}">

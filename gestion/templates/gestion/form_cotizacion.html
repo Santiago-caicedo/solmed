@@ -1,0 +1,117 @@
+{% extends "gestion/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="bi bi-file-earmark-text me-2"></i>
+        {% if cotizacion %}Editar cotización {{ cotizacion.codigo }}{% else %}Registrar cotización{% endif %}
+    </h1>
+    <a href="{% url 'gestion:lista_cotizaciones' %}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i> Volver al listado
+    </a>
+</div>
+
+{% if form.errors %}
+<div class="alert alert-danger">
+    <strong>Revisa los campos:</strong>
+    <ul class="mb-0">
+        {% for field in form %}{% for error in field.errors %}<li>{{ field.label }}: {{ error }}</li>{% endfor %}{% endfor %}
+        {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="row">
+        <div class="col-lg-7">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-card-text me-1"></i>Datos de la cotización</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Consecutivo</label>
+                            <input type="text" class="form-control mono fw-bold" value="{% if cotizacion %}{{ cotizacion.codigo }}{% else %}Lo pone el sistema{% endif %}" disabled>
+                            {% if not cotizacion %}<div class="form-text">Se asigna al guardar: el siguiente de la numeración.</div>{% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label for="{{ form.fecha.id_for_label }}" class="form-label">Fecha <span class="text-danger">*</span></label>
+                            {{ form.fecha }}
+                        </div>
+                        <div class="col-12">
+                            <label for="{{ form.asunto.id_for_label }}" class="form-label">Asunto <span class="text-danger">*</span></label>
+                            {{ form.asunto }}
+                        </div>
+                        <div class="col-12">
+                            <label for="{{ form.archivo.id_for_label }}" class="form-label">
+                                Archivo de la cotización {% if not cotizacion %}<span class="text-danger">*</span>{% endif %}
+                            </label>
+                            {{ form.archivo }}
+                            {% if cotizacion.archivo %}
+                            <div class="form-text">
+                                Hoy tiene <a href="{{ cotizacion.archivo.url }}" target="_blank">{{ cotizacion.nombre_archivo }}</a>.
+                                Si subes otro, lo reemplaza.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-person-lines-fill me-1"></i>¿A quién se cotiza?</h5>
+                </div>
+                <div class="card-body p-4">
+                    {# Dos formas (pedido de Santiago): un cliente activo, o un nombre a mano que NO crea cliente. #}
+                    <div class="mb-3" id="tipo-cotizacion">
+                        {% for radio in form.tipo %}
+                        <div class="form-check">
+                            {{ radio.tag }}
+                            <label class="form-check-label" for="{{ radio.id_for_label }}">{{ radio.choice_label }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div id="bloque-cliente">
+                        <label for="{{ form.cliente.id_for_label }}" class="form-label">Cliente activo</label>
+                        {{ form.cliente }}
+                        <div class="form-text">Solo los clientes registrados en el sistema.</div>
+                    </div>
+                    <div id="bloque-otro">
+                        <label for="{{ form.nombre_manual.id_for_label }}" class="form-label">Nombre de a quién se cotiza</label>
+                        {{ form.nombre_manual }}
+                        <div class="form-text">No se guarda como cliente. Si después lo es, edita la cotización y elígelo.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="bi bi-save me-1"></i> {% if cotizacion %}Guardar cambios{% else %}Registrar cotización{% endif %}
+                </button>
+            </div>
+        </div>
+    </div>
+</form>
+
+<script>
+(function () {
+    // Muestra solo el campo que corresponde al tipo elegido.
+    var radios = document.querySelectorAll('#tipo-cotizacion input[type=radio]');
+    var cliente = document.getElementById('bloque-cliente');
+    var otro = document.getElementById('bloque-otro');
+    function pintar() {
+        var valor = 'cliente';
+        radios.forEach(function (r) { if (r.checked) valor = r.value; });
+        cliente.style.display = valor === 'cliente' ? '' : 'none';
+        otro.style.display = valor === 'otro' ? '' : 'none';
+    }
+    radios.forEach(function (r) { r.addEventListener('change', pintar); });
+    pintar();
+})();
+</script>
+{% endblock %}

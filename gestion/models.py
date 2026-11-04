@@ -3296,3 +3296,67 @@ class AccesosAsesor(models.Model):
 
     def __str__(self):
         return f"Accesos de {self.usuario.get_full_name() or self.usuario.username}"
+
+
+class Cotizacion(models.Model):
+    """
+    Cotizaciones (nov-2026, pedido de Santiago; vistas en gestion/cotizaciones.py):
+    el archivo de cada cotización con un CONSECUTIVO automático (COT-0001…)
+    que pone el sistema al guardar y que no se repite ni se edita (si se
+    borra una, su número no se vuelve a usar). A quién se cotiza se dice de
+    DOS formas: un cliente activo del sistema (`cliente`) o, si todavía no es
+    cliente, el nombre escrito a mano (`nombre_manual`); ese nombre NO crea
+    un cliente. Siempre va uno de los dos, nunca los dos (lo cuida el form).
+    """
+    PREFIJO = 'COT'
+
+    numero = models.PositiveIntegerField(unique=True, editable=False, verbose_name="Consecutivo")
+    fecha = models.DateField(default=timezone.localdate, verbose_name="Fecha de la cotización")
+    asunto = models.CharField(max_length=200, verbose_name="Asunto")
+    cliente = models.ForeignKey(
+        Cliente, on_delete=models.PROTECT, null=True, blank=True, related_name='cotizaciones',
+        verbose_name="Cliente")
+    nombre_manual = models.CharField(
+        max_length=200, blank=True, verbose_name="A quién se cotiza (no es cliente)")
+    archivo = models.FileField(upload_to='cotizaciones/', verbose_name="Archivo de la cotización")
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='cotizaciones_registradas', verbose_name="Registrada por")
+    creada_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-numero']
+        verbose_name = "Cotización"
+        verbose_name_plural = "Cotizaciones"
+
+    def __str__(self):
+        return f"{self.codigo} · {self.destinatario}"
+
+    @property
+    def codigo(self):
+        return f"{self.PREFIJO}-{self.numero:04d}" if self.numero else f"{self.PREFIJO}-?"
+
+    @property
+    def destinatario(self):
+        """A quién se cotizó: el cliente, o el nombre escrito a mano."""
+        return self.cliente.nombre if self.cliente_id else self.nombre_manual
+
+    @property
+    def nombre_archivo(self):
+        return os.path.basename(self.archivo.name) if self.archivo else ''
+
+    def save(self, *args, **kwargs):
+        # El consecutivo lo calcula la app (máximo + 1), no la base. Si dos
+        # personas guardan a la vez, la restricción `unique` frena a una y
+        # se reintenta con el siguiente número.
+        if self.numero is None:
+            from django.db import IntegrityError
+            for _ in range(5):
+                self.numero = (Cotizacion.objects.aggregate(m=Max('numero'))['m'] or 0) + 1
+                try:
+                    with transaction.atomic():
+                        return super().save(*args, **kwargs)
+                except IntegrityError:
+                    continue
+            raise IntegrityError("No se pudo asignar el consecutivo de la cotización.")
+        return super().save(*args, **kwargs)

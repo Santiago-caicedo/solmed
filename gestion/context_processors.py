@@ -74,7 +74,7 @@ def roles(request):
         'puede_admin_django': user.is_staff or user.is_superuser,
         # Encabezados del menú: solo si hay algo debajo.
         've_operacion': any(acceso[m]['ver'] for m in (
-            'calendario', 'plan', 'disposiciones', 'visitas', 'programacion',
+            'calendario', 'plan', 'disposiciones', 'visitas', 'cotizaciones', 'programacion',
             'ordenes', 'fotos', 'correos')),
         've_gestion': any(acceso[m]['ver'] for m in (
             'clientes', 'vehiculos', 'proveedores', 'documentacion', 'facturacion')),
