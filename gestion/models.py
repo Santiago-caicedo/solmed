@@ -3477,3 +3477,113 @@ class Cotizacion(models.Model):
                     continue
             raise IntegrityError("No se pudo asignar el consecutivo de la cotización.")
         return super().save(*args, **kwargs)
+
+
+# ============================================================
+#  GASTOS (nov-2026, pedido de Santiago; vistas en gestion/gastos.py)
+#  Las facturas de compra de SOLMED, con los mismos campos del reporte de
+#  facturas recibidas que lleva la oficina (Excel «FACTURAS AGOSTO»), y a qué
+#  se carga cada una: un VEHÍCULO del sistema (para ver su utilidad real) o
+#  una CATEGORÍA propia (Administrativo, Operacional, Talento humano…).
+# ============================================================
+
+class CategoriaGasto(models.Model):
+    """
+    Un centro de costo que no es un vehículo. Las crea la oficina libremente
+    (decisión de Santiago, nov-2026): Administrativo, Operacional, Junio…
+    Una archivada ya no se ofrece al registrar, pero sus gastos se conservan.
+    """
+    nombre = models.CharField(max_length=80, unique=True, verbose_name="Nombre")
+    descripcion = models.CharField(max_length=255, blank=True, verbose_name="Para qué es")
+    activa = models.BooleanField(default=True, verbose_name="Activa")
+    creada_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Categoría de gasto"
+        verbose_name_plural = "Categorías de gasto"
+
+    def __str__(self):
+        return self.nombre
+
+
+class Gasto(models.Model):
+    """
+    Un documento de compra (factura, nota débito o nota crédito). Va cargado
+    a un vehículo O a una categoría, nunca a los dos (lo cuida el formulario).
+    Una NOTA CRÉDITO resta: `valor` la devuelve en negativo para las sumas.
+    """
+    TIPO_CHOICES = [
+        ('FACTURA', 'Factura electrónica'),
+        ('NOTA_DEBITO', 'Nota débito electrónica'),
+        ('NOTA_CREDITO', 'Nota crédito electrónica'),
+        ('SOPORTE', 'Documento soporte'),
+        ('OTRO', 'Otro documento'),
+    ]
+    # Forma y medio de pago con los códigos de la DIAN, como vienen en el reporte.
+    FORMA_PAGO_CHOICES = [('1', 'Contado'), ('2', 'Crédito')]
+    MEDIO_PAGO_CHOICES = [
+        ('10', 'Efectivo'),
+        ('42', 'Consignación bancaria'),
+        ('31', 'Transferencia débito'),
+        ('46', 'Transferencia débito interbancaria'),
+        ('47', 'Transferencia débito bancaria'),
+        ('48', 'Tarjeta crédito'),
+        ('49', 'Tarjeta débito'),
+        ('1', 'Instrumento no definido'),
+        ('ZZZ', 'Otro'),
+    ]
+
+    tipo_documento = models.CharField(max_length=15, choices=TIPO_CHOICES, default='FACTURA',
+                                      verbose_name="Tipo de documento")
+    prefijo = models.CharField(max_length=20, blank=True, verbose_name="Prefijo")
+    folio = models.CharField(max_length=30, verbose_name="Folio")
+    divisa = models.CharField(max_length=3, default='COP', verbose_name="Divisa")
+    forma_pago = models.CharField(max_length=2, choices=FORMA_PAGO_CHOICES, default='1',
+                                  verbose_name="Forma de pago")
+    medio_pago = models.CharField(max_length=4, choices=MEDIO_PAGO_CHOICES, default='10',
+                                  verbose_name="Medio de pago")
+    fecha_emision = models.DateField(verbose_name="Fecha de emisión")
+    fecha_recepcion = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de recepción")
+    nit_emisor = models.CharField(max_length=20, verbose_name="NIT del proveedor")
+    nombre_emisor = models.CharField(max_length=200, verbose_name="Proveedor")
+    total = models.DecimalField(max_digits=14, decimal_places=2, verbose_name="Total")
+    # A qué se carga: un vehículo o una categoría (uno de los dos).
+    vehiculo = models.ForeignKey('Vehiculo', on_delete=models.PROTECT, null=True, blank=True,
+                                 related_name='gastos', verbose_name="Vehículo")
+    categoria = models.ForeignKey(CategoriaGasto, on_delete=models.PROTECT, null=True, blank=True,
+                                  related_name='gastos', verbose_name="Categoría")
+    nota = models.CharField(max_length=255, blank=True, verbose_name="Nota")
+    archivo = models.FileField(upload_to='gastos/', blank=True, null=True, verbose_name="Archivo de la factura")
+    registrado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                       blank=True, related_name='gastos_registrados')
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha_emision', '-pk']
+        verbose_name = "Gasto"
+        verbose_name_plural = "Gastos"
+        constraints = [
+            # El mismo documento del mismo proveedor no se registra dos veces.
+            models.UniqueConstraint(fields=['tipo_documento', 'nit_emisor', 'prefijo', 'folio'],
+                                    name='gasto_documento_unico'),
+        ]
+
+    def __str__(self):
+        return f"{self.documento} · {self.nombre_emisor}"
+
+    @property
+    def documento(self):
+        return f"{self.prefijo}-{self.folio}" if self.prefijo else self.folio
+
+    @property
+    def centro(self):
+        """A qué se cargó, como se muestra: la placa o el nombre de la categoría."""
+        if self.vehiculo_id:
+            return self.vehiculo.placa
+        return self.categoria.nombre if self.categoria_id else 'Sin asignar'
+
+    @property
+    def valor(self):
+        """Lo que suma en la estadística: la nota crédito resta."""
+        return -self.total if self.tipo_documento == 'NOTA_CREDITO' else self.total

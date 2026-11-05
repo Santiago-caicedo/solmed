@@ -1,0 +1,88 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Gastos{% endblock %}
+{% block content %}
+<div class="gx">
+    {% include 'gestion/partials/_gastos_cabecera.html' with con_periodo=True %}
+
+    {# ---------- Resumen del periodo ---------- #}
+    <div class="gx-panel gx-cifras mb-3">
+        <div class="c">
+            <div class="k">Gastos del periodo</div>
+            <div class="v">${{ resumen.total|floatformat:0|intcomma }}</div>
+            <div class="s">{% if resumen.delta is None %}Sin gastos en {{ nombre_anterior }} para comparar{% elif resumen.delta >= 0 %}<span class="delta sube"><i class="bi bi-arrow-up-short"></i>{{ resumen.delta|floatformat:1 }}%</span> frente a {{ nombre_anterior }}{% else %}<span class="delta baja"><i class="bi bi-arrow-down-short"></i>{{ resumen.delta|floatformat:1|cut:"-" }}%</span> frente a {{ nombre_anterior }}{% endif %}</div>
+        </div>
+        <div class="c">
+            <div class="k">Cargado a vehículos</div>
+            <div class="v">${{ resumen.vehiculos|floatformat:0|intcomma }}</div>
+            <div class="s">Cuenta en la utilidad de cada vehículo</div>
+        </div>
+        <div class="c">
+            <div class="k">Cargado a categorías</div>
+            <div class="v">${{ resumen.categorias|floatformat:0|intcomma }}</div>
+            <div class="s">Administrativo y demás: se resta solo en el total</div>
+        </div>
+        <div class="c">
+            <div class="k">Proveedor principal</div>
+            <div class="v" style="font-size:1.05rem; line-height:1.35">{% if mayor_proveedor %}{{ mayor_proveedor.nombre_emisor }}{% else %}Ninguno aún{% endif %}</div>
+            <div class="s">{% if mayor_proveedor %}${{ mayor_proveedor.t|floatformat:0|intcomma }} en {{ mayor_proveedor.n }} documento{{ mayor_proveedor.n|pluralize }}{% endif %}</div>
+        </div>
+    </div>
+
+    {# ---------- Filtros ---------- #}
+    <form method="get" class="d-flex gap-2 flex-wrap align-items-center mb-3">
+        <input type="hidden" name="periodo" value="{{ periodo }}">
+        {% if periodo == 'personalizado' %}<input type="hidden" name="desde" value="{{ desde|date:'Y-m-d' }}"><input type="hidden" name="hasta" value="{{ hasta|date:'Y-m-d' }}">{% endif %}
+        <select name="centro" class="form-select form-select-sm" style="max-width:240px" aria-label="Cargado a">
+            <option value="">Todo, vehículos y categorías</option>
+            <option value="vehiculos" {% if centro == 'vehiculos' %}selected{% endif %}>Solo vehículos</option>
+            <option value="categorias" {% if centro == 'categorias' %}selected{% endif %}>Solo categorías</option>
+            {% for grupo, opciones in centros %}{% if opciones and grupo %}<optgroup label="{{ grupo }}">{% for valor, nombre in opciones %}<option value="{{ valor }}" {% if centro == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
+        </select>
+        <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:320px" placeholder="Buscar proveedor, NIT o documento" aria-label="Buscar">
+        <button class="btn btn-sm btn-outline-secondary">Filtrar</button>
+        {% if filtrado %}<a href="?periodo={{ periodo }}" class="small">Quitar filtros</a>{% endif %}
+    </form>
+
+    {# ---------- El registro ---------- #}
+    <div class="gx-panel">
+        {% if gastos %}
+        <div class="table-responsive">
+            <table class="gx-tabla">
+                <thead><tr><th>Fecha</th><th>Documento</th><th>Proveedor</th><th>Cargado a</th><th>Pago</th><th class="n">Total</th><th></th></tr></thead>
+                <tbody>
+                {% for g in gastos %}
+                <tr>
+                    <td class="text-nowrap">{{ g.fecha_emision|date:"d/m/Y" }}</td>
+                    <td><span class="fuerte">{{ g.documento }}</span>{% if g.tipo_documento != 'FACTURA' %}<span class="gx-chip">{{ g.get_tipo_documento_display|cut:" electrónica" }}</span>{% endif %}{% if g.nota %}<small>{{ g.nota }}</small>{% endif %}</td>
+                    <td>{{ g.nombre_emisor }}<small>NIT {{ g.nit_emisor }}</small></td>
+                    <td><span class="gx-centro"><i class="bi {% if g.vehiculo_id %}bi-truck{% else %}bi-tag{% endif %}" aria-hidden="true"></i>{{ g.centro }}</span></td>
+                    <td>{{ g.get_forma_pago_display }}<small>{{ g.get_medio_pago_display }}</small></td>
+                    <td class="n fuerte {% if g.tipo_documento == 'NOTA_CREDITO' %}gx-neg{% endif %}">{% if g.tipo_documento == 'NOTA_CREDITO' %}−{% endif %}${{ g.total|floatformat:0|intcomma }}</td>
+                    <td>
+                        <div class="gx-acciones">
+                            {% if g.archivo %}<a href="{{ g.archivo.url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Ver el archivo de la factura" aria-label="Ver el archivo"><i class="bi bi-paperclip"></i></a>{% endif %}
+                            {% if acceso.gastos.editar %}<a href="{% url 'gestion:editar_gasto' g.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>{% endif %}
+                            {% if acceso.gastos.eliminar %}
+                            <form method="post" action="{% url 'gestion:eliminar_gasto' g.pk %}" onsubmit="return confirm('¿Eliminar el gasto {{ g.documento }} de {{ g.nombre_emisor|escapejs }}?');">
+                                {% csrf_token %}<button class="btn btn-sm btn-outline-danger" title="Eliminar" aria-label="Eliminar"><i class="bi bi-trash"></i></button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot><tr><td colspan="5">{{ resumen.n }} documento{{ resumen.n|pluralize }}{% if filtrado %} con los filtros puestos{% endif %}</td><td class="n">${{ resumen.total|floatformat:0|intcomma }}</td><td></td></tr></tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="gx-vacio">
+            {% if filtrado %}Ningún gasto coincide con los filtros en {{ nombre_periodo }}.
+            {% else %}Aún no hay gastos registrados en {{ nombre_periodo }}.{% if acceso.gastos.editar %}<br><a href="{% url 'gestion:crear_gasto' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>Registrar el primero</a>{% endif %}{% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% include 'gestion/partials/_paginacion.html' with etiqueta="gastos" %}
+</div>
+{% endblock %}

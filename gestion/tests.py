@@ -11832,6 +11832,118 @@ class TableroGerenciaTests(BaseCRM):
 
 
 
+class GastosTests(BaseCRM):
+    """
+    Gastos (nov-2026, Santiago): facturas de compra con los campos del reporte
+    de facturas recibidas, cargadas a un vehículo o a una categoría propia, y
+    la utilidad por vehículo (ingreso de sus servicios − sus gastos). Las
+    categorías no se reparten. Solo administradores, con casilla «Gastos».
+    """
+
+    def setUp(self):
+        from .models import CategoriaGasto
+        self.__dict__.update(self.servicio_completo())
+        self.admin = self.persona('jefa', 'Administradores', 'Nancy', 'Sandoval')
+        self.admin_cat = CategoriaGasto.objects.create(nombre='Administrativo')
+        # El servicio de hoy vale 1.000.000 en una preliquidación.
+        f = Factura.objects.create(cliente=self.cli)
+        LineaFactura.objects.create(factura=f, orden=self.orden, precio=Decimal('1000000'))
+        self.entrar(self.admin)
+
+    def datos(self, **cambios):
+        datos = {'tipo_documento': 'FACTURA', 'prefijo': 'fve', 'folio': '604503', 'divisa': 'cop',
+                 'forma_pago': '1', 'medio_pago': '10', 'fecha_emision': timezone.localdate().isoformat(),
+                 'nit_emisor': '800066365', 'nombre_emisor': 'INVERSIONES RENGIFO ROJAS SAS',
+                 'centro': f'v{self.camion.pk}', 'total_texto': '120.039,44'}
+        datos.update(cambios)
+        return datos
+
+    def test_registrar_un_gasto_con_los_campos_del_reporte(self):
+        from .models import Gasto
+        respuesta = self.client.post(reverse('gestion:crear_gasto'), self.datos())
+        self.assertRedirects(respuesta, reverse('gestion:gastos'))
+        g = Gasto.objects.get()
+        self.assertEqual((g.prefijo, g.folio, g.divisa, g.documento), ('FVE', '604503', 'COP', 'FVE-604503'))
+        self.assertEqual(g.total, Decimal('120039.44'))
+        self.assertEqual((g.vehiculo, g.categoria, g.registrado_por), (self.camion, None, self.admin))
+        self.assertEqual(g.centro, self.camion.placa)
+        # A una categoría, y «guardar y registrar otro» vuelve al formulario.
+        respuesta = self.client.post(reverse('gestion:crear_gasto'),
+                                     self.datos(folio='9', centro=f'c{self.admin_cat.pk}', total_texto='148750', otro='1'))
+        self.assertRedirects(respuesta, reverse('gestion:crear_gasto'))
+        self.assertEqual(Gasto.objects.get(folio='9').categoria, self.admin_cat)
+        lista = self.client.get(reverse('gestion:gastos'), {'periodo': 'mes'})
+        self.assertContains(lista, 'FVE-604503')
+        self.assertContains(lista, 'INVERSIONES RENGIFO ROJAS SAS')
+        self.assertEqual(lista.context['resumen']['total'], Decimal('268789.44'))
+        self.assertEqual(lista.context['resumen']['vehiculos'], Decimal('120039.44'))
+        filtrada = self.client.get(reverse('gestion:gastos'), {'periodo': 'mes', 'centro': f'c{self.admin_cat.pk}'})
+        self.assertEqual(filtrada.context['resumen']['total'], Decimal('148750'))
+
+    def test_el_formulario_exige_lo_que_corresponde_y_no_duplica(self):
+        from .models import Gasto
+        r = self.client.post(reverse('gestion:crear_gasto'), self.datos(centro='', total_texto='0'))
+        self.assertContains(r, 'Elige el vehículo o la categoría')
+        self.assertContains(r, 'Escribe el total del documento')
+        self.client.post(reverse('gestion:crear_gasto'), self.datos())
+        r = self.client.post(reverse('gestion:crear_gasto'), self.datos(prefijo='FVE'))
+        self.assertContains(r, 'Ese documento de ese proveedor ya está registrado')
+        self.assertEqual(Gasto.objects.count(), 1)
+        # Una categoría archivada ya no se ofrece, pero sus gastos se conservan.
+        self.admin_cat.activa = False
+        self.admin_cat.save()
+        form = self.client.get(reverse('gestion:crear_gasto')).context['form']
+        self.assertNotIn(f'c{self.admin_cat.pk}', str(form.fields['centro'].choices))
+
+    def test_la_utilidad_por_vehiculo_y_de_la_empresa(self):
+        from .models import Gasto
+        hoy = timezone.localdate()
+        Gasto.objects.create(folio='1', fecha_emision=hoy, nit_emisor='1', nombre_emisor='Llantas',
+                             total=Decimal('300000'), vehiculo=self.camion)
+        Gasto.objects.create(folio='2', fecha_emision=hoy, nit_emisor='1', nombre_emisor='Llantas',
+                             tipo_documento='NOTA_CREDITO', total=Decimal('50000'), vehiculo=self.camion)
+        Gasto.objects.create(folio='3', fecha_emision=hoy, nit_emisor='2', nombre_emisor='Software',
+                             total=Decimal('200000'), categoria=self.admin_cat)
+        r = self.client.get(reverse('gestion:utilidad'), {'periodo': 'mes'})
+        u = r.context['u']
+        v = next(x for x in u['vehiculos'] if x['placa'] == self.camion.placa)
+        self.assertEqual((v['ingreso'], v['gasto'], v['utilidad']), (1000000, 250000, 750000), "la nota crédito resta")
+        self.assertEqual(round(v['margen']), 75)
+        self.assertEqual(u['gasto_categorias'], 200000, "lo administrativo va aparte")
+        self.assertEqual(u['utilidad'], 550000)
+        self.assertContains(r, 'la empresa deja $550.000 de utilidad')
+        self.assertEqual(len(r.context['meses']), 12)
+        self.assertEqual(r.context['meses'][-1]['utilidad'], 550000)
+
+    def test_solo_administradores_y_se_abre_con_la_casilla(self):
+        from .accesos import BASE, TODAS
+        from .models import AccesosAsesor, Gasto
+        g = Gasto.objects.create(folio='1', fecha_emision=timezone.localdate(), nit_emisor='1',
+                                 nombre_emisor='X', total=Decimal('1000'), vehiculo=self.camion)
+        urls = [reverse('gestion:gastos'), reverse('gestion:crear_gasto'), reverse('gestion:utilidad'),
+                reverse('gestion:categorias_gasto'), reverse('gestion:editar_gasto', args=[g.pk])]
+        self.assertIn('gastos.ver', TODAS)
+        self.assertNotIn('gastos.ver', BASE, "de base, solo administradores")
+        self.assertContains(self.client.get(reverse('gestion:dashboard')), reverse('gestion:gastos'))
+        self.entrar(self.asesor)
+        for url in urls:
+            with self.subTest(url=url, quien='asesora sin casilla'):
+                self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:gastos'))
+        # Con «ver» entra a mirar, pero no registra ni borra.
+        AccesosAsesor.objects.create(usuario=self.asesor, claves=sorted(BASE | {'gastos.ver'}))
+        self.assertEqual(self.client.get(reverse('gestion:gastos')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:crear_gasto')).status_code, 403)
+        self.assertEqual(self.client.post(reverse('gestion:eliminar_gasto', args=[g.pk])).status_code, 403)
+        self.assertContains(self.client.get(reverse('gestion:lista_ordenes')), reverse('gestion:gastos'))
+        # La casilla sale en «Gestionar accesos».
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(reverse('gestion:accesos_persona', args=[self.asesor.pk])), 'Gastos')
+        # Otros roles, no.
+        self.entrar(self.conductor)
+        self.assertNotEqual(self.client.get(reverse('gestion:gastos')).status_code, 200)
+
+
 class AccesosDeAsesorTests(BaseCRM):
     """
     «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca

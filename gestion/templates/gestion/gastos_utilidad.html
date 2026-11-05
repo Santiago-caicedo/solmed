@@ -1,0 +1,112 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Utilidad por vehículo{% endblock %}
+{% block content %}
+{% comment %}
+UTILIDAD (nov-2026): por vehículo, su ingreso (servicios prestados con precio,
+repartido entre las placas de cada orden) menos los gastos cargados a su
+placa. Las categorías NO se reparten (decisión de Santiago): van aparte y se
+restan solo en la utilidad de la empresa. Ingreso en acero, gasto en naranja.
+{% endcomment %}
+<style>
+.gu-hero{ padding:1.5rem 1.6rem; display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:1.5rem; align-items:center; }
+@media (max-width:1000px){ .gu-hero{ grid-template-columns:1fr; } }
+.gu-frase{ font-size:1.5rem; line-height:1.3; font-weight:600; letter-spacing:-.02em; margin:0; max-width:30ch; }
+.gu-sub{ font-size:.92rem; color:var(--ink-2); margin-top:.5rem; display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; }
+.gu-cuenta{ width:100%; border-collapse:collapse; font-size:.95rem; }
+.gu-cuenta td{ padding:.45rem 0; border-bottom:1px solid var(--line-2); }
+.gu-cuenta td:last-child{ text-align:right; font-weight:600; white-space:nowrap; }
+.gu-cuenta tr.res td{ border-bottom:0; border-top:1.5px solid var(--ink); font-size:1.1rem; padding-top:.6rem; }
+.gu-cuenta .sub{ color:var(--ink-3); font-size:.82rem; padding-left:1rem; }
+.gu-par{ display:flex; flex-direction:column; gap:3px; min-width:140px; }
+.gu-par span{ display:block; height:7px; border-radius:0 4px 4px 0; }
+.gu-par .i{ background:var(--ing); } .gu-par .g{ background:var(--gas); }
+.gu-ley{ display:flex; gap:1rem; font-size:.8rem; color:var(--ink-2); padding:0 1.25rem .6rem; }
+.gu-ley i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:.35rem; vertical-align:-1px; }
+.pos{ color:var(--ok); } .neg{ color:var(--err); }
+.gu-dos{ display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:1rem; align-items:start; }
+@media (max-width:1100px){ .gu-dos{ grid-template-columns:1fr; } }
+</style>
+<div class="gx">
+    {% include 'gestion/partials/_gastos_cabecera.html' with con_periodo=True %}
+
+    {# ---------- Protagonista: cuánto deja la empresa ---------- #}
+    <div class="gx-panel gu-hero mb-3">
+        <div>
+            <p class="gu-frase">{% if u.ingreso or u.gasto %}{{ frase_periodo }} la empresa {% if u.utilidad >= 0 %}deja ${{ u.utilidad|floatformat:0|intcomma }} de utilidad{% else %}pierde ${{ u.utilidad|floatformat:0|intcomma|cut:"-" }}{% endif %}.{% else %}{{ frase_periodo }} aún no hay ingresos ni gastos.{% endif %}</p>
+            <div class="gu-sub">
+                {% if u.margen is not None %}Margen del {{ u.margen|floatformat:1 }}% sobre el ingreso.{% elif u.gasto > u.ingreso %}Los gastos superan el ingreso de los servicios prestados.{% endif %}
+                {% if u.utilidad_delta is not None %}{% if u.utilidad_delta >= 0 %}<span class="delta bien"><i class="bi bi-arrow-up-short"></i>{{ u.utilidad_delta|floatformat:1 }}%</span>{% else %}<span class="delta mal"><i class="bi bi-arrow-down-short"></i>{{ u.utilidad_delta|floatformat:1|cut:"-" }}%</span>{% endif %} frente a {{ nombre_anterior }}{% endif %}
+            </div>
+        </div>
+        <table class="gu-cuenta" aria-label="Cuenta de la utilidad">
+            <tr><td>Ingreso de los servicios prestados</td><td>${{ u.ingreso|floatformat:0|intcomma }}</td></tr>
+            <tr><td>Gastos de los vehículos</td><td>−${{ u.gasto_vehiculos|floatformat:0|intcomma }}</td></tr>
+            <tr><td>Gastos de las categorías</td><td>−${{ u.gasto_categorias|floatformat:0|intcomma }}</td></tr>
+            <tr class="res"><td>Utilidad</td><td class="{% if u.utilidad >= 0 %}pos{% else %}neg{% endif %}">{% if u.utilidad < 0 %}−{% endif %}${{ u.utilidad|floatformat:0|intcomma|cut:"-" }}</td></tr>
+        </table>
+    </div>
+
+    <div class="gu-dos">
+        {# ---------- Por vehículo ---------- #}
+        <div class="gx-panel">
+            <div class="ph"><h2>Utilidad por vehículo</h2><div class="cs">Su ingreso menos los gastos cargados a su placa. Si una orden la atendieron dos vehículos, su valor se reparte entre los dos.</div></div>
+            <div class="gu-ley"><span><i style="background:var(--ing)"></i>Ingreso</span><span><i style="background:var(--gas)"></i>Gastos</span></div>
+            {% if u.vehiculos %}
+            <div class="table-responsive">
+                <table class="gx-tabla">
+                    <thead><tr><th>Vehículo</th><th></th><th class="n">Ingreso</th><th class="n">Gastos</th><th class="n">Utilidad</th><th class="n">Margen</th></tr></thead>
+                    <tbody>
+                    {% for v in u.vehiculos %}
+                    <tr>
+                        <td><span class="fuerte">{{ v.placa }}</span><small>{{ v.detalle }}</small></td>
+                        <td><div class="gu-par" aria-hidden="true"><span class="i" style="width:{% widthratio v.ingreso u_max 100 %}%"></span><span class="g" style="width:{% widthratio v.gasto u_max 100 %}%"></span></div></td>
+                        <td class="n">${{ v.ingreso|floatformat:0|intcomma }}</td>
+                        <td class="n">${{ v.gasto|floatformat:0|intcomma }}</td>
+                        <td class="n fuerte {% if v.utilidad >= 0 %}pos{% else %}neg{% endif %}">{% if v.utilidad < 0 %}−{% endif %}${{ v.utilidad|floatformat:0|intcomma|cut:"-" }}</td>
+                        <td class="n">{% if v.margen is not None %}{{ v.margen|floatformat:0 }}%{% elif v.ingreso %}En pérdida{% else %}Sin ingreso{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot><tr><td colspan="2">Todos los vehículos</td><td class="n">${{ u.ingreso|add:0|floatformat:0|intcomma }}</td><td class="n">${{ u.gasto_vehiculos|floatformat:0|intcomma }}</td><td class="n">{% if u.utilidad_vehiculos < 0 %}−{% endif %}${{ u.utilidad_vehiculos|floatformat:0|intcomma|cut:"-" }}</td><td></td></tr></tfoot>
+                </table>
+            </div>
+            {% if u.ingreso_sin_vehiculo %}<div class="small text-muted px-3 pb-3">Incluye ${{ u.ingreso_sin_vehiculo|floatformat:0|intcomma }} de órdenes sin vehículo asignado, que no suman a ninguna placa.</div>{% endif %}
+            {% else %}<div class="gx-vacio">Ningún vehículo tiene ingresos ni gastos en {{ nombre_periodo }}.</div>{% endif %}
+        </div>
+
+        {# ---------- Categorías ---------- #}
+        <div class="gx-panel">
+            <div class="ph"><h2>Gastos de las categorías</h2><div class="cs">No se reparten entre vehículos: se restan solo en la utilidad de la empresa</div></div>
+            {% if u.categorias %}
+            <table class="gx-tabla">
+                <tbody>{% for c in u.categorias %}<tr><td><span class="gx-centro"><i class="bi bi-tag" aria-hidden="true"></i>{{ c.nombre }}</span><small>{{ c.n }} documento{{ c.n|pluralize }}</small></td><td class="n fuerte">${{ c.gasto|floatformat:0|intcomma }}</td></tr>{% endfor %}</tbody>
+                <tfoot><tr><td>Total</td><td class="n">${{ u.gasto_categorias|floatformat:0|intcomma }}</td></tr></tfoot>
+            </table>
+            {% else %}<div class="gx-vacio">Sin gastos de categorías en {{ nombre_periodo }}.</div>{% endif %}
+        </div>
+    </div>
+
+    {# ---------- Mes a mes ---------- #}
+    <div class="gx-panel mt-3">
+        <div class="ph"><h2>Mes a mes</h2><div class="cs">Ingreso, gastos y utilidad de los últimos doce meses</div></div>
+        <div class="table-responsive">
+            <table class="gx-tabla">
+                <thead><tr><th>Mes</th><th></th><th class="n">Ingreso</th><th class="n">Gastos</th><th class="n">Utilidad</th></tr></thead>
+                <tbody>
+                {% for m in meses %}
+                <tr>
+                    <td>{{ m.mes }}</td>
+                    <td style="width:30%"><div class="gu-par" aria-hidden="true"><span class="i" style="width:{% widthratio m.ingreso meses_max 100 %}%"></span><span class="g" style="width:{% widthratio m.gasto meses_max 100 %}%"></span></div></td>
+                    <td class="n">${{ m.ingreso|floatformat:0|intcomma }}</td>
+                    <td class="n">${{ m.gasto|floatformat:0|intcomma }}</td>
+                    <td class="n fuerte {% if m.utilidad >= 0 %}pos{% else %}neg{% endif %}">{% if m.utilidad < 0 %}−{% endif %}${{ m.utilidad|floatformat:0|intcomma|cut:"-" }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <p class="small text-muted mt-3">El ingreso es lo que valen los servicios prestados en las fechas, con su precio en una preliquidación de cualquier etapa. Los gastos van por la fecha de emisión de cada documento; las notas crédito restan.</p>
+</div>
+{% endblock %}

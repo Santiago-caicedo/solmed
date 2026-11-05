@@ -1,0 +1,105 @@
+{% extends 'gestion/base.html' %}
+{% block title %}{% if gasto %}Editar gasto{% else %}Registrar gasto{% endif %}{% endblock %}
+{% block content %}
+{% comment %}
+El formulario sigue los grupos del reporte de facturas recibidas: documento,
+proveedor, pago y a qué se carga. Opciones en vez de texto libre donde se
+puede (tipo, forma y medio de pago con su código DIAN, centro de costo), y el
+nombre del proveedor se llena solo con el NIT si ya se usó antes.
+{% endcomment %}
+<style>
+.gf-grid{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:1rem; align-items:start; }
+@media (max-width:1000px){ .gf-grid{ grid-template-columns:1fr; } }
+.gf-sec{ padding:1.15rem 1.35rem 1.25rem; }
+.gf-sec + .gf-sec{ border-top:1px solid var(--line-2); }
+.gf-sec h2{ font-size:1rem; margin-bottom:.15rem; }
+.gf-sec .cs{ font-size:.82rem; color:var(--ink-2); margin-bottom:.8rem; }
+.gf-sec label{ font-size:.84rem; font-weight:500; color:var(--ink-2); margin-bottom:.25rem; }
+.gf-total input{ font-size:1.5rem; font-weight:600; height:auto; padding:.45rem .7rem; }
+.gf-err{ color:var(--err); font-size:.8rem; margin-top:.25rem; }
+.gf-acciones{ display:flex; gap:.5rem; flex-wrap:wrap; padding:1rem 1.35rem; border-top:1px solid var(--line-2); background:var(--panel-2); border-radius:0 0 12px 12px; }
+</style>
+<div class="gx">
+    {% include 'gestion/partials/_gastos_cabecera.html' %}
+    <h2 class="mb-3">{% if gasto %}Editar el gasto {{ gasto.documento }}{% else %}Registrar un gasto{% endif %}</h2>
+
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        <div class="gf-grid">
+            <div class="gx-panel">
+                <div class="gf-sec">
+                    <h2>Documento</h2>
+                    <div class="cs">Tal como aparece en la factura o en el reporte de facturas recibidas</div>
+                    <div class="row g-3">
+                        <div class="col-md-6"><label for="{{ form.tipo_documento.id_for_label }}">Tipo de documento</label>{{ form.tipo_documento }}</div>
+                        <div class="col-md-2"><label for="{{ form.prefijo.id_for_label }}">Prefijo</label>{{ form.prefijo }}</div>
+                        <div class="col-md-4"><label for="{{ form.folio.id_for_label }}">Folio</label>{{ form.folio }}{% for e in form.folio.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}</div>
+                        <div class="col-md-6"><label for="{{ form.fecha_emision.id_for_label }}">Fecha de emisión</label>{{ form.fecha_emision }}{% for e in form.fecha_emision.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}</div>
+                        <div class="col-md-6"><label for="{{ form.fecha_recepcion.id_for_label }}">Fecha de recepción <span class="text-muted">(opcional)</span></label>{{ form.fecha_recepcion }}</div>
+                    </div>
+                </div>
+                <div class="gf-sec">
+                    <h2>Proveedor</h2>
+                    <div class="cs">Si el NIT ya se usó antes, el nombre se llena solo</div>
+                    <div class="row g-3">
+                        <div class="col-md-4"><label for="{{ form.nit_emisor.id_for_label }}">NIT</label>{{ form.nit_emisor }}{% for e in form.nit_emisor.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}</div>
+                        <div class="col-md-8"><label for="{{ form.nombre_emisor.id_for_label }}">Nombre</label>{{ form.nombre_emisor }}{% for e in form.nombre_emisor.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}</div>
+                    </div>
+                    <datalist id="proveedores">{% for p in proveedores %}<option value="{{ p.nit_emisor }}">{{ p.nombre_emisor }}</option>{% endfor %}</datalist>
+                </div>
+                <div class="gf-sec">
+                    <h2>Pago</h2>
+                    <div class="row g-3">
+                        <div class="col-md-4"><label for="{{ form.forma_pago.id_for_label }}">Forma de pago</label>{{ form.forma_pago }}</div>
+                        <div class="col-md-5"><label for="{{ form.medio_pago.id_for_label }}">Medio de pago</label>{{ form.medio_pago }}</div>
+                        <div class="col-md-3"><label for="{{ form.divisa.id_for_label }}">Divisa</label>{{ form.divisa }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="gx-panel">
+                <div class="gf-sec">
+                    <h2>A qué se carga</h2>
+                    <div class="cs">Un vehículo, para su utilidad; o una categoría, como Administrativo</div>
+                    {{ form.centro }}{% for e in form.centro.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}
+                    {% if not hay_categorias %}<div class="small mt-2 text-muted">Aún no hay categorías. <a href="{% url 'gestion:categorias_gasto' %}">Crea la primera</a>, por ejemplo Administrativo.</div>{% endif %}
+                </div>
+                <div class="gf-sec gf-total">
+                    <label for="{{ form.total_texto.id_for_label }}">Total</label>
+                    {{ form.total_texto }}{% for e in form.total_texto.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}
+                    <div class="small text-muted mt-1">Con impuestos, como sale en la factura. Una nota crédito se escribe en positivo y se resta sola.</div>
+                </div>
+                <div class="gf-sec">
+                    <label for="{{ form.nota.id_for_label }}">Nota <span class="text-muted">(opcional)</span></label>{{ form.nota }}
+                    <label for="{{ form.archivo.id_for_label }}" class="mt-3">Archivo de la factura <span class="text-muted">(opcional)</span></label>{{ form.archivo }}
+                    {% if gasto.archivo %}<div class="small mt-1">Hoy tiene <a href="{{ gasto.archivo.url }}" target="_blank" rel="noopener">un archivo</a>; si subes otro, lo reemplaza.</div>{% endif %}
+                </div>
+                <div class="gf-acciones">
+                    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>{% if gasto %}Guardar cambios{% else %}Guardar gasto{% endif %}</button>
+                    {% if not gasto %}<button class="btn btn-outline-primary" name="otro" value="1">Guardar y registrar otro</button>{% endif %}
+                    <a href="{% url 'gestion:gastos' %}" class="btn btn-link">Cancelar</a>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{{ proveedores|json_script:"gx-proveedores" }}
+<script>
+(function () {
+    // El NIT ya conocido llena el nombre del proveedor.
+    var mapa = {};
+    JSON.parse(document.getElementById('gx-proveedores').textContent).forEach(function (p) { mapa[p.nit_emisor] = p.nombre_emisor; });
+    var nit = document.getElementById('{{ form.nit_emisor.id_for_label }}'), nombre = document.getElementById('{{ form.nombre_emisor.id_for_label }}');
+    if (nit && nombre) nit.addEventListener('change', function () { var n = mapa[nit.value.trim()]; if (n && !nombre.value.trim()) nombre.value = n; });
+    // El total con puntos de miles mientras se escribe (coma para decimales).
+    var total = document.querySelector('.gx-dinero');
+    function formatear(t) {
+        var limpio = String(t || '').replace(/[^\d,]/g, ''), partes = limpio.split(',');
+        var entero = partes[0].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return partes.length > 1 ? entero + ',' + partes.slice(1).join('').slice(0, 2) : entero;
+    }
+    if (total) { total.value = formatear(total.value); total.addEventListener('input', function () { total.value = formatear(total.value); }); }
+})();
+</script>
+{% endblock %}

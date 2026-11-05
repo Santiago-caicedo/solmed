@@ -1,0 +1,91 @@
+{% comment %}
+GASTOS (nov-2026): estilo y cabecera compartidos por Registro, Utilidad y
+Categorías. Dentro del sistema (sidebar, IBM Plex, acero y verde de marca),
+con las guías de Apple (jerarquía por tamaño y peso, opciones en vez de texto
+libre, texto que dice la conclusión) y la skill de frontend (sobrio, sin
+etiquetas en mayúsculas). Colores de datos validados: ingreso acero #1f6fb0,
+gasto naranja #d4622b. `con_periodo`: muestra el selector de periodo.
+{% endcomment %}
+<style>
+.gx{ --ing:#1f6fb0; --gas:#d4622b; --gx-r:12px; max-width:1360px; }
+.gx h1{ font-size:1.75rem; font-weight:600; letter-spacing:-.02em; margin:0; }
+.gx h2{ font-size:1.1rem; font-weight:600; letter-spacing:-.01em; margin:0; }
+.gx .bajada{ color:var(--ink-2); font-size:.95rem; margin-top:.2rem; }
+.gx-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; }
+.gx-acc{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.gx-tabs{ display:flex; gap:1.5rem; border-bottom:1px solid var(--line); margin:1.1rem 0 1.25rem; }
+.gx-tabs a{ padding:.55rem 0; font-size:.92rem; font-weight:500; color:var(--ink-2); border-bottom:2px solid transparent; margin-bottom:-1px; }
+.gx-tabs a:hover{ color:var(--ink); text-decoration:none!important; }
+.gx-tabs a.act{ color:var(--ink); border-bottom-color:var(--g-900); }
+.gx-seg{ display:inline-flex; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:3px; }
+.gx-seg a{ padding:.32rem .75rem; border-radius:6px; font-size:.84rem; font-weight:500; color:var(--ink-2); white-space:nowrap; }
+.gx-seg a:hover{ text-decoration:none!important; color:var(--ink); background:var(--panel-2); }
+.gx-seg a.act{ background:var(--g-900); color:#fff; }
+.gx-rango summary{ list-style:none; cursor:pointer; font-size:.84rem; color:var(--steel); font-weight:500; padding:.3rem .4rem; }
+.gx-rango summary::-webkit-details-marker{ display:none; }
+.gx-rango form{ display:flex; align-items:center; gap:.4rem; margin-top:.3rem; }
+.gx-rango input{ font:inherit; font-size:.84rem; border:1px solid var(--line); border-radius:6px; padding:.28rem .5rem; background:var(--panel); }
+.gx-panel{ background:var(--panel); border:1px solid var(--line); border-radius:var(--gx-r); }
+.gx-panel > .ph{ padding:1.05rem 1.25rem .35rem; }
+.gx-panel > .ph .cs{ font-size:.82rem; color:var(--ink-2); margin-top:.1rem; }
+.gx-cifras{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); }
+.gx-cifras .c{ padding:1.05rem 1.35rem; border-left:1px solid var(--line-2); min-width:0; }
+.gx-cifras .c:first-child{ border-left:0; }
+.gx-cifras .k{ font-size:.86rem; font-weight:500; color:var(--ink-2); }
+.gx-cifras .v{ font-size:1.55rem; font-weight:600; letter-spacing:-.02em; line-height:1.2; margin-top:.2rem; }
+.gx-cifras .s{ font-size:.8rem; color:var(--ink-3); margin-top:.35rem; }
+@media (max-width:1000px){ .gx-cifras{ grid-template-columns:1fr 1fr; } .gx-cifras .c:nth-child(3){ border-left:0; } .gx-cifras .c:nth-child(n+3){ border-top:1px solid var(--line-2); } }
+.delta{ display:inline-flex; align-items:center; gap:.2rem; font-weight:600; padding:.08rem .45rem; border-radius:99px; font-size:.8rem; }
+.delta.sube{ color:var(--err); background:var(--err-tint); }   /* en gastos, subir es malo */
+.delta.baja{ color:var(--ok); background:var(--ok-tint); }
+.delta.bien{ color:var(--ok); background:var(--ok-tint); }
+.delta.mal{ color:var(--err); background:var(--err-tint); }
+.gx-tabla{ width:100%; border-collapse:collapse; }
+.gx-tabla th{ font-weight:500; color:var(--ink-3); font-size:.78rem; padding:.55rem 1.1rem; border-bottom:1px solid var(--line); white-space:nowrap; }
+.gx-tabla td{ padding:.65rem 1.1rem; border-bottom:1px solid var(--line-2); font-size:.88rem; vertical-align:middle; }
+.gx-tabla tr:last-child td{ border-bottom:0; }
+.gx-tabla tr:hover td{ background:var(--panel-2); }
+.gx-tabla .n{ text-align:right; white-space:nowrap; }
+.gx-tabla .fuerte{ font-weight:600; color:var(--ink); }
+.gx-tabla small{ display:block; color:var(--ink-3); font-size:.78rem; }
+.gx-tabla tfoot td{ border-top:1px solid var(--line); border-bottom:0; font-weight:600; background:var(--panel-2); }
+.gx-centro{ display:inline-flex; align-items:center; gap:.35rem; font-weight:500; }
+.gx-centro i{ color:var(--ink-3); }
+.gx-chip{ display:inline-block; font-size:.72rem; font-weight:600; padding:.05rem .45rem; border-radius:99px; background:var(--warn-tint); color:var(--warn); margin-left:.35rem; }
+.gx-neg{ color:var(--ok); }
+.gx-vacio{ padding:2.5rem 1.25rem; text-align:center; color:var(--ink-2); }
+.gx-vacio .btn{ margin-top:.75rem; }
+.gx-acciones{ display:flex; gap:.3rem; justify-content:flex-end; }
+.gx-acciones .btn{ padding:.2rem .5rem; }
+</style>
+
+<div class="gx-cab">
+    <div>
+        <h1>Gastos</h1>
+        <div class="bajada">{% if con_periodo %}{{ nombre_periodo|capfirst }}{% else %}Facturas de compra cargadas a cada vehículo o categoría{% endif %}</div>
+    </div>
+    <div class="gx-acc">
+        {% if con_periodo %}
+        <nav class="gx-seg" aria-label="Periodo">
+            {% for clave, nombre in periodos %}{% if clave != 'personalizado' %}
+            <a href="?periodo={{ clave }}" class="{% if periodo == clave %}act{% endif %}" {% if periodo == clave %}aria-current="page"{% endif %}>{{ nombre }}</a>
+            {% endif %}{% endfor %}
+        </nav>
+        <details class="gx-rango" {% if periodo == 'personalizado' %}open{% endif %}>
+            <summary>Otro rango</summary>
+            <form method="get">
+                <input type="hidden" name="periodo" value="personalizado">
+                <input type="date" name="desde" value="{{ desde|date:'Y-m-d' }}" aria-label="Desde">
+                <input type="date" name="hasta" value="{{ hasta|date:'Y-m-d' }}" aria-label="Hasta">
+                <button class="btn btn-sm btn-primary">Ver</button>
+            </form>
+        </details>
+        {% endif %}
+        {% if acceso.gastos.editar %}<a href="{% url 'gestion:crear_gasto' %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Registrar gasto</a>{% endif %}
+    </div>
+</div>
+<nav class="gx-tabs" aria-label="Secciones de gastos">
+    <a href="{% url 'gestion:gastos' %}{% if con_periodo %}?periodo={{ periodo }}{% endif %}" class="{% if pestana == 'registro' %}act{% endif %}">Registro</a>
+    <a href="{% url 'gestion:utilidad' %}{% if con_periodo %}?periodo={{ periodo }}{% endif %}" class="{% if pestana == 'utilidad' %}act{% endif %}">Utilidad por vehículo</a>
+    <a href="{% url 'gestion:categorias_gasto' %}" class="{% if pestana == 'categorias' %}act{% endif %}">Categorías</a>
+</nav>

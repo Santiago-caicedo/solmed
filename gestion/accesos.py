@@ -187,6 +187,17 @@ MODULOS = [
             ('facturar', 'Facturar (la administradora)', 'Recibir las órdenes de facturación, dejarlas pendientes del cliente o proceder, marcar la factura electrónica (FEV y XML), enviar la factura final, registrar pagos y eliminar.', False),
         ],
     },
+    {
+        # Nov-2026: los gastos (facturas de compra) y la utilidad por vehículo.
+        # De administradores; se le puede abrir a alguien desde su perfil.
+        'clave': 'gastos', 'nombre': 'Gastos', 'icono': 'bi-wallet2', 'de_administradores': True,
+        'descripcion': 'Las facturas de compra cargadas a cada vehículo o categoría, y la utilidad de cada vehículo. Ve los gastos de toda la empresa.',
+        'acciones': [
+            ('ver', 'Ver los gastos y la utilidad', 'El registro de gastos, las categorías y la utilidad por vehículo.', False),
+            ('editar', 'Registrar y corregir gastos', 'Registrar gastos, corregirlos y crear o archivar categorías.', False),
+            ('eliminar', 'Eliminar gastos', 'Borrar un gasto registrado.', False),
+        ],
+    },
 ]
 
 # Todas las claves válidas, y las que el rol Asesores tenía de siempre.
@@ -214,6 +225,7 @@ CASAS = [
     ('plan.ver', 'planes:plan_dia'),
     ('disposiciones.ver', 'gestion:trazabilidad_disposiciones'),
     ('facturacion.ver', 'gestion:lista_facturas'),
+    ('gastos.ver', 'gestion:gastos'),
 ]
 
 

@@ -2,7 +2,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import cotizaciones, gerencia, views, visitas
+from . import cotizaciones, gastos, gerencia, views, visitas
 
 app_name = 'gestion'
 
@@ -101,6 +101,13 @@ urlpatterns = [
     path('calendario/', views.CalendarioView.as_view(), name='calendario'),
 
     # Tablero de gerencia (nov-2026): reemplaza a «Reportes». La URL vieja lleva aquí.
+    # Gastos (nov-2026): facturas de compra cargadas a un vehículo o a una categoría, y la utilidad.
+    path('gastos/', gastos.GastosView.as_view(), name='gastos'),
+    path('gastos/nuevo/', gastos.GastoFormView.as_view(), name='crear_gasto'),
+    path('gastos/<int:pk>/editar/', gastos.GastoFormView.as_view(), name='editar_gasto'),
+    path('gastos/<int:pk>/eliminar/', gastos.EliminarGastoView.as_view(), name='eliminar_gasto'),
+    path('gastos/categorias/', gastos.CategoriasGastoView.as_view(), name='categorias_gasto'),
+    path('gastos/utilidad/', gastos.UtilidadView.as_view(), name='utilidad'),
     path('gerencia/', gerencia.GerenciaView.as_view(), name='gerencia'),
     path('gerencia/informe.pdf', gerencia.GerenciaPDFView.as_view(), name='gerencia_pdf'),
     path('reportes/', RedirectView.as_view(pattern_name='gestion:gerencia', permanent=False), name='reportes'),

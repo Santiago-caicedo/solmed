@@ -1,0 +1,63 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Categorías de gasto{% endblock %}
+{% block content %}
+<div class="gx">
+    {% include 'gestion/partials/_gastos_cabecera.html' %}
+    <div class="row g-3">
+        <div class="col-lg-8">
+            <div class="gx-panel">
+                <div class="ph"><h2>Categorías</h2><div class="cs">Los centros de costo que no son un vehículo. Archivar una la saca del formulario; sus gastos se conservan.</div></div>
+                {% if categorias %}
+                <table class="gx-tabla">
+                    <thead><tr><th>Nombre y para qué es</th><th class="n">Gastos</th><th class="n">Total</th><th></th></tr></thead>
+                    <tbody>
+                    {% for c in categorias %}
+                    <tr {% if not c.activa %}style="opacity:.6"{% endif %}>
+                        <td>
+                            {% if acceso.gastos.editar %}
+                            <form method="post" class="d-flex gap-2 flex-wrap" id="cat-{{ c.pk }}">
+                                {% csrf_token %}<input type="hidden" name="categoria" value="{{ c.pk }}">
+                                <input type="text" name="nombre" value="{{ c.nombre }}" class="form-control form-control-sm" style="max-width:200px" maxlength="80" aria-label="Nombre de la categoría">
+                                <input type="text" name="descripcion" value="{{ c.descripcion }}" class="form-control form-control-sm" style="max-width:280px" maxlength="255" placeholder="Para qué es (opcional)" aria-label="Para qué es">
+                            </form>
+                            {% else %}<span class="fuerte">{{ c.nombre }}</span><small>{{ c.descripcion }}</small>{% endif %}
+                            {% if not c.activa %}<small>Archivada</small>{% endif %}
+                        </td>
+                        <td class="n">{{ c.n }}</td>
+                        <td class="n fuerte">${{ c.t|default:0|floatformat:0|intcomma }}</td>
+                        <td>
+                            {% if acceso.gastos.editar %}
+                            <div class="gx-acciones">
+                                <button form="cat-{{ c.pk }}" name="guardar" value="1" class="btn btn-sm btn-outline-secondary">Guardar</button>
+                                <button form="cat-{{ c.pk }}" name="archivar" value="1" class="btn btn-sm btn-outline-secondary">{% if c.activa %}Archivar{% else %}Activar{% endif %}</button>
+                            </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="gx-vacio">Todavía no hay categorías. Crea la primera, por ejemplo Administrativo, Operacional o Talento humano.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% if acceso.gastos.editar %}
+        <div class="col-lg-4">
+            <div class="gx-panel">
+                <div class="ph"><h2>Nueva categoría</h2><div class="cs">Para los gastos que no son de un vehículo</div></div>
+                <form method="post" class="px-3 pb-3 pt-2">
+                    {% csrf_token %}
+                    <label class="form-label small mb-1" for="cat-nombre">Nombre</label>
+                    <input type="text" name="nombre" id="cat-nombre" class="form-control mb-2" maxlength="80" placeholder="Ej: Administrativo" required>
+                    <label class="form-label small mb-1" for="cat-desc">Para qué es <span class="text-muted">(opcional)</span></label>
+                    <input type="text" name="descripcion" id="cat-desc" class="form-control mb-3" maxlength="255" placeholder="Ej: Papelería, software, servicios de la oficina">
+                    <button name="crear" value="1" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Crear categoría</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

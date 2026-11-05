@@ -77,5 +77,5 @@ def roles(request):
             'calendario', 'plan', 'disposiciones', 'visitas', 'cotizaciones', 'programacion',
             'ordenes', 'fotos', 'correos')),
         've_gestion': any(acceso[m]['ver'] for m in (
-            'clientes', 'vehiculos', 'proveedores', 'documentacion', 'facturacion')),
+            'clientes', 'vehiculos', 'proveedores', 'documentacion', 'facturacion', 'gastos')),
     }

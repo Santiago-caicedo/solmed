@@ -570,6 +570,14 @@
             </a>
         </li>
         {% endif %}
+        {% if acceso.gastos.ver %}
+        {# Gastos (nov-2026): facturas de compra por vehículo o categoría, y la utilidad. #}
+        <li>
+            <a href="{% url 'gestion:gastos' %}" class="nav-link {% if request.path|slice:':12' == '/app/gastos/' %}active{% endif %}">
+                <i class="bi bi-wallet2"></i>Gastos
+            </a>
+        </li>
+        {% endif %}
 
         {% if ve_personal %}
         {% comment %}
