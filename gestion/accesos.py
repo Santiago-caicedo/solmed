@@ -150,6 +150,8 @@ MODULOS = [
         'acciones': [
             ('ver', 'Ver el personal', 'La lista y la ficha de cada persona.', True),
             ('editar', 'Crear y editar', 'Crear personas, editar cuentas y roles, cambiar contraseñas, cargar documentos, retirar y reactivar.', True),
+            # Nov-2026: abrir los documentos del expediente, por tipo (popup en «Gestionar accesos»).
+            ('documentos', 'Ver los documentos', 'Abrir los documentos del expediente en la ficha de cada persona, solo de los tipos que se marquen. Sin esta casilla ve si están cargados y vigentes, pero no los abre.', False),
             ('centro_control', 'Centro de control', 'El centro de control de cada persona (pantalla, PDF y Excel) y cambiar la fecha de retiro. Era solo de administradores.', False),
             ('eliminar', 'Eliminar', 'Eliminar una persona sin servicios. Era solo de administradores.', False),
         ],
@@ -220,8 +222,23 @@ MODULOS = [
     },
 ]
 
+# Los TIPOS de documento del personal que se marcan en el popup de «Ver los
+# documentos» (nov-2026). Son los de DocumentoPersonal.TIPO_CHOICES (una
+# prueba vigila que coincidan). Cada uno es una clave `personal.documento_<TIPO>`
+# que solo vale si además está `personal.documentos`.
+TIPOS_DOCUMENTO_PERSONAL = [
+    ('CEDULA', 'Cédula de ciudadanía'),
+    ('SEGURIDAD_SOCIAL', 'Seguridad social (EPS/ARL/Pensión)'),
+    ('ARL', 'Afiliación a ARL (personal nuevo)'),
+    ('LICENCIA', 'Licencia de conducción'),
+    ('CURSO_ALTURAS', 'Certificado curso de alturas'),
+    ('CURSO_CONFINADOS', 'Certificado espacios confinados'),
+    ('OTRO', 'Otros documentos'),
+]
+CLAVES_DOCUMENTO = {f'personal.documento_{tipo}' for tipo, _ in TIPOS_DOCUMENTO_PERSONAL}
+
 # Todas las claves válidas, y las que el rol Asesores tenía de siempre.
-TODAS = frozenset(f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones'])
+TODAS = frozenset({f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones']} | CLAVES_DOCUMENTO)
 BASE = frozenset(f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones'] if a[3])
 
 # Dónde «vive» un asesor al iniciar sesión, en orden de preferencia
@@ -273,6 +290,9 @@ def normalizar(claves):
     """
     # Claves que cambiaron de nombre (nov-2026): lo guardado antes sigue valiendo.
     claves = {RENOMBRADAS.get(c, c) for c in claves} & TODAS
+    # Los tipos de documento solo valen con «Ver los documentos» marcado.
+    if 'personal.documentos' not in claves:
+        claves -= CLAVES_DOCUMENTO
     for clave in list(claves):
         modulo = clave.split('.', 1)[0]
         if f'{modulo}.ver' in TODAS:
@@ -325,6 +345,18 @@ def autoriza(user, por_rol, acceso=None, acceso_escribir=None, escribe=False):
     if escribe and acceso_escribir and not tiene_acceso(user, acceso_escribir):
         return False
     return True
+
+
+def puede_ver_documento(user, tipo):
+    """
+    ¿Puede ABRIR un documento del personal de este tipo? (nov-2026). Solo
+    recorta a los asesores: hace falta «Ver los documentos» y el tipo marcado.
+    Administradores, Talento Humano y los demás roles que entran a la ficha,
+    como siempre. Ver el estado (cargado, vigente) no depende de esto.
+    """
+    if es_administrador(user) or not es_asesor(user):
+        return True
+    return tiene_acceso(user, 'personal.documentos') and tiene_acceso(user, f'personal.documento_{tipo}')
 
 
 def para_plantilla(user):

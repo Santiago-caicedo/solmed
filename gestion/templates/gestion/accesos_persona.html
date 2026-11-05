@@ -28,6 +28,15 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
 .ga-barra{ position:sticky; bottom:0; background:var(--panel); border-top:1px solid var(--line); padding:.75rem 0; margin-top:1rem;
     display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
 .ga-barra .resumen{ margin-left:auto; font-size:.85rem; color:var(--ink-3); }
+/* «Ver los documentos» lleva al lado el botón de sus tipos (nov-2026) */
+.ga-con-tipos{ display:flex; align-items:flex-start; gap:.35rem; }
+.ga-con-tipos .ga-item{ flex:1 1 auto; }
+.ga-tipos-btn{ flex:0 0 auto; margin-top:.3rem; font-size:.78rem; padding:.18rem .55rem; white-space:nowrap; }
+.ga-tipos-btn:disabled{ opacity:.45; }
+.ga-tipos-lista{ list-style:none; margin:0; padding:0; }
+.ga-tipos-lista li{ border-bottom:1px solid var(--line-2); }
+.ga-tipos-lista li:last-child{ border-bottom:0; }
+.ga-tipos-lista label{ display:flex; align-items:center; gap:.6rem; padding:.65rem .2rem; margin:0; cursor:pointer; font-size:.92rem; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -70,15 +79,56 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
         {% if m.acciones|length > 1 %}
         <div class="ga-acciones">
             {% for a in m.acciones %}{% if a.sufijo != 'ver' %}
+            {% if a.clave == 'personal.documentos' %}
+            {# Al marcarla, el botón abre los tipos de documento que puede abrir. #}
+            <div class="ga-con-tipos">
+                <label class="ga-item">
+                    <input type="checkbox" class="form-check-input ga-accion" id="ga-documentos" name="claves" value="{{ a.clave }}" {% if a.marcada %}checked{% endif %}>
+                    <span><span class="n">{{ a.nombre }}</span><span class="s">{{ a.descripcion }}</span></span>
+                </label>
+                <button type="button" class="btn btn-outline-primary ga-tipos-btn" id="ga-tipos-btn"
+                        data-bs-toggle="modal" data-bs-target="#ga-tipos" aria-label="Elegir los tipos de documento">
+                    <i class="bi bi-ui-checks me-1"></i><span id="ga-tipos-n">{{ n_tipos_marcados }} de {{ tipos_documento|length }}</span> tipos
+                </button>
+            </div>
+            {% else %}
             <label class="ga-item">
                 <input type="checkbox" class="form-check-input ga-accion" name="claves" value="{{ a.clave }}" {% if a.marcada %}checked{% endif %}>
                 <span><span class="n">{{ a.nombre }}</span><span class="s">{{ a.descripcion }}</span></span>
             </label>
+            {% endif %}
             {% endif %}{% endfor %}
         </div>
         {% endif %}
     </div>
     {% endfor %}
+
+    {# ---------- Popup: qué tipos de documento del personal puede abrir ---------- #}
+    <div class="modal fade" id="ga-tipos" tabindex="-1" aria-labelledby="ga-tipos-titulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ga-tipos-titulo">Documentos que puede abrir</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">En la ficha de cada persona. Los que no marques los verá como cargados o vencidos, pero no podrá abrirlos, subirlos ni borrarlos.</p>
+                    <ul class="ga-tipos-lista">
+                        {% for t in tipos_documento %}
+                        <li><label><input type="checkbox" class="form-check-input ga-tipo" name="claves" value="{{ t.clave }}" {% if t.marcada %}checked{% endif %}>{{ t.nombre }}</label></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-link btn-sm px-0" id="ga-tipos-todos">Marcar todos</button>
+                        <button type="button" class="btn btn-link btn-sm px-0" id="ga-tipos-ninguno">Ninguno</button>
+                    </div>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="ga-barra">
         <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>Guardar accesos</button>
@@ -106,6 +156,16 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
                 c.closest('.ga-item').classList.toggle('apagado', !activo);
             });
         });
+        // Los tipos de documento: solo con «Ver los documentos» marcado (y su módulo abierto).
+        var docs = document.getElementById('ga-documentos'), btn = document.getElementById('ga-tipos-btn');
+        if (docs && btn) {
+            var conDocs = docs.checked && !docs.disabled;
+            btn.disabled = !conDocs;
+            var tipos = form.querySelectorAll('.ga-tipo');
+            tipos.forEach(function (c) { c.disabled = !conDocs; if (!conDocs) c.checked = false; });
+            var marcados = Array.prototype.filter.call(tipos, function (c) { return c.checked; }).length;
+            document.getElementById('ga-tipos-n').textContent = marcados + ' de ' + tipos.length;
+        }
         var n = form.querySelectorAll('input[name="claves"]:checked').length;
         document.getElementById('ga-resumen').textContent = n + ' de ' + total + ' accesos marcados';
     }
@@ -114,6 +174,18 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
         refrescar();
     }
     form.addEventListener('change', refrescar);
+    // Al marcar «Ver los documentos» por primera vez, se abre el popup para elegir los tipos.
+    var docsCasilla = document.getElementById('ga-documentos');
+    if (docsCasilla) docsCasilla.addEventListener('change', function () {
+        var ninguno = !form.querySelector('.ga-tipo:checked');
+        if (docsCasilla.checked && ninguno) {
+            setTimeout(function () { document.getElementById('ga-tipos-btn').click(); }, 0);
+        }
+    });
+    function tipos(valor) { form.querySelectorAll('.ga-tipo').forEach(function (c) { c.checked = valor; }); refrescar(); }
+    var bTodos = document.getElementById('ga-tipos-todos'), bNinguno = document.getElementById('ga-tipos-ninguno');
+    if (bTodos) bTodos.addEventListener('click', function () { tipos(true); });
+    if (bNinguno) bNinguno.addEventListener('click', function () { tipos(false); });
     document.getElementById('ga-base').addEventListener('click', function () { poner(function (v) { return BASE.indexOf(v) !== -1; }); });
     document.getElementById('ga-todo').addEventListener('click', function () { poner(function () { return true; }); });
     document.getElementById('ga-nada').addEventListener('click', function () { poner(function () { return false; }); });

@@ -39,7 +39,7 @@ from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
-from .accesos import autoriza, casa_de_asesor, es_asesor, tiene_acceso
+from .accesos import autoriza, casa_de_asesor, es_asesor, puede_ver_documento, tiene_acceso
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -6227,6 +6227,10 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         persona = get_object_or_404(User, pk=pk)
         contexto = self._context(persona)
         contexto['fotos'] = self._fotos(request, persona)
+        # Qué documentos puede ABRIR quien mira (nov-2026, casillas por tipo).
+        for slot in contexto['slots']:
+            slot['puede_ver'] = puede_ver_documento(request.user, slot['tipo'])
+        contexto['puede_ver_otros'] = puede_ver_documento(request.user, 'OTRO')
         return render(request, self.template_name, contexto)
 
     def post(self, request, pk):
@@ -6235,6 +6239,9 @@ class FichaPersonaView(PersonalRequiredMixin, View):
         frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
             return frenar
+        if not puede_ver_documento(request.user, request.POST.get('tipo') or ''):
+            messages.error(request, "No tienes permiso para los documentos de ese tipo.")
+            return redirect('gestion:ficha_persona', pk=pk)
         form = DocumentoPersonalForm(request.POST, request.FILES)
         if form.is_valid():
             documento = form.save(commit=False)
@@ -8106,8 +8113,10 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
 
     def get(self, request, pk):
         persona = get_object_or_404(User, pk=pk)
-        return render(request, self.template_name,
-                      self._context(persona, request.GET.get('page')))
+        contexto = self._context(persona, request.GET.get('page'))
+        # Casillas por tipo (nov-2026): la seguridad social y la ARL, cada una con la suya.
+        contexto['puede_ver'] = {t: puede_ver_documento(request.user, t) for t in DocumentoPersonal.TIPOS_COBERTURA}
+        return render(request, self.template_name, contexto)
 
     def post(self, request, pk):
         """Carga una seguridad social (con su vigencia) desde el historial."""
@@ -8115,6 +8124,9 @@ class HistorialSeguridadSocialView(PersonalRequiredMixin, View):
         frenar = _protege_superusuario(request, persona) or _protege_gestion(request, persona)
         if frenar is not None:
             return frenar
+        if not puede_ver_documento(request.user, request.POST.get('tipo') or 'SEGURIDAD_SOCIAL'):
+            messages.error(request, "No tienes permiso para la seguridad social del personal.")
+            return redirect('gestion:historial_seguridad_social', pk=pk)
         datos = request.POST.copy()
         # Desde el historial se carga la seguridad social; la ARL se sube desde
         # su propia casilla del expediente.
@@ -8144,6 +8156,9 @@ class ActualizarVigenciaDocumentoView(PersonalRequiredMixin, View):
     acceso = 'personal.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoPersonal, pk=pk)
+        if not puede_ver_documento(request.user, documento.tipo):
+            messages.error(request, "No tienes permiso para los documentos de ese tipo.")
+            return redirect('gestion:ficha_persona', pk=documento.usuario_id)
         frenar = (_protege_superusuario(request, documento.usuario)
                   or _protege_gestion(request, documento.usuario))
         if frenar is not None:
@@ -8295,9 +8310,14 @@ class GestionarAccesosView(AdministradorRequiredMixin, View):
                 'descripcion': descripcion, 'marcada': f"{m['clave']}.{sufijo}" in marcadas,
             } for sufijo, nombre, descripcion, _base in m['acciones']],
         } for m in MODULOS]
+        from .accesos import TIPOS_DOCUMENTO_PERSONAL
+        tipos_documento = [{'clave': f'personal.documento_{t}', 'nombre': n,
+                            'marcada': f'personal.documento_{t}' in marcadas} for t, n in TIPOS_DOCUMENTO_PERSONAL]
         return render(request, self.template_name, {
             'persona': persona, 'registro': registro, 'modulos': modulos,
             'base_json': json.dumps(sorted(BASE)),
+            'tipos_documento': tipos_documento,
+            'n_tipos_marcados': sum(1 for t in tipos_documento if t['marcada']),
         })
 
     def post(self, request, pk):
@@ -8323,6 +8343,9 @@ class EliminarDocumentoPersonalView(PersonalRequiredMixin, View):
                   or _protege_gestion(request, documento.usuario))
         if frenar is not None:
             return frenar
+        if not puede_ver_documento(request.user, documento.tipo):
+            messages.error(request, "No tienes permiso para los documentos de ese tipo.")
+            return redirect('gestion:ficha_persona', pk=documento.usuario_id)
         usuario_pk = documento.usuario_id
         # Al borrar desde el historial de seguridad social se vuelve allí.
         volver_a_historial = request.POST.get('origen') == 'seguridad_social'

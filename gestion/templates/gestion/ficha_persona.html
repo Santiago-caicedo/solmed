@@ -151,6 +151,7 @@
                                 {% endif %}
                             </div>
                             {% if slot.cargado %}
+                            {% if slot.puede_ver %}
                             <div class="d-flex gap-1">
                                 <a href="{{ slot.doc.archivo.url }}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-arrow-down"></i> Ver</a>
                                 <form method="post" action="{% url 'gestion:eliminar_documento_personal' slot.doc.pk %}" onsubmit="return confirm('¿Eliminar este documento?');">
@@ -158,10 +159,14 @@
                                     <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                                 </form>
                             </div>
+                            {% else %}
+                            {# Ve el estado, no el archivo (casillas por tipo, nov-2026). #}
+                            <span class="small text-muted"><i class="bi bi-lock me-1"></i>Sin permiso para abrirlo</span>
+                            {% endif %}
                             {% endif %}
                         </div>
 
-                        {% if slot.cargado and slot.con_vigencia %}
+                        {% if slot.cargado and slot.con_vigencia and slot.puede_ver %}
                         {# Botón que abre el pop-up para registrar/editar la vigencia del documento #}
                         <div class="mt-2">
                             <button type="button" class="btn btn-sm {% if slot.doc.fecha_vencimiento %}btn-outline-secondary{% else %}btn-outline-warning{% endif %}"
@@ -172,7 +177,7 @@
                         </div>
                         {% endif %}
 
-                        {% if not slot.cargado %}
+                        {% if not slot.cargado and slot.puede_ver %}
                         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center mt-2">
                             {% csrf_token %}
                             <input type="hidden" name="tipo" value="{{ slot.tipo }}">
@@ -199,13 +204,16 @@
                     <li class="d-flex justify-content-between border-bottom py-1">
                         <span>{{ d.descripcion|default:"Otro documento" }}</span>
                         <span>
+                            {% if puede_ver_otros %}
                             <a href="{{ d.archivo.url }}" target="_blank">Ver</a>
                             <form method="post" action="{% url 'gestion:eliminar_documento_personal' d.pk %}" class="d-inline" onsubmit="return confirm('¿Eliminar?');">{% csrf_token %}<button class="btn btn-link btn-sm text-danger p-0 ms-2">Eliminar</button></form>
+                            {% else %}<span class="text-muted"><i class="bi bi-lock me-1"></i>Sin permiso para abrirlo</span>{% endif %}
                         </span>
                     </li>
                     {% endfor %}
                 </ul>
                 {% endif %}
+                {% if puede_ver_otros %}
                 <form method="post" enctype="multipart/form-data" class="row g-2 align-items-center">
                     {% csrf_token %}
                     <input type="hidden" name="tipo" value="OTRO">
@@ -213,6 +221,7 @@
                     <div class="col-auto flex-grow-1"><input type="file" name="archivo" class="form-control form-control-sm" required></div>
                     <div class="col-auto"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus-circle me-1"></i>Agregar otro</button></div>
                 </form>
+                {% endif %}
             </div>
         </div>
         {# ===== Fotos que subió como ayudante (solo gestión; oct-2026) ===== #}

@@ -100,6 +100,18 @@ def imagen(nombre='foto.png'):
     return SimpleUploadedFile(nombre, png_bytes(), content_type='image/png')
 
 
+def con_todos_los_documentos(asesor):
+    """
+    Nov-2026: los documentos del personal se abren por tipo y, de base, la
+    asesora no tiene ninguno. Las pruebas de la ficha que NO son de permisos
+    le marcan todos para probar la función, no el acceso.
+    """
+    from .accesos import BASE, CLAVES_DOCUMENTO
+    from .models import AccesosAsesor
+    AccesosAsesor.objects.update_or_create(
+        usuario=asesor, defaults={'claves': sorted(BASE | {'personal.documentos'} | CLAVES_DOCUMENTO)})
+
+
 @medios_temporales
 class BaseCRM(TestCase):
     """Utilidades compartidas: personas con rol, clientes, vehículos y servicios."""
@@ -1786,6 +1798,7 @@ class PersonalYExpedienteTests(BaseCRM):
     def test_la_vigencia_se_puede_fijar_y_quitar_desde_la_ficha(self):
         documento = DocumentoPersonal.objects.create(
             usuario=self.conductor, tipo='LICENCIA', archivo=archivo())
+        con_todos_los_documentos(self.asesor)
         self.entrar(self.asesor)
         url = reverse('gestion:vigencia_documento_personal', args=[documento.pk])
 
@@ -6632,6 +6645,7 @@ class HistorialSeguridadSocialTests(BaseCRM):
         self.assertFalse(self.client.get(self.url).context['al_dia'])
 
     def test_borrar_una_carga_devuelve_al_historial(self):
+        con_todos_los_documentos(self.asesor)
         documento = DocumentoPersonal.objects.create(
             usuario=self.conductor, tipo='SEGURIDAD_SOCIAL', archivo=archivo(),
             fecha_vencimiento=timezone.localdate() + datetime.timedelta(days=10))
@@ -12098,6 +12112,63 @@ class AccesosDeAsesorTests(BaseCRM):
         claves = set(AccesosAsesor.objects.get(usuario=self.asesor).claves)
         self.assertTrue({'otros_proveedores.ver', 'otros_proveedores.editar', 'fotos_servicios.ver'} <= claves)
         self.assertNotIn('otros_proveedores.eliminar', claves, "no gana lo que no tenía")
+
+    def test_los_documentos_del_personal_se_abren_por_tipo(self):
+        """
+        Nov-2026: «Ver los documentos» con sus tipos en un popup. Sin la casilla
+        (de base nadie la tiene), la asesora ve el estado pero no abre el archivo.
+        """
+        from .accesos import BASE, TIPOS_DOCUMENTO_PERSONAL, normalizar, puede_ver_documento
+        self.assertEqual([t for t, _ in TIPOS_DOCUMENTO_PERSONAL], [t for t, _ in DocumentoPersonal.TIPO_CHOICES],
+                         "el popup debe ofrecer los mismos tipos del modelo")
+        self.assertNotIn('personal.documentos', BASE, "al desplegar, ninguna asesora tiene tipos marcados")
+        # Sin «Ver los documentos», los tipos sueltos no valen.
+        self.assertNotIn('personal.documento_CEDULA', normalizar({'personal.ver', 'personal.documento_CEDULA'}))
+        persona = self.conductor
+        cedula = DocumentoPersonal.objects.create(usuario=persona, tipo='CEDULA', archivo=archivo('cedula.pdf'))
+        ss = self.con_ss(persona)
+        url_ficha = reverse('gestion:ficha_persona', args=[persona.pk])
+        # De base: ve que están cargados, pero no los abre.
+        self.entrar(self.asesor)
+        ficha = self.client.get(url_ficha)
+        self.assertEqual(ficha.status_code, 200)
+        self.assertContains(ficha, 'Cargado')
+        self.assertNotContains(ficha, cedula.archivo.url)
+        self.assertNotContains(ficha, ss.archivo.url)
+        self.assertContains(ficha, 'Sin permiso para abrirlo')
+        self.assertNotContains(self.client.get(reverse('gestion:historial_seguridad_social', args=[persona.pk])), ss.archivo.url)
+        # Ni subir ni borrar un tipo que no puede abrir, aunque tenga «Crear y editar».
+        self.client.post(reverse('gestion:eliminar_documento_personal', args=[cedula.pk]))
+        self.assertTrue(DocumentoPersonal.objects.filter(pk=cedula.pk).exists())
+        self.client.post(url_ficha, {'tipo': 'LICENCIA', 'archivo': archivo('licencia.pdf')})
+        self.assertFalse(DocumentoPersonal.objects.filter(usuario=persona, tipo='LICENCIA').exists())
+        # Con la cédula marcada: abre la cédula y no la seguridad social.
+        self.accesos(BASE | {'personal.documentos', 'personal.documento_CEDULA'})
+        self.assertTrue(puede_ver_documento(self.asesor, 'CEDULA'))
+        self.assertFalse(puede_ver_documento(self.asesor, 'SEGURIDAD_SOCIAL'))
+        ficha = self.client.get(url_ficha)
+        self.assertContains(ficha, cedula.archivo.url)
+        self.assertNotContains(ficha, ss.archivo.url)
+        # Administradores y Talento Humano, como siempre.
+        for quien in (self.admin, self.talento):
+            with self.subTest(quien=quien.username):
+                self.entrar(quien)
+                ficha = self.client.get(url_ficha)
+                self.assertContains(ficha, cedula.archivo.url)
+                self.assertContains(ficha, ss.archivo.url)
+        # «Gestionar accesos» trae la casilla y el popup con los siete tipos.
+        self.entrar(self.admin)
+        pagina = self.client.get(reverse('gestion:accesos_persona', args=[self.asesor.pk]))
+        self.assertContains(pagina, 'Ver los documentos')
+        self.assertContains(pagina, 'id="ga-tipos"')
+        self.assertContains(pagina, '1 de 7')
+        for _tipo, nombre in TIPOS_DOCUMENTO_PERSONAL:
+            self.assertContains(pagina, nombre)
+        # Guardar: los tipos se conservan solo con la casilla madre.
+        self.client.post(reverse('gestion:accesos_persona', args=[self.asesor.pk]),
+                         {'claves': ['personal.ver', 'personal.documento_ARL']})
+        from .models import AccesosAsesor
+        self.assertNotIn('personal.documento_ARL', AccesosAsesor.objects.get(usuario=self.asesor).claves)
 
     def test_gestionar_accesos_es_solo_de_administradores_y_solo_sobre_asesores(self):
         url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
