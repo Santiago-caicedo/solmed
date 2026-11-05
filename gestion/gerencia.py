@@ -45,7 +45,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
 
-from .models import Factura, PerfilPersona, Recorrido
+from .models import Factura, LineaFactura, OrdenServicio, PerfilPersona, Recorrido
 from .views import AdministradorRequiredMixin, MESES_CORTOS
 
 MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
@@ -172,6 +172,33 @@ def _resumen_facturacion(facturas):
         if f.estado == 'ENVIADA':
             enviado += t
     return {'preliquidado': pre, 'fev': fev, 'enviado': enviado}
+
+
+def _ingreso(desde, hasta):
+    """
+    El INGRESO de los servicios prestados entre `desde` y `hasta` (nov-2026,
+    Santiago): lo que valen las órdenes cuyo servicio fue en esas fechas, según
+    el precio que ya tienen en una preliquidación, sin importar su etapa
+    (preliquidada, facturada o enviada). Se cuenta por la fecha del SERVICIO,
+    no por la de la preliquidación. Las órdenes del periodo que aún no están
+    en ninguna preliquidación no tienen precio: se cuentan aparte.
+    """
+    lineas = (LineaFactura.objects
+              .annotate(servicio=Min('orden__recorridos__fecha_recorrido'))
+              .filter(servicio__range=(desde, hasta))
+              .exclude(orden__estado_orden='CANCELADA')
+              .prefetch_related('conceptos'))
+    total = Decimal('0')
+    ordenes = set()
+    for l in lineas:
+        total += l.subtotal
+        ordenes.add(l.orden_id)
+    sin_precio = (OrdenServicio.objects
+                  .annotate(servicio=Min('recorridos__fecha_recorrido'))
+                  .filter(servicio__range=(desde, hasta), lineas_factura__isnull=True)
+                  .exclude(estado_orden='CANCELADA').count())
+    return {'valor': float(total), 'con_precio': len(ordenes), 'sin_precio': sin_precio,
+            'por_servicio': float(total) / len(ordenes) if ordenes else None}
 
 
 def _servicios(desde, hasta):
@@ -455,6 +482,22 @@ def tablero_gerencia(desde, hasta, clave=None):
     for f in matriz['filas']:
         f['nombre'] = nombres[f['id']]
         f['total'] = sum(f['valores'])
+    # Ingreso por fecha del servicio: el mes en curso y el periodo elegido.
+    hoy_mes = timezone.localdate()
+    mes_desde = hoy_mes.replace(day=1)
+    mes_ant_desde, mes_ant_hasta = periodo_anterior(mes_desde, hoy_mes, 'mes')
+    ingreso_mes = _ingreso(mes_desde, hoy_mes)
+    ingreso_mes_ant = _ingreso(mes_ant_desde, mes_ant_hasta)
+    ingreso_periodo = _ingreso(desde, hasta)
+    ingreso_periodo_ant = _ingreso(a_desde, a_hasta)
+    ingresos = {
+        'mes': dict(ingreso_mes, delta=_delta(ingreso_mes['valor'], ingreso_mes_ant['valor']),
+                    nombre=nombre_periodo(mes_desde, hoy_mes),
+                    anterior=nombre_periodo(mes_ant_desde, mes_ant_hasta)),
+        'periodo': dict(ingreso_periodo, delta=_delta(ingreso_periodo['valor'], ingreso_periodo_ant['valor'])),
+        'por_servicio_delta': (_delta(ingreso_periodo['por_servicio'], ingreso_periodo_ant['por_servicio'])
+                               if ingreso_periodo['por_servicio'] and ingreso_periodo_ant['por_servicio'] else None),
+    }
     kpis = {
         'preliquidado': float(resumen['preliquidado']),
         'preliquidado_delta': _delta(resumen['preliquidado'], anterior['preliquidado']),
@@ -477,6 +520,7 @@ def tablero_gerencia(desde, hasta, clave=None):
     clientes_ant = _por_cliente(facturas_ant, _servicios(a_desde, a_hasta), anterior['preliquidado'])
     return {
         'kpis': kpis,
+        'ingresos': ingresos,
         'anterior': {'desde': a_desde, 'hasta': a_hasta},
         'meses': meses,
         'clientes_mes': matriz,

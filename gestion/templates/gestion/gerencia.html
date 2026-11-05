@@ -34,6 +34,16 @@ acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
 .ger-sec > .t{ display:flex; justify-content:space-between; align-items:baseline; gap:1rem; flex-wrap:wrap; margin-bottom:.75rem; }
 .ger-sec > .t p{ margin:0; color:var(--ink-2); font-size:.88rem; }
 
+/* ---- Ingresos: lo que valen los servicios prestados (por fecha del servicio) ---- */
+.ger-ing{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); margin-bottom:1rem; }
+.ger-ing .c{ padding:1.15rem 1.5rem 1.1rem; border-left:1px solid var(--line-2); min-width:0; }
+.ger-ing .c:first-child{ border-left:0; }
+.ger-ing .k{ font-size:.88rem; font-weight:500; color:var(--ink-2); }
+.ger-ing .v{ font-size:1.7rem; font-weight:600; letter-spacing:-.02em; line-height:1.15; margin-top:.25rem; color:var(--ink); }
+.ger-ing .cmp{ display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; font-size:.82rem; color:var(--ink-2); margin-top:.45rem; }
+.ger-ing .pie{ font-size:.8rem; color:var(--ink-3); margin-top:.5rem; }
+@media (max-width:900px){ .ger-ing{ grid-template-columns:1fr; } .ger-ing .c{ border-left:0; border-top:1px solid var(--line-2); } .ger-ing .c:first-child{ border-top:0; } }
+
 /* ---- El protagonista: cómo vamos + la curva ---- */
 .ger-hero{ display:grid; grid-template-columns:minmax(0,5fr) minmax(0,7fr); }
 .ger-hero .izq{ padding:1.75rem 1.75rem 1.5rem; border-right:1px solid var(--line-2); display:flex; flex-direction:column; gap:1.25rem; }
@@ -158,6 +168,30 @@ acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
     </div>
 
     {% with k=d.kpis %}
+    {# ---------- Ingresos (nov-2026): lo que valen los servicios prestados, ya con precio, por la fecha del servicio ---------- #}
+    {% with im=d.ingresos.mes ip=d.ingresos.periodo %}
+    <div class="ger-panel ger-ing" aria-label="Ingresos">
+        <div class="c">
+            <div class="k">Ingreso del mes</div>
+            <div class="v">${{ im.valor|floatformat:0|intcomma }}</div>
+            <div class="cmp">{% include 'gestion/partials/_gerencia_variacion.html' with v=im.delta %}{% if im.delta is not None %} frente a {{ im.anterior }}{% endif %}</div>
+            <div class="pie">{% if im.con_precio %}De {{ im.con_precio }} servicio{{ im.con_precio|pluralize }} prestado{{ im.con_precio|pluralize }} en {{ im.nombre }} que ya tiene{{ im.con_precio|pluralize:"n" }} precio{% if im.sin_precio %}; {{ im.sin_precio }} más aún sin preliquidar{% endif %}.{% elif im.sin_precio %}{{ im.sin_precio }} servicio{{ im.sin_precio|pluralize }} de {{ im.nombre }} aún sin preliquidar: cuando tengan precio, suman aquí.{% else %}Ningún servicio prestado en {{ im.nombre }}.{% endif %}</div>
+        </div>
+        <div class="c">
+            <div class="k">Ingreso del periodo</div>
+            <div class="v">${{ ip.valor|floatformat:0|intcomma }}</div>
+            <div class="cmp">{% include 'gestion/partials/_gerencia_variacion.html' with v=ip.delta %}{% if ip.delta is not None %} frente a {{ nombre_anterior }}{% endif %}</div>
+            <div class="pie">{% if ip.con_precio %}De {{ ip.con_precio }} servicio{{ ip.con_precio|pluralize }} prestado{{ ip.con_precio|pluralize }} en {{ nombre_periodo }} que ya tiene{{ ip.con_precio|pluralize:"n" }} precio{% if ip.sin_precio %}; {{ ip.sin_precio }} más aún sin preliquidar{% endif %}.{% elif ip.sin_precio %}{{ ip.sin_precio }} servicio{{ ip.sin_precio|pluralize }} de {{ nombre_periodo }} aún sin preliquidar: cuando tengan precio, suman aquí.{% else %}Ningún servicio prestado en {{ nombre_periodo }}.{% endif %}</div>
+        </div>
+        <div class="c">
+            <div class="k">Ingreso por servicio</div>
+            <div class="v">{% if ip.por_servicio %}${{ ip.por_servicio|floatformat:0|intcomma }}{% else %}Sin servicios con precio{% endif %}</div>
+            <div class="cmp">{% include 'gestion/partials/_gerencia_variacion.html' with v=d.ingresos.por_servicio_delta %}{% if d.ingresos.por_servicio_delta is not None %} frente a {{ nombre_anterior }}{% endif %}</div>
+            <div class="pie">Promedio de los servicios del periodo que ya tienen precio.</div>
+        </div>
+    </div>
+    {% endwith %}
+
     {# ---------- Protagonista: cómo vamos y la curva de facturación ---------- #}
     <div class="ger-panel ger-hero">
         <div class="izq">
@@ -183,9 +217,9 @@ acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
                     <div class="s">{% if k.enviado_pct is not None %}{{ k.enviado_pct|floatformat:0 }}% de lo preliquidado{% else %}Nada enviado aún{% endif %}</div>
                 </div>
                 <div class="ger-cifra">
-                    <div class="k">Promedio por servicio</div>
-                    <div class="v">{% if k.ticket %}${{ k.ticket|floatformat:0|intcomma }}{% else %}Sin servicios{% endif %}</div>
-                    <div class="s">Lo preliquidado dividido entre los servicios realizados</div>
+                    <div class="k">Clientes con facturación</div>
+                    <div class="v">{{ k.clientes }}</div>
+                    <div class="s">{% if k.clientes > 5 %}Los cinco primeros suman el {{ k.top5|floatformat:0 }}%{% elif k.clientes %}Ver quiénes más abajo{% else %}Ninguno en este periodo{% endif %}</div>
                 </div>
                 <div class="ger-cifra">
                     <div class="k">Por preliquidar</div>

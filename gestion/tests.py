@@ -11769,6 +11769,30 @@ class TableroGerenciaTests(BaseCRM):
         self.assertContains(respuesta, 'class="sidebar')
         self.assertContains(respuesta, 'llevamos $1.200.000 preliquidados en 1 servicio')
 
+    def test_el_ingreso_va_por_la_fecha_del_servicio_y_en_cualquier_etapa(self):
+        """
+        Nov-2026: el ingreso es lo que valen los servicios PRESTADOS en el mes
+        o el periodo, según su precio en una preliquidación de cualquier etapa,
+        aunque la preliquidación se haya emitido en otro mes.
+        """
+        hoy = timezone.localdate()
+        # La preliquidación de 300.000 se emitió el año pasado, pero su servicio es de hoy: es ingreso de hoy.
+        self.f2.fecha_emision = hoy.replace(year=hoy.year - 1)
+        self.f2.save(update_fields=['fecha_emision'])
+        # Una orden de hoy que nadie ha preliquidado: sin precio, se cuenta aparte.
+        BaseCRM.programacion(cliente=self.cli, conductor=self.conductor,
+                             vehiculo=self.vehiculo('OBC727')).convertir_en_orden(self.asesor)
+        respuesta = self.gerencia()
+        ingresos = respuesta.context['d']['ingresos']
+        self.assertEqual(ingresos['mes']['valor'], 1200000, "las dos órdenes de hoy, sin importar la etapa ni la emisión")
+        self.assertEqual((ingresos['mes']['con_precio'], ingresos['mes']['sin_precio']), (2, 1))
+        self.assertEqual(ingresos['periodo']['valor'], 1200000)
+        self.assertEqual(ingresos['periodo']['por_servicio'], 600000)
+        self.assertEqual(respuesta.context['d']['kpis']['preliquidado'], 900000,
+                         "lo preliquidado sí va por la fecha de emisión")
+        self.assertContains(respuesta, 'Ingreso del mes')
+        self.assertContains(respuesta, '1 más aún sin preliquidar')
+
     def test_solo_administradores_y_la_url_vieja_lleva_aqui(self):
         from .accesos import TODAS
         from .models import AccesosAsesor
