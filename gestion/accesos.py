@@ -74,11 +74,20 @@ MODULOS = [
             ('numero', 'Cambiar el número de la orden', 'Cambiar el consecutivo de una orden. Era solo de administradores.', False),
         ],
     },
+    # Nov-2026 (Santiago): las dos pantallas de fotos se abren por separado.
+    # `fotos` conserva su clave y queda para las de ayudantes.
     {
-        'clave': 'fotos', 'nombre': 'Fotos', 'icono': 'bi-images',
-        'descripcion': 'Las fotos de los ayudantes y el registro fotográfico de los servicios, por día.',
+        'clave': 'fotos', 'nombre': 'Fotos de ayudantes', 'icono': 'bi-person-badge',
+        'descripcion': 'Lo que suben los ayudantes con su enlace, por día y por novedad.',
         'acciones': [
-            ('ver', 'Ver las fotos', '«Fotos de ayudantes» y «Fotos de servicios».', True),
+            ('ver', 'Ver las fotos de ayudantes', 'La pantalla «Fotos de ayudantes» y las fotos en la ficha de cada persona.', True),
+        ],
+    },
+    {
+        'clave': 'fotos_servicios', 'nombre': 'Fotos de servicios', 'icono': 'bi-camera',
+        'descripcion': 'El registro fotográfico de los servicios, por día y por punto.',
+        'acciones': [
+            ('ver', 'Ver las fotos de servicios', 'La pantalla «Fotos de servicios».', True),
         ],
     },
     {
@@ -107,12 +116,23 @@ MODULOS = [
             ('eliminar', 'Eliminar', 'Eliminar un vehículo. Era solo de administradores.', False),
         ],
     },
+    # Nov-2026 (Santiago): los dos tipos de proveedor se abren por separado.
+    # `proveedores` conserva su clave y queda para los de disposición final.
     {
-        'clave': 'proveedores', 'nombre': 'Proveedores', 'icono': 'bi-recycle',
-        'descripcion': 'Los gestores de disposición y los proveedores generales.',
+        'clave': 'proveedores', 'nombre': 'Proveedores de disposición final', 'icono': 'bi-recycle',
+        'descripcion': 'Los gestores y plantas a donde se lleva el residuo, con su expediente.',
         'acciones': [
-            ('ver', 'Ver los proveedores', 'Las listas y la ficha de cada proveedor.', True),
-            ('editar', 'Crear y editar', 'Crear y editar proveedores y sus documentos.', True),
+            ('ver', 'Ver los de disposición final', 'La lista y la ficha de cada gestor de disposición.', True),
+            ('editar', 'Crear y editar', 'Crear y editar gestores de disposición y sus documentos.', True),
+            ('eliminar', 'Eliminar', 'Eliminar un gestor de disposición. Era solo de administradores.', False),
+        ],
+    },
+    {
+        'clave': 'otros_proveedores', 'nombre': 'Otros proveedores', 'icono': 'bi-briefcase',
+        'descripcion': 'Los proveedores de bienes y servicios, con contactos, datos bancarios y expediente.',
+        'acciones': [
+            ('ver', 'Ver los otros proveedores', 'La lista y la ficha de cada proveedor de bienes y servicios.', True),
+            ('editar', 'Crear y editar', 'Crear y editar proveedores, sus contactos y sus documentos.', True),
             ('eliminar', 'Eliminar', 'Eliminar un proveedor. Era solo de administradores.', False),
         ],
     },
@@ -219,7 +239,9 @@ CASAS = [
     ('certificados.ver', 'gestion:disposiciones_finales'),
     ('vehiculos.ver', 'gestion:lista_vehiculos'),
     ('proveedores.ver', 'gestion:lista_dispositores'),
-    ('fotos.ver', 'gestion:fotos_servicios'),
+    ('otros_proveedores.ver', 'gestion:lista_proveedores'),
+    ('fotos_servicios.ver', 'gestion:fotos_servicios'),
+    ('fotos.ver', 'gestion:fotos_ayudantes'),
     ('documentacion.ver', 'gestion:documentacion'),
     ('tablero.ver', 'gestion:dashboard'),
     ('plan.ver', 'planes:plan_dia'),

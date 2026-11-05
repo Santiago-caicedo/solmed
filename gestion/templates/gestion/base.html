@@ -501,7 +501,7 @@
             </a>
         </li>
         {% endif %}
-        {% if acceso.fotos.ver %}
+        {% if acceso.fotos.ver or acceso.fotos_servicios.ver %}
         {# Una sola entrada «Fotos» que se despliega (pedido de Santiago, oct-2026). Abierta si se está en una de sus pantallas. #}
         {% with en_fotos=request.path|slice:':11' %}
         <li>
@@ -511,16 +511,20 @@
                 <i class="bi bi-images"></i>Fotos<i class="bi bi-chevron-right flecha" aria-hidden="true"></i>
             </button>
             <ul class="nav-sub collapse {% if en_fotos == '/app/fotos-' %}show{% endif %}" id="menuFotos">
+                {% if acceso.fotos.ver %}
                 <li>
                     <a href="{% url 'gestion:fotos_ayudantes' %}" class="nav-link {% if 'fotos-ayudantes' in request.path %}active{% endif %}">
                         <i class="bi bi-person-badge"></i>Fotos de ayudantes
                     </a>
                 </li>
+                {% endif %}
+                {% if acceso.fotos_servicios.ver %}
                 <li>
                     <a href="{% url 'gestion:fotos_servicios' %}" class="nav-link {% if 'fotos-servicios' in request.path %}active{% endif %}">
                         <i class="bi bi-camera"></i>Fotos de servicios
                     </a>
                 </li>
+                {% endif %}
             </ul>
         </li>
         {% endwith %}
@@ -548,7 +552,7 @@
             </a>
         </li>
         {% endif %}
-        {% if acceso.proveedores.ver %}
+        {% if acceso.proveedores.ver or acceso.otros_proveedores.ver %}
         {% comment %}
         «Proveedores» se despliega como «Fotos» (pedido de Santiago, nov-2026):
         Disposición final y Otros proveedores son páginas aparte. Abierto si se
@@ -562,16 +566,20 @@
                 <i class="bi bi-building"></i>Proveedores<i class="bi bi-chevron-right flecha" aria-hidden="true"></i>
             </button>
             <ul class="nav-sub collapse {% if en_prov == '/app/proveedores' %}show{% endif %}" id="menuProveedores">
+                {% if acceso.proveedores.ver %}
                 <li>
                     <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if en_prov == '/app/proveedores' and en_gen != '/app/proveedores/generales' %}active{% endif %}">
                         <i class="bi bi-recycle"></i>Disposición final
                     </a>
                 </li>
+                {% endif %}
+                {% if acceso.otros_proveedores.ver %}
                 <li>
                     <a href="{% url 'gestion:lista_proveedores' %}" class="nav-link {% if en_gen == '/app/proveedores/generales' %}active{% endif %}">
                         <i class="bi bi-briefcase"></i>Otros proveedores
                     </a>
                 </li>
+                {% endif %}
             </ul>
         </li>
         {% endwith %}

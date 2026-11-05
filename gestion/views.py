@@ -7923,7 +7923,7 @@ class FotosServiciosView(AsesorRequiredMixin, View):
     y quién subió la foto. Por defecto muestra los últimos 30 días. Gestión y
     asesores, igual que «Fotos de ayudantes».
     """
-    acceso = 'fotos.ver'
+    acceso = 'fotos_servicios.ver'
     template_name = 'gestion/fotos_servicios.html'
 
     def get(self, request):
@@ -8601,7 +8601,7 @@ from .forms import ContactoProveedorFormSet, DocumentoProveedorForm, ProveedorFo
 
 
 class ListaProveedoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
-    acceso = 'proveedores.ver'
+    acceso = 'otros_proveedores.ver'
     model = Proveedor
     template_name = 'gestion/lista_proveedores.html'
     context_object_name = 'proveedores'
@@ -8625,7 +8625,7 @@ class _FormularioProveedorMixin:
 
 
 class CrearProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
-    acceso = 'proveedores.editar'
+    acceso = 'otros_proveedores.editar'
     def get(self, request):
         return self._render(request, ProveedorForm(), ContactoProveedorFormSet())
 
@@ -8647,7 +8647,7 @@ class CrearProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
 
 
 class ActualizarProveedorView(AsesorRequiredMixin, _FormularioProveedorMixin, View):
-    acceso = 'proveedores.editar'
+    acceso = 'otros_proveedores.editar'
     def get(self, request, pk):
         proveedor = get_object_or_404(Proveedor, pk=pk)
         return self._render(request, ProveedorForm(instance=proveedor),
@@ -8670,7 +8670,7 @@ class FichaProveedorView(AsesorRequiredMixin, View):
     Ficha del proveedor general: datos de facturación, contactos, datos
     bancarios y su expediente (documentos con nombre libre).
     """
-    acceso = 'proveedores.ver'
+    acceso = 'otros_proveedores.ver'
     template_name = 'gestion/ficha_proveedor.html'
 
     def _context(self, proveedor, form=None):
@@ -8704,7 +8704,7 @@ class EliminarProveedorView(AdministradorRequiredMixin, View):
     Elimina un proveedor general (solo POST). Sus contactos y documentos se
     van con él; como nada más lo referencia, se puede borrar siempre.
     """
-    acceso = 'proveedores.eliminar'
+    acceso = 'otros_proveedores.eliminar'
     def post(self, request, pk):
         proveedor = get_object_or_404(Proveedor, pk=pk)
         nombre = str(proveedor)
@@ -8715,7 +8715,7 @@ class EliminarProveedorView(AdministradorRequiredMixin, View):
 
 class EliminarDocumentoProveedorView(AsesorRequiredMixin, View):
     """Elimina un documento del expediente del proveedor general (solo POST)."""
-    acceso = 'proveedores.editar'
+    acceso = 'otros_proveedores.editar'
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoProveedor, pk=pk)
         proveedor_pk = documento.proveedor_id

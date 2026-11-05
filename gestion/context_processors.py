@@ -75,7 +75,7 @@ def roles(request):
         # Encabezados del menú: solo si hay algo debajo.
         've_operacion': any(acceso[m]['ver'] for m in (
             'calendario', 'plan', 'disposiciones', 'visitas', 'cotizaciones', 'programacion',
-            'ordenes', 'fotos', 'correos')),
+            'ordenes', 'fotos', 'fotos_servicios', 'correos')),
         've_gestion': any(acceso[m]['ver'] for m in (
-            'clientes', 'vehiculos', 'proveedores', 'documentacion', 'facturacion', 'gastos')),
+            'clientes', 'vehiculos', 'proveedores', 'otros_proveedores', 'documentacion', 'facturacion', 'gastos')),
     }

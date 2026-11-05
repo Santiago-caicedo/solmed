@@ -12047,6 +12047,58 @@ class AccesosDeAsesorTests(BaseCRM):
                                              {'fecha': timezone.localdate().isoformat()}).status_code, 403)
         self.assertContains(self.client.get(reverse('planes:plan_dia')), 'submit_asignacion')
 
+    def test_proveedores_y_fotos_se_abren_por_separado(self):
+        """
+        Nov-2026: en «Gestionar accesos», los dos tipos de proveedor y las dos
+        pantallas de fotos tienen casillas aparte; el menú muestra solo lo marcado.
+        """
+        from .accesos import BASE
+        self.assertTrue({'proveedores.ver', 'otros_proveedores.ver', 'fotos.ver', 'fotos_servicios.ver'} <= BASE,
+                        "de base, la asesora sigue viendo todo como antes")
+        # Solo disposición final y solo fotos de ayudantes.
+        self.accesos(BASE - {'otros_proveedores.ver', 'otros_proveedores.editar', 'fotos_servicios.ver'})
+        self.entrar(self.asesor)
+        self.assertEqual(self.estado('gestion:lista_dispositores'), 200)
+        self.assertEqual(self.estado('gestion:lista_proveedores'), 403)
+        self.assertEqual(self.estado('gestion:crear_proveedor'), 403)
+        self.assertEqual(self.estado('gestion:fotos_ayudantes'), 200)
+        self.assertEqual(self.estado('gestion:fotos_servicios'), 403)
+        menu = self.client.get(reverse('gestion:lista_ordenes')).content.decode()
+        self.assertIn(f'href="{reverse("gestion:lista_dispositores")}"', menu)
+        self.assertNotIn(f'href="{reverse("gestion:lista_proveedores")}"', menu)
+        self.assertIn(f'href="{reverse("gestion:fotos_ayudantes")}"', menu)
+        self.assertNotIn(f'href="{reverse("gestion:fotos_servicios")}"', menu)
+        # Al revés: solo otros proveedores y solo fotos de servicios.
+        self.accesos(BASE - {'proveedores.ver', 'proveedores.editar', 'fotos.ver'})
+        self.assertEqual(self.estado('gestion:lista_dispositores'), 403)
+        self.assertEqual(self.estado('gestion:lista_proveedores'), 200)
+        self.assertEqual(self.estado('gestion:fotos_ayudantes'), 403)
+        self.assertEqual(self.estado('gestion:fotos_servicios'), 200)
+        menu = self.client.get(reverse('gestion:lista_ordenes')).content.decode()
+        self.assertNotIn(f'href="{reverse("gestion:lista_dispositores")}"', menu)
+        self.assertIn(f'href="{reverse("gestion:lista_proveedores")}"', menu)
+        # Ver sin editar: entra a la lista de otros proveedores pero no crea.
+        self.accesos(BASE - {'otros_proveedores.editar'})
+        self.assertEqual(self.estado('gestion:lista_proveedores'), 200)
+        self.assertEqual(self.estado('gestion:crear_proveedor'), 403)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_proveedores')), reverse('gestion:crear_proveedor'))
+        # Las casillas nuevas salen en «Gestionar accesos».
+        self.entrar(self.admin)
+        pagina = self.client.get(reverse('gestion:accesos_persona', args=[self.asesor.pk]))
+        for texto in ('Proveedores de disposición final', 'Otros proveedores', 'Fotos de ayudantes', 'Fotos de servicios'):
+            self.assertContains(pagina, texto)
+
+    def test_la_migracion_le_marca_la_parte_nueva_a_quien_ya_tenia_el_acceso(self):
+        import importlib
+        from django.apps import apps as registro
+        from .models import AccesosAsesor
+        migracion = importlib.import_module('gestion.migrations.0105_accesos_separados')
+        self.accesos({'proveedores.ver', 'proveedores.editar', 'fotos.ver', 'ordenes.ver'})
+        migracion.separar(registro, None)
+        claves = set(AccesosAsesor.objects.get(usuario=self.asesor).claves)
+        self.assertTrue({'otros_proveedores.ver', 'otros_proveedores.editar', 'fotos_servicios.ver'} <= claves)
+        self.assertNotIn('otros_proveedores.eliminar', claves, "no gana lo que no tenía")
+
     def test_gestionar_accesos_es_solo_de_administradores_y_solo_sobre_asesores(self):
         url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
         self.entrar(self.asesor)

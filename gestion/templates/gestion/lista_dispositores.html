@@ -70,7 +70,7 @@
                     <tr>
                         <td colspan="5" class="text-center py-4">
                             No hay proveedores registrados.
-                            <a href="{% url 'gestion:crear_dispositor' %}">Añade el primero</a>.
+                            {% if acceso.proveedores.editar %}<a href="{% url 'gestion:crear_dispositor' %}">Añade el primero</a>.{% endif %}
                         </td>
                     </tr>
                     {% endfor %}

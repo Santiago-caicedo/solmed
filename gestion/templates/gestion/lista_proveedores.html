@@ -6,7 +6,7 @@
         <h1 class="mb-1"><i class="bi bi-briefcase me-2"></i>Otros proveedores</h1>
         <div class="text-muted">Proveedores de bienes y servicios, con sus contactos, datos bancarios y expediente.</div>
     </div>
-    {% if acceso.proveedores.editar %}
+    {% if acceso.otros_proveedores.editar %}
     <a href="{% url 'gestion:crear_proveedor' %}" class="btn btn-primary">
         <i class="bi bi-plus-circle me-1"></i> Añadir proveedor
     </a>
@@ -74,12 +74,12 @@
                             <a href="{% url 'gestion:ficha_proveedor' p.pk %}" class="btn btn-sm btn-outline-primary">
                                 <i class="bi bi-folder2-open"></i> Ficha
                             </a>
-                            {% if acceso.proveedores.editar %}
+                            {% if acceso.otros_proveedores.editar %}
                             <a href="{% url 'gestion:actualizar_proveedor' p.pk %}" class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-pencil-square"></i> Editar
                             </a>
                             {% endif %}
-                            {% if acceso.proveedores.eliminar %}
+                            {% if acceso.otros_proveedores.eliminar %}
                             <form method="post" action="{% url 'gestion:eliminar_proveedor' p.pk %}" class="d-inline"
                                   onsubmit="return confirm('¿Eliminar este proveedor? Se borra con sus contactos y su expediente.');">
                                 {% csrf_token %}
@@ -92,7 +92,7 @@
                     <tr>
                         <td colspan="7" class="text-center py-4">
                             No hay proveedores registrados.
-                            <a href="{% url 'gestion:crear_proveedor' %}">Añade el primero</a>.
+                            {% if acceso.otros_proveedores.editar %}<a href="{% url 'gestion:crear_proveedor' %}">Añade el primero</a>.{% endif %}
                         </td>
                     </tr>
                     {% endfor %}
