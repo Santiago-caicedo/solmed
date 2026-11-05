@@ -102,6 +102,7 @@ urlpatterns = [
 
     # Tablero de gerencia (nov-2026): reemplaza a «Reportes». La URL vieja lleva aquí.
     path('gerencia/', gerencia.GerenciaView.as_view(), name='gerencia'),
+    path('gerencia/informe.pdf', gerencia.GerenciaPDFView.as_view(), name='gerencia_pdf'),
     path('reportes/', RedirectView.as_view(pattern_name='gestion:gerencia', permanent=False), name='reportes'),
 
     # --- Documentación interna de SOLMED ---

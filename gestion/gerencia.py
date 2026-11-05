@@ -567,3 +567,116 @@ class GerenciaView(AdministradorRequiredMixin, View):
             'nombre_anterior': nombre_periodo(datos['anterior']['desde'], datos['anterior']['hasta']),
             'generado': timezone.localtime(),
         })
+
+
+# ============================================================
+#  El informe ejecutivo en PDF (nov-2026)
+# ============================================================
+
+def _corto(n):
+    """$1,2 M · $850 mil · $900: pesos abreviados para ejes y celdas pequeñas."""
+    if n >= 1e9:
+        return f"${n / 1e9:.1f} mil M".replace('.', ',')
+    if n >= 1e6:
+        return f"${n / 1e6:.1f} M".replace('.', ',').replace(',0 M', ' M')
+    if n >= 1e3:
+        return f"${round(n / 1e3)} mil"
+    return f"${round(n)}"
+
+
+def _svg_meses(meses, ancho=700, alto=170):
+    """
+    La curva de facturación mes a mes como SVG en línea (WeasyPrint lo
+    dibuja): columnas acero para los meses del periodo, suaves para los
+    anteriores, con su eje en pesos. Mismo gráfico que el tablero.
+    """
+    m_izq, m_der, m_sup, m_inf = 58, 6, 10, 22
+    iw, ih = ancho - m_izq - m_der, alto - m_sup - m_inf
+    maximo = max([m['total'] for m in meses] + [0])
+    if maximo <= 0:
+        tope, paso = 1, 1
+    else:
+        e = 10 ** math.floor(math.log10(maximo))
+        f = maximo / e
+        paso = (0.25 if f <= 1.5 else 0.5 if f <= 3 else 1 if f <= 6 else 2) * e
+        tope = math.ceil(maximo / paso) * paso
+
+    corto = _corto
+    partes = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{ancho}" height="{alto}" '
+              f'viewBox="0 0 {ancho} {alto}" font-family="Helvetica, Arial, sans-serif">']
+    t = 0
+    while t <= tope + 1e-9:
+        y = m_sup + ih - t / tope * ih
+        color = '#9fb0c8' if t == 0 else '#e1e6ef'
+        partes.append(f'<line x1="{m_izq}" x2="{ancho - m_der}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="0.8"/>')
+        partes.append(f'<text x="{m_izq - 6}" y="{y + 3:.1f}" text-anchor="end" font-size="8" fill="#51606E">{corto(t)}</text>')
+        t += paso
+    banda = iw / max(len(meses), 1)
+    bw = min(22, banda * 0.6)
+    for i, m in enumerate(meses):
+        x = m_izq + i * banda + (banda - bw) / 2
+        h = m['total'] / tope * ih if tope else 0
+        if h > 0:
+            y = m_sup + ih - h
+            color = '#2C4D9E' if m['en_periodo'] else '#c5d1e8'
+            partes.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bw:.1f}" height="{h:.1f}" rx="2" fill="{color}"/>')
+        partes.append(f'<text x="{x + bw / 2:.1f}" y="{alto - 8}" text-anchor="middle" font-size="8" '
+                      f'fill="{"#1d2a3a" if m["en_periodo"] else "#8A97A5"}">{m["etiqueta"]}</text>')
+    partes.append('</svg>')
+    return ''.join(partes)
+
+
+def _matriz_pdf(matriz):
+    """La matriz cliente × mes con su tono ya calculado (un solo color, claro a oscuro)."""
+    maximo = max([v for f in matriz['filas'] for v in f['valores']] + [0])
+    claro, medio, oscuro = (234, 239, 248), (44, 77, 158), (21, 40, 92)
+    filas = []
+    for f in matriz['filas']:
+        celdas = []
+        for v in f['valores']:
+            if v <= 0 or not maximo:
+                celdas.append({'v': 0, 'bg': '#f5f7fb', 'fg': '#8A97A5'})
+                continue
+            t = 0.15 + 0.85 * v / maximo
+            a, b, k = (claro, medio, t / 0.6) if t < 0.6 else (medio, oscuro, (t - 0.6) / 0.4)
+            rgb = tuple(round(a[i] + (b[i] - a[i]) * k) for i in range(3))
+            celdas.append({'v': v, 'txt': _corto(v), 'bg': '#%02x%02x%02x' % rgb, 'fg': '#ffffff' if t > 0.55 else '#1d2a3a'})
+        filas.append({'nombre': f['nombre'], 'total': f['total'], 'celdas': celdas})
+    return {'meses': matriz['meses'], 'filas': filas}
+
+
+def pdf_gerencia(request, clave, desde, hasta):
+    """El informe ejecutivo del periodo, en PDF, con el diseño del acta de servicio."""
+    import base64
+    import os
+    from django.conf import settings
+    from django.template.loader import get_template
+    from weasyprint import HTML
+    datos = tablero_gerencia(desde, hasta, clave)
+    with open(os.path.join(settings.BASE_DIR, 'static', 'images', 'logo-solmed.png'), 'rb') as archivo:
+        logo = 'data:image/png;base64,' + base64.b64encode(archivo.read()).decode()
+    html = get_template('gestion/gerencia_pdf.html').render({
+        'd': datos,
+        'svg_meses': _svg_meses(datos['meses']),
+        'matriz': _matriz_pdf(datos['clientes_mes']),
+        'desde': desde, 'hasta': hasta,
+        'nombre_periodo': nombre_periodo(desde, hasta),
+        'frase_periodo': frase_periodo(clave, desde, hasta),
+        'nombre_anterior': nombre_periodo(datos['anterior']['desde'], datos['anterior']['hasta']),
+        'logo_b64': logo,
+        'generado': timezone.localtime(),
+        'quien': request.user.get_full_name() or request.user.username,
+    })
+    return HTML(string=html, base_url=request.build_absolute_uri()).write_pdf()
+
+
+class GerenciaPDFView(AdministradorRequiredMixin, View):
+    """Descarga el informe ejecutivo del periodo elegido en el tablero (mismos filtros)."""
+
+    def get(self, request):
+        from django.http import HttpResponse
+        clave, desde, hasta = periodo_de(request)
+        respuesta = HttpResponse(pdf_gerencia(request, clave, desde, hasta), content_type='application/pdf')
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="informe_gerencia_{desde:%Y-%m-%d}_a_{hasta:%Y-%m-%d}.pdf"')
+        return respuesta

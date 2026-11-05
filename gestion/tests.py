@@ -11793,6 +11793,30 @@ class TableroGerenciaTests(BaseCRM):
         self.assertContains(respuesta, 'Ingreso del mes')
         self.assertContains(respuesta, '1 más aún sin preliquidar')
 
+    def test_el_informe_pdf_lleva_el_periodo_elegido(self):
+        """Nov-2026: el informe ejecutivo en PDF, con el diseño del acta y el mismo periodo del tablero."""
+        url = reverse('gestion:gerencia_pdf')
+        for params in ({'periodo': 'mes'}, {'periodo': 'anio'},
+                       {'periodo': 'personalizado', 'desde': '2026-01-01', 'hasta': '2026-03-31'}):
+            with self.subTest(params=params):
+                respuesta = self.client.get(url, params)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(respuesta['Content-Type'], 'application/pdf')
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+        respuesta = self.client.get(url, {'periodo': 'personalizado', 'desde': '2026-01-01', 'hasta': '2026-03-31'})
+        self.assertIn('informe_gerencia_2026-01-01_a_2026-03-31.pdf', respuesta['Content-Disposition'])
+        # El HTML del que sale el PDF trae las cifras del tablero.
+        from .gerencia import tablero_gerencia, _matriz_pdf, _svg_meses
+        hoy = timezone.localdate()
+        d = tablero_gerencia(hoy.replace(day=1), hoy, 'mes')
+        self.assertIn('<svg', _svg_meses(d['meses']))
+        self.assertEqual(_matriz_pdf(d['clientes_mes'])['filas'][0]['celdas'][-1]['txt'], '$1,2 M')
+        # El tablero ofrece la descarga con el mismo periodo.
+        self.assertContains(self.gerencia(periodo='trimestre'), url + '?periodo=trimestre')
+        # Solo administradores.
+        self.entrar(self.asesor)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
     def test_solo_administradores_y_la_url_vieja_lleva_aqui(self):
         from .accesos import TODAS
         from .models import AccesosAsesor

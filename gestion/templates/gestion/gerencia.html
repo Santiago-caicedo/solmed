@@ -155,6 +155,8 @@ acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
                 <a href="?periodo={{ clave }}" class="{% if periodo == clave %}act{% endif %}" {% if periodo == clave %}aria-current="page"{% endif %}>{{ nombre }}</a>
                 {% endif %}{% endfor %}
             </nav>
+            {# El informe en PDF lleva el mismo periodo que se está viendo. #}
+            <a class="btn btn-sm btn-primary" href="{% url 'gestion:gerencia_pdf' %}?periodo={{ periodo }}{% if periodo == 'personalizado' %}&amp;desde={{ desde|date:'Y-m-d' }}&amp;hasta={{ hasta|date:'Y-m-d' }}{% endif %}"><i class="bi bi-file-earmark-pdf me-1"></i>Descargar informe</a>
             <details class="ger-rango" {% if periodo == 'personalizado' %}open{% endif %}>
                 <summary>Otro rango</summary>
                 <form method="get">

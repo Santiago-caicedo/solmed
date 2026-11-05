@@ -1,0 +1,301 @@
+{% load humanize %}<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Informe de gerencia · {{ nombre_periodo }}</title>
+{% comment %}
+INFORME EJECUTIVO DE GERENCIA en PDF (nov-2026, pedido de Santiago): todo lo
+del tablero de gerencia para el periodo elegido (mes, trimestre, año, últimos
+12 meses o un rango), con el diseño del ACTA DE SERVICIO: cuadrículas azules
+#2C4D9E con bordes redondeados, bandas de sección, cabecera con logo, empresa
+y caja de periodo en rojo, firmas al pie. WeasyPrint: sin emojis; la curva
+mes a mes va como SVG en línea (gerencia._svg_meses). Datos: tablero_gerencia.
+{% endcomment %}
+<style>
+    @page {
+        size: letter portrait; margin: 0.45in 0.5in 0.6in 0.5in;
+        @bottom-center {
+            content: "SOLMED S.A.S. · Informe de gerencia · {{ nombre_periodo }} · página " counter(page) " de " counter(pages);
+            font-family: Helvetica, Arial, sans-serif; font-size: 6.5pt; color: #2C4D9E; font-weight: bold;
+        }
+    }
+    body { font-family: "Helvetica", Arial, sans-serif; font-size: 7.6pt; color: #000; line-height: 1.3; }
+    .section { border: 1.4px solid #2C4D9E; border-radius: 8px; margin-bottom: 7px; overflow: hidden; page-break-inside: avoid; }
+    .section.larga { page-break-inside: auto; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    td, th { padding: 3px 6px; vertical-align: middle; word-wrap: break-word; }
+    .grid td, .grid th { border: 0.9px solid #2C4D9E; }
+    .grid tr:first-child > * { border-top: none; }
+    .grid tr:last-child > * { border-bottom: none; }
+    .grid tr > *:first-child { border-left: none; }
+    .grid tr > *:last-child { border-right: none; }
+    .grid tr { page-break-inside: avoid; }
+    .band { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; text-transform: uppercase; letter-spacing: .4px; font-size: 7.8pt; }
+    .th-s { background: #EDF1FA; color: #2C4D9E; font-weight: bold; text-align: center; font-size: 6.6pt; text-transform: uppercase; letter-spacing: .3px; }
+    .n { text-align: right; white-space: nowrap; }
+    .c { text-align: center; }
+    .b { font-weight: bold; }
+    .tenue { color: #51606E; font-size: 6.8pt; }
+
+    /* ---- Cabecera (la del acta) ---- */
+    .header td { vertical-align: middle; }
+    .header .h-left { width: 26%; }
+    .header .h-mid { width: 46%; text-align: center; color: #2C4D9E; }
+    .header .h-mid .empresa { font-weight: bold; font-size: 8.6pt; }
+    .header .h-mid .titulo { font-weight: bold; font-size: 10.5pt; letter-spacing: .6px; margin-top: 2px; }
+    .header .h-fecha { width: 28%; }
+    .fecha-box { border: 1.4px solid #2C4D9E; border-radius: 6px; text-align: center; padding: 4px 3px; }
+    .fecha-box .t { color: #2C4D9E; font-weight: bold; font-size: 7pt; text-transform: uppercase; }
+    .fecha-box .n { color: #C00000; font-weight: bold; font-size: 10.5pt; text-align: center; white-space: normal; }
+    .fecha-box .d { color: #2C4D9E; font-size: 6.8pt; }
+
+    /* ---- La frase de cómo vamos ---- */
+    .frase { font-size: 11.5pt; font-weight: bold; color: #1d2a3a; padding: 8px 10px 3px; }
+    .frase-sub { padding: 0 10px 8px; font-size: 7.8pt; color: #51606E; }
+    .sube { color: #1F6B3A; font-weight: bold; }
+    .baja { color: #B42318; font-weight: bold; }
+
+    /* ---- Cifras ---- */
+    .cifra .k { color: #2C4D9E; font-weight: bold; font-size: 6.6pt; text-transform: uppercase; letter-spacing: .3px; }
+    .cifra .v { font-size: 12pt; font-weight: bold; color: #000; margin-top: 2px; }
+    .cifra .s { font-size: 6.6pt; color: #51606E; margin-top: 1px; }
+
+    /* ---- Barras en tablas ---- */
+    .barra { height: 6px; background: #2C4D9E; border-radius: 0 3px 3px 0; }
+    .avance { height: 5px; background: #e1e6ef; border-radius: 3px; margin-top: 3px; }
+    .avance div { height: 5px; background: #1F6B3A; border-radius: 3px; }
+    .grafico { padding: 6px 6px 2px; }
+    .ley { font-size: 6.6pt; color: #51606E; padding: 0 8px 5px; }
+    .ley span { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
+
+    /* ---- Lecturas ---- */
+    .lect td { font-size: 7.8pt; padding: 4px 8px; }
+    .marca { display: inline-block; width: 12px; font-weight: bold; }
+    .marca.bien { color: #1F6B3A; }
+    .marca.ojo { color: #9A6206; }
+    .marca.info { color: #2C4D9E; }
+
+    /* ---- Matriz cliente × mes ---- */
+    .mapa td { font-size: 6.2pt; text-align: center; padding: 3px 1px; }
+    .mapa td.cli { text-align: left; font-size: 7pt; padding-left: 5px; }
+    .mapa td.band { font-size: 7.8pt; padding: 3px 6px; }
+    .mapa td.th-s { font-size: 6.6pt; }
+
+    .firmas td { padding: 26px 12px 2px; }
+    .firmas .linea { border-top: 0.9px solid #2C4D9E; text-align: center; color: #2C4D9E; font-weight: bold; padding-top: 2px; }
+</style>
+</head>
+<body>
+{% with k=d.kpis im=d.ingresos.mes ip=d.ingresos.periodo %}
+
+    <!-- ================= CABECERA ================= -->
+    <table class="header" style="margin-bottom: 6px;">
+        <tr>
+            <td class="h-left"><img src="{{ logo_b64 }}" style="max-width: 125px;"></td>
+            <td class="h-mid">
+                <span class="empresa">SOLUCIONES MEDIOAMBIENTALES S.A.S.</span><br>
+                <b>SOLMED S.A.S.</b> · NIT 830.514.597-2
+                <div class="titulo">INFORME DE GERENCIA</div>
+            </td>
+            <td class="h-fecha">
+                <div class="fecha-box">
+                    <div class="t">Periodo</div>
+                    <div class="n">{{ nombre_periodo|capfirst }}</div>
+                    <div class="d">{{ desde|date:"d/m/Y" }} al {{ hasta|date:"d/m/Y" }}</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- ================= CÓMO VAMOS ================= -->
+    <div class="section">
+        <div class="frase">{{ frase_periodo }} llevamos ${{ k.preliquidado|floatformat:0|intcomma }} preliquidados en {{ k.servicios }} servicio{{ k.servicios|pluralize }}.</div>
+        <div class="frase-sub">
+            {% if k.preliquidado_delta is None %}Sin facturación en {{ nombre_anterior }} para comparar.
+            {% elif k.preliquidado_delta >= 0 %}<span class="sube">Sube {{ k.preliquidado_delta|floatformat:1 }}%</span> frente a {{ nombre_anterior }}.
+            {% else %}<span class="baja">Baja {{ k.preliquidado_delta|floatformat:1|cut:"-" }}%</span> frente a {{ nombre_anterior }}.{% endif %}
+        </div>
+    </div>
+
+    <!-- ================= INGRESOS ================= -->
+    <div class="section">
+        <table class="grid">
+            <tr><td class="band" colspan="3">Ingresos · servicios prestados, con precio en una preliquidación de cualquier etapa</td></tr>
+            <tr>
+                <td class="cifra">
+                    <div class="k">Ingreso del mes</div>
+                    <div class="v">${{ im.valor|floatformat:0|intcomma }}</div>
+                    <div class="s">{{ im.nombre|capfirst }}{% if im.delta is not None %}: {% if im.delta >= 0 %}sube{% else %}baja{% endif %} {{ im.delta|floatformat:1|cut:"-" }}% frente a {{ im.anterior }}{% endif %}. {{ im.con_precio }} con precio{% if im.sin_precio %}, {{ im.sin_precio }} sin preliquidar{% endif %}.</div>
+                </td>
+                <td class="cifra">
+                    <div class="k">Ingreso del periodo</div>
+                    <div class="v">${{ ip.valor|floatformat:0|intcomma }}</div>
+                    <div class="s">{% if ip.delta is not None %}{% if ip.delta >= 0 %}Sube{% else %}Baja{% endif %} {{ ip.delta|floatformat:1|cut:"-" }}% frente a {{ nombre_anterior }}. {% endif %}{{ ip.con_precio }} con precio{% if ip.sin_precio %}, {{ ip.sin_precio }} sin preliquidar{% endif %}.</div>
+                </td>
+                <td class="cifra">
+                    <div class="k">Ingreso por servicio</div>
+                    <div class="v">{% if ip.por_servicio %}${{ ip.por_servicio|floatformat:0|intcomma }}{% else %}Sin servicios con precio{% endif %}</div>
+                    <div class="s">Promedio de los servicios del periodo que ya tienen precio.</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- ================= FACTURACIÓN ================= -->
+    <div class="section">
+        <table class="grid">
+            <tr><td class="band" colspan="4">Facturación del periodo · por fecha de emisión de la preliquidación</td></tr>
+            <tr>
+                <td class="cifra"><div class="k">Preliquidado</div><div class="v">${{ k.preliquidado|floatformat:0|intcomma }}</div><div class="s">{{ k.clientes }} cliente{{ k.clientes|pluralize }} con facturación</div></td>
+                <td class="cifra"><div class="k">Con factura electrónica</div><div class="v">${{ k.fev|floatformat:0|intcomma }}</div>
+                    <div class="avance"><div style="width: {{ k.fev_pct|default:0|floatformat:0 }}%;"></div></div>
+                    <div class="s">{% if k.fev_pct is not None %}{{ k.fev_pct|floatformat:0 }}% de lo preliquidado{% else %}—{% endif %}</div></td>
+                <td class="cifra"><div class="k">Enviado al cliente</div><div class="v">${{ k.enviado|floatformat:0|intcomma }}</div>
+                    <div class="avance"><div style="width: {{ k.enviado_pct|default:0|floatformat:0 }}%;"></div></div>
+                    <div class="s">{% if k.enviado_pct is not None %}{{ k.enviado_pct|floatformat:0 }}% de lo preliquidado{% else %}—{% endif %}</div></td>
+                <td class="cifra"><div class="k">Por preliquidar</div><div class="v">{{ k.por_preliquidar }} {% if k.por_preliquidar == 1 %}orden{% else %}órdenes{% endif %}</div>
+                    <div class="s">{% if k.por_preliquidar_dias is not None %}La más antigua lleva {{ k.por_preliquidar_dias }} días{% else %}Ninguna esperando{% endif %}</div></td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- ================= MES A MES ================= -->
+    <div class="section">
+        <table class="grid"><tr><td class="band">Facturación mes a mes · últimos doce meses</td></tr></table>
+        <div class="grafico">{{ svg_meses|safe }}</div>
+        <div class="ley"><span style="background:#2C4D9E"></span>Meses del periodo elegido &nbsp;&nbsp;<span style="background:#c5d1e8"></span>Meses anteriores</div>
+        <table class="grid">
+            <tr>{% for m in d.meses %}<td class="th-s">{{ m.etiqueta }}</td>{% endfor %}</tr>
+            <tr>{% for m in d.meses %}<td class="c" style="font-size:6pt;{% if m.en_periodo %} font-weight:bold;{% endif %}">{% if m.total %}${{ m.total|floatformat:0|intcomma }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+            <tr>{% for m in d.meses %}<td class="c tenue" style="font-size:6pt">{{ m.servicios }} serv.</td>{% endfor %}</tr>
+        </table>
+    </div>
+
+    <!-- ================= LO QUE DICEN LOS NÚMEROS ================= -->
+    <div class="section">
+        <table class="grid lect">
+            <tr><td class="band">Lo que dicen los números</td></tr>
+            {% for l in d.lecturas %}
+            <tr><td><span class="marca {% if l.tono == 'bien' %}bien{% elif l.tono == 'ojo' %}ojo{% else %}info{% endif %}">{% if l.tono == 'bien' %}+{% elif l.tono == 'ojo' %}!{% else %}i{% endif %}</span>{{ l.texto }}</td></tr>
+            {% empty %}
+            <tr><td class="tenue">Todavía no hay preliquidaciones ni servicios en este periodo.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <!-- ================= CLIENTES ================= -->
+    <div class="section larga">
+        <table class="grid">
+            <colgroup><col style="width:5%"><col style="width:41%"><col style="width:22%"><col style="width:16%"><col style="width:8%"><col style="width:8%"></colgroup>
+            <thead><tr><td class="band" colspan="6">Clientes que más facturan</td></tr>
+            <tr><td class="th-s">#</td><td class="th-s">Cliente</td><td class="th-s">Participación</td><td class="th-s">Facturación</td><td class="th-s">%</td><td class="th-s">Serv.</td></tr></thead>
+            {% for c in d.clientes|slice:":15" %}
+            <tr>
+                <td class="c tenue">{{ forloop.counter }}</td>
+                <td class="b">{{ c.nombre }}</td>
+                <td><div class="barra" style="width: {% widthratio c.valor d.clientes.0.valor 100 %}%;"></div></td>
+                <td class="n b">${{ c.valor|floatformat:0|intcomma }}</td>
+                <td class="n">{{ c.participacion|floatformat:1 }}%</td>
+                <td class="c">{{ c.servicios }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="c tenue">Ningún cliente facturó en este periodo.</td></tr>{% endfor %}
+            {% if d.clientes|length > 15 %}<tr><td colspan="6" class="tenue c">Y {{ d.clientes|length|add:"-15" }} clientes más.</td></tr>{% endif %}
+        </table>
+    </div>
+
+    <!-- ================= VEHÍCULOS Y ASESORAS ================= -->
+    <div class="section larga">
+        <table class="grid">
+            <colgroup><col style="width:5%"><col style="width:20%"><col style="width:33%"><col style="width:16%"><col style="width:10%"><col style="width:16%"></colgroup>
+            <thead><tr><td class="band" colspan="6">Facturación por vehículo · el valor de una orden se reparte entre los vehículos que la atendieron</td></tr>
+            <tr><td class="th-s">#</td><td class="th-s">Vehículo</td><td class="th-s">Participación</td><td class="th-s">Facturación</td><td class="th-s">Serv.</td><td class="th-s">Por servicio</td></tr></thead>
+            {% for v in d.vehiculos|slice:":12" %}
+            <tr>
+                <td class="c tenue">{{ forloop.counter }}</td>
+                <td class="b">{{ v.nombre }}</td>
+                <td>{% if d.vehiculos.0.valor %}<div class="barra" style="width: {% widthratio v.valor d.vehiculos.0.valor 100 %}%;"></div>{% endif %}</td>
+                <td class="n b">${{ v.valor|floatformat:0|intcomma }}</td>
+                <td class="c">{{ v.servicios }}</td>
+                <td class="n">{% if v.servicios %}${{ v.ticket|default:0|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="c tenue">Ningún vehículo facturó en este periodo.</td></tr>{% endfor %}
+        </table>
+    </div>
+
+    {% if d.asesoras %}
+    <div class="section">
+        <table class="grid">
+            <colgroup><col style="width:40%"><col style="width:28%"><col style="width:16%"><col style="width:16%"></colgroup>
+            <tr><td class="band" colspan="4">Asesoras comerciales · facturación de los clientes de su cartera</td></tr>
+            <tr><td class="th-s">Asesora</td><td class="th-s">Participación</td><td class="th-s">Facturación</td><td class="th-s">Clientes</td></tr>
+            {% for a in d.asesoras %}
+            <tr><td class="b">{{ a.nombre }}</td><td><div class="barra" style="width: {% widthratio a.valor d.asesoras.0.valor 100 %}%;"></div></td><td class="n b">${{ a.valor|floatformat:0|intcomma }}</td><td class="c">{{ a.clientes }}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- ================= CLIENTES MES A MES ================= -->
+    {% if matriz.filas %}
+    <div class="section">
+        <table class="grid mapa">
+            <colgroup><col style="width:22%">{% for m in matriz.meses %}<col style="width:5.5%">{% endfor %}<col style="width:12%"></colgroup>
+            <tr><td class="band" colspan="14">Clientes mes a mes · más oscuro, más facturación</td></tr>
+            <tr><td class="th-s">Cliente</td>{% for m in matriz.meses %}<td class="th-s">{{ m.etiqueta }}</td>{% endfor %}<td class="th-s">Total</td></tr>
+            {% for f in matriz.filas %}
+            <tr>
+                <td class="cli b">{{ f.nombre|truncatechars:34 }}</td>
+                {% for c in f.celdas %}<td style="background:{{ c.bg }}; color:{{ c.fg }};">{% if c.v %}{{ c.txt }}{% endif %}</td>{% endfor %}
+                <td class="n b">${{ f.total|floatformat:0|intcomma }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- ================= PROCESO DE FACTURACIÓN ================= -->
+    <div class="section">
+        <table class="grid">
+            <tr><td class="band" colspan="6">Proceso de facturación · dónde está hoy la plata preliquidada</td></tr>
+            <tr>{% for e in d.proceso %}<td class="th-s">{{ forloop.counter }}. {{ e.nombre }}</td>{% endfor %}</tr>
+            <tr>{% for e in d.proceso %}<td class="c"><b>${{ e.valor|floatformat:0|intcomma }}</b><br><span class="tenue">{{ e.n }} preliquidaci{{ e.n|pluralize:"ón,ones" }} · {{ e.quien }}</span></td>{% endfor %}</tr>
+        </table>
+    </div>
+
+    <!-- ================= EQUIPO ================= -->
+    <div class="section larga">
+        <table class="grid">
+            <colgroup><col style="width:34%"><col style="width:20%"><col style="width:14%"><col style="width:10%"><col style="width:22%"></colgroup>
+            <thead><tr><td class="band" colspan="5">Equipo · {{ d.personal.activos }} personas activas, {{ d.personal.horas_total|intcomma }} horas de conductores y ayudantes</td></tr>
+            <tr><td class="th-s">Persona</td><td class="th-s">Cargo</td><td class="th-s">Horas</td><td class="th-s">Serv.</td><td class="th-s">Facturación de sus servicios</td></tr></thead>
+            {% for p in d.personal.filas %}
+            <tr><td class="b">{{ p.nombre }}{% if p.retirado %} <span class="tenue">(retirado)</span>{% endif %}</td><td>{{ p.cargo }}</td><td class="n">{{ p.horas_txt|default:"0 h" }}</td><td class="c">{{ p.servicios }}</td><td class="n">${{ p.valor|floatformat:0|intcomma }}</td></tr>
+            {% empty %}<tr><td colspan="5" class="c tenue">Sin horas ni servicios en este periodo.</td></tr>{% endfor %}
+        </table>
+    </div>
+
+    <div class="section">
+        <table class="grid">
+            <colgroup><col style="width:33.3%"><col style="width:33.3%"><col style="width:33.4%"></colgroup>
+            <tr><td class="th-s">Personal activo por cargo</td><td class="th-s">Ingresos del periodo</td><td class="th-s">Retiros del periodo</td></tr>
+            <tr style="vertical-align: top;">
+                <td>{% for cargo, n in d.personal.por_cargo %}{{ cargo }}: <b>{{ n }}</b><br>{% empty %}<span class="tenue">Sin personal registrado.</span>{% endfor %}</td>
+                <td>{% for p in d.personal.ingresos %}{{ p.nombre }} <span class="tenue">{{ p.cargo }}, {{ p.fecha|date:"d/m/Y" }}</span><br>{% empty %}<span class="tenue">Nadie ingresó.</span>{% endfor %}</td>
+                <td>{% for p in d.personal.retiros %}{{ p.nombre }} <span class="tenue">{{ p.cargo }}, {{ p.fecha|date:"d/m/Y" }}</span><br>{% empty %}<span class="tenue">Nadie se retiró.</span>{% endfor %}</td>
+            </tr>
+        </table>
+    </div>
+
+    <table class="firmas">
+        <tr>
+            <td><div class="linea">Elaboró · {{ quien }}</div></td>
+            <td><div class="linea">Revisó · Gerencia</div></td>
+        </tr>
+    </table>
+    <div class="tenue c" style="margin-top: 6px;">
+        Generado el {{ generado|date:"d/m/Y" }} a las {{ generado|date:"H:i" }} desde el tablero de gerencia de SOLMED SAS.
+        La facturación sale de las preliquidaciones; el ingreso, de los servicios prestados con precio; los servicios, de los recorridos completados; las horas, del centro de control.
+    </div>
+{% endwith %}
+</body>
+</html>
