@@ -549,11 +549,32 @@
         </li>
         {% endif %}
         {% if acceso.proveedores.ver %}
+        {% comment %}
+        «Proveedores» se despliega como «Fotos» (pedido de Santiago, nov-2026):
+        Disposición final y Otros proveedores son páginas aparte. Abierto si se
+        está en una de las dos (o en una ficha o formulario de proveedor).
+        {% endcomment %}
+        {% with en_prov=request.path|slice:':16' en_gen=request.path|slice:':26' %}
         <li>
-            <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if 'proveedores' in request.path %}active{% endif %}">
-                <i class="bi bi-recycle"></i>Proveedores
-            </a>
+            <button type="button" class="nav-link nav-grupo {% if en_prov == '/app/proveedores' %}dentro{% endif %}"
+                    data-bs-toggle="collapse" data-bs-target="#menuProveedores"
+                    aria-expanded="{% if en_prov == '/app/proveedores' %}true{% else %}false{% endif %}" aria-controls="menuProveedores">
+                <i class="bi bi-building"></i>Proveedores<i class="bi bi-chevron-right flecha" aria-hidden="true"></i>
+            </button>
+            <ul class="nav-sub collapse {% if en_prov == '/app/proveedores' %}show{% endif %}" id="menuProveedores">
+                <li>
+                    <a href="{% url 'gestion:lista_dispositores' %}" class="nav-link {% if en_prov == '/app/proveedores' and en_gen != '/app/proveedores/generales' %}active{% endif %}">
+                        <i class="bi bi-recycle"></i>Disposición final
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'gestion:lista_proveedores' %}" class="nav-link {% if en_gen == '/app/proveedores/generales' %}active{% endif %}">
+                        <i class="bi bi-briefcase"></i>Otros proveedores
+                    </a>
+                </li>
+            </ul>
         </li>
+        {% endwith %}
         {% endif %}
         {% if acceso.documentacion.ver %}
         <li>
