@@ -11749,15 +11749,25 @@ class TableroGerenciaTests(BaseCRM):
         self.assertEqual(fila['valor'], 1200000, "participó en las dos órdenes: no se reparte")
         self.assertEqual([p['nombre'] for p in personal['ingresos']], ['Carlos Pérez'])
 
-    def test_la_correlacion_se_calcula_y_se_dice_en_palabras(self):
-        from .gerencia import _lectura_correlacion, _pearson
-        self.assertEqual(_pearson([1, 2, 3], [2, 4, 6]), 1.0)
-        self.assertEqual(_pearson([1, 2, 3], [6, 4, 2]), -1.0)
-        self.assertIsNone(_pearson([1, 2], [1, 2]))
-        self.assertIsNone(_pearson([1, 1, 1], [1, 2, 3]))
-        self.assertIn('muy fuerte', _lectura_correlacion(0.9, 'x', 'y'))
-        self.assertIn('menos', _lectura_correlacion(-0.7, 'x', 'y'))
-        self.assertIn('al menos tres', _lectura_correlacion(None, 'x', 'y'))
+    def test_lo_que_dicen_los_numeros_y_los_clientes_mes_a_mes(self):
+        """V2 (4-nov-2026): sin correlaciones; frases de negocio y la matriz cliente × mes."""
+        respuesta = self.gerencia()
+        d = respuesta.context['d']
+        textos = [l['texto'] for l in d['lecturas']]
+        self.assertTrue(any(self.cli.nombre in t and '100%' in t for t in textos), textos)
+        self.assertTrue(any('$300.000 preliquidado aún no tiene factura electrónica' in t for t in textos), textos)
+        self.assertTrue(any(self.camion.placa in t and '$900.000' in t for t in textos), textos)
+        fila = d['clientes_mes']['filas'][0]
+        self.assertEqual((fila['nombre'], fila['total']), (self.cli.nombre, 1200000))
+        self.assertEqual(len(fila['valores']), 12)
+        self.assertEqual(fila['valores'][-1], 1200000, "el mes actual es la última columna")
+        self.assertTrue(d['meses'][-1]['en_periodo'])
+        self.assertNotIn('correlaciones', d)
+        self.assertContains(respuesta, 'Lo que dicen los números')
+        self.assertContains(respuesta, 'Clientes mes a mes')
+        # Vive dentro del sistema: con la sidebar.
+        self.assertContains(respuesta, 'class="sidebar')
+        self.assertContains(respuesta, 'llevamos $1.200.000 preliquidados en 1 servicio')
 
     def test_solo_administradores_y_la_url_vieja_lleva_aqui(self):
         from .accesos import TODAS

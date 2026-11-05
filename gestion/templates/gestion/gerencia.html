@@ -1,420 +1,370 @@
-{% load humanize static %}<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gerencia · SOLMED</title>
-<link rel="icon" href="{% static 'images/favicon-32.png' %}">
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Gerencia{% endblock %}
+{% block content %}
 {% comment %}
-TABLERO DE GERENCIA (nov-2026). Diseño PROPIO, corporativo y sobrio, distinto
-al resto del sistema a propósito (decisión de Santiago): página aparte, sin el
-menú lateral, con su barra superior y «Volver al sistema». Los datos salen de
-gestion/gerencia.py. Gráficos dibujados aquí mismo (SVG/HTML, sin librerías):
-paleta validada con la skill de visualización (azul #2a78d6 / naranja #eb6834
-en claro; #3987e5 / #d95926 en oscuro), un solo eje por gráfico, leyenda
-cuando hay dos series, tooltip al pasar el cursor y tabla para cada gráfico.
+TABLERO DE GERENCIA · v2 (4-nov-2026). Vive DENTRO del sistema (sidebar y barra
+superior de siempre) y usa su tipografía y sus colores: IBM Plex, acero y verde
+de marca. Pensado con las guías de Apple (claridad, jerarquía por tamaño y
+peso, texto que dice la conclusión, gráficos simples con detalle a pedido) y
+la skill de frontend (un solo protagonista, el resto sobrio; sin etiquetas en
+mayúsculas ni tarjetas idénticas). Protagonista: la frase de cómo vamos junto
+a la curva de facturación mes a mes. Colores de datos validados (dataviz):
+acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
 {% endcomment %}
 <style>
-:root{
-    color-scheme: light;
-    --page:#f5f5f7; --surface:#ffffff; --surface-2:#fbfbfd; --ink:#1d1d1f; --ink-2:#424245; --ink-3:#6e6e73; --ink-4:#86868b;
-    --hair:rgba(0,0,0,.08); --hair-2:rgba(0,0,0,.05); --grid:#e8e8ed; --axis:#d2d2d7;
-    --accent:#0066cc; --accent-tint:rgba(0,102,204,.08);
-    --s1:#2a78d6; --s2:#eb6834; --s1-wash:rgba(42,120,214,.10);
-    --ramp-1:#86b6ef; --ramp-2:#5598e7; --ramp-3:#2a78d6; --ramp-4:#256abf; --ramp-5:#1c5cab; --ramp-6:#104281;
-    --up:#006300; --down:#b3261e; --warn:#9a6206; --warn-tint:rgba(250,178,25,.14);
-    --good:#0ca30c; --critical:#d03b3b; --warning:#fab219;
-    --shadow:0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
-    --r-lg:20px; --r-md:14px; --r-sm:10px;
-    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
-}
-@media (prefers-color-scheme: dark){
-    :root:not([data-theme="light"]){
-        color-scheme: dark;
-        --page:#000000; --surface:#1c1c1e; --surface-2:#232325; --ink:#f5f5f7; --ink-2:#d2d2d7; --ink-3:#a1a1a6; --ink-4:#86868b;
-        --hair:rgba(255,255,255,.10); --hair-2:rgba(255,255,255,.06); --grid:#2c2c2e; --axis:#3a3a3c;
-        --accent:#2997ff; --accent-tint:rgba(41,151,255,.14);
-        --s1:#3987e5; --s2:#d95926; --s1-wash:rgba(57,135,229,.16);
-        --ramp-1:#184f95; --ramp-2:#1c5cab; --ramp-3:#256abf; --ramp-4:#2a78d6; --ramp-5:#3987e5; --ramp-6:#6da7ec;
-        --up:#30d158; --down:#ff6961; --warn:#ffd60a; --warn-tint:rgba(255,214,10,.12);
-        --shadow:none;
-    }
-}
-:root[data-theme="dark"]{
-    color-scheme: dark;
-    --page:#000000; --surface:#1c1c1e; --surface-2:#232325; --ink:#f5f5f7; --ink-2:#d2d2d7; --ink-3:#a1a1a6; --ink-4:#86868b;
-    --hair:rgba(255,255,255,.10); --hair-2:rgba(255,255,255,.06); --grid:#2c2c2e; --axis:#3a3a3c;
-    --accent:#2997ff; --accent-tint:rgba(41,151,255,.14);
-    --s1:#3987e5; --s2:#d95926; --s1-wash:rgba(57,135,229,.16);
-    --ramp-1:#184f95; --ramp-2:#1c5cab; --ramp-3:#256abf; --ramp-4:#2a78d6; --ramp-5:#3987e5; --ramp-6:#6da7ec;
-    --up:#30d158; --down:#ff6961; --warn:#ffd60a; --warn-tint:rgba(255,214,10,.12);
-    --shadow:none;
-}
-*{ box-sizing:border-box; }
-html{ scroll-behavior:smooth; scroll-padding-top:120px; }
-body{ margin:0; background:var(--page); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.45;
-      -webkit-font-smoothing:antialiased; letter-spacing:-.01em; }
-a{ color:var(--accent); text-decoration:none; }
-a:hover{ text-decoration:underline; }
-.num, td.n, .tab{ font-variant-numeric:tabular-nums; }
+.ger{ --dato:#1f6fb0; --dato-suave:#c9dcee; --verde:#5E8C1B; --ger-r:12px; max-width:1360px; }
+.ger h1{ font-size:1.75rem; font-weight:600; letter-spacing:-.02em; margin:0; }
+.ger h2{ font-size:1.15rem; font-weight:600; letter-spacing:-.01em; margin:0; }
+.ger .bajada{ color:var(--ink-2); font-size:.95rem; margin-top:.2rem; }
+.ger-cab{ display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; }
+.ger-periodo{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.ger-seg{ display:inline-flex; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:3px; }
+.ger-seg a{ padding:.35rem .8rem; border-radius:6px; font-size:.85rem; font-weight:500; color:var(--ink-2); white-space:nowrap; }
+.ger-seg a:hover{ text-decoration:none!important; color:var(--ink); background:var(--panel-2); }
+.ger-seg a.act{ background:var(--g-900); color:#fff; }
+.ger-rango summary{ list-style:none; cursor:pointer; font-size:.85rem; color:var(--steel); font-weight:500; padding:.35rem .4rem; }
+.ger-rango summary::-webkit-details-marker{ display:none; }
+.ger-rango[open] summary{ color:var(--ink-2); }
+.ger-rango form{ display:flex; align-items:center; gap:.4rem; margin-top:.3rem; }
+.ger-rango input{ font:inherit; font-size:.85rem; border:1px solid var(--line); border-radius:6px; padding:.3rem .5rem; background:var(--panel); color:var(--ink); }
 
-/* ---- Barra superior translúcida ---- */
-.gb{ position:sticky; top:0; z-index:20; background:color-mix(in srgb, var(--page) 78%, transparent);
-     backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px); border-bottom:1px solid var(--hair); }
-.gb-in{ max-width:1320px; margin:0 auto; padding:10px 28px; display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-.gb-marca{ display:flex; align-items:center; gap:10px; font-weight:600; font-size:15px; color:var(--ink); }
-.gb-marca img{ height:26px; }
-.gb-marca .sep{ width:1px; height:18px; background:var(--hair); }
-.gb-acc{ margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.seg{ display:inline-flex; background:var(--hair-2); border-radius:9px; padding:2px; }
-.seg a{ padding:5px 12px; border-radius:7px; font-size:13px; font-weight:500; color:var(--ink-2); white-space:nowrap; }
-.seg a:hover{ text-decoration:none; color:var(--ink); }
-.seg a.act{ background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.12); }
-.rango{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-3); }
-.rango input{ font:inherit; font-size:13px; color:var(--ink); background:var(--surface); border:1px solid var(--hair); border-radius:8px; padding:4px 8px; }
-.btn{ font:inherit; font-size:13px; font-weight:500; border-radius:980px; padding:6px 14px; border:1px solid var(--hair); background:var(--surface); color:var(--ink); cursor:pointer; white-space:nowrap; }
-.btn:hover{ text-decoration:none; border-color:var(--ink-4); }
-.btn.prim{ background:var(--ink); color:var(--surface); border-color:var(--ink); }
+.ger-panel{ background:var(--panel); border:1px solid var(--line); border-radius:var(--ger-r); }
+.ger-sec{ margin-top:2.25rem; }
+.ger-sec > .t{ display:flex; justify-content:space-between; align-items:baseline; gap:1rem; flex-wrap:wrap; margin-bottom:.75rem; }
+.ger-sec > .t p{ margin:0; color:var(--ink-2); font-size:.88rem; }
 
-/* ---- Cabecera y navegación de secciones ---- */
-main{ max-width:1320px; margin:0 auto; padding:36px 28px 80px; }
-.hero h1{ font-size:44px; line-height:1.05; letter-spacing:-.035em; font-weight:700; margin:0; }
-.hero .sub{ margin-top:10px; font-size:19px; color:var(--ink-3); letter-spacing:-.015em; }
-.hero .sub b{ color:var(--ink); font-weight:600; }
-.secs{ display:flex; gap:6px; flex-wrap:wrap; margin:26px 0 8px; }
-.secs a{ font-size:13px; font-weight:500; color:var(--ink-2); padding:6px 12px; border-radius:980px; border:1px solid var(--hair); background:var(--surface); }
-.secs a:hover{ text-decoration:none; border-color:var(--ink-4); }
+/* ---- El protagonista: cómo vamos + la curva ---- */
+.ger-hero{ display:grid; grid-template-columns:minmax(0,5fr) minmax(0,7fr); }
+.ger-hero .izq{ padding:1.75rem 1.75rem 1.5rem; border-right:1px solid var(--line-2); display:flex; flex-direction:column; gap:1.25rem; }
+.ger-hero .der{ padding:1.5rem 1.5rem 1rem; min-width:0; }
+.ger-frase{ font-size:1.65rem; line-height:1.25; font-weight:600; letter-spacing:-.02em; color:var(--ink); margin:0; max-width:24ch; }
+.ger-frase-sub{ font-size:.95rem; color:var(--ink-2); margin-top:.55rem; display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; }
+.delta{ display:inline-flex; align-items:center; gap:.25rem; font-weight:600; padding:.1rem .5rem; border-radius:99px; font-size:.85rem; }
+.delta.sube{ color:var(--ok); background:var(--ok-tint); }
+.delta.baja{ color:var(--err); background:var(--err-tint); }
+.delta.igual{ color:var(--ink-2); background:var(--panel-2); }
+.ger-cifras{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); border-top:1px solid var(--line-2); }
+.ger-cifra{ padding:.95rem 0 .2rem; }
+.ger-cifra:nth-child(odd){ padding-right:1rem; }
+.ger-cifra:nth-child(even){ padding-left:1rem; border-left:1px solid var(--line-2); }
+.ger-cifra:nth-child(n+3){ border-top:1px solid var(--line-2); }
+.ger-cifra .k{ font-size:.82rem; color:var(--ink-2); }
+.ger-cifra .v{ font-size:1.3rem; font-weight:600; letter-spacing:-.01em; margin-top:.1rem; }
+.ger-cifra .s{ font-size:.8rem; color:var(--ink-3); margin-top:.15rem; }
+.ger-avance{ height:5px; border-radius:5px; background:var(--line-2); margin-top:.45rem; overflow:hidden; }
+.ger-avance span{ display:block; height:100%; background:var(--verde); border-radius:5px; }
+.ger-hero .der h2{ font-size:1rem; }
+.ger-hero .der .cs{ font-size:.82rem; color:var(--ink-2); }
+.ger-ley{ display:flex; gap:1rem; font-size:.8rem; color:var(--ink-2); margin:.5rem 0 .25rem; flex-wrap:wrap; }
+.ger-ley i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:.35rem; vertical-align:-1px; }
+@media (max-width:1100px){ .ger-hero{ grid-template-columns:1fr; } .ger-hero .izq{ border-right:0; border-bottom:1px solid var(--line-2); } }
 
-section{ margin-top:44px; }
-.sh{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
-.sh h2{ font-size:28px; letter-spacing:-.025em; font-weight:700; margin:0; }
-.sh p{ margin:4px 0 0; color:var(--ink-3); font-size:15px; max-width:760px; }
-.grid{ display:grid; gap:16px; }
-.g-kpi{ grid-template-columns:repeat(6, minmax(0,1fr)); }
-.g-2{ grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); }
-.g-2e{ grid-template-columns:repeat(2, minmax(0,1fr)); }
-.g-3{ grid-template-columns:repeat(3, minmax(0,1fr)); }
-.g-4{ grid-template-columns:repeat(4, minmax(0,1fr)); }
-@media (max-width:1180px){ .g-kpi{ grid-template-columns:repeat(3, minmax(0,1fr)); } .g-2,.g-3{ grid-template-columns:1fr; } }
-@media (max-width:760px){ .g-kpi,.g-2e,.g-4{ grid-template-columns:repeat(2, minmax(0,1fr)); } .hero h1{ font-size:34px; } main{ padding:24px 16px 60px; } .gb-in{ padding:10px 16px; } }
-@media (max-width:480px){ .g-kpi,.g-2e,.g-4{ grid-template-columns:1fr; } }
+/* ---- Lo que dicen los números ---- */
+.ger-lect{ list-style:none; margin:0; padding:.4rem 1.25rem; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); column-gap:2rem; }
+.ger-lect li{ display:flex; gap:.7rem; align-items:flex-start; padding:.8rem 0; border-bottom:1px solid var(--line-2); font-size:.95rem; color:var(--ink); }
+.ger-lect li i{ font-size:1.05rem; margin-top:.05rem; flex:0 0 auto; color:var(--ink-3); }
+.ger-lect li.bien i{ color:var(--ok); }
+.ger-lect li.ojo i{ color:var(--warn); }
+@media (max-width:900px){ .ger-lect{ grid-template-columns:1fr; } }
 
-.card{ background:var(--surface); border-radius:var(--r-lg); box-shadow:var(--shadow); border:1px solid var(--hair-2); padding:22px 24px; min-width:0; }
-.card h3{ font-size:17px; font-weight:600; letter-spacing:-.015em; margin:0; }
-.card .cs{ font-size:13px; color:var(--ink-3); margin-top:2px; }
-.ch{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+/* ---- Rankings ---- */
+.ger-dos{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; }
+@media (max-width:1000px){ .ger-dos{ grid-template-columns:1fr; } }
+.ger-panel > .ph{ padding:1.1rem 1.25rem .4rem; }
+.ger-panel > .ph .cs{ font-size:.82rem; color:var(--ink-2); margin-top:.1rem; }
+.ger-rank{ width:100%; border-collapse:collapse; }
+.ger-rank td, .ger-rank th{ padding:.6rem 1.25rem; border-top:1px solid var(--line-2); font-size:.88rem; vertical-align:middle; }
+.ger-rank th{ font-weight:500; color:var(--ink-3); font-size:.78rem; border-top:0; padding-top:.2rem; padding-bottom:.35rem; }
+.ger-rank .pos{ width:2.2rem; color:var(--ink-3); padding-right:0; }
+.ger-rank .nom{ font-weight:500; color:var(--ink); }
+.ger-rank .nom small{ display:block; font-weight:400; color:var(--ink-3); font-size:.78rem; }
+.ger-rank .barra{ width:32%; }
+.ger-rank .barra div{ height:8px; border-radius:0 4px 4px 0; background:var(--dato); min-width:2px; }
+.ger-rank .n{ text-align:right; white-space:nowrap; }
+.ger-rank .n b{ font-weight:600; color:var(--ink); }
+.ger-rank tr:hover td{ background:var(--panel-2); }
+.ger-mas{ padding:.6rem 1.25rem .9rem; font-size:.85rem; }
+.ger-mas summary{ cursor:pointer; color:var(--steel); font-weight:500; list-style:none; }
+.ger-mas summary::-webkit-details-marker{ display:none; }
 
-/* ---- Indicadores ---- */
-.kpi{ display:flex; flex-direction:column; gap:6px; }
-.kpi .k{ font-size:13px; font-weight:500; color:var(--ink-3); }
-.kpi .v{ font-size:30px; font-weight:700; letter-spacing:-.03em; line-height:1.1; }
-.kpi.hero-k{ grid-column:span 2; }
-.kpi.hero-k .v{ font-size:44px; }
-.kpi .d{ font-size:13px; color:var(--ink-3); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.delta{ display:inline-flex; align-items:center; gap:3px; font-weight:600; font-size:13px; }
-.delta.up{ color:var(--up); } .delta.down{ color:var(--down); } .delta.eq{ color:var(--ink-3); }
-.barra{ height:6px; border-radius:6px; background:var(--hair-2); overflow:hidden; margin-top:4px; }
-.barra span{ display:block; height:100%; background:var(--s1); border-radius:6px; }
-.aviso{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--warn); background:var(--warn-tint); border-radius:980px; padding:2px 9px; align-self:flex-start; }
-@media (max-width:1180px){ .kpi.hero-k{ grid-column:span 3; } }
-@media (max-width:760px){ .kpi.hero-k{ grid-column:span 2; } }
+/* ---- Clientes mes a mes ---- */
+.ger-mapa{ overflow-x:auto; }
+.ger-mapa table{ border-collapse:separate; border-spacing:3px; width:100%; min-width:860px; }
+.ger-mapa th{ font-size:.76rem; font-weight:500; color:var(--ink-3); text-align:center; padding:.2rem; }
+.ger-mapa th.cli{ text-align:left; width:200px; }
+.ger-mapa td{ height:38px; border-radius:6px; text-align:center; font-size:.76rem; font-weight:500; cursor:default; }
+.ger-mapa td.cli{ text-align:left; font-size:.85rem; font-weight:500; color:var(--ink); padding-right:.5rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; }
+.ger-mapa td.tot{ font-weight:600; color:var(--ink); text-align:right; padding-left:.5rem; white-space:nowrap; }
+.ger-mapa td.cero{ background:var(--panel-2); color:var(--ink-3); }
+.ger-escala{ display:flex; align-items:center; gap:.5rem; font-size:.78rem; color:var(--ink-3); padding:.25rem 1.25rem 1rem; }
+.ger-escala span.g{ width:120px; height:8px; border-radius:4px; background:linear-gradient(90deg,#e6eff8,#1f6fb0,#0f3d66); }
 
-/* ---- Gráficos ---- */
-.viz{ position:relative; }
-.viz svg{ display:block; width:100%; overflow:visible; }
-.ley{ display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--ink-2); }
-.ley span{ display:inline-flex; align-items:center; gap:6px; }
-.ley i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
-.tt{ position:fixed; z-index:50; pointer-events:none; background:var(--surface); color:var(--ink); border:1px solid var(--hair);
-     border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.18); padding:10px 12px; font-size:13px; min-width:170px; max-width:280px; opacity:0; transition:opacity .12s; }
-.tt.on{ opacity:1; }
-.tt .t{ font-weight:600; margin-bottom:4px; }
-.tt .r{ display:flex; justify-content:space-between; gap:14px; color:var(--ink-2); font-variant-numeric:tabular-nums; }
-.tt .r b{ color:var(--ink); font-weight:600; }
-.tt .r i{ width:8px; height:8px; border-radius:2px; display:inline-block; margin-right:6px; }
-.hb{ display:flex; flex-direction:column; gap:10px; }
-.hb .f{ display:grid; grid-template-columns:minmax(90px,30%) 1fr auto; align-items:center; gap:12px; font-size:13px; cursor:default; border-radius:8px; }
-.hb .f:hover .t{ background:var(--hair-2); }
-.hb .nm{ color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.hb .t{ height:22px; display:flex; align-items:center; border-radius:6px; }
-.hb .b{ height:14px; background:var(--s1); border-radius:0 4px 4px 0; min-width:2px; }
-.hb .vl{ color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; min-width:84px; }
-.hb .vl small{ color:var(--ink-4); font-weight:500; margin-left:4px; }
-.vacio{ color:var(--ink-3); font-size:14px; padding:26px 0; text-align:center; }
+/* ---- Proceso: es una secuencia, por eso va numerado ---- */
+.ger-proc{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); }
+.ger-proc .e{ padding:1.1rem 1rem; border-left:1px solid var(--line-2); }
+.ger-proc .e:first-child{ border-left:0; }
+.ger-proc .num{ width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:.78rem; font-weight:600; background:var(--panel-2); color:var(--ink-2); border:1px solid var(--line); }
+.ger-proc .e.tiene .num{ background:var(--g-900); color:#fff; border-color:var(--g-900); }
+.ger-proc .nombre{ font-weight:600; font-size:.9rem; margin-top:.55rem; color:var(--ink); }
+.ger-proc .quien{ font-size:.78rem; color:var(--ink-3); }
+.ger-proc .v{ font-size:1.15rem; font-weight:600; margin-top:.5rem; }
+.ger-proc .c{ font-size:.8rem; color:var(--ink-2); }
+@media (max-width:1100px){ .ger-proc{ grid-template-columns:repeat(3, minmax(0,1fr)); } .ger-proc .e:nth-child(4){ border-left:0; } .ger-proc .e:nth-child(n+4){ border-top:1px solid var(--line-2); } }
+@media (max-width:560px){ .ger-proc{ grid-template-columns:1fr 1fr; } }
 
-/* ---- El proceso de facturación ---- */
-.proc{ display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:10px; }
-.proc .e{ border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--hair-2); padding:14px; display:flex; flex-direction:column; gap:6px; min-width:0; }
-.proc .e .q{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-4); font-weight:600; }
-.proc .e .n{ font-size:14px; font-weight:600; }
-.proc .e .v{ font-size:20px; font-weight:700; letter-spacing:-.02em; }
-.proc .e .c{ font-size:12px; color:var(--ink-3); }
-.proc .e .lv{ height:4px; border-radius:4px; margin-top:auto; }
-@media (max-width:1180px){ .proc{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
-@media (max-width:560px){ .proc{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+/* ---- Equipo ---- */
+.ger-equipo{ display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:1rem; align-items:start; }
+@media (max-width:1000px){ .ger-equipo{ grid-template-columns:1fr; } }
+.ger-lista{ list-style:none; margin:0; padding:0 1.25rem .6rem; }
+.ger-lista li{ display:flex; justify-content:space-between; gap:.75rem; padding:.55rem 0; border-top:1px solid var(--line-2); font-size:.88rem; }
+.ger-lista li .c{ color:var(--ink-3); }
+.ger-lista li.vacio{ color:var(--ink-3); }
+.ger-pie{ font-size:.78rem; color:var(--ink-3); margin-top:2rem; }
 
-/* ---- Tablas ---- */
-details.tv{ margin-top:14px; }
-details.tv summary{ cursor:pointer; font-size:13px; color:var(--accent); font-weight:500; list-style:none; }
-details.tv summary::-webkit-details-marker{ display:none; }
-details.tv summary::before{ content:"\25B8  "; }
-details.tv[open] summary::before{ content:"\25BE  "; }
-.tbl{ width:100%; border-collapse:collapse; font-size:13px; margin-top:10px; }
-.tbl th{ text-align:left; font-weight:600; color:var(--ink-3); font-size:12px; padding:8px 10px; border-bottom:1px solid var(--hair); white-space:nowrap; }
-.tbl td{ padding:9px 10px; border-bottom:1px solid var(--hair-2); color:var(--ink-2); }
-.tbl td.n, .tbl th.n{ text-align:right; }
-.tbl tr:last-child td{ border-bottom:0; }
-.tbl td b{ color:var(--ink); font-weight:600; }
-.scroll{ overflow-x:auto; }
-.chip{ display:inline-block; font-size:11px; font-weight:600; padding:1px 7px; border-radius:980px; background:var(--hair-2); color:var(--ink-3); }
-.lista{ list-style:none; margin:0; padding:0; font-size:13px; }
-.lista li{ display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--hair-2); }
-.lista li:last-child{ border-bottom:0; }
-.lista .c{ color:var(--ink-3); }
-.cor .r{ font-size:28px; font-weight:700; letter-spacing:-.03em; }
-.cor .lec{ font-size:14px; color:var(--ink-2); margin-top:2px; min-height:40px; }
-.nota{ font-size:12px; color:var(--ink-4); margin-top:12px; }
-footer{ max-width:1320px; margin:0 auto; padding:0 28px 40px; font-size:12px; color:var(--ink-4); }
-
-@media print{
-    .gb, .secs, details.tv summary{ display:none !important; }
-    body{ background:#fff; }
-    .card{ box-shadow:none; border:1px solid #ddd; break-inside:avoid; }
-    details.tv{ display:block; } details.tv > *{ display:block; }
-    section{ break-inside:avoid-page; }
-}
-@media (forced-colors: active){ .hb .b, .barra span, .proc .e .lv{ background:CanvasText; } }
+/* Tooltip de los gráficos */
+.ger-tt{ position:fixed; z-index:1080; pointer-events:none; background:var(--g-900); color:#fff; border-radius:8px; padding:.55rem .7rem; font-size:.8rem;
+         box-shadow:0 8px 24px rgba(0,0,0,.25); opacity:0; transition:opacity .1s; min-width:190px; }
+.ger-tt.on{ opacity:1; }
+.ger-tt .t{ font-weight:600; margin-bottom:.25rem; }
+.ger-tt .r{ display:flex; justify-content:space-between; gap:1rem; color:#c9d3dd; }
+.ger-tt .r b{ color:#fff; font-weight:600; }
+@media print{ .sidebar, .topbar, .ger-periodo{ display:none!important; } .main-content{ margin:0!important; } .ger-panel{ break-inside:avoid; } }
 </style>
-</head>
-<body>
 
-{# ---------- Barra superior ---------- #}
-<header class="gb">
-    <div class="gb-in">
-        <a class="gb-marca" href="{{ volver }}" title="Volver al sistema"><img src="{% static 'images/logo-solmed.png' %}" alt="SOLMED"><span class="sep"></span>Gerencia</a>
-        <div class="gb-acc">
-            <nav class="seg" aria-label="Periodo">
+<div class="ger">
+    {# ---------- Cabecera y periodo ---------- #}
+    <div class="ger-cab">
+        <div>
+            <h1>Tablero de gerencia</h1>
+            <div class="bajada">{{ nombre_periodo|capfirst }}, comparado con {{ nombre_anterior }}</div>
+        </div>
+        <div class="ger-periodo">
+            <nav class="ger-seg" aria-label="Periodo">
                 {% for clave, nombre in periodos %}{% if clave != 'personalizado' %}
-                <a href="?periodo={{ clave }}" class="{% if periodo == clave %}act{% endif %}" {% if periodo == clave %}aria-current="true"{% endif %}>{{ nombre }}</a>
+                <a href="?periodo={{ clave }}" class="{% if periodo == clave %}act{% endif %}" {% if periodo == clave %}aria-current="page"{% endif %}>{{ nombre }}</a>
                 {% endif %}{% endfor %}
             </nav>
-            <form method="get" class="rango" aria-label="Periodo personalizado">
-                <input type="hidden" name="periodo" value="personalizado">
-                <input type="date" name="desde" value="{{ desde|date:'Y-m-d' }}" aria-label="Desde">
-                <span>a</span>
-                <input type="date" name="hasta" value="{{ hasta|date:'Y-m-d' }}" aria-label="Hasta">
-                <button class="btn">Ver</button>
-            </form>
-            <button class="btn" type="button" onclick="window.print()">Imprimir</button>
-            <a class="btn prim" href="{{ volver }}">Volver al sistema</a>
+            <details class="ger-rango" {% if periodo == 'personalizado' %}open{% endif %}>
+                <summary>Otro rango</summary>
+                <form method="get">
+                    <input type="hidden" name="periodo" value="personalizado">
+                    <input type="date" name="desde" value="{{ desde|date:'Y-m-d' }}" aria-label="Desde">
+                    <input type="date" name="hasta" value="{{ hasta|date:'Y-m-d' }}" aria-label="Hasta">
+                    <button class="btn btn-sm btn-primary">Ver</button>
+                </form>
+            </details>
         </div>
     </div>
-</header>
 
-<main>
-    <div class="hero">
-        <h1>Tablero de gerencia</h1>
-        <div class="sub"><b>{{ nombre_periodo }}</b> · comparado con {{ nombre_anterior }}</div>
-    </div>
-    <nav class="secs" aria-label="Secciones">
-        <a href="#resumen">Resumen</a><a href="#ventas">Ventas</a><a href="#flota">Flota</a><a href="#clientes">Clientes</a>
-        <a href="#proceso">Proceso de facturación</a><a href="#personal">Personal</a><a href="#correlaciones">Correlaciones</a>
-    </nav>
-
-    {# ================= RESUMEN ================= #}
     {% with k=d.kpis %}
-    <section id="resumen">
-        <div class="grid g-kpi">
-            <div class="card kpi hero-k">
-                <div class="k">Preliquidado en el periodo</div>
-                <div class="v num">${{ k.preliquidado|floatformat:0|intcomma }}</div>
-                <div class="d">{% include 'gestion/partials/_gerencia_delta.html' with v=k.preliquidado_delta %}{% if k.preliquidado_delta is not None %} frente al periodo anterior{% endif %}</div>
+    {# ---------- Protagonista: cómo vamos y la curva de facturación ---------- #}
+    <div class="ger-panel ger-hero">
+        <div class="izq">
+            <div>
+                <p class="ger-frase">{{ frase_periodo }} llevamos ${{ k.preliquidado|floatformat:0|intcomma }} preliquidados en {{ k.servicios }} servicio{{ k.servicios|pluralize }}.</p>
+                <div class="ger-frase-sub">
+                    {% if k.preliquidado_delta is None %}<span class="delta igual">Sin facturación en el periodo anterior para comparar</span>
+                    {% elif k.preliquidado_delta >= 0 %}<span class="delta sube"><i class="bi bi-arrow-up-short"></i>{{ k.preliquidado_delta|floatformat:1 }}%</span> frente a {{ nombre_anterior }}
+                    {% else %}<span class="delta baja"><i class="bi bi-arrow-down-short"></i>{{ k.preliquidado_delta|floatformat:1|cut:"-" }}%</span> frente a {{ nombre_anterior }}{% endif %}
+                </div>
             </div>
-            <div class="card kpi">
-                <div class="k">Con factura electrónica</div>
-                <div class="v num">${{ k.fev|floatformat:0|intcomma }}</div>
-                <div class="barra" aria-hidden="true"><span style="width:{% if k.fev_pct %}{{ k.fev_pct|floatformat:0 }}{% else %}0{% endif %}%"></span></div>
-                <div class="d">{% if k.fev_pct is not None %}{{ k.fev_pct|floatformat:0 }}% de lo preliquidado{% else %}Sin preliquidaciones{% endif %}</div>
-            </div>
-            <div class="card kpi">
-                <div class="k">Enviado al cliente</div>
-                <div class="v num">${{ k.enviado|floatformat:0|intcomma }}</div>
-                <div class="barra" aria-hidden="true"><span style="width:{% if k.enviado_pct %}{{ k.enviado_pct|floatformat:0 }}{% else %}0{% endif %}%"></span></div>
-                <div class="d">{% if k.enviado_pct is not None %}{{ k.enviado_pct|floatformat:0 }}% de lo preliquidado{% else %}—{% endif %}</div>
-            </div>
-            <div class="card kpi">
-                <div class="k">Servicios realizados</div>
-                <div class="v num">{{ k.servicios|intcomma }}</div>
-                <div class="d">{% include 'gestion/partials/_gerencia_delta.html' with v=k.servicios_delta %}</div>
-            </div>
-            <div class="card kpi">
-                <div class="k">Promedio por servicio</div>
-                <div class="v num">{% if k.ticket %}${{ k.ticket|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-                <div class="d">{% include 'gestion/partials/_gerencia_delta.html' with v=k.ticket_delta %}</div>
+            <div class="ger-cifras">
+                <div class="ger-cifra">
+                    <div class="k">Con factura electrónica</div>
+                    <div class="v">${{ k.fev|floatformat:0|intcomma }}</div>
+                    <div class="ger-avance" aria-hidden="true"><span style="width:{{ k.fev_pct|default:0|floatformat:0 }}%"></span></div>
+                    <div class="s">{% if k.fev_pct is not None %}{{ k.fev_pct|floatformat:0 }}% de lo preliquidado{% else %}Nada preliquidado aún{% endif %}</div>
+                </div>
+                <div class="ger-cifra">
+                    <div class="k">Enviado al cliente</div>
+                    <div class="v">${{ k.enviado|floatformat:0|intcomma }}</div>
+                    <div class="ger-avance" aria-hidden="true"><span style="width:{{ k.enviado_pct|default:0|floatformat:0 }}%"></span></div>
+                    <div class="s">{% if k.enviado_pct is not None %}{{ k.enviado_pct|floatformat:0 }}% de lo preliquidado{% else %}Nada enviado aún{% endif %}</div>
+                </div>
+                <div class="ger-cifra">
+                    <div class="k">Promedio por servicio</div>
+                    <div class="v">{% if k.ticket %}${{ k.ticket|floatformat:0|intcomma }}{% else %}Sin servicios{% endif %}</div>
+                    <div class="s">Lo preliquidado dividido entre los servicios realizados</div>
+                </div>
+                <div class="ger-cifra">
+                    <div class="k">Por preliquidar</div>
+                    <div class="v">{{ k.por_preliquidar }} {% if k.por_preliquidar == 1 %}orden{% else %}órdenes{% endif %}</div>
+                    <div class="s">{% if k.por_preliquidar_dias is not None %}La más antigua lleva {{ k.por_preliquidar_dias }} días esperando{% else %}No hay órdenes esperando{% endif %}</div>
+                </div>
             </div>
         </div>
-        <div class="grid g-4" style="margin-top:16px">
-            <div class="card kpi">
-                <div class="k">Clientes con facturación</div>
-                <div class="v num">{{ k.clientes }}</div>
-                <div class="d">{% if k.clientes %}Los 5 primeros concentran el {{ k.top5|floatformat:0 }}%{% else %}—{% endif %}</div>
+        <div class="der">
+            <h2>Facturación mes a mes</h2>
+            <div class="cs">Lo preliquidado en los últimos doce meses, por fecha de emisión</div>
+            <div class="ger-ley"><span><i style="background:var(--dato)"></i>Meses del periodo elegido</span><span><i style="background:var(--dato-suave)"></i>Meses anteriores</span></div>
+            <div id="g-meses" role="img" aria-label="Columnas de lo preliquidado por mes en los últimos doce meses"></div>
+        </div>
+    </div>
+
+    {# ---------- Lo que dicen los números ---------- #}
+    <section class="ger-sec">
+        <div class="t"><h2>Lo que dicen los números</h2><p>Lo más importante del periodo, en una frase cada cosa</p></div>
+        <div class="ger-panel">
+            <ul class="ger-lect">
+                {% for l in d.lecturas %}
+                <li class="{{ l.tono }}"><i class="bi {% if l.tono == 'bien' %}bi-check-circle-fill{% elif l.tono == 'ojo' %}bi-exclamation-circle-fill{% else %}bi-info-circle{% endif %}" aria-hidden="true"></i><span>{{ l.texto }}</span></li>
+                {% empty %}
+                <li><i class="bi bi-info-circle" aria-hidden="true"></i><span>Todavía no hay preliquidaciones ni servicios en este periodo.</span></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </section>
+
+    {# ---------- Quién genera la facturación ---------- #}
+    <section class="ger-sec">
+        <div class="t"><h2>Quién genera la facturación</h2><p>{% if k.clientes %}{{ k.clientes }} cliente{{ k.clientes|pluralize }} con facturación en el periodo{% endif %}</p></div>
+        <div class="ger-dos">
+            <div class="ger-panel">
+                <div class="ph"><h2>Clientes</h2><div class="cs">Su parte de lo preliquidado en el periodo</div></div>
+                <table class="ger-rank">
+                    <thead><tr><th class="pos"></th><th>Cliente</th><th></th><th class="n">Facturación</th><th class="n">Parte</th></tr></thead>
+                    <tbody>
+                    {% for c in d.clientes|slice:":10" %}
+                    <tr>
+                        <td class="pos">{{ forloop.counter }}</td>
+                        <td class="nom"><a href="{% url 'gestion:ficha_cliente' c.id %}">{{ c.nombre }}</a><small>{{ c.servicios }} servicio{{ c.servicios|pluralize }}</small></td>
+                        <td class="barra"><div style="width:{% widthratio c.valor d.clientes.0.valor 100 %}%"></div></td>
+                        <td class="n"><b>${{ c.valor|floatformat:0|intcomma }}</b></td>
+                        <td class="n">{{ c.participacion|floatformat:0 }}%</td>
+                    </tr>
+                    {% empty %}<tr><td colspan="5" class="text-muted">Ningún cliente facturó en este periodo.</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+                {% if d.clientes|length > 10 %}
+                <details class="ger-mas"><summary>Ver los {{ d.clientes|length }} clientes</summary>
+                    <table class="ger-rank mt-2"><tbody>{% for c in d.clientes|slice:"10:" %}<tr><td class="pos">{{ forloop.counter|add:10 }}</td><td class="nom">{{ c.nombre }}</td><td class="n"><b>${{ c.valor|floatformat:0|intcomma }}</b></td><td class="n">{{ c.participacion|floatformat:1 }}%</td></tr>{% endfor %}</tbody></table>
+                </details>
+                {% endif %}
             </div>
-            <div class="card kpi">
-                <div class="k">Órdenes por preliquidar</div>
-                <div class="v num">{{ k.por_preliquidar }}</div>
-                <div class="d">{% if k.por_preliquidar_dias is not None %}<span class="aviso">&#9650; la más antigua lleva {{ k.por_preliquidar_dias }} días</span>{% else %}Todo preliquidado{% endif %}</div>
+            <div class="ger-panel">
+                <div class="ph"><h2>Vehículos</h2><div class="cs">Si una orden la atendieron dos vehículos, su valor se reparte entre los dos</div></div>
+                <table class="ger-rank">
+                    <thead><tr><th class="pos"></th><th>Vehículo</th><th></th><th class="n">Facturación</th><th class="n">Por servicio</th></tr></thead>
+                    <tbody>
+                    {% for v in d.vehiculos|slice:":10" %}
+                    <tr>
+                        <td class="pos">{{ forloop.counter }}</td>
+                        <td class="nom">{{ v.nombre }}<small>{{ v.servicios }} servicio{{ v.servicios|pluralize }}</small></td>
+                        <td class="barra">{% if d.vehiculos.0.valor %}<div style="width:{% widthratio v.valor d.vehiculos.0.valor 100 %}%"></div>{% endif %}</td>
+                        <td class="n"><b>${{ v.valor|floatformat:0|intcomma }}</b></td>
+                        <td class="n">{% if v.servicios %}${{ v.ticket|default:0|floatformat:0|intcomma }}{% else %}Sin servicios{% endif %}</td>
+                    </tr>
+                    {% empty %}<tr><td colspan="5" class="text-muted">Ningún vehículo facturó en este periodo.</td></tr>{% endfor %}
+                    </tbody>
+                </table>
             </div>
-            <div class="card kpi">
-                <div class="k">Personal activo</div>
-                <div class="v num">{{ d.personal.activos }}</div>
-                <div class="d">{{ d.personal.ingresos|length }} ingreso{{ d.personal.ingresos|length|pluralize }} · {{ d.personal.retiros|length }} retiro{{ d.personal.retiros|length|pluralize }} en el periodo</div>
+        </div>
+        {% if d.asesoras %}
+        <div class="ger-panel mt-3">
+            <div class="ph"><h2>Asesoras comerciales</h2><div class="cs">La facturación de los clientes de su cartera. Un cliente con dos asesoras cuenta para las dos</div></div>
+            <table class="ger-rank">
+                <tbody>
+                {% for a in d.asesoras %}
+                <tr>
+                    <td class="nom">{{ a.nombre }}<small>{{ a.clientes }} cliente{{ a.clientes|pluralize }} con facturación</small></td>
+                    <td class="barra"><div style="width:{% widthratio a.valor d.asesoras.0.valor 100 %}%"></div></td>
+                    <td class="n"><b>${{ a.valor|floatformat:0|intcomma }}</b></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </section>
+
+    {# ---------- Clientes mes a mes ---------- #}
+    <section class="ger-sec">
+        <div class="t"><h2>Clientes mes a mes</h2><p>Los ocho clientes principales en los últimos doce meses: más oscuro, más facturación</p></div>
+        <div class="ger-panel">
+            {% if d.clientes_mes.filas %}
+            <div class="ger-mapa" style="padding:1rem 1rem .25rem">
+                <table id="g-mapa">
+                    <thead><tr><th class="cli">Cliente</th>{% for m in d.clientes_mes.meses %}<th>{{ m.etiqueta }}</th>{% endfor %}<th class="text-end">Total</th></tr></thead>
+                    <tbody></tbody>
+                </table>
             </div>
-            <div class="card kpi">
-                <div class="k">Horas trabajadas</div>
-                <div class="v num">{{ d.personal.horas_total|intcomma }} h</div>
-                <div class="d">Conductores y ayudantes, según el centro de control</div>
+            <div class="ger-escala"><span>Menos</span><span class="g"></span><span>Más</span></div>
+            {% else %}
+            <p class="text-muted" style="padding:1.25rem">Ningún cliente facturó en los últimos doce meses.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    {# ---------- Proceso de facturación ---------- #}
+    <section class="ger-sec">
+        <div class="t"><h2>Proceso de facturación</h2><p>Dónde está hoy la plata preliquidada, sin importar el periodo elegido</p></div>
+        <div class="ger-panel ger-proc">
+            {% for e in d.proceso %}
+            <div class="e{% if e.n %} tiene{% endif %}">
+                <span class="num">{{ forloop.counter }}</span>
+                <div class="nombre">{{ e.nombre }}</div>
+                <div class="quien">La hace la {{ e.quien }}</div>
+                <div class="v">${{ e.valor|floatformat:0|intcomma }}</div>
+                <div class="c">{{ e.n }} preliquidaci{{ e.n|pluralize:"ón,ones" }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    {# ---------- Equipo ---------- #}
+    <section class="ger-sec">
+        <div class="t"><h2>Equipo</h2><p>{{ d.personal.activos }} personas activas; {{ d.personal.horas_total|intcomma }} horas trabajadas por conductores y ayudantes en el periodo</p></div>
+        <div class="ger-equipo">
+            <div class="ger-panel">
+                <div class="ph"><h2>Conductores y ayudantes</h2><div class="cs">Ordenados por horas trabajadas. La facturación es la de los servicios en que participó cada uno</div></div>
+                <table class="ger-rank">
+                    <thead><tr><th>Persona</th><th class="n">Horas</th><th class="n">Servicios</th><th class="n">Facturación de sus servicios</th></tr></thead>
+                    <tbody>
+                    {% for p in d.personal.filas|slice:":12" %}
+                    <tr>
+                        <td class="nom">{{ p.nombre }}<small>{{ p.cargo }}{% if p.retirado %}, retirado{% endif %}</small></td>
+                        <td class="n">{{ p.horas_txt|default:"0 h" }}</td>
+                        <td class="n">{{ p.servicios }}</td>
+                        <td class="n"><b>${{ p.valor|floatformat:0|intcomma }}</b></td>
+                    </tr>
+                    {% empty %}<tr><td colspan="4" class="text-muted">Sin horas ni servicios en este periodo.</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+                {% if d.personal.filas|length > 12 %}
+                <details class="ger-mas"><summary>Ver las {{ d.personal.filas|length }} personas</summary>
+                    <table class="ger-rank mt-2"><tbody>{% for p in d.personal.filas|slice:"12:" %}<tr><td class="nom">{{ p.nombre }}<small>{{ p.cargo }}</small></td><td class="n">{{ p.horas_txt|default:"0 h" }}</td><td class="n">{{ p.servicios }}</td><td class="n"><b>${{ p.valor|floatformat:0|intcomma }}</b></td></tr>{% endfor %}</tbody></table>
+                </details>
+                {% endif %}
+            </div>
+            <div class="d-flex flex-column gap-3">
+                <div class="ger-panel">
+                    <div class="ph"><h2>Personal activo</h2></div>
+                    <ul class="ger-lista">{% for cargo, n in d.personal.por_cargo %}<li><span>{{ cargo }}</span><b>{{ n }}</b></li>{% empty %}<li class="vacio">Sin personal registrado.</li>{% endfor %}</ul>
+                </div>
+                <div class="ger-panel">
+                    <div class="ph"><h2>Ingresos</h2></div>
+                    <ul class="ger-lista">{% for p in d.personal.ingresos %}<li><span>{{ p.nombre }} <span class="c">{{ p.cargo }}</span></span><span class="c">{{ p.fecha|date:"d/m/Y" }}</span></li>{% empty %}<li class="vacio">Nadie ingresó en este periodo.</li>{% endfor %}</ul>
+                </div>
+                <div class="ger-panel">
+                    <div class="ph"><h2>Retiros</h2></div>
+                    <ul class="ger-lista">{% for p in d.personal.retiros %}<li><span>{{ p.nombre }} <span class="c">{{ p.cargo }}</span></span><span class="c">{{ p.fecha|date:"d/m/Y" }}</span></li>{% empty %}<li class="vacio">Nadie se retiró en este periodo.</li>{% endfor %}</ul>
+                </div>
             </div>
         </div>
     </section>
     {% endwith %}
 
-    {# ================= VENTAS ================= #}
-    <section id="ventas">
-        <div class="sh"><div><h2>Ventas por mes</h2><p>Lo preliquidado en los últimos doce meses, separado en lo que ya tiene factura electrónica y lo que aún no.</p></div></div>
-        <div class="grid g-2">
-            <div class="card">
-                <div class="ch"><div><h3>Preliquidado por mes</h3><div class="cs">Por fecha de emisión de la preliquidación</div></div>
-                    <div class="ley"><span><i style="background:var(--s1)"></i>Con factura electrónica</span><span><i style="background:var(--s2)"></i>Sin factura electrónica aún</span></div></div>
-                <div class="viz" id="v-meses" role="img" aria-label="Columnas apiladas del preliquidado por mes"></div>
-                <details class="tv"><summary>Ver tabla</summary><div class="scroll"><table class="tbl">
-                    <thead><tr><th>Mes</th><th class="n">Con factura electrónica</th><th class="n">Sin factura electrónica</th><th class="n">Total</th><th class="n">Servicios</th></tr></thead>
-                    <tbody>{% for m in d.meses %}<tr><td>{{ m.mes }}</td><td class="n">${{ m.fev|floatformat:0|intcomma }}</td><td class="n">${{ m.sin_fev|floatformat:0|intcomma }}</td><td class="n"><b>${{ m.total|floatformat:0|intcomma }}</b></td><td class="n">{{ m.servicios }}</td></tr>{% endfor %}</tbody>
-                </table></div></details>
-            </div>
-            <div class="card">
-                <div class="ch"><div><h3>Servicios realizados por mes</h3><div class="cs">Recorridos completados, sin órdenes canceladas</div></div></div>
-                <div class="viz" id="v-servicios" role="img" aria-label="Columnas de servicios por mes"></div>
-            </div>
-        </div>
-    </section>
+    <p class="ger-pie">Actualizado el {{ generado|date:"d/m/Y" }} a las {{ generado|date:"H:i" }}. La facturación sale de las preliquidaciones (global y conceptos de cada orden); los servicios, de los recorridos completados; las horas, del centro de control de cada persona.</p>
+</div>
 
-    {# ================= FLOTA ================= #}
-    <section id="flota">
-        <div class="sh"><div><h2>Facturación por vehículo</h2><p>El valor de cada orden se reparte en partes iguales entre los vehículos que la atendieron.</p></div></div>
-        <div class="card">
-            <div class="ch"><div><h3>Vehículos que más facturan</h3><div class="cs">Los quince primeros del periodo</div></div></div>
-            <div class="hb" id="v-vehiculos"></div>
-            <details class="tv"><summary>Ver tabla completa</summary><div class="scroll"><table class="tbl">
-                <thead><tr><th>Vehículo</th><th class="n">Facturación</th><th class="n">Servicios</th><th class="n">Promedio por servicio</th></tr></thead>
-                <tbody>{% for v in d.vehiculos %}<tr><td><b>{{ v.nombre }}</b></td><td class="n">${{ v.valor|floatformat:0|intcomma }}</td><td class="n">{{ v.servicios }}</td><td class="n">{% if v.ticket %}${{ v.ticket|floatformat:0|intcomma }}{% else %}—{% endif %}</td></tr>
-                {% empty %}<tr><td colspan="4" class="vacio">Sin datos en el periodo.</td></tr>{% endfor %}</tbody>
-            </table></div></details>
-        </div>
-    </section>
-
-    {# ================= CLIENTES ================= #}
-    <section id="clientes">
-        <div class="sh"><div><h2>Clientes que más facturan</h2><p>Participación de cada cliente en lo preliquidado del periodo, y cuánto concentran los primeros.</p></div></div>
-        <div class="grid g-2">
-            <div class="card">
-                <div class="ch"><div><h3>Los diez primeros</h3><div class="cs">{% if d.kpis.clientes %}Los 5 primeros son el {{ d.kpis.top5|floatformat:0 }}% de la facturación{% endif %}</div></div></div>
-                <div class="hb" id="v-clientes"></div>
-                <details class="tv"><summary>Ver tabla completa</summary><div class="scroll"><table class="tbl">
-                    <thead><tr><th>Cliente</th><th class="n">Facturación</th><th class="n">Participación</th><th class="n">Acumulado</th><th class="n">Servicios</th></tr></thead>
-                    <tbody>{% for c in d.clientes %}<tr><td><b>{{ c.nombre }}</b></td><td class="n">${{ c.valor|floatformat:0|intcomma }}</td><td class="n">{{ c.participacion|floatformat:1 }}%</td><td class="n">{{ c.acumulado|floatformat:1 }}%</td><td class="n">{{ c.servicios }}</td></tr>
-                    {% empty %}<tr><td colspan="5" class="vacio">Sin datos en el periodo.</td></tr>{% endfor %}</tbody>
-                </table></div></details>
-            </div>
-            <div class="card">
-                <div class="ch"><div><h3>Por asesora comercial</h3><div class="cs">La facturación de los clientes de su cartera. Un cliente con dos asesoras cuenta para las dos.</div></div></div>
-                <div class="hb" id="v-asesoras"></div>
-            </div>
-        </div>
-    </section>
-
-    {# ================= PROCESO ================= #}
-    <section id="proceso">
-        <div class="sh"><div><h2>Proceso de facturación</h2><p>Dónde está hoy la plata preliquidada, etapa por etapa, entre la comercial y la administradora. No depende del periodo elegido.</p></div></div>
-        <div class="card">
-            <div class="proc" id="v-proceso">
-                {% for e in d.proceso %}
-                <div class="e">
-                    <div class="q">{{ e.quien }}</div>
-                    <div class="n">{{ e.nombre }}</div>
-                    <div class="v num">${{ e.valor|floatformat:0|intcomma }}</div>
-                    <div class="c">{{ e.n }} preliquidaci{{ e.n|pluralize:"ón,ones" }}</div>
-                    <div class="lv" style="background:var(--ramp-{{ forloop.counter }})"></div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-    </section>
-
-    {# ================= PERSONAL ================= #}
-    <section id="personal">
-        <div class="sh"><div><h2>Movimiento del personal</h2><p>Horas trabajadas y servicios de conductores y ayudantes, con la facturación de los servicios en que participó cada uno (no se reparte entre ellos).</p></div></div>
-        <div class="grid g-2">
-            <div class="card">
-                <div class="ch"><div><h3>Horas trabajadas por persona</h3><div class="cs">Las quince personas con más horas en el periodo</div></div></div>
-                <div class="hb" id="v-personal"></div>
-                <details class="tv"><summary>Ver tabla completa</summary><div class="scroll"><table class="tbl">
-                    <thead><tr><th>Persona</th><th>Cargo</th><th class="n">Horas</th><th class="n">Servicios</th><th class="n">Horas por servicio</th><th class="n">Facturación de sus servicios</th></tr></thead>
-                    <tbody>{% for p in d.personal.filas %}<tr><td><b>{{ p.nombre }}</b>{% if p.retirado %} <span class="chip">retirado</span>{% endif %}</td><td>{{ p.cargo }}</td><td class="n">{{ p.horas_txt|default:"—" }}</td><td class="n">{{ p.servicios }}</td><td class="n">{{ p.horas_por_servicio|default:"—" }}</td><td class="n">${{ p.valor|floatformat:0|intcomma }}</td></tr>
-                    {% empty %}<tr><td colspan="6" class="vacio">Sin horas ni servicios en el periodo.</td></tr>{% endfor %}</tbody>
-                </table></div></details>
-            </div>
-            <div class="grid" style="align-content:start">
-                <div class="card">
-                    <h3>Personal activo por cargo</h3>
-                    <ul class="lista" style="margin-top:10px">
-                        {% for cargo, n in d.personal.por_cargo %}<li><span>{{ cargo }}</span><b class="num">{{ n }}</b></li>{% empty %}<li class="c">Sin personal registrado.</li>{% endfor %}
-                    </ul>
-                </div>
-                <div class="card">
-                    <h3>Ingresos del periodo</h3>
-                    <ul class="lista" style="margin-top:10px">
-                        {% for p in d.personal.ingresos %}<li><span>{{ p.nombre }} <span class="c">· {{ p.cargo }}</span></span><span class="c num">{{ p.fecha|date:"d/m/Y" }}</span></li>{% empty %}<li class="c">Nadie ingresó en el periodo.</li>{% endfor %}
-                    </ul>
-                </div>
-                <div class="card">
-                    <h3>Retiros del periodo</h3>
-                    <ul class="lista" style="margin-top:10px">
-                        {% for p in d.personal.retiros %}<li><span>{{ p.nombre }} <span class="c">· {{ p.cargo }}</span></span><span class="c num">{{ p.fecha|date:"d/m/Y" }}</span></li>{% empty %}<li class="c">Nadie se retiró en el periodo.</li>{% endfor %}
-                    </ul>
-                    <div class="nota">Según la fecha de ingreso y de retiro de la ficha de cada persona.</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    {# ================= CORRELACIONES ================= #}
-    <section id="correlaciones">
-        <div class="sh"><div><h2>Correlaciones</h2><p>Cada punto es un vehículo, un cliente o una persona. La línea gris es la tendencia; el coeficiente r va de −1 a 1: cerca de 1, las dos cosas suben juntas.</p></div></div>
-        <div class="grid g-3">
-            {% for c in d.correlaciones %}
-            <div class="card cor">
-                <div class="ch"><div><h3>{{ c.titulo }}</h3><div class="cs">{{ c.x }} contra {{ c.y|lower }}</div></div>
-                    <div class="r num" title="Coeficiente de correlación de Pearson">{% if c.r is not None %}r = {{ c.r|stringformat:".2f" }}{% else %}—{% endif %}</div></div>
-                <div class="lec">{{ c.lectura }}{% if c.r is not None and c.puntos|length < 6 %} <span class="aviso">&#9650; Solo {{ c.puntos|length }} puntos: tómelo con cautela</span>{% endif %}</div>
-                <div class="viz" id="{{ c.id }}" role="img" aria-label="Dispersión: {{ c.titulo }}"></div>
-            </div>
-            {% endfor %}
-        </div>
-    </section>
-</main>
-<footer>Generado el {{ generado|date:"d/m/Y" }} a las {{ generado|date:"H:i" }} · Lo preliquidado sale de Facturación (global y conceptos de cada orden); los servicios, de los recorridos completados; las horas, del centro de control.</footer>
-
-<div class="tt" id="tt" role="tooltip"></div>
+<div class="ger-tt" id="ger-tt" role="tooltip"></div>
 {{ graficos|json_script:"gerencia-datos" }}
 <script>
 (function () {
     var D = JSON.parse(document.getElementById('gerencia-datos').textContent);
-    var css = getComputedStyle(document.documentElement);
-    function v(n) { return css.getPropertyValue(n).trim(); }
     var NS = 'http://www.w3.org/2000/svg';
-
-    // ---- Formatos (pesos colombianos) ----
-    function cop(n) { return '$' + Math.round(n || 0).toLocaleString('es-CO'); }
+    function pesos(n) { return '$' + Math.round(n || 0).toLocaleString('es-CO'); }
     function corto(n) {
         n = n || 0; var a = Math.abs(n);
         if (a >= 1e9) return '$' + (n / 1e9).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + ' mil M';
@@ -422,158 +372,89 @@ footer{ max-width:1320px; margin:0 auto; padding:0 28px 40px; font-size:12px; co
         if (a >= 1e3) return '$' + Math.round(n / 1e3).toLocaleString('es-CO') + ' mil';
         return '$' + Math.round(n);
     }
-    function entero(n) { return Math.round(n || 0).toLocaleString('es-CO'); }
     function esc(t) { var e = document.createElement('span'); e.textContent = t == null ? '' : String(t); return e.innerHTML; }
-
-    // ---- Tooltip único ----
-    var tt = document.getElementById('tt');
+    var tt = document.getElementById('ger-tt');
     function mostrar(e, html) {
         tt.innerHTML = html; tt.classList.add('on');
-        var x = e.clientX + 14, y = e.clientY + 14, w = tt.offsetWidth, h = tt.offsetHeight;
-        if (x + w > innerWidth - 8) x = e.clientX - w - 14;
-        if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+        var x = e.clientX + 14, y = e.clientY + 14;
+        if (x + tt.offsetWidth > innerWidth - 8) x = e.clientX - tt.offsetWidth - 14;
+        if (y + tt.offsetHeight > innerHeight - 8) y = e.clientY - tt.offsetHeight - 14;
         tt.style.left = x + 'px'; tt.style.top = y + 'px';
     }
     function ocultar() { tt.classList.remove('on'); }
-    function fila(color, k, val) { return '<div class="r"><span>' + (color ? '<i style="background:' + color + '"></i>' : '') + esc(k) + '</span><b>' + esc(val) + '</b></div>'; }
-
-    // ---- Escala «bonita» para el eje ----
-    // `enteros`: para conteos (servicios, horas) el paso nunca baja de 1.
-    function tope(max, enteros) {
+    function fila(k, v) { return '<div class="r"><span>' + esc(k) + '</span><b>' + esc(v) + '</b></div>'; }
+    function nodo(tag, at, padre) { var n = document.createElementNS(NS, tag); for (var k in at) n.setAttribute(k, at[k]); padre.appendChild(n); return n; }
+    function tope(max) {
         if (max <= 0) return { max: 1, paso: 1 };
         var e = Math.pow(10, Math.floor(Math.log10(max))), f = max / e;
         var paso = (f <= 1.5 ? 0.25 : f <= 3 ? 0.5 : f <= 6 ? 1 : 2) * e;
-        if (enteros) paso = Math.max(1, Math.round(paso));
         return { max: Math.ceil(max / paso) * paso, paso: paso };
     }
-    function el(tag, at, padre) { var n = document.createElementNS(NS, tag); for (var k in at) n.setAttribute(k, at[k]); if (padre) padre.appendChild(n); return n; }
-    // Columna con su extremo de datos redondeado (4px) y cuadrada en la base.
-    function columna(x, y, w, h) {
-        var r = Math.min(4, w / 2, h);
-        return 'M' + x + ',' + (y + h) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'V' + (y + h) + 'Z';
-    }
 
-    // ---- Columnas (apiladas o simples) ----
-    function columnas(id, datos, series, fmtEje, fmtTip, enteros) {
-        var cont = document.getElementById(id); if (!cont) return;
-        var W = cont.clientWidth || 600, H = 280, m = { t: 12, r: 8, b: 30, l: 62 };
-        var iw = W - m.l - m.r, ih = H - m.t - m.b;
-        var maxv = Math.max.apply(null, datos.map(function (d) { return series.reduce(function (s, se) { return s + (d[se.k] || 0); }, 0); }).concat([0]));
-        var esc_ = tope(maxv, enteros);
-        var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, height: H });
+    // ---- La curva de facturación: columnas, las del periodo en acero ----
+    function meses() {
+        var cont = document.getElementById('g-meses'); if (!cont) return;
+        var css = getComputedStyle(document.querySelector('.ger'));
+        var dato = css.getPropertyValue('--dato').trim(), suave = css.getPropertyValue('--dato-suave').trim();
+        var W = cont.clientWidth || 640, H = 300, m = { t: 14, r: 4, b: 28, l: 64 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+        var datos = D.meses, esc_ = tope(Math.max.apply(null, datos.map(function (d) { return d.total; }).concat([0])));
+        var svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('width', '100%'); svg.setAttribute('height', H);
         for (var t = 0; t <= esc_.max + 1e-9; t += esc_.paso) {
             var y = m.t + ih - t / esc_.max * ih;
-            el('line', { x1: m.l, x2: W - m.r, y1: y, y2: y, stroke: t === 0 ? v('--axis') : v('--grid'), 'stroke-width': 1 }, svg);
-            var tx = el('text', { x: m.l - 10, y: y + 4, 'text-anchor': 'end', 'font-size': 11, fill: v('--ink-4') }, svg); tx.textContent = fmtEje(t);
+            nodo('line', { x1: m.l, x2: W - m.r, y1: y, y2: y, stroke: t === 0 ? '#C9D1DB' : '#EDF0F4' }, svg);
+            nodo('text', { x: m.l - 10, y: y + 4, 'text-anchor': 'end', 'font-size': 11, fill: '#8A97A5' }, svg).textContent = corto(t);
         }
-        var banda = iw / datos.length, bw = Math.min(24, banda * 0.62);
-        // Si no caben las doce etiquetas, una sí y una no (siempre la última).
-        var cada = banda < 44 ? 2 : 1;
+        var banda = iw / datos.length, bw = Math.min(26, banda * 0.6), cada = banda < 40 ? 2 : 1;
         datos.forEach(function (d, i) {
-            var x = m.l + i * banda + (banda - bw) / 2, base = m.t + ih, suma = 0, segs = [];
-            series.forEach(function (se) { if (d[se.k] > 0) segs.push(se); });
-            segs.forEach(function (se, j) {
-                var h = d[se.k] / esc_.max * ih, y = base - (suma + d[se.k]) / esc_.max * ih;
-                var gap = j > 0 ? 2 : 0;           // separación de 2px entre segmentos
-                var p = j === segs.length - 1 ? columna(x, y, bw, Math.max(h - gap, 0)) : 'M' + x + ',' + y + 'h' + bw + 'v' + Math.max(h - gap, 0) + 'h' + (-bw) + 'Z';
-                el('path', { d: p, fill: v(se.c) }, svg);
-                suma += d[se.k];
-            });
-            if ((datos.length - 1 - i) % cada === 0) {
-                var lt = el('text', { x: x + bw / 2, y: H - 10, 'text-anchor': 'middle', 'font-size': 11, fill: v('--ink-4') }, svg); lt.textContent = d.etiqueta;
+            var x = m.l + i * banda + (banda - bw) / 2, h = d.total / esc_.max * ih, y = m.t + ih - h;
+            if (h > 0) {
+                var r = Math.min(4, bw / 2, h);
+                nodo('path', { d: 'M' + x + ',' + (m.t + ih) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y + 'H' + (x + bw - r) + 'Q' + (x + bw) + ',' + y + ' ' + (x + bw) + ',' + (y + r) + 'V' + (m.t + ih) + 'Z',
+                               fill: d.en_periodo ? dato : suave }, svg);
             }
-            // Zona de hover más grande que la marca.
-            var hit = el('rect', { x: m.l + i * banda, y: m.t, width: banda, height: ih, fill: 'transparent' }, svg);
-            hit.addEventListener('mousemove', function (e) { mostrar(e, fmtTip(d)); });
-            hit.addEventListener('mouseleave', ocultar);
-        });
-        cont.innerHTML = ''; cont.appendChild(svg);
-    }
-
-    // ---- Barras horizontales (HTML) ----
-    function barras(id, filas, opts) {
-        var cont = document.getElementById(id); if (!cont) return;
-        if (!filas.length) { cont.innerHTML = '<div class="vacio">Sin datos en el periodo.</div>'; return; }
-        var max = Math.max.apply(null, filas.map(function (f) { return f[opts.k] || 0; }).concat([0])) || 1;
-        cont.innerHTML = '';
-        filas.forEach(function (f) {
-            var d = document.createElement('div'); d.className = 'f';
-            d.innerHTML = '<span class="nm"></span><span class="t"><span class="b"></span></span><span class="vl"></span>';
-            d.querySelector('.nm').textContent = f.nombre;
-            d.querySelector('.b').style.width = Math.max((f[opts.k] || 0) / max * 100, 0.4) + '%';
-            d.querySelector('.vl').innerHTML = esc(opts.fmt(f[opts.k])) + (opts.extra ? '<small>' + esc(opts.extra(f)) + '</small>' : '');
-            d.addEventListener('mousemove', function (e) { mostrar(e, opts.tip(f)); });
-            d.addEventListener('mouseleave', ocultar);
-            cont.appendChild(d);
-        });
-    }
-
-    // ---- Dispersión con línea de tendencia ----
-    function dispersion(c) {
-        var cont = document.getElementById(c.id); if (!cont) return;
-        var pts = c.puntos;
-        if (pts.length < 2) { cont.innerHTML = '<div class="vacio">Faltan datos para dibujar la relación.</div>'; return; }
-        var W = cont.clientWidth || 360, H = 240, m = { t: 10, r: 12, b: 34, l: c.y_dinero ? 62 : 36 };
-        var iw = W - m.l - m.r, ih = H - m.t - m.b;
-        var ex = tope(Math.max.apply(null, pts.map(function (p) { return p.x; })), true),
-            ey = tope(Math.max.apply(null, pts.map(function (p) { return p.y; })), !c.y_dinero);
-        function X(x) { return m.l + x / ex.max * iw; } function Y(y) { return m.t + ih - y / ey.max * ih; }
-        var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, height: H });
-        for (var t = 0; t <= ey.max + 1e-9; t += ey.paso) {
-            el('line', { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: t === 0 ? v('--axis') : v('--grid') }, svg);
-            var ty = el('text', { x: m.l - 8, y: Y(t) + 4, 'text-anchor': 'end', 'font-size': 11, fill: v('--ink-4') }, svg); ty.textContent = c.y_dinero ? corto(t) : entero(t);
-        }
-        for (var s = 0; s <= ex.max + 1e-9; s += ex.paso) {
-            var tx = el('text', { x: X(s), y: H - 16, 'text-anchor': 'middle', 'font-size': 11, fill: v('--ink-4') }, svg); tx.textContent = entero(s);
-        }
-        var lx = el('text', { x: m.l + iw / 2, y: H - 2, 'text-anchor': 'middle', 'font-size': 11, fill: v('--ink-3') }, svg); lx.textContent = c.x;
-        // Tendencia (mínimos cuadrados).
-        var n = pts.length, mx = 0, my = 0; pts.forEach(function (p) { mx += p.x; my += p.y; }); mx /= n; my /= n;
-        var sxy = 0, sxx = 0; pts.forEach(function (p) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) * (p.x - mx); });
-        if (sxx > 0) {
-            var b = sxy / sxx, a = my - b * mx, x0 = 0, x1 = ex.max;
-            el('line', { x1: X(x0), y1: Y(Math.max(a + b * x0, 0)), x2: X(x1), y2: Y(Math.min(Math.max(a + b * x1, 0), ey.max)), stroke: v('--ink-4'), 'stroke-width': 1.5, 'stroke-linecap': 'round' }, svg);
-        }
-        pts.forEach(function (p) {
-            var g = el('g', {}, svg);
-            el('circle', { cx: X(p.x), cy: Y(p.y), r: 5.5, fill: v('--s1'), stroke: v('--surface'), 'stroke-width': 2 }, g);
-            var hit = el('circle', { cx: X(p.x), cy: Y(p.y), r: 12, fill: 'transparent' }, g);
+            if ((datos.length - 1 - i) % cada === 0)
+                nodo('text', { x: x + bw / 2, y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: d.en_periodo ? '#51606E' : '#8A97A5' }, svg).textContent = d.etiqueta;
+            var hit = nodo('rect', { x: m.l + i * banda, y: m.t, width: banda, height: ih, fill: 'transparent' }, svg);
             hit.addEventListener('mousemove', function (e) {
-                mostrar(e, '<div class="t">' + esc(p.n) + '</div>' + fila('', c.x, entero(p.x)) + fila('', c.y, c.y_dinero ? cop(p.y) : entero(p.y)));
+                mostrar(e, '<div class="t">' + esc(d.mes) + '</div>' + fila('Preliquidado', pesos(d.total)) + fila('Con factura electrónica', pesos(d.fev))
+                    + fila('Sin factura electrónica', pesos(d.sin_fev)) + fila('Servicios', d.servicios) + fila('Promedio por servicio', d.servicios ? pesos(d.total / d.servicios) : 'Sin servicios'));
             });
             hit.addEventListener('mouseleave', ocultar);
         });
         cont.innerHTML = ''; cont.appendChild(svg);
     }
 
-    function dibujar() {
-        css = getComputedStyle(document.documentElement);
-        columnas('v-meses', D.meses, [{ k: 'fev', c: '--s1' }, { k: 'sin_fev', c: '--s2' }], corto, function (d) {
-            return '<div class="t">' + esc(d.mes) + '</div>' + fila(v('--s1'), 'Con factura electrónica', cop(d.fev))
-                + fila(v('--s2'), 'Sin factura electrónica', cop(d.sin_fev)) + fila('', 'Total', cop(d.total)) + fila('', 'Servicios', entero(d.servicios));
+    // ---- Clientes mes a mes: una rampa de un solo color ----
+    function mapa() {
+        var tabla = document.getElementById('g-mapa'); if (!tabla) return;
+        var M = D.clientes_mes, max = 0;
+        M.filas.forEach(function (f) { f.valores.forEach(function (v) { if (v > max) max = v; }); });
+        var claro = [230, 239, 248], medio = [31, 111, 176], oscuro = [15, 61, 102];
+        function color(t) {
+            var a = t < 0.6 ? claro : medio, b = t < 0.6 ? medio : oscuro, k = t < 0.6 ? t / 0.6 : (t - 0.6) / 0.4;
+            return 'rgb(' + a.map(function (c, i) { return Math.round(c + (b[i] - c) * k); }).join(',') + ')';
+        }
+        var cuerpo = tabla.querySelector('tbody'); cuerpo.innerHTML = '';
+        M.filas.forEach(function (f) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td'); td.className = 'cli'; td.textContent = f.nombre; td.title = f.nombre; tr.appendChild(td);
+            f.valores.forEach(function (v, i) {
+                var c = document.createElement('td');
+                if (v > 0) {
+                    var t = 0.15 + 0.85 * v / max;
+                    c.style.background = color(t); c.style.color = t > 0.55 ? '#fff' : '#111A24'; c.textContent = corto(v);
+                } else { c.className = 'cero'; c.textContent = ''; }
+                c.addEventListener('mousemove', function (e) { mostrar(e, '<div class="t">' + esc(f.nombre) + '</div>' + fila(M.meses[i].mes, v ? pesos(v) : 'Sin facturación')); });
+                c.addEventListener('mouseleave', ocultar);
+                tr.appendChild(c);
+            });
+            var tot = document.createElement('td'); tot.className = 'tot'; tot.textContent = corto(f.total); tr.appendChild(tot);
+            cuerpo.appendChild(tr);
         });
-        columnas('v-servicios', D.meses, [{ k: 'servicios', c: '--s1' }], entero, function (d) {
-            return '<div class="t">' + esc(d.mes) + '</div>' + fila('', 'Servicios', entero(d.servicios))
-                + fila('', 'Promedio por servicio', d.servicios ? cop(d.total / d.servicios) : '—');
-        }, true);
-        barras('v-vehiculos', D.vehiculos, { k: 'valor', fmt: corto, extra: function (f) { return f.servicios + ' serv.'; }, tip: function (f) {
-            return '<div class="t">' + esc(f.nombre) + '</div>' + fila('', 'Facturación', cop(f.valor)) + fila('', 'Servicios', entero(f.servicios))
-                + fila('', 'Promedio por servicio', f.ticket ? cop(f.ticket) : '—'); } });
-        barras('v-clientes', D.clientes, { k: 'valor', fmt: corto, extra: function (f) { return f.participacion.toLocaleString('es-CO', { maximumFractionDigits: 1 }) + '%'; }, tip: function (f) {
-            return '<div class="t">' + esc(f.nombre) + '</div>' + fila('', 'Facturación', cop(f.valor)) + fila('', 'Participación', f.participacion.toFixed(1) + '%')
-                + fila('', 'Acumulado', f.acumulado.toFixed(1) + '%') + fila('', 'Servicios', entero(f.servicios)); } });
-        barras('v-asesoras', D.asesoras, { k: 'valor', fmt: corto, extra: function (f) { return f.clientes + ' cl.'; }, tip: function (f) {
-            return '<div class="t">' + esc(f.nombre) + '</div>' + fila('', 'Facturación de su cartera', cop(f.valor)) + fila('', 'Clientes con facturación', entero(f.clientes)); } });
-        barras('v-personal', D.personal, { k: 'horas', fmt: function (h) { return entero(h) + ' h'; }, extra: function (f) { return f.servicios + ' serv.'; }, tip: function (f) {
-            return '<div class="t">' + esc(f.nombre) + '</div>' + fila('', 'Cargo', f.cargo) + fila('', 'Horas', f.horas_txt || '—') + fila('', 'Servicios', entero(f.servicios))
-                + fila('', 'Facturación de sus servicios', cop(f.valor)); } });
-        D.correlaciones.forEach(dispersion);
     }
-    dibujar();
-    var t; addEventListener('resize', function () { clearTimeout(t); t = setTimeout(dibujar, 150); });
-    // Al cambiar el tema del sistema, los colores se vuelven a leer.
-    if (matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', dibujar);
+
+    meses(); mapa();
+    var espera; addEventListener('resize', function () { clearTimeout(espera); espera = setTimeout(meses, 150); });
 })();
 </script>
-</body>
-</html>
+{% endblock %}

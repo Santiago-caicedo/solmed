@@ -6,7 +6,13 @@ Junta en una sola pantalla, por periodo y comparado con el periodo anterior:
 facturación (preliquidado, con factura electrónica, enviado), ventas por mes,
 facturación por vehículo, clientes que más facturan, asesoras comerciales,
 el proceso de facturación, servicios, movimiento del personal (horas,
-servicios por persona, ingresos y retiros) y correlaciones.
+servicios por persona, ingresos y retiros), lo que dicen los números en
+palabras y los clientes mes a mes.
+
+V2 (4-nov-2026, Santiago): se quitaron las correlaciones estadísticas («a
+alguien de gerencia no le interesa ciencia de datos») y el diseño aparte; el
+tablero vive dentro del sistema, con la sidebar. En su lugar van lecturas en
+lenguaje de negocio y la matriz cliente × mes.
 
 Decisiones de Santiago (nov-2026):
 - La cifra de facturación es lo PRELIQUIDADO (todas las preliquidaciones,
@@ -36,7 +42,6 @@ from decimal import Decimal
 from django.contrib.auth.models import User
 from django.db.models import Count, Min, Q
 from django.shortcuts import render
-from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
@@ -118,11 +123,24 @@ def periodo_anterior(desde, hasta, clave=None):
 
 
 def nombre_periodo(desde, hasta):
+    """El periodo dicho como se habla: «noviembre de 2026», «enero a noviembre de 2026»."""
     if desde.day == 1 and desde.year == hasta.year and desde.month == hasta.month:
-        return f"{MESES[desde.month - 1].capitalize()} de {desde.year}"
-    if desde == datetime.date(desde.year, 1, 1) and hasta.year == desde.year:
-        return f"{desde.year} · enero a {MESES[hasta.month - 1]}"
-    return f"{desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
+        return f"{MESES[desde.month - 1]} de {desde.year}"
+    if desde.day == 1 and desde.year == hasta.year:
+        return f"{MESES[desde.month - 1]} a {MESES[hasta.month - 1]} de {desde.year}"
+    if desde.day == 1:
+        return f"{MESES[desde.month - 1]} de {desde.year} a {MESES[hasta.month - 1]} de {hasta.year}"
+    return f"del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
+
+
+def frase_periodo(clave, desde, hasta):
+    """El arranque de la frase principal del tablero."""
+    return {
+        'mes': f"En {MESES[hasta.month - 1]} de {hasta.year}",
+        'trimestre': "En este trimestre",
+        'anio': f"En lo corrido de {hasta.year}",
+        '12m': "En los últimos doce meses",
+    }.get(clave, f"Del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}")
 
 
 # ============================================================
@@ -169,32 +187,6 @@ def _delta(actual, anterior):
     return round((actual - anterior) / anterior * 100, 1)
 
 
-def _pearson(xs, ys):
-    """Coeficiente de correlación de Pearson, o None si no hay datos suficientes."""
-    n = len(xs)
-    if n < 3:
-        return None
-    mx, my = sum(xs) / n, sum(ys) / n
-    sx = math.sqrt(sum((x - mx) ** 2 for x in xs))
-    sy = math.sqrt(sum((y - my) ** 2 for y in ys))
-    if not sx or not sy:
-        return None
-    return round(sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sx * sy), 2)
-
-
-def _lectura_correlacion(r, que_x, que_y):
-    """La correlación dicha en palabras, para gerencia."""
-    if r is None:
-        return "Aún no hay datos suficientes para medir la relación (se necesitan al menos tres)."
-    fuerza = abs(r)
-    grado = ('muy fuerte' if fuerza >= 0.85 else 'fuerte' if fuerza >= 0.65
-             else 'moderada' if fuerza >= 0.4 else 'débil' if fuerza >= 0.2 else 'casi nula')
-    if fuerza < 0.2:
-        return f"Relación casi nula: {que_y} no depende de {que_x}."
-    efecto = 'más' if r > 0 else 'menos'
-    return f"Relación {grado}: a más {que_x}, {efecto} {que_y}."
-
-
 def _por_mes(desde_trend, hasta):
     """Los 12 meses que terminan en el mes de `hasta`: preliquidado (con y sin FEV) y servicios."""
     meses = []
@@ -212,6 +204,7 @@ def _por_mes(desde_trend, hasta):
         if fila in datos:
             datos[fila]['servicios'] += 1
     return [{'etiqueta': f"{MESES_CORTOS[m - 1]} {str(a)[2:]}", 'mes': f"{MESES[m - 1].capitalize()} {a}",
+             'anio': a, 'num': m,
              'fev': float(d['fev']), 'sin_fev': float(d['sin_fev']),
              'total': float(d['fev'] + d['sin_fev']), 'servicios': d['servicios']}
             for (a, m), d in datos.items()]
@@ -255,6 +248,84 @@ def _por_cliente(facturas, servicios, total):
         acumulado += x['participacion']
         x['acumulado'] = acumulado
     return filas
+
+
+def _clientes_mes(desde_trend, hasta, ids):
+    """
+    La matriz de los clientes `ids` (en ese orden) por cada uno de los 12
+    meses que terminan en `hasta`: cuánto preliquidó cada uno cada mes.
+    """
+    meses = []
+    cursor = desde_trend
+    while cursor <= hasta:
+        meses.append((cursor.year, cursor.month))
+        cursor = _sumar_meses(cursor, 1)
+    valor = defaultdict(Decimal)
+    for f in _facturas(desde_trend, hasta):
+        if f.cliente_id in ids:
+            valor[(f.cliente_id, f.fecha_emision.year, f.fecha_emision.month)] += _total(f)
+    return {
+        'meses': [{'etiqueta': MESES_CORTOS[m - 1], 'mes': f"{MESES[m - 1].capitalize()} {a}"} for a, m in meses],
+        'filas': [{'id': c, 'valores': [float(valor[(c, a, m)]) for a, m in meses]} for c in ids],
+    }
+
+
+def _lecturas(k, meses, clientes, clientes_ant, vehiculos):
+    """
+    Lo que dicen los números, en frases de negocio (no estadística). Cada una
+    con su tono: 'bien' (buena noticia), 'ojo' (algo para atender) o ''.
+    """
+    lecturas = []
+    con_ventas = [m for m in meses if m['total']]
+    if con_ventas:
+        mejor = max(con_ventas, key=lambda m: m['total'])
+        lecturas.append({'tono': '', 'texto': f"{mejor['mes']} fue el mes de mayor facturación de los últimos doce: "
+                                              f"{_pesos(mejor['total'])}."})
+    if k['preliquidado_delta'] is not None:
+        sube = k['preliquidado_delta'] >= 0
+        lecturas.append({'tono': 'bien' if sube else 'ojo',
+                         'texto': f"Lo preliquidado {'subió' if sube else 'bajó'} "
+                                  f"{_porcentaje(abs(k['preliquidado_delta']))} frente al periodo anterior."})
+    if clientes:
+        primero = clientes[0]
+        lecturas.append({'tono': 'ojo' if primero['participacion'] >= 50 else '',
+                         'texto': f"{primero['nombre']} aporta el {_porcentaje(primero['participacion'])} de lo facturado"
+                                  + (f"; los cinco primeros clientes suman el {_porcentaje(k['top5'])}." if len(clientes) > 5
+                                     else ".")})
+    antes = {c['id']: c['valor'] for c in clientes_ant}
+    crecen = [(c['valor'] - antes[c['id']], c) for c in clientes if antes.get(c['id'])]
+    crecen = [x for x in crecen if x[0] > 0]
+    if crecen:
+        diferencia, c = max(crecen, key=lambda x: x[0])
+        lecturas.append({'tono': 'bien', 'texto': f"El cliente que más creció es {c['nombre']}: "
+                                                  f"{_pesos(diferencia)} más que en el periodo anterior."})
+    nuevos = [c for c in clientes if c['id'] not in antes]
+    if nuevos and antes:
+        lecturas.append({'tono': 'bien', 'texto': f"{len(nuevos)} cliente{'s' if len(nuevos) != 1 else ''} "
+                                                  f"facturó en este periodo y no en el anterior."})
+    con_placa = [v for v in vehiculos if v['nombre'] != 'Sin vehículo' and v['valor']]
+    if con_placa:
+        v = con_placa[0]
+        lecturas.append({'tono': '', 'texto': f"{v['nombre']} es el vehículo que más factura: {_pesos(v['valor'])} "
+                                              f"en {v['servicios']} servicio{'s' if v['servicios'] != 1 else ''}."})
+    pendiente_fev = k['preliquidado'] - k['fev']
+    if pendiente_fev > 0:
+        lecturas.append({'tono': 'ojo', 'texto': f"{_pesos(pendiente_fev)} preliquidado aún no tiene factura electrónica."})
+    if k['por_preliquidar']:
+        n = k['por_preliquidar']
+        lecturas.append({'tono': 'ojo', 'texto': (f"{n} órdenes esperan" if n != 1 else "1 orden espera")
+                                                 + " preliquidación"
+                                                 + (f"; la más antigua lleva {k['por_preliquidar_dias']} días."
+                                                    if k['por_preliquidar_dias'] is not None else ".")})
+    return lecturas
+
+
+def _pesos(valor):
+    return '$' + f"{round(valor):,}".replace(',', '.')
+
+
+def _porcentaje(valor):
+    return f"{valor:.0f}%" if abs(valor - round(valor)) < 0.05 else f"{valor:.1f}%".replace('.', ',')
 
 
 def _por_asesora(facturas):
@@ -359,7 +430,8 @@ def tablero_gerencia(desde, hasta, clave=None):
     servicios = _servicios(desde, hasta)
     resumen = _resumen_facturacion(facturas)
     a_desde, a_hasta = periodo_anterior(desde, hasta, clave)
-    anterior = _resumen_facturacion(_facturas(a_desde, a_hasta))
+    facturas_ant = _facturas(a_desde, a_hasta)
+    anterior = _resumen_facturacion(facturas_ant)
     n_servicios = servicios.count()
     n_servicios_ant = _servicios(a_desde, a_hasta).count()
     clientes = _por_cliente(facturas, servicios, resumen['preliquidado'])
@@ -372,60 +444,48 @@ def tablero_gerencia(desde, hasta, clave=None):
     pendientes = _ordenes_por_preliquidar().aggregate(n=Count('pk', distinct=True), mas_vieja=Min('servicio'))
     hoy = timezone.localdate()
 
-    # Correlaciones.
-    veh_con_datos = [v for v in vehiculos if v['nombre'] != 'Sin vehículo' and (v['servicios'] or v['valor'])]
-    r_vehiculos = _pearson([v['servicios'] for v in veh_con_datos], [v['valor'] for v in veh_con_datos])
-    per_con_datos = [p for p in personal['filas'] if p['horas'] or p['servicios']]
-    r_personal = _pearson([p['horas'] for p in per_con_datos], [p['servicios'] for p in per_con_datos])
-    cli_con_datos = [c for c in clientes if c['servicios']]
-    r_clientes = _pearson([c['servicios'] for c in cli_con_datos], [c['valor'] for c in cli_con_datos])
-
     top5 = sum(c['participacion'] for c in clientes[:5])
     trend_desde = _sumar_meses(hasta.replace(day=1), -11)
+    meses = _por_mes(trend_desde, hasta)
+    # Los meses que caen dentro del periodo elegido se resaltan en el gráfico.
+    for m in meses:
+        m['en_periodo'] = (desde.year, desde.month) <= (m['anio'], m['num']) <= (hasta.year, hasta.month)
+    matriz = _clientes_mes(trend_desde, hasta, [c['id'] for c in clientes[:8]])
+    nombres = {c['id']: c['nombre'] for c in clientes}
+    for f in matriz['filas']:
+        f['nombre'] = nombres[f['id']]
+        f['total'] = sum(f['valores'])
+    kpis = {
+        'preliquidado': float(resumen['preliquidado']),
+        'preliquidado_delta': _delta(resumen['preliquidado'], anterior['preliquidado']),
+        'fev': float(resumen['fev']),
+        'fev_pct': (float(resumen['fev'] / resumen['preliquidado'] * 100)
+                    if resumen['preliquidado'] else None),
+        'fev_delta': _delta(resumen['fev'], anterior['fev']),
+        'enviado': float(resumen['enviado']),
+        'enviado_pct': (float(resumen['enviado'] / resumen['preliquidado'] * 100)
+                       if resumen['preliquidado'] else None),
+        'servicios': n_servicios,
+        'servicios_delta': _delta(n_servicios, n_servicios_ant),
+        'ticket': ticket,
+        'ticket_delta': _delta(ticket, ticket_ant) if ticket and ticket_ant else None,
+        'clientes': len(clientes),
+        'por_preliquidar': pendientes['n'] or 0,
+        'por_preliquidar_dias': (hoy - pendientes['mas_vieja']).days if pendientes['mas_vieja'] else None,
+        'top5': top5,
+    }
+    clientes_ant = _por_cliente(facturas_ant, _servicios(a_desde, a_hasta), anterior['preliquidado'])
     return {
-        'kpis': {
-            'preliquidado': float(resumen['preliquidado']),
-            'preliquidado_delta': _delta(resumen['preliquidado'], anterior['preliquidado']),
-            'fev': float(resumen['fev']),
-            'fev_pct': (float(resumen['fev'] / resumen['preliquidado'] * 100)
-                        if resumen['preliquidado'] else None),
-            'fev_delta': _delta(resumen['fev'], anterior['fev']),
-            'enviado': float(resumen['enviado']),
-            'enviado_pct': (float(resumen['enviado'] / resumen['preliquidado'] * 100)
-                            if resumen['preliquidado'] else None),
-            'servicios': n_servicios,
-            'servicios_delta': _delta(n_servicios, n_servicios_ant),
-            'ticket': ticket,
-            'ticket_delta': _delta(ticket, ticket_ant) if ticket and ticket_ant else None,
-            'clientes': len(clientes),
-            'por_preliquidar': pendientes['n'] or 0,
-            'por_preliquidar_dias': (hoy - pendientes['mas_vieja']).days if pendientes['mas_vieja'] else None,
-            'top5': top5,
-        },
+        'kpis': kpis,
         'anterior': {'desde': a_desde, 'hasta': a_hasta},
-        'meses': _por_mes(trend_desde, hasta),
+        'meses': meses,
+        'clientes_mes': matriz,
+        'lecturas': _lecturas(kpis, meses, clientes, clientes_ant, vehiculos),
         'vehiculos': vehiculos,
         'clientes': clientes,
         'asesoras': _por_asesora(facturas),
         'proceso': _proceso(),
         'personal': personal,
-        'correlaciones': [
-            {'id': 'cor-vehiculos', 'titulo': 'Servicios y facturación por vehículo',
-             'x': 'Servicios realizados', 'y': 'Facturación', 'r': r_vehiculos,
-             'lectura': _lectura_correlacion(r_vehiculos, 'servicios hace un vehículo', 'factura'),
-             'puntos': [{'n': v['nombre'], 'x': v['servicios'], 'y': v['valor']} for v in veh_con_datos],
-             'y_dinero': True},
-            {'id': 'cor-clientes', 'titulo': 'Servicios y facturación por cliente',
-             'x': 'Servicios realizados', 'y': 'Facturación', 'r': r_clientes,
-             'lectura': _lectura_correlacion(r_clientes, 'servicios recibe un cliente', 'factura'),
-             'puntos': [{'n': c['nombre'], 'x': c['servicios'], 'y': c['valor']} for c in cli_con_datos],
-             'y_dinero': True},
-            {'id': 'cor-personal', 'titulo': 'Horas trabajadas y servicios por persona',
-             'x': 'Horas trabajadas', 'y': 'Servicios', 'r': r_personal,
-             'lectura': _lectura_correlacion(r_personal, 'horas trabaja una persona', 'servicios hace'),
-             'puntos': [{'n': p['nombre'], 'x': p['horas'], 'y': p['servicios']} for p in per_con_datos],
-             'y_dinero': False},
-        ],
     }
 
 
@@ -450,7 +510,7 @@ class GerenciaView(AdministradorRequiredMixin, View):
             'asesoras': datos['asesoras'],
             'proceso': datos['proceso'],
             'personal': datos['personal']['filas'][:15],
-            'correlaciones': datos['correlaciones'],
+            'clientes_mes': datos['clientes_mes'],
         }
         return render(request, self.template_name, {
             'd': datos,
@@ -459,7 +519,7 @@ class GerenciaView(AdministradorRequiredMixin, View):
             'periodo': clave,
             'desde': desde, 'hasta': hasta,
             'nombre_periodo': nombre_periodo(desde, hasta),
+            'frase_periodo': frase_periodo(clave, desde, hasta),
             'nombre_anterior': nombre_periodo(datos['anterior']['desde'], datos['anterior']['hasta']),
             'generado': timezone.localtime(),
-            'volver': reverse('gestion:dashboard'),
         })
