@@ -1,0 +1,239 @@
+{% extends 'gestion/base.html' %}
+{% load humanize %}
+{% block title %}Registrar gastos{% endblock %}
+{% block content %}
+{% comment %}
+REGISTRO DE GASTOS EN LOTE (nov-2026, pedido de la clienta con la imagen de
+su Excel): una tabla con sus mismas columnas y en el mismo orden, para copiar
+las filas del Excel y pegarlas aquí de una vez. Diseño con las guías de Apple
+(se pega en vez de digitar; el error se muestra en la celda y se explica al
+lado; nada se guarda a medias) y la skill de frontend (la tabla es lo único
+protagonista; todo lo demás, sobrio). La revisión de verdad la hace el
+servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
+{% endcomment %}
+<style>
+.gl-intro{ display:flex; gap:1rem; align-items:flex-start; padding:.9rem 1.1rem; margin-bottom:1rem; }
+.gl-intro i{ font-size:1.3rem; color:var(--steel); margin-top:.1rem; }
+.gl-intro p{ margin:0; font-size:.9rem; color:var(--ink-2); }
+.gl-intro p b{ color:var(--ink); font-weight:600; }
+.gl-nuevas{ padding:.85rem 1.1rem; margin-bottom:1rem; border-left:3px solid var(--warn); }
+.gl-nuevas .t{ font-weight:600; margin-bottom:.35rem; }
+.gl-nuevas label{ display:inline-flex; align-items:center; gap:.4rem; margin:.15rem 1rem .15rem 0; font-size:.9rem; }
+.gl-marco{ overflow:auto; max-height:62vh; border-radius:12px; }
+.gl-tabla{ border-collapse:separate; border-spacing:0; min-width:1080px; width:100%; font-size:.85rem; table-layout:fixed; }
+.gl-tabla th{ position:sticky; top:0; z-index:2; background:var(--g-900); color:#fff; font-weight:500; font-size:.78rem;
+    text-align:left; padding:.55rem .55rem; white-space:nowrap; border-right:1px solid rgba(255,255,255,.08); }
+.gl-tabla th.num{ text-align:center; }
+.gl-tabla td{ padding:0; border-bottom:1px solid var(--line-2); border-right:1px solid var(--line-2); background:var(--panel); }
+.gl-tabla td.num{ text-align:center; color:var(--ink-3); font-size:.75rem; background:var(--panel-2); }
+.gl-tabla input{ width:100%; border:0; background:transparent; padding:.5rem .5rem; text-overflow:ellipsis; font:inherit; color:var(--ink);
+    font-variant-numeric:tabular-nums; outline:none; min-width:0; }
+.gl-tabla input:focus{ box-shadow:inset 0 0 0 2px var(--steel); background:#fff; position:relative; z-index:1; }
+.gl-tabla td.c-total input{ text-align:right; }
+.gl-tabla td.mal{ background:var(--err-tint); }
+.gl-tabla td.mal input{ color:var(--err); font-weight:600; }
+.gl-tabla td.duda{ background:var(--warn-tint); }
+.gl-tabla tr.omitida td{ background:var(--panel-2); }
+.gl-tabla tr.omitida input{ color:var(--ink-3); text-decoration:line-through; }
+.gl-tabla td.quitar{ text-align:center; background:var(--panel-2); }
+.gl-tabla td.quitar button{ border:0; background:none; color:var(--ink-3); font-size:1rem; padding:.3rem; line-height:1; }
+.gl-tabla td.quitar button:hover{ color:var(--err); }
+.gl-etq{ display:block; font-size:.68rem; color:var(--ink-3); padding:0 .55rem .25rem; margin-top:-.3rem; }
+.gl-errores{ margin:.75rem 0 0; padding:0; list-style:none; font-size:.85rem; }
+.gl-errores li{ padding:.3rem 0; color:var(--err); }
+.gl-errores li b{ color:var(--ink); }
+.gl-barra{ position:sticky; bottom:0; z-index:5; display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-top:1rem;
+    padding:.75rem 1rem; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 -4px 16px rgba(0,0,0,.05); }
+.gl-barra .resumen{ font-size:.9rem; color:var(--ink-2); margin-right:auto; }
+.gl-barra .resumen b{ color:var(--ink); font-size:1.05rem; }
+</style>
+
+<div class="gx">
+    {% include 'gestion/partials/_gastos_cabecera.html' %}
+
+    <div class="gx-panel gl-intro">
+        <i class="bi bi-clipboard-check" aria-hidden="true"></i>
+        <p>
+            <b>Copia las filas en tu Excel y pégalas en la primera celda.</b>
+            Las columnas van en el mismo orden de tu Excel, de «Tipo de documento» a «Detalle»; si copias también los títulos, se ignoran.
+            Con <b>Placas</b> el gasto resta a ese vehículo; sin placa, va a la categoría de <b>Costos</b>.
+            Los documentos que ya estén registrados se omiten solos.
+        </p>
+    </div>
+
+    <form method="post" id="gl-form" novalidate>
+        {% csrf_token %}
+        {% if nuevas %}
+        {# Categorías de COSTOS que aún no existen: se ofrecen crear al guardar. #}
+        <div class="gx-panel gl-nuevas" role="alert">
+            <div class="t"><i class="bi bi-tag me-1" aria-hidden="true"></i>Estas categorías no existen todavía. Márcalas para crearlas al guardar:</div>
+            {% for c in nuevas %}
+            <label><input type="checkbox" class="form-check-input" name="crear_categoria" value="{{ c }}" {% if c in crear %}checked{% endif %}>{{ c }}</label>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="gx-panel gl-marco">
+            <table class="gl-tabla" id="gl-tabla" aria-label="Gastos a registrar">
+                {# Anchos pensados para lo que trae cada columna: el nombre del emisor se lleva el espacio que sobra. #}
+                <colgroup>
+                    <col style="width:40px"><col style="width:140px"><col style="width:82px"><col style="width:64px">
+                    <col style="width:96px"><col style="width:100px"><col><col style="width:104px">
+                    <col style="width:124px"><col style="width:84px"><col style="width:116px"><col style="width:34px">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th class="num" scope="col">#</th>
+                        {% for clave, nombre in columnas %}<th scope="col" class="c-{{ clave }}">{{ nombre }}</th>{% endfor %}
+                        <th class="num" scope="col"><span class="visually-hidden">Quitar</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fila in tabla %}
+                    <tr class="{% if fila.omitida %}omitida{% endif %}">
+                        <td class="num">{{ fila.n }}</td>
+                        {% for c in fila.celdas %}
+                        <td class="c-{{ c.clave }}{% if c.error %} mal{% endif %}" {% if c.error %}title="{{ c.error }}"{% endif %}>
+                            <input type="text" name="c_{{ c.clave }}" value="{{ c.valor }}" autocomplete="off"
+                                   {% if c.clave == 'costos' %}list="gl-categorias"{% elif c.clave == 'placa' %}list="gl-placas"{% endif %}
+                                   {% if c.clave == 'total' %}inputmode="decimal"{% endif %}
+                                   aria-label="{{ c.clave }} de la fila {{ fila.n }}{% if c.error %}: {{ c.error }}{% endif %}">
+                        </td>
+                        {% endfor %}
+                        <td class="quitar"><button type="button" class="gl-quitar" title="Quitar la fila" aria-label="Quitar la fila {{ fila.n }}">&times;</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <datalist id="gl-categorias">{% for c in categorias %}<option value="{{ c }}">{% endfor %}</datalist>
+        <datalist id="gl-placas">{% for p in placas %}<option value="{{ p }}">{% endfor %}</datalist>
+
+        {% if n_errores %}
+        {# Cada problema, dicho en palabras y junto a la fila que lo tiene. #}
+        <ul class="gl-errores" aria-live="polite">
+            {% for fila in tabla %}{% for c in fila.celdas %}{% if c.error %}
+            <li><b>Fila {{ fila.n }}</b> · {{ c.error }}</li>
+            {% endif %}{% endfor %}{% endfor %}
+        </ul>
+        {% endif %}
+
+        <div class="gl-barra">
+            <div class="resumen" aria-live="polite"><b id="gl-n">0</b> gastos por <b id="gl-total">$0</b></div>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="gl-mas"><i class="bi bi-plus-lg me-1"></i>10 filas más</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="gl-vaciar">Vaciar la tabla</button>
+            <a href="{% url 'gestion:gastos' %}" class="btn btn-link btn-sm">Cancelar</a>
+            <button class="btn btn-primary" id="gl-guardar"><i class="bi bi-check2 me-1"></i>Guardar gastos</button>
+        </div>
+    </form>
+</div>
+
+<script>
+(function () {
+    var tabla = document.getElementById('gl-tabla'), cuerpo = tabla.querySelector('tbody');
+    var COLS = [{% for clave, nombre in columnas %}'{{ clave }}'{% if not forloop.last %}, {% endif %}{% endfor %}];
+    var PLACAS = {}; Array.prototype.forEach.call(document.querySelectorAll('#gl-placas option'), function (o) { PLACAS[o.value.toUpperCase()] = 1; });
+    var CATS = {}; Array.prototype.forEach.call(document.querySelectorAll('#gl-categorias option'), function (o) { CATS[o.value.toLowerCase()] = 1; });
+    var plantilla = cuerpo.rows[cuerpo.rows.length - 1].cloneNode(true);
+
+    function numero(t) {
+        t = String(t || '').replace(/[$\s ]/g, '');
+        if (!t) return 0;
+        var c = t.lastIndexOf(','), p = t.lastIndexOf('.');
+        if (c >= 0 && p >= 0) t = c > p ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+        else if (c >= 0) t = (t.split(',').length > 2 || t.split(',')[1].length === 3) ? t.replace(/,/g, '') : t.replace(',', '.');
+        else if (t.split('.').length > 2 || (p >= 0 && t.split('.')[1].length === 3)) t = t.replace(/\./g, '');
+        var n = parseFloat(t); return isNaN(n) ? 0 : n;
+    }
+    function filaVacia() {
+        var tr = plantilla.cloneNode(true);
+        tr.className = '';
+        tr.querySelectorAll('td').forEach(function (td) { td.classList.remove('mal', 'duda'); td.removeAttribute('title'); });
+        tr.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+        return tr;
+    }
+    function renumerar() {
+        Array.prototype.forEach.call(cuerpo.rows, function (tr, i) { tr.cells[0].textContent = i + 1; });
+    }
+    function asegurar(n) { while (cuerpo.rows.length < n) cuerpo.appendChild(filaVacia()); renumerar(); }
+
+    // Lo que se ve de inmediato (el servidor revisa de verdad al guardar):
+    // placa que no existe y categoría nueva, en ámbar; y la suma de la barra.
+    function revisarCelda(input) {
+        var td = input.parentNode, col = input.name.slice(2), v = input.value.trim();
+        input.title = v;                          // el texto completo al pasar el cursor (los nombres largos se cortan)
+        if (col === 'placa') td.classList.toggle('duda', !!v && !PLACAS[v.toUpperCase().replace(/[\s-]/g, '')]);
+        if (col === 'costos') td.classList.toggle('duda', !!v && !CATS[v.toLowerCase().replace(/\s+/g, ' ')]);
+    }
+    function sumar() {
+        var n = 0, total = 0;
+        Array.prototype.forEach.call(cuerpo.rows, function (tr) {
+            var vals = Array.prototype.map.call(tr.querySelectorAll('input'), function (i) { return i.value.trim(); });
+            if (vals.some(Boolean)) { n += 1; total += numero(tr.querySelector('input[name="c_total"]').value); }
+        });
+        document.getElementById('gl-n').textContent = n;
+        document.getElementById('gl-total').textContent = '$' + Math.round(total).toLocaleString('es-CO');
+    }
+
+    // Pegar desde Excel: llega texto con tabuladores (columnas) y saltos de línea (filas).
+    tabla.addEventListener('paste', function (e) {
+        var input = e.target.closest('input'); if (!input) return;
+        var texto = (e.clipboardData || window.clipboardData).getData('text');
+        if (!texto || (texto.indexOf('\t') === -1 && texto.indexOf('\n') === -1)) return;   // una celda: pegado normal
+        e.preventDefault();
+        var filas = texto.replace(/\r/g, '').split('\n');
+        while (filas.length && !filas[filas.length - 1].trim()) filas.pop();
+        if (filas.length && /tipo de documento/i.test(filas[0])) filas.shift();             // los títulos se ignoran
+        var tr = input.closest('tr'), fila0 = Array.prototype.indexOf.call(cuerpo.rows, tr);
+        var col0 = COLS.indexOf(input.name.slice(2));
+        asegurar(fila0 + filas.length);
+        filas.forEach(function (linea, i) {
+            var celdas = linea.split('\t'), destino = cuerpo.rows[fila0 + i];
+            destino.className = '';
+            celdas.forEach(function (valor, j) {
+                var c = COLS[col0 + j]; if (!c) return;
+                var campo = destino.querySelector('input[name="c_' + c + '"]');
+                campo.value = valor.trim();
+                campo.parentNode.classList.remove('mal'); campo.parentNode.removeAttribute('title');
+                revisarCelda(campo);
+            });
+        });
+        asegurar(fila0 + filas.length + 3);       // siempre quedan filas libres abajo
+        sumar();
+    });
+    tabla.addEventListener('input', function (e) {
+        if (e.target.tagName !== 'INPUT') return;
+        e.target.parentNode.classList.remove('mal'); revisarCelda(e.target); sumar();
+    });
+    // Enter baja a la misma columna de la fila siguiente, como en Excel.
+    tabla.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+        e.preventDefault();
+        var tr = e.target.closest('tr'), i = Array.prototype.indexOf.call(cuerpo.rows, tr);
+        asegurar(i + 2);
+        var siguiente = cuerpo.rows[i + 1].querySelector('input[name="' + e.target.name + '"]');
+        if (siguiente) siguiente.focus();
+    });
+    tabla.addEventListener('click', function (e) {
+        var b = e.target.closest('.gl-quitar'); if (!b) return;
+        var tr = b.closest('tr');
+        if (cuerpo.rows.length > 1) tr.remove(); else tr.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+        renumerar(); sumar();
+    });
+    document.getElementById('gl-mas').addEventListener('click', function () { asegurar(cuerpo.rows.length + 10); });
+    document.getElementById('gl-vaciar').addEventListener('click', function () {
+        if (!confirm('¿Vaciar la tabla? Se borra lo que pegaste (no se ha guardado nada).')) return;
+        cuerpo.innerHTML = ''; asegurar({{ tabla|length }}); sumar();
+        cuerpo.rows[0].querySelector('input').focus();
+    });
+    // Un solo envío: el botón se apaga para que un doble clic no mande dos veces.
+    document.getElementById('gl-form').addEventListener('submit', function () {
+        var b = document.getElementById('gl-guardar'); b.disabled = true; b.textContent = 'Guardando…';
+    });
+    tabla.querySelectorAll('input').forEach(revisarCelda);
+    sumar();
+    var primero = tabla.querySelector('td.mal input') || cuerpo.rows[0].querySelector('input');
+    if (primero) primero.focus();
+})();
+</script>
+{% endblock %}

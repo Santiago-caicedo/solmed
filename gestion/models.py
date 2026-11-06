@@ -3509,8 +3509,10 @@ class CategoriaGasto(models.Model):
 
 class Gasto(models.Model):
     """
-    Un documento de compra (factura, nota débito o nota crédito). Va cargado
-    a un vehículo O a una categoría, nunca a los dos (lo cuida el formulario).
+    Un documento de compra (factura, nota débito o nota crédito). Lleva su
+    categoría (COSTOS) y/o la placa del vehículo (nov-2026, tabla de la
+    clienta). Con placa resta a ese vehículo; sin placa, va a la categoría.
+    `nota` es la columna DETALLE.
     Una NOTA CRÉDITO resta: `valor` la devuelve en negativo para las sumas.
     """
     TIPO_CHOICES = [
@@ -3578,10 +3580,15 @@ class Gasto(models.Model):
 
     @property
     def centro(self):
-        """A qué se cargó, como se muestra: la placa o el nombre de la categoría."""
-        if self.vehiculo_id:
-            return self.vehiculo.placa
-        return self.categoria.nombre if self.categoria_id else 'Sin asignar'
+        """
+        A qué se cargó, como se muestra: la placa y/o la categoría (nov-2026:
+        un gasto puede traer las dos; si trae placa, resta a ese vehículo y la
+        categoría queda como clasificación).
+        """
+        partes = [self.vehiculo.placa] if self.vehiculo_id else []
+        if self.categoria_id:
+            partes.append(self.categoria.nombre)
+        return ' · '.join(partes) or 'Sin asignar'
 
     @property
     def valor(self):

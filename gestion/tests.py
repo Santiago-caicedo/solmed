@@ -11864,50 +11864,87 @@ class GastosTests(BaseCRM):
         LineaFactura.objects.create(factura=f, orden=self.orden, precio=Decimal('1000000'))
         self.entrar(self.admin)
 
-    def datos(self, **cambios):
-        datos = {'tipo_documento': 'FACTURA', 'prefijo': 'fve', 'folio': '604503', 'divisa': 'cop',
-                 'forma_pago': '1', 'medio_pago': '10', 'fecha_emision': timezone.localdate().isoformat(),
-                 'nit_emisor': '800066365', 'nombre_emisor': 'INVERSIONES RENGIFO ROJAS SAS',
-                 'centro': f'v{self.camion.pk}', 'total_texto': '120.039,44'}
-        datos.update(cambios)
-        return datos
+    COLUMNAS = ['tipo', 'folio', 'prefijo', 'fecha', 'nit', 'nombre', 'total', 'costos', 'placa', 'detalle']
 
-    def test_registrar_un_gasto_con_los_campos_del_reporte(self):
-        from .models import Gasto
-        respuesta = self.client.post(reverse('gestion:crear_gasto'), self.datos())
-        self.assertRedirects(respuesta, reverse('gestion:gastos'))
-        g = Gasto.objects.get()
-        self.assertEqual((g.prefijo, g.folio, g.divisa, g.documento), ('FVE', '604503', 'COP', 'FVE-604503'))
-        self.assertEqual(g.total, Decimal('120039.44'))
-        self.assertEqual((g.vehiculo, g.categoria, g.registrado_por), (self.camion, None, self.admin))
-        self.assertEqual(g.centro, self.camion.placa)
-        # A una categoría, y «guardar y registrar otro» vuelve al formulario.
-        respuesta = self.client.post(reverse('gestion:crear_gasto'),
-                                     self.datos(folio='9', centro=f'c{self.admin_cat.pk}', total_texto='148750', otro='1'))
-        self.assertRedirects(respuesta, reverse('gestion:crear_gasto'))
-        self.assertEqual(Gasto.objects.get(folio='9').categoria, self.admin_cat)
-        lista = self.client.get(reverse('gestion:gastos'), {'periodo': 'mes'})
-        self.assertContains(lista, 'FVE-604503')
-        self.assertContains(lista, 'INVERSIONES RENGIFO ROJAS SAS')
-        self.assertEqual(lista.context['resumen']['total'], Decimal('268789.44'))
-        self.assertEqual(lista.context['resumen']['vehiculos'], Decimal('120039.44'))
-        filtrada = self.client.get(reverse('gestion:gastos'), {'periodo': 'mes', 'centro': f'c{self.admin_cat.pk}'})
-        self.assertEqual(filtrada.context['resumen']['total'], Decimal('148750'))
+    def lote(self, filas, **extra):
+        """POST de la tabla: `filas` son listas en el orden de las columnas del Excel de la clienta."""
+        datos = {f'c_{c}': [f[i] if i < len(f) else '' for f in filas] for i, c in enumerate(self.COLUMNAS)}
+        datos.update(extra)
+        return self.client.post(reverse('gestion:crear_gasto'), datos)
 
-    def test_el_formulario_exige_lo_que_corresponde_y_no_duplica(self):
+    def test_registrar_en_lote_como_el_excel_de_la_clienta(self):
+        """Las filas de la imagen de la clienta, tal como se copian de su Excel."""
+        from .models import CategoriaGasto, Gasto
+        CategoriaGasto.objects.create(nombre='Operacional')
+        pagina = self.client.get(reverse('gestion:crear_gasto'))
+        for titulo in ('Tipo de documento', 'Folio', 'Prefijo', 'Fecha emisión', 'NIT emisor', 'Nombre emisor',
+                       'Total', 'Costos', 'Placas', 'Detalle'):
+            self.assertContains(pagina, titulo)
+        r = self.lote([
+            ['Factura electrónica', '393001', 'PZVP', '03-08-2026', '900534356', 'WORLD OFFICE COLOMBIA SAS',
+             '$ 148.750', 'ADMINISTRATIVO', self.camion.placa, 'LLANTAS'],
+            ['Factura electrónica', '324307', '184B', '03-08-2026', '900480569', 'JERONIMO MARTINS COLOMBIA S.A.S.',
+             '$ 13.600', 'ADMINISTRATIVO', '', 'VIDRIO'],
+            ['Factura electrónica', '605297', 'FVE', '03-08-2026', '800066365', 'INVERSIONES RENGIFO ROJAS SAS',
+             '$ 64.716', 'OPERACIONAL', '', 'PUERTA'],
+            ['', '', '', '', '', '', '', '', '', ''],     # fila vacía: se ignora
+        ])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(Gasto.objects.count(), 3)
+        g = Gasto.objects.get(folio='393001')
+        self.assertEqual((g.prefijo, g.fecha_emision, g.total, g.nota), ('PZVP', datetime.date(2026, 8, 3), Decimal('148750'), 'LLANTAS'))
+        self.assertEqual((g.vehiculo, g.categoria), (self.camion, self.admin_cat), "placa y categoría juntas")
+        self.assertEqual(Gasto.objects.get(folio='605297').categoria.nombre, 'Operacional')
+        # Volver a pegar lo mismo no duplica: se omiten.
+        r = self.lote([['Factura electrónica', '393001', 'PZVP', '03-08-2026', '900534356', 'WORLD OFFICE',
+                        '148750', 'Administrativo', '', '']])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(Gasto.objects.count(), 3)
+
+    def test_la_tabla_marca_lo_que_no_cuadra_y_no_guarda_a_medias(self):
+        from .models import CategoriaGasto, Gasto
+        r = self.lote([
+            ['Factura electrónica', '1', 'A', '03-08-2026', '800066365', 'PROVEEDOR', '$ 1.000', 'ADMINISTRATIVO', 'OBC', ''],
+            ['Factura electrónica', '2', 'A', 'mal', '#VALUE!', 'PROVEEDOR', 'abc', 'TUNJA', '', ''],
+            ['Factura electrónica', '27930', 'FEV', '03-08-2026', '900282578', 'FERRESOLES E U', '$ 251.006', '', '', ''],
+        ])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(Gasto.objects.count(), 0, "con una fila mala no se guarda ninguna")
+        self.assertContains(r, 'No existe OBC')
+        self.assertContains(r, 'Fecha no válida')
+        self.assertContains(r, 'Falta el NIT')
+        self.assertContains(r, 'Total no válido')
+        self.assertContains(r, 'Escribe la categoría (COSTOS), la placa o las dos')
+        self.assertContains(r, 'name="crear_categoria" value="TUNJA"')
+        self.assertContains(r, 'value="OBC"', msg_prefix="lo pegado se conserva para corregir")
+        # Corregidas, y con «crear TUNJA» marcado, se guardan todas.
+        r = self.lote([
+            ['Factura electrónica', '1', 'A', '03-08-2026', '800066365', 'PROVEEDOR', '$ 1.000', 'ADMINISTRATIVO', self.camion.placa, ''],
+            ['Nota de crédito electrónica', '2', 'A', '04/08/2026', '800066365', 'PROVEEDOR', '500', 'TUNJA', '', ''],
+        ], crear_categoria=['TUNJA'])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertTrue(CategoriaGasto.objects.filter(nombre__iexact='tunja').exists())
+        self.assertEqual(Gasto.objects.get(folio='2').tipo_documento, 'NOTA_CREDITO')
+        # Repetido dentro de la misma tabla: error.
+        r = self.lote([['Factura', '9', '', '05-08-2026', '1', 'X', '100', 'ADMINISTRATIVO', '', ''],
+                       ['Factura', '9', '', '05-08-2026', '1', 'X', '100', 'ADMINISTRATIVO', '', '']])
+        self.assertContains(r, 'Repetido en la fila 1')
+
+    def test_corregir_un_gasto_suelto(self):
         from .models import Gasto
-        r = self.client.post(reverse('gestion:crear_gasto'), self.datos(centro='', total_texto='0'))
-        self.assertContains(r, 'Elige el vehículo o la categoría')
-        self.assertContains(r, 'Escribe el total del documento')
-        self.client.post(reverse('gestion:crear_gasto'), self.datos())
-        r = self.client.post(reverse('gestion:crear_gasto'), self.datos(prefijo='FVE'))
-        self.assertContains(r, 'Ese documento de ese proveedor ya está registrado')
-        self.assertEqual(Gasto.objects.count(), 1)
-        # Una categoría archivada ya no se ofrece, pero sus gastos se conservan.
-        self.admin_cat.activa = False
-        self.admin_cat.save()
-        form = self.client.get(reverse('gestion:crear_gasto')).context['form']
-        self.assertNotIn(f'c{self.admin_cat.pk}', str(form.fields['centro'].choices))
+        g = Gasto.objects.create(folio='1', fecha_emision=datetime.date(2026, 8, 3), nit_emisor='1',
+                                 nombre_emisor='X', total=Decimal('1000'), categoria=self.admin_cat)
+        url = reverse('gestion:editar_gasto', args=[g.pk])
+        self.assertContains(self.client.get(url), 'Corregir el gasto')
+        r = self.client.post(url, {'tipo_documento': 'FACTURA', 'folio': '1', 'prefijo': '', 'fecha_emision': '2026-08-03',
+                                   'nit_emisor': '1', 'nombre_emisor': 'X', 'total_texto': '2.500',
+                                   'categoria': self.admin_cat.pk, 'vehiculo': self.camion.pk, 'nota': 'Llantas'})
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        g.refresh_from_db()
+        self.assertEqual((g.total, g.vehiculo, g.nota), (Decimal('2500'), self.camion, 'Llantas'))
+        r = self.client.post(url, {'tipo_documento': 'FACTURA', 'folio': '1', 'fecha_emision': '2026-08-03',
+                                   'nit_emisor': '1', 'nombre_emisor': 'X', 'total_texto': '2500'})
+        self.assertContains(r, 'Escoge la categoría (COSTOS), la placa o las dos')
 
     def test_la_utilidad_por_vehiculo_y_de_la_empresa(self):
         from .models import Gasto
@@ -11918,16 +11955,20 @@ class GastosTests(BaseCRM):
                              tipo_documento='NOTA_CREDITO', total=Decimal('50000'), vehiculo=self.camion)
         Gasto.objects.create(folio='3', fecha_emision=hoy, nit_emisor='2', nombre_emisor='Software',
                              total=Decimal('200000'), categoria=self.admin_cat)
+        # Con placa y categoría a la vez: resta al vehículo (nov-2026).
+        Gasto.objects.create(folio='4', fecha_emision=hoy, nit_emisor='3', nombre_emisor='Llantas',
+                             total=Decimal('100000'), categoria=self.admin_cat, vehiculo=self.camion)
         r = self.client.get(reverse('gestion:utilidad'), {'periodo': 'mes'})
         u = r.context['u']
         v = next(x for x in u['vehiculos'] if x['placa'] == self.camion.placa)
-        self.assertEqual((v['ingreso'], v['gasto'], v['utilidad']), (1000000, 250000, 750000), "la nota crédito resta")
-        self.assertEqual(round(v['margen']), 75)
-        self.assertEqual(u['gasto_categorias'], 200000, "lo administrativo va aparte")
-        self.assertEqual(u['utilidad'], 550000)
-        self.assertContains(r, 'la empresa deja $550.000 de utilidad')
+        self.assertEqual((v['ingreso'], v['gasto'], v['utilidad']), (1000000, 350000, 650000),
+                         "la nota crédito resta y el gasto con placa y categoría va al vehículo")
+        self.assertEqual(round(v['margen']), 65)
+        self.assertEqual(u['gasto_categorias'], 200000, "lo administrativo sin placa va aparte")
+        self.assertEqual(u['utilidad'], 450000)
+        self.assertContains(r, 'la empresa deja $450.000 de utilidad')
         self.assertEqual(len(r.context['meses']), 12)
-        self.assertEqual(r.context['meses'][-1]['utilidad'], 550000)
+        self.assertEqual(r.context['meses'][-1]['utilidad'], 450000)
 
     def test_solo_administradores_y_se_abre_con_la_casilla(self):
         from .accesos import BASE, TODAS

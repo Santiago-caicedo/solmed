@@ -103,7 +103,7 @@ urlpatterns = [
     # Tablero de gerencia (nov-2026): reemplaza a «Reportes». La URL vieja lleva aquí.
     # Gastos (nov-2026): facturas de compra cargadas a un vehículo o a una categoría, y la utilidad.
     path('gastos/', gastos.GastosView.as_view(), name='gastos'),
-    path('gastos/nuevo/', gastos.GastoFormView.as_view(), name='crear_gasto'),
+    path('gastos/nuevo/', gastos.GastosLoteView.as_view(), name='crear_gasto'),   # en lote (nov-2026)
     path('gastos/<int:pk>/editar/', gastos.GastoFormView.as_view(), name='editar_gasto'),
     path('gastos/<int:pk>/eliminar/', gastos.EliminarGastoView.as_view(), name='eliminar_gasto'),
     path('gastos/categorias/', gastos.CategoriasGastoView.as_view(), name='categorias_gasto'),
