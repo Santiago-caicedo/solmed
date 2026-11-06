@@ -11901,6 +11901,16 @@ class GastosTests(BaseCRM):
         self.assertRedirects(r, reverse('gestion:gastos'))
         self.assertEqual(Gasto.objects.count(), 3)
 
+    def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
+        """Como los deja el campo de dinero («$ 1.248.750», «$ 120.039,44») o como los pega Excel en inglés."""
+        from .models import Gasto
+        r = self.lote([['Factura', str(n), '', '03-08-2026', '1', 'X', monto, 'ADMINISTRATIVO', '', '']
+                       for n, monto in enumerate(['$ 1.248.750', '$ 120.039,44', '$148,750.00', '13600'], 1)])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual([g.total for g in Gasto.objects.order_by('folio')],
+                         [Decimal('1248750'), Decimal('120039.44'), Decimal('148750'), Decimal('13600')])
+        self.assertContains(self.client.get(reverse('gestion:crear_gasto')), 'Dinero.enVivo')
+
     def test_la_tabla_marca_lo_que_no_cuadra_y_no_guarda_a_medias(self):
         from .models import CategoriaGasto, Gasto
         r = self.lote([

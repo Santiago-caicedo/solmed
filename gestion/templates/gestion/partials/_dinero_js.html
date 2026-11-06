@@ -1,0 +1,75 @@
+{% comment %}
+CAMPOS DE DINERO (nov-2026): «$ 148.750» mientras se escribe, con puntos de
+miles y coma decimal (hasta 2 decimales), como se escribe en Colombia.
+- Dinero.enVivo(input): formatea al escribir sin mover el cursor de su sitio.
+- Dinero.normalizar(texto): lo pegado de Excel («$148,750.00», «120039.44»,
+  «$ 13.600») → «$ 148.750».
+- Dinero.valor(texto): el número (para sumar).
+- Dinero.activar(input): engancha todo a un campo.
+El servidor entiende cualquiera de estas formas (gastos._numero).
+{% endcomment %}
+<script>
+window.Dinero = window.Dinero || (function () {
+    function miles(entero) { return entero.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+    // Lo mismo que gastos._numero: manda el último separador que aparezca.
+    function valor(t) {
+        t = String(t || '').replace(/[$\s ]/g, '');
+        if (!t) return null;
+        var c = t.lastIndexOf(','), p = t.lastIndexOf('.');
+        if (c >= 0 && p >= 0) t = c > p ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+        else if (c >= 0) t = (t.split(',').length > 2 || t.split(',')[1].length === 3) ? t.replace(/,/g, '') : t.replace(',', '.');
+        else if (t.split('.').length > 2 || (p >= 0 && t.split('.')[1].length === 3)) t = t.replace(/\./g, '');
+        var n = parseFloat(t);
+        return isNaN(n) ? null : n;
+    }
+
+    function formatear(n) {
+        if (n === null || n === undefined || isNaN(n)) return '';
+        var centavos = Math.round(Math.abs(n) * 100), entero = Math.floor(centavos / 100), dec = centavos % 100;
+        var texto = '$ ' + miles(String(entero));
+        if (dec) texto += ',' + (dec % 10 ? String(dec).padStart(2, '0') : String(dec / 10));
+        return texto;
+    }
+
+    function normalizar(texto) {
+        var n = valor(texto);
+        return n === null ? String(texto || '').trim() : formatear(n);
+    }
+
+    // Al escribir: solo dígitos y una coma decimal; los puntos de miles los pone el sistema.
+    function enVivo(input) {
+        var v = input.value, pos = input.selectionStart === null ? v.length : input.selectionStart;
+        var aLaDerecha = v.slice(pos).replace(/[^\d,]/g, '').length;
+        var limpio = v.replace(/[^\d,]/g, ''), coma = limpio.indexOf(',');
+        var entero = coma >= 0 ? limpio.slice(0, coma) : limpio;
+        var dec = coma >= 0 ? limpio.slice(coma + 1).replace(/,/g, '').slice(0, 2) : null;
+        var nuevo = (entero || dec !== null) ? '$ ' + (miles(entero) || '0') + (dec !== null ? ',' + dec : '') : '';
+        if (nuevo === v) return;
+        input.value = nuevo;
+        // El cursor queda antes de los mismos dígitos que tenía a su derecha.
+        var i = nuevo.length, cuenta = 0;
+        while (i > 0 && cuenta < aLaDerecha) { i -= 1; if (/[\d,]/.test(nuevo[i])) cuenta += 1; }
+        if (document.activeElement === input) input.setSelectionRange(i, i);
+    }
+
+    function activar(input) {
+        if (input.dataset.dinero) return;
+        input.dataset.dinero = '1';
+        input.setAttribute('inputmode', 'decimal');
+        if (!input.placeholder) input.placeholder = '$ 0';
+        if (input.value) input.value = normalizar(input.value);
+        input.addEventListener('input', function () { enVivo(input); });
+        input.addEventListener('paste', function (e) {
+            var t = (e.clipboardData || window.clipboardData).getData('text');
+            if (!t || /[\t\n]/.test(t.trim())) return;     // varias celdas: se encarga la tabla
+            e.preventDefault();
+            input.value = normalizar(t);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        input.addEventListener('blur', function () { if (input.value) input.value = normalizar(input.value); });
+    }
+
+    return { valor: valor, formatear: formatear, normalizar: normalizar, enVivo: enVivo, activar: activar };
+})();
+</script>

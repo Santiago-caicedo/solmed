@@ -128,6 +128,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     </form>
 </div>
 
+{% include 'gestion/partials/_dinero_js.html' %}
 <script>
 (function () {
     var tabla = document.getElementById('gl-tabla'), cuerpo = tabla.querySelector('tbody');
@@ -136,15 +137,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     var CATS = {}; Array.prototype.forEach.call(document.querySelectorAll('#gl-categorias option'), function (o) { CATS[o.value.toLowerCase()] = 1; });
     var plantilla = cuerpo.rows[cuerpo.rows.length - 1].cloneNode(true);
 
-    function numero(t) {
-        t = String(t || '').replace(/[$\s ]/g, '');
-        if (!t) return 0;
-        var c = t.lastIndexOf(','), p = t.lastIndexOf('.');
-        if (c >= 0 && p >= 0) t = c > p ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
-        else if (c >= 0) t = (t.split(',').length > 2 || t.split(',')[1].length === 3) ? t.replace(/,/g, '') : t.replace(',', '.');
-        else if (t.split('.').length > 2 || (p >= 0 && t.split('.')[1].length === 3)) t = t.replace(/\./g, '');
-        var n = parseFloat(t); return isNaN(n) ? 0 : n;
-    }
+    function numero(t) { return Dinero.valor(t) || 0; }
     function filaVacia() {
         var tr = plantilla.cloneNode(true);
         tr.className = '';
@@ -172,14 +165,22 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             if (vals.some(Boolean)) { n += 1; total += numero(tr.querySelector('input[name="c_total"]').value); }
         });
         document.getElementById('gl-n').textContent = n;
-        document.getElementById('gl-total').textContent = '$' + Math.round(total).toLocaleString('es-CO');
+        document.getElementById('gl-total').textContent = Dinero.formatear(Math.round(total)) || '$ 0';
     }
 
     // Pegar desde Excel: llega texto con tabuladores (columnas) y saltos de línea (filas).
     tabla.addEventListener('paste', function (e) {
         var input = e.target.closest('input'); if (!input) return;
         var texto = (e.clipboardData || window.clipboardData).getData('text');
-        if (!texto || (texto.indexOf('\t') === -1 && texto.indexOf('\n') === -1)) return;   // una celda: pegado normal
+        if (!texto) return;
+        if (texto.indexOf('\t') === -1 && texto.replace(/\r?\n$/, '').indexOf('\n') === -1) {
+            // Una sola celda: pegado normal, salvo en Total, donde queda con formato de dinero.
+            if (input.name !== 'c_total') return;
+            e.preventDefault();
+            input.value = Dinero.normalizar(texto);
+            input.parentNode.classList.remove('mal'); sumar();
+            return;
+        }
         e.preventDefault();
         var filas = texto.replace(/\r/g, '').split('\n');
         while (filas.length && !filas[filas.length - 1].trim()) filas.pop();
@@ -193,7 +194,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             celdas.forEach(function (valor, j) {
                 var c = COLS[col0 + j]; if (!c) return;
                 var campo = destino.querySelector('input[name="c_' + c + '"]');
-                campo.value = valor.trim();
+                campo.value = c === 'total' ? Dinero.normalizar(valor) : valor.trim();
                 campo.parentNode.classList.remove('mal'); campo.parentNode.removeAttribute('title');
                 revisarCelda(campo);
             });
@@ -203,7 +204,11 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     });
     tabla.addEventListener('input', function (e) {
         if (e.target.tagName !== 'INPUT') return;
+        if (e.target.name === 'c_total') Dinero.enVivo(e.target);      // $ y puntos de miles al escribir
         e.target.parentNode.classList.remove('mal'); revisarCelda(e.target); sumar();
+    });
+    tabla.addEventListener('focusout', function (e) {
+        if (e.target.name === 'c_total' && e.target.value) e.target.value = Dinero.normalizar(e.target.value);
     });
     // Enter baja a la misma columna de la fila siguiente, como en Excel.
     tabla.addEventListener('keydown', function (e) {
@@ -229,6 +234,9 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     // Un solo envío: el botón se apaga para que un doble clic no mande dos veces.
     document.getElementById('gl-form').addEventListener('submit', function () {
         var b = document.getElementById('gl-guardar'); b.disabled = true; b.textContent = 'Guardando…';
+    });
+    tabla.querySelectorAll('input[name="c_total"]').forEach(function (i) {
+        if (i.value) i.value = Dinero.normalizar(i.value);
     });
     tabla.querySelectorAll('input').forEach(revisarCelda);
     sumar();

@@ -48,15 +48,6 @@ la tabla). Mismos campos de la tabla de la clienta, en el mismo orden.
         </div>
     </form>
 </div>
-<script>
-(function () {
-    var total = document.querySelector('.gx-dinero');
-    function formatear(t) {
-        var limpio = String(t || '').replace(/[^\d,]/g, ''), partes = limpio.split(',');
-        var entero = partes[0].replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-        return partes.length > 1 ? entero + ',' + partes.slice(1).join('').slice(0, 2) : entero;
-    }
-    if (total) { total.value = formatear(total.value); total.addEventListener('input', function () { total.value = formatear(total.value); }); }
-})();
-</script>
+{% include 'gestion/partials/_dinero_js.html' %}
+<script>document.querySelectorAll('.gx-dinero').forEach(Dinero.activar);</script>
 {% endblock %}
