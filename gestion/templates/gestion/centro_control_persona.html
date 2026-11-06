@@ -232,7 +232,7 @@
                         <td>{{ s.recorrido.vehiculo.placa }}</td>
                         <td>{{ s.recorrido.orden.cliente.nombre }}</td>
                         <td>{{ s.horas|default:"—" }}</td>
-                        <td>{{ s.duracion|default:"—" }}{% if s.descuento %}<div class="small text-danger">{{ s.descuento }}</div>{% endif %}</td>
+                        <td>{{ s.duracion|default:"—" }}{% if s.descuento %}<div class="small text-danger">{{ s.descuento }}</div>{% endif %}{% if s.cruce %}<div class="small text-muted">{{ s.cruce }}</div>{% endif %}</td>
                         <td>
                             {% if s.recorrido.estado == 'COMPLETADO' %}<span class="badge bg-success">Completado</span>
                             {% elif s.recorrido.estado == 'EN_CURSO' %}<span class="badge bg-warning text-dark">En curso</span>
@@ -281,7 +281,7 @@
                         </td>
                         <td>{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
                         <td>{{ a.horario|default:"—" }}</td>
-                        <td>{{ a.duracion|default:"—" }}{% if a.descuento %}<div class="small text-danger">{{ a.descuento }}</div>{% endif %}</td>
+                        <td>{{ a.duracion|default:"—" }}{% if a.descuento %}<div class="small text-danger">{{ a.descuento }}</div>{% endif %}{% if a.cruce %}<div class="small text-muted">{{ a.cruce }}</div>{% endif %}</td>
                         <td>{{ a.detalle|default:"—" }}</td>
                     </tr>
                 {% endfor %}
@@ -317,7 +317,7 @@
                         <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                         <td>{{ f.dias_en_rango }}</td>
                         <td>{{ f.novedad.horario|default:"—" }}</td>
-                        <td>{{ f.duracion|default:"—" }}{% if f.descuento %}<div class="small text-danger">{{ f.descuento }}</div>{% endif %}</td>
+                        <td>{{ f.duracion|default:"—" }}{% if f.descuento %}<div class="small text-danger">{{ f.descuento }}</div>{% endif %}{% if f.cruce %}<div class="small text-muted">{{ f.cruce }}</div>{% endif %}</td>
                         <td>{{ f.novedad.detalle|default:"—" }}</td>
                         <td class="text-muted small">
                             {% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}

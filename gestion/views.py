@@ -6385,6 +6385,11 @@ def _descuentos_de(descuentos, minutos):
     return total, texto
 
 
+# Un cruce de un par de minutos entre dos registros seguidos es redondeo de
+# las horas, no un cruce: solo se anuncia de aquí para arriba.
+CRUCE_MINIMO_MIN = 5
+
+
 def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
     """
     La estadística de horas del periodo (base de la nómina). Cuentan los
@@ -6398,12 +6403,28 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
 
     El total UNE los tramos de cada día: si una actividad cae dentro de un
     servicio, esa hora se cuenta una sola vez.
+
+    Reglas (nov-2026, caso real: dos órdenes que se pisaban y un descuento
+    «DOBLE TIEMPO» puesto a mano restaban dos veces la misma hora):
+    - Cada registro APORTA solo el tiempo que no estaba ya cubierto por otro
+      anterior; el desglose (servicios, actividades, interno), el día y el
+      mes suman esos aportes, así que siempre cuadran con el total.
+    - Un descuento resta, como mucho, lo que su registro aportó: no puede
+      quitar otra vez una hora que el cruce ya había quitado.
+    - Un registro descontado por completo no cuenta ni sirve de puente.
+    - Al registro que se cruza con otro se le anota («cruce») para que la
+      oficina lo vea y no lo descuente a mano.
     """
-    registros = (
-        [(s['recorrido'].fecha_recorrido, s['minutos'], s['desde'], 'servicios')
-         for s in servicios]
-        + [(a.plan.fecha, a.minutos, a.hora, 'actividades') for a in asignaciones
-           if a.suma_horas and a.plan.fecha <= hoy])
+    registros = []
+    for s in servicios:
+        registros.append({'fecha': s['recorrido'].fecha_recorrido, 'minutos': s['minutos'],
+                          'desde': s['desde'], 'lista': 'servicios',
+                          'descuento': s.get('descuento_min') or 0, 'origen': s})
+    for a in asignaciones:
+        if a.suma_horas and a.plan.fecha <= hoy:
+            registros.append({'fecha': a.plan.fecha, 'minutos': a.minutos, 'desde': a.hora,
+                              'lista': 'actividades',
+                              'descuento': getattr(a, 'descuento_min', 0) or 0, 'origen': a})
     for f in novedades:
         n = f['novedad']
         if not n.es_trabajo:
@@ -6412,65 +6433,52 @@ def _horas_trabajadas(inicio, fin, servicios, asignaciones, novedades, hoy):
         for i in range(f['dias_en_rango']):
             dia = f['desde'] + datetime.timedelta(days=i)
             if dia <= hoy:
-                registros.append((dia, minutos, n.hora, 'interno'))
+                registros.append({'fecha': dia, 'minutos': minutos, 'desde': n.hora,
+                                  'lista': 'interno',
+                                  'descuento': f.get('descuento_min') or 0, 'origen': f})
 
     tramos, sin_hora = [], 0
-    por_lista = {'servicios': 0, 'actividades': 0, 'interno': 0}
-    for fecha, minutos, desde, lista in registros:
-        if minutos is None:
+    for r in registros:
+        if r['minutos'] is None:
             sin_hora += 1
             continue
-        por_lista[lista] += minutos
-        base = (fecha - inicio).days * 24 * 60 + desde.hour * 60 + desde.minute
-        tramos.append((base, base + minutos, fecha))
+        r['descuento'] = min(r['descuento'], r['minutos'])
+        if r['minutos'] and r['descuento'] >= r['minutos']:
+            continue        # descontado por completo: no es tiempo trabajado
+        r['ini'] = (r['fecha'] - inicio).days * 24 * 60 + r['desde'].hour * 60 + r['desde'].minute
+        r['fin'] = r['ini'] + r['minutos']
+        tramos.append(r)
 
-    # Une los tramos que se pisan; cada tramo unido cuenta en el día y el mes
-    # en que empezó.
-    unidos = []
-    for desde, hasta, fecha in sorted(tramos):
-        if unidos and desde <= unidos[-1][1]:
-            unidos[-1][1] = max(unidos[-1][1], hasta)
+    # Une los tramos que se pisan. Cada tramo unido cuenta en el día y el mes
+    # en que empezó; cada registro aporta lo que no estaba ya cubierto y su
+    # descuento sale de ese aporte.
+    total = 0
+    por_lista = {'servicios': 0, 'actividades': 0, 'interno': 0}
+    por_dia, por_mes, dias = {}, {}, set()
+    fin_tramo = fecha_tramo = None
+    for r in sorted(tramos, key=lambda r: (r['ini'], -r['fin'])):
+        if fin_tramo is None or r['ini'] > fin_tramo:
+            fecha_tramo, fin_tramo = r['fecha'], r['fin']
+            aporte = r['minutos']
+            dias.add(fecha_tramo)
+            por_dia.setdefault(fecha_tramo, 0)
         else:
-            unidos.append([desde, hasta, fecha])
-    total = sum(h - d for d, h, _ in unidos)
-    dias = {f for _, _, f in unidos}
+            aporte = max(r['fin'] - fin_tramo, 0)
+            fin_tramo = max(fin_tramo, r['fin'])
+        neto = aporte - min(r['descuento'], aporte)
+        total += neto
+        por_lista[r['lista']] += neto
+        por_dia[fecha_tramo] += neto
+        clave = (fecha_tramo.year, fecha_tramo.month)
+        por_mes[clave] = por_mes.get(clave, 0) + neto
+        cruzado = r['minutos'] - aporte
+        if cruzado >= CRUCE_MINIMO_MIN:
+            texto = f"Se cruza {_texto_horas(cruzado)} con otro registro: cuenta una sola vez"
+            if isinstance(r['origen'], dict):
+                r['origen']['cruce'] = texto
+            else:
+                r['origen'].cruce = texto
 
-    por_mes = {}
-    for desde, hasta, fecha in unidos:
-        clave = (fecha.year, fecha.month)
-        por_mes[clave] = por_mes.get(clave, 0) + (hasta - desde)
-
-    # Día por día (oct-2026, gráfico de tiempo laborado del tablero): cada
-    # tramo unido cuenta en el día en que empezó, como en el mes.
-    por_dia = {}
-    for desde, hasta, fecha in unidos:
-        por_dia[fecha] = por_dia.get(fecha, 0) + (hasta - desde)
-
-    # Descuentos (almuerzo, etc.): se restan a su lista, al total, al mes y
-    # al día; el tramo no se acorta porque el descuento no dice a qué hora fue.
-    def restar(fecha, descuento, lista):
-        nonlocal total
-        clave = (fecha.year, fecha.month)
-        total -= descuento
-        por_lista[lista] -= descuento
-        por_mes[clave] = max(por_mes.get(clave, 0) - descuento, 0)
-        por_dia[fecha] = max(por_dia.get(fecha, 0) - descuento, 0)
-
-    for s in servicios:
-        if s.get('descuento_min'):
-            restar(s['recorrido'].fecha_recorrido, s['descuento_min'], 'servicios')
-    for a in asignaciones:
-        if a.suma_horas and a.plan.fecha <= hoy and a.minutos is not None and a.descuento_min:
-            restar(a.plan.fecha, a.descuento_min, 'actividades')
-    for f in novedades:
-        n = f['novedad']
-        if not (n.es_trabajo and f['minutos'] is not None and f.get('descuento_min')):
-            continue
-        for i in range(f['dias_en_rango']):
-            dia = f['desde'] + datetime.timedelta(days=i)
-            if dia <= hoy:
-                restar(dia, f['descuento_min'], 'interno')
-    total = max(total, 0)
     meses, maximo = [], max(por_mes.values(), default=0)
     if (inicio.year, inicio.month) != (fin.year, fin.month):
         actual = datetime.date(inicio.year, inicio.month, 1)
@@ -6857,7 +6865,8 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
             [[s['recorrido'].fecha_recorrido,
               s['recorrido'].orden.numero_orden, s['como'],
               s['recorrido'].vehiculo.placa, s['recorrido'].orden.cliente.nombre,
-              s['horas'] or '—', s['duracion'] or '—', s['descuento'] or '—',
+              s['horas'] or '—', s['duracion'] or '—',
+              '; '.join(filter(None, [s['descuento'], s.get('cruce')])) or '—',
               s['recorrido'].get_estado_display(),
               s['recorrido'].orden.direccion_servicio or '—']
              for s in datos['servicios']],
@@ -6871,7 +6880,8 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
               a.placas or '—',
               f"#{a.orden.numero_orden}" if a.orden else '—',
               str(a.proveedor or a.dispositor or '—'),
-              a.horario or '—', a.duracion or '—', a.descuento or '—',
+              a.horario or '—', a.duracion or '—',
+              '; '.join(filter(None, [a.descuento, getattr(a, 'cruce', '')])) or '—',
               a.detalle or '—']
              for a in datos['asignaciones']],
             [12, 32, 16, 11, 30, 13, 14, 26, 40], fechas=(1,))
@@ -6886,7 +6896,7 @@ class CentroControlExcelView(AdministradorRequiredMixin, View):
               f['dias_en_rango'],
               f['novedad'].horario or '—',
               f['duracion'] or '—',
-              f['descuento'] or '—',
+              '; '.join(filter(None, [f['descuento'], f.get('cruce')])) or '—',
               f['novedad'].detalle or '—',
               (f['novedad'].registrado_por.get_full_name()
                or f['novedad'].registrado_por.username) if f['novedad'].registrado_por else '—']

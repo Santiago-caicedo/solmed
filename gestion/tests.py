@@ -7419,11 +7419,71 @@ class CentroControlHorasTrabajadasTests(BaseCRM):
     def test_un_tramo_que_se_cruza_con_otro_se_cuenta_una_vez(self):
         self.acta(datetime.time(7, 0), datetime.time(15, 30))
         self.actividad(datetime.time(14, 0), datetime.time(16, 0))
-        horas = self.horas().context['horas']
+        respuesta = self.horas()
+        horas = respuesta.context['horas']
         self.assertEqual(horas['servicios'], '8 h 30 min')
-        self.assertEqual(horas['actividades'], '2 h')
+        # Nov-2026: el desglose cuadra con el total; la actividad aporta solo
+        # lo que el servicio no cubría (15:30 a 16:00).
+        self.assertEqual(horas['actividades'], '30 min')
         self.assertEqual(horas['total'], '9 h', "07:00 a 16:00, sin contar dos veces")
         self.assertEqual(horas['dias'], 1)
+        # Y la actividad lo dice, para que nadie la descuente a mano.
+        self.assertEqual(respuesta.context['asignaciones'][0].cruce,
+                         'Se cruza 1 h 30 min con otro registro: cuenta una sola vez')
+        self.assertContains(respuesta, 'Se cruza 1 h 30 min con otro registro')
+
+    def descuento(self, actividad, minutos, motivo):
+        from planes.models import DescuentoHoras
+        return DescuentoHoras.objects.create(asignacion=actividad, minutos=minutos, motivo=motivo)
+
+    def test_descontar_a_mano_un_cruce_no_resta_dos_veces(self):
+        """
+        Caso real (William, 23-oct-2026): un registro de 07:58 a 14:48 dentro
+        de un servicio de 04:16 a 14:51, descontado entero por «DOBLE TIEMPO».
+        El cruce ya no contaba: el descuento no puede quitarlo otra vez.
+        """
+        self.acta(datetime.time(4, 16), datetime.time(14, 51))
+        self.recorrido.descuento_conductor_min = 60
+        self.recorrido.descuento_conductor_motivo = 'Almuerzo'
+        self.recorrido.save()
+        doble = self.actividad(datetime.time(7, 58), datetime.time(14, 48))
+        self.descuento(doble, 410, 'DOBLE TIEMPO')
+        horas = self.horas().context['horas']
+        self.assertEqual(horas['total'], '9 h 35 min', "10 h 35 min menos el almuerzo; antes daba 2 h 45 min")
+        self.assertEqual((horas['servicios'], horas['actividades']), ('9 h 35 min', '0 h'))
+        self.assertEqual(sum(horas['por_dia'].values()), horas['minutos'])
+
+    def test_el_descuento_solo_resta_lo_que_su_registro_aporto(self):
+        """Actividad de 12:00 a 15:00 con almuerzo, pisada una hora por el servicio de 08:00 a 13:00."""
+        self.acta(datetime.time(8, 0), datetime.time(13, 0))
+        actividad = self.actividad(datetime.time(12, 0), datetime.time(15, 0))
+        self.descuento(actividad, 60, 'Almuerzo')
+        horas = self.horas().context['horas']
+        self.assertEqual(horas['total'], '6 h', "08:00 a 15:00 menos el almuerzo")
+        self.assertEqual((horas['servicios'], horas['actividades']), ('5 h', '1 h'))
+        # Un descuento más grande que el aporte no se come horas de otro registro.
+        self.descuento(actividad, 120, 'Pausa')
+        horas = self.horas().context['horas']
+        self.assertEqual((horas['total'], horas['servicios'], horas['actividades']), ('5 h', '5 h', '0 h'))
+
+    def test_el_desglose_siempre_suma_el_total(self):
+        self.acta(datetime.time(7, 42), datetime.time(14, 47))
+        self.actividad(datetime.time(11, 42), datetime.time(12, 16))      # dentro del servicio
+        self.actividad(datetime.time(15, 0), datetime.time(16, 0))
+        self.Novedad.objects.create(
+            persona=self.conductor, tipo='TRABAJO_BODEGA', suma_horas=True, fecha_inicio=self.dia,
+            hora=datetime.time(15, 30), hora_fin=datetime.time(17, 0))
+        horas = self.horas().context['horas']
+        self.assertEqual((horas['servicios'], horas['actividades'], horas['interno']),
+                         ('7 h 05 min', '1 h', '1 h'))
+        self.assertEqual(horas['total'], '9 h 05 min')
+
+    def test_un_cruce_de_un_minuto_no_se_anuncia(self):
+        self.acta(datetime.time(7, 0), datetime.time(13, 9))
+        self.actividad(datetime.time(13, 8), datetime.time(15, 0))
+        respuesta = self.horas()
+        self.assertEqual(respuesta.context['horas']['total'], '8 h')
+        self.assertNotContains(respuesta, 'Se cruza')
 
     def test_lo_que_no_tiene_las_dos_horas_no_se_cuenta_pero_se_avisa(self):
         # Servicio sin acta y actividad con solo la hora de inicio.

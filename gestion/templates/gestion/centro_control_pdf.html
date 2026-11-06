@@ -273,7 +273,7 @@
                     <td>{{ s.como }}</td>
                     <td>{{ s.recorrido.vehiculo.placa }}</td>
                     <td>{{ s.recorrido.orden.cliente.nombre }}</td>
-                    <td class="tenue">{{ s.horas|default:"—" }}{% if s.duracion %}<br>{{ s.duracion }}{% endif %}{% if s.descuento %}<br>{{ s.descuento }}{% endif %}</td>
+                    <td class="tenue">{{ s.horas|default:"—" }}{% if s.duracion %}<br>{{ s.duracion }}{% endif %}{% if s.descuento %}<br>{{ s.descuento }}{% endif %}{% if s.cruce %}<br>{{ s.cruce }}{% endif %}</td>
                     <td class="tenue">{{ s.recorrido.get_estado_display }}</td>
                 </tr>
                 {% endfor %}
@@ -308,7 +308,7 @@
                     <td>{{ a.placas|default:"—" }}</td>
                     <td class="num">{% if a.orden %}{{ a.orden.numero_orden }}{% else %}—{% endif %}</td>
                     <td class="tenue">{% if a.proveedor %}{{ a.proveedor }}{% elif a.dispositor %}{{ a.dispositor }}{% else %}—{% endif %}</td>
-                    <td class="tenue">{{ a.horario|default:"—" }}{% if a.duracion %}<br>{{ a.duracion }}{% endif %}{% if a.descuento %}<br>{{ a.descuento }}{% endif %}</td>
+                    <td class="tenue">{{ a.horario|default:"—" }}{% if a.duracion %}<br>{{ a.duracion }}{% endif %}{% if a.descuento %}<br>{{ a.descuento }}{% endif %}{% if a.cruce %}<br>{{ a.cruce }}{% endif %}</td>
                     <td class="tenue">{{ a.detalle|default:"—" }}</td>
                 </tr>
                 {% endfor %}
@@ -344,7 +344,7 @@
                     <td>{{ f.novedad.fecha_fin|date:"d/m/Y"|default:"—" }}</td>
                     <td class="num">{{ f.dias_en_rango }}</td>
                     <td class="tenue">{{ f.novedad.horario|default:"—" }}</td>
-                    <td class="tenue">{{ f.duracion|default:"—" }}{% if f.descuento %}<br>{{ f.descuento }}{% endif %}</td>
+                    <td class="tenue">{{ f.duracion|default:"—" }}{% if f.descuento %}<br>{{ f.descuento }}{% endif %}{% if f.cruce %}<br>{{ f.cruce }}{% endif %}</td>
                     <td class="tenue">{{ f.novedad.detalle|default:"—" }}</td>
                     <td class="tenue">{% if f.novedad.registrado_por %}{{ f.novedad.registrado_por.get_full_name|default:f.novedad.registrado_por.username }}{% else %}—{% endif %}</td>
                 </tr>
