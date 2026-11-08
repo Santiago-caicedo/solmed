@@ -39,7 +39,8 @@ from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
-from .accesos import autoriza, casa_de_asesor, es_asesor, puede_ver_documento, tiene_acceso
+from .accesos import (autoriza, casa_de_asesor, es_asesor, puede_ver_documento,
+                      puede_ver_documento_interno, tiene_acceso)
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -4343,7 +4344,7 @@ def _reply_to():
     return list(getattr(settings, 'EMAIL_REPLY_TO', []) or [])
 
 
-def _resolver_adjunto_correo(token):
+def _resolver_adjunto_correo(token, user=None):
     """
     Resuelve un token a {'archivo', 'nombre', 'linea'} si el documento existe.
     Devuelve None si el token no existe o su archivo fue eliminado: el envío
@@ -4394,6 +4395,9 @@ def _resolver_adjunto_correo(token):
         from .models import DocumentoInterno
         doc = DocumentoInterno.objects.filter(pk=partes[1]).first()
         if not doc or not doc.archivo:
+            return None
+        # Nov-2026: el asesor solo adjunta lo que tiene marcado en Documentación.
+        if user is not None and not puede_ver_documento_interno(user, doc):
             return None
         if doc.tipo == DocumentoInterno.TIPO_ADICIONAL and doc.descripcion:
             etiqueta = doc.descripcion
@@ -4584,8 +4588,8 @@ def _terceros_por_cliente(usuario=None):
     return data
 
 
-def _catalogo_docs_solmed():
-    """[{token, label}] de la documentación interna de SOLMED."""
+def _catalogo_docs_solmed(user=None):
+    """[{token, label}] de la documentación interna de SOLMED (la que `user` puede abrir)."""
     from .models import DocumentoInterno
     def etiqueta(d):
         # La documentación adicional se nombra por su nombre libre.
@@ -4595,7 +4599,8 @@ def _catalogo_docs_solmed():
             base = d.get_tipo_display() + (f" — {d.entidad}" if d.entidad else '')
         return base + (f" ({d.fecha.strftime('%d/%m/%Y')})" if d.fecha else '')
     return [{'token': f'solmed:{d.pk}', 'label': etiqueta(d)}
-            for d in DocumentoInterno.objects.all()]
+            for d in DocumentoInterno.objects.all()
+            if user is None or puede_ver_documento_interno(user, d)]
 
 
 def _docs_de_persona(usuario, docs=None):
@@ -4836,7 +4841,7 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
 
         # --- SOLMED: una sola "entidad" con la documentación de la empresa ---
         if fuente == 'solmed':
-            docs = _catalogo_docs_solmed()
+            docs = _catalogo_docs_solmed(request.user)
             if q:
                 docs = [d for d in docs if q.lower() in d['label'].lower()]
             grupos.append({'fuente': 'SOLMED', 'icono': 'building', 'items': [{
@@ -5000,7 +5005,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
         # los tokens que ya no resuelven simplemente no vuelven a la canasta.
         seleccion = []
         for t in seleccionados:
-            r = _resolver_adjunto_correo(t)
+            r = _resolver_adjunto_correo(t, request.user)
             if r is not None:
                 linea = r['linea']
                 seleccion.append({'token': t,
@@ -5084,7 +5089,7 @@ class CrearEnvioCorreoView(AsesorRequiredMixin, View):
                 errores.append(f"«{c}» no es un correo válido para las respuestas.")
         resueltos = []
         for t in tokens:
-            r = _resolver_adjunto_correo(t)
+            r = _resolver_adjunto_correo(t, request.user)
             if r is None:
                 errores.append("Uno de los documentos marcados ya no existe en el "
                                "sistema. Revisa la selección y vuelve a intentarlo.")
@@ -5151,7 +5156,7 @@ class PesoAdjuntosCorreoView(AsesorRequiredMixin, View):
     def get(self, request):
         pesos = {}
         for t in request.GET.getlist('t')[:80]:
-            r = _resolver_adjunto_correo(t)
+            r = _resolver_adjunto_correo(t, request.user)
             if r is not None:
                 pesos[t] = _peso_adjunto(r)
         return JsonResponse({'pesos': pesos,
@@ -8328,7 +8333,45 @@ class GestionarAccesosView(AdministradorRequiredMixin, View):
             'base_json': json.dumps(sorted(BASE)),
             'tipos_documento': tipos_documento,
             'n_tipos_marcados': sum(1 for t in tipos_documento if t['marcada']),
+            **self._documentacion(marcadas),
         })
+
+    @staticmethod
+    def _documentacion(marcadas):
+        """
+        Las casillas del popup de Documentación (nov-2026): el expediente fijo
+        y cada documentación adicional que esté cargada HOY (se lee de la base
+        en cada visita: lo que se sube aparece, lo que se elimina se va).
+        """
+        from .accesos import TIPOS_DOCUMENTACION, clave_documento_interno
+        from .models import DocumentoInterno
+        docs = list(DocumentoInterno.objects.order_by('-fecha_subida'))
+        por_tipo = {}
+        for d in docs:
+            por_tipo.setdefault(d.tipo, []).append(d)
+        fijos = []
+        for tipo, nombre in TIPOS_DOCUMENTACION:
+            cargados = por_tipo.get(tipo, [])
+            if tipo == DocumentoInterno.TIPO_MULTIPLE:
+                estado = (f"{len(cargados)} cuenta{'s' if len(cargados) != 1 else ''}" if cargados
+                          else 'Sin cargar')
+            else:
+                estado = f"Cargado el {cargados[0].fecha_subida:%d/%m/%Y}" if cargados else 'Sin cargar'
+            clave = f'documentacion.doc_{tipo}'
+            fijos.append({'clave': clave, 'nombre': nombre, 'estado': estado,
+                          'cargado': bool(cargados), 'marcada': clave in marcadas})
+        adicionales, vistas = [], set()
+        for d in sorted(por_tipo.get(DocumentoInterno.TIPO_ADICIONAL, []), key=lambda d: d.descripcion.lower()):
+            clave = clave_documento_interno(d)
+            if clave in vistas:
+                continue
+            vistas.add(clave)
+            adicionales.append({'clave': clave, 'nombre': d.descripcion or 'Sin nombre',
+                                'estado': f"Cargado el {d.fecha_subida:%d/%m/%Y}", 'cargado': True,
+                                'marcada': clave in marcadas})
+        return {'docs_fijos': fijos, 'docs_adicionales': adicionales,
+                'n_docs': len(fijos) + len(adicionales),
+                'n_docs_marcados': sum(1 for x in fijos + adicionales if x['marcada'])}
 
     def post(self, request, pk):
         from .accesos import normalizar
@@ -8399,9 +8442,13 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
         documento.antiguedad = antiguedad
         return documento
 
-    def _context(self):
+    def _context(self, request):
+        from .accesos import clave_documento_interno
         from .models import DocumentoInterno
         docs = [self._detalle(d) for d in DocumentoInterno.objects.all()]
+        # Nov-2026: lo que el asesor no tiene marcado se ve, pero no se abre.
+        for d in docs:
+            d.puede_abrir = puede_ver_documento_interno(request.user, d)
         por_tipo = {}
         for d in docs:
             por_tipo.setdefault(d.tipo, []).append(d)
@@ -8421,6 +8468,8 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
                 'es_bancaria': tipo == DocumentoInterno.TIPO_MULTIPLE,
                 'multiple': tipo == DocumentoInterno.TIPO_MULTIPLE,
                 'completo': bool(cargados),
+                'puede_abrir': puede_ver_documento_interno(
+                    request.user, DocumentoInterno(tipo=tipo)),
             })
         adicionales = sorted(por_tipo.get(DocumentoInterno.TIPO_ADICIONAL, []),
                              key=lambda d: d.descripcion.lower())
@@ -8446,7 +8495,7 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
         }
 
     def get(self, request):
-        return render(request, self.template_name, self._context())
+        return render(request, self.template_name, self._context(request))
 
     def post(self, request):
         from .forms import DocumentoInternoForm
@@ -8463,6 +8512,25 @@ class DocumentacionSolmedView(AsesorRequiredMixin, View):
         # La certificación bancaria reemplaza por cuenta/banco y la
         # documentación adicional por su nombre; el resto, por el tipo.
         nuevo = form.save(commit=False)
+        # Nov-2026: un documento que el asesor no puede abrir tampoco lo
+        # reemplaza. Una adicional NUEVA sí la puede subir, y queda marcada
+        # para quien la subió (si no, la perdería de vista al instante).
+        from .accesos import clave_documento_interno, es_asesor as _es_asesor, es_administrador as _es_admin
+        clave = clave_documento_interno(nuevo)
+        nueva_adicional = (nuevo.tipo == DocumentoInterno.TIPO_ADICIONAL and not any(
+            clave_documento_interno(d) == clave
+            for d in DocumentoInterno.objects.filter(tipo=DocumentoInterno.TIPO_ADICIONAL)))
+        if not nueva_adicional and not puede_ver_documento_interno(request.user, nuevo):
+            messages.error(request, "No tienes permiso para ese documento: pídele a un administrador que te lo marque.")
+            return redirect('gestion:documentacion')
+        if nueva_adicional and _es_asesor(request.user) and not _es_admin(request.user):
+            from .accesos import BASE, normalizar
+            from .models import AccesosAsesor
+            registro = AccesosAsesor.objects.filter(usuario=request.user).first()
+            claves = set(registro.claves) if registro else set(BASE)
+            claves.add(clave)
+            AccesosAsesor.objects.update_or_create(usuario=request.user,
+                                                   defaults={'claves': sorted(normalizar(claves))})
         if nuevo.tipo == DocumentoInterno.TIPO_MULTIPLE:
             anteriores = DocumentoInterno.objects.filter(
                 tipo=nuevo.tipo, entidad__iexact=(nuevo.entidad or '').strip())
@@ -8487,8 +8555,24 @@ class EliminarDocumentoInternoView(AsesorRequiredMixin, View):
     acceso = 'documentacion.editar'
     def post(self, request, pk):
         from .models import DocumentoInterno
+        from .accesos import clave_documento_interno, es_clave_adicional
+        from .models import AccesosAsesor
         documento = get_object_or_404(DocumentoInterno, pk=pk)
+        if not puede_ver_documento_interno(request.user, documento):
+            messages.error(request, "No tienes permiso para ese documento.")
+            return redirect('gestion:documentacion')
+        clave = clave_documento_interno(documento)
         documento.delete()
+        # Una adicional eliminada se desmarca de todos: si mañana se sube otra
+        # con el mismo nombre, nace oculta como cualquier adicional nueva.
+        quedan = any(clave_documento_interno(d) == clave
+                     for d in DocumentoInterno.objects.filter(tipo=DocumentoInterno.TIPO_ADICIONAL))
+        if es_clave_adicional(clave) and not quedan:
+            for registro in AccesosAsesor.objects.all():
+                if clave not in (registro.claves or []):
+                    continue
+                registro.claves = [c for c in registro.claves if c != clave]
+                registro.save(update_fields=['claves'])
         messages.success(request, "Documento eliminado.")
         return redirect('gestion:documentacion')
 

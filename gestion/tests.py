@@ -100,6 +100,18 @@ def imagen(nombre='foto.png'):
     return SimpleUploadedFile(nombre, png_bytes(), content_type='image/png')
 
 
+def con_toda_la_documentacion(asesor, *nombres_adicionales):
+    """
+    Nov-2026: los documentos de SOLMED se abren uno por uno y, de base, la
+    asesora no tiene ninguno. Las pruebas de Documentación que NO son de
+    permisos le marcan todo (y las adicionales que se le digan).
+    """
+    from .accesos import BASE, CLAVES_DOCUMENTACION, clave_adicional
+    from .models import AccesosAsesor
+    claves = set(BASE) | CLAVES_DOCUMENTACION | {clave_adicional(n) for n in nombres_adicionales}
+    AccesosAsesor.objects.update_or_create(usuario=asesor, defaults={'claves': sorted(claves)})
+
+
 def con_todos_los_documentos(asesor):
     """
     Nov-2026: los documentos del personal se abren por tipo y, de base, la
@@ -5185,6 +5197,7 @@ class DocumentacionSolmedTests(BaseCRM):
 
     def setUp(self):
         self.asesor = self.persona('asesor', 'Asesores')
+        con_toda_la_documentacion(self.asesor)
         self.entrar(self.asesor)
         self.url = reverse('gestion:documentacion')
 
@@ -12067,6 +12080,126 @@ class GastosTests(BaseCRM):
         # Otros roles, no.
         self.entrar(self.conductor)
         self.assertNotEqual(self.client.get(reverse('gestion:gastos')).status_code, 200)
+
+
+class DocumentacionPorDocumentoTests(BaseCRM):
+    """
+    Nov-2026 (pedido de Santiago): en «Gestionar accesos», un popup marca qué
+    documentos de SOLMED puede abrir cada asesora: los del expediente y cada
+    documentación adicional, con la lista siempre al día. Lo no marcado se ve
+    en la lista, pero no se abre, ni se reemplaza, ni se borra, ni se adjunta.
+    """
+
+    def setUp(self):
+        from .accesos import BASE
+        self.admin = self.persona('admin', 'Administradores')
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.base = set(BASE)
+        self.rut = DocumentoInterno.objects.create(tipo='RUT', archivo=archivo('rut.pdf'))
+        self.estados = DocumentoInterno.objects.create(tipo='ESTADOS_FINANCIEROS', archivo=archivo('ef.pdf'))
+        self.poliza = DocumentoInterno.objects.create(tipo='OTRO', descripcion='Póliza RC', archivo=archivo('poliza.pdf'))
+
+    def accesos(self, *claves):
+        from .models import AccesosAsesor
+        AccesosAsesor.objects.update_or_create(usuario=self.asesor,
+                                               defaults={'claves': sorted(self.base | set(claves))})
+
+    def test_el_popup_ofrece_el_expediente_y_las_adicionales_de_hoy(self):
+        from .accesos import TIPOS_DOCUMENTACION
+        self.assertEqual([t for t, _ in TIPOS_DOCUMENTACION],
+                         [t for t, _ in DocumentoInterno.TIPO_CHOICES if t != 'OTRO'],
+                         "el popup debe ofrecer los mismos tipos del modelo")
+        self.entrar(self.admin)
+        url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
+        pagina = self.client.get(url)
+        for _tipo, nombre in TIPOS_DOCUMENTACION:
+            self.assertContains(pagina, nombre)
+        self.assertContains(pagina, 'value="documentacion.adicional_poliza-rc"')
+        self.assertContains(pagina, 'Documentación que puede abrir')
+        self.assertEqual(pagina.context['n_docs'], 11)
+        # Se actualiza solo: lo que se sube aparece y lo que se elimina se va.
+        DocumentoInterno.objects.create(tipo='OTRO', descripcion='Habilitación ambiental', archivo=archivo('h.pdf'))
+        self.poliza.delete()
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'value="documentacion.adicional_habilitacion-ambiental"')
+        self.assertNotContains(pagina, 'adicional_poliza-rc')
+        # Guardar: los documentos se conservan solo con el módulo abierto.
+        self.client.post(url, {'claves': ['documentacion.ver', 'documentacion.doc_RUT',
+                                          'documentacion.adicional_habilitacion-ambiental']})
+        from .models import AccesosAsesor
+        claves = AccesosAsesor.objects.get(usuario=self.asesor).claves
+        self.assertIn('documentacion.doc_RUT', claves)
+        self.assertIn('documentacion.adicional_habilitacion-ambiental', claves)
+        self.client.post(url, {'claves': ['documentacion.doc_RUT']})
+        self.assertNotIn('documentacion.doc_RUT', AccesosAsesor.objects.get(usuario=self.asesor).claves)
+
+    def test_al_desplegar_la_asesora_no_abre_ninguno(self):
+        """Decisión de Santiago: sin nada marcado hasta que un administrador lo marque."""
+        self.entrar(self.asesor)
+        r = self.client.get(reverse('gestion:documentacion'))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, self.rut.archivo.url)
+        self.assertNotContains(r, self.poliza.archivo.url)
+        self.assertContains(r, 'Póliza RC', msg_prefix="ve que existe")
+        self.assertContains(r, 'Sin permiso')
+
+    def test_solo_abre_lo_marcado_y_el_administrador_todo(self):
+        self.accesos('documentacion.doc_RUT', 'documentacion.adicional_poliza-rc')
+        self.entrar(self.asesor)
+        r = self.client.get(reverse('gestion:documentacion'))
+        self.assertContains(r, self.rut.archivo.url)
+        self.assertContains(r, self.poliza.archivo.url)
+        self.assertNotContains(r, self.estados.archivo.url)
+        self.entrar(self.admin)
+        r = self.client.get(reverse('gestion:documentacion'))
+        for d in (self.rut, self.estados, self.poliza):
+            self.assertContains(r, d.archivo.url)
+
+    def test_lo_no_marcado_no_se_reemplaza_ni_se_borra(self):
+        self.accesos('documentacion.doc_RUT')
+        self.entrar(self.asesor)
+        url = reverse('gestion:documentacion')
+        self.client.post(url, {'tipo': 'ESTADOS_FINANCIEROS', 'archivo': archivo('otro.pdf'),
+                               'fecha': '', 'entidad': '', 'descripcion': ''})
+        self.assertTrue(DocumentoInterno.objects.filter(pk=self.estados.pk).exists(), "no lo reemplazó")
+        self.client.post(reverse('gestion:eliminar_documento_interno', args=[self.estados.pk]))
+        self.assertTrue(DocumentoInterno.objects.filter(pk=self.estados.pk).exists(), "no lo borró")
+        self.client.post(reverse('gestion:eliminar_documento_interno', args=[self.rut.pk]))
+        self.assertFalse(DocumentoInterno.objects.filter(pk=self.rut.pk).exists(), "lo marcado sí")
+
+    def test_la_adicional_nueva_nace_oculta_salvo_para_quien_la_sube(self):
+        from .accesos import puede_ver_documento_interno
+        otra = self.persona('otra', 'Asesores')
+        self.entrar(self.asesor)
+        self.client.post(reverse('gestion:documentacion'), {
+            'tipo': 'OTRO', 'archivo': archivo('nueva.pdf'), 'fecha': '', 'entidad': '',
+            'descripcion': 'Plan de contingencia'})
+        nueva = DocumentoInterno.objects.get(descripcion='Plan de contingencia')
+        self.assertTrue(puede_ver_documento_interno(self.asesor, nueva), "quien la sube la conserva")
+        self.assertFalse(puede_ver_documento_interno(otra, nueva), "las demás, hasta que se la marquen")
+        # Reemplazarla por el mismo nombre conserva la marca.
+        self.client.post(reverse('gestion:documentacion'), {
+            'tipo': 'OTRO', 'archivo': archivo('nueva2.pdf'), 'fecha': '', 'entidad': '',
+            'descripcion': 'Plan de contingencia'})
+        nueva = DocumentoInterno.objects.get(descripcion='Plan de contingencia')
+        self.asesor = type(self.asesor).objects.get(pk=self.asesor.pk)
+        self.assertTrue(puede_ver_documento_interno(self.asesor, nueva))
+
+    def test_al_eliminar_una_adicional_se_desmarca_de_todos(self):
+        from .models import AccesosAsesor
+        self.accesos('documentacion.adicional_poliza-rc')
+        self.entrar(self.admin)
+        self.client.post(reverse('gestion:eliminar_documento_interno', args=[self.poliza.pk]))
+        self.assertNotIn('documentacion.adicional_poliza-rc', AccesosAsesor.objects.get(usuario=self.asesor).claves)
+
+    def test_en_correos_solo_adjunta_lo_marcado(self):
+        from .views import _catalogo_docs_solmed, _resolver_adjunto_correo
+        self.accesos('documentacion.doc_RUT')
+        tokens = {d['token'] for d in _catalogo_docs_solmed(self.asesor)}
+        self.assertEqual(tokens, {f'solmed:{self.rut.pk}'})
+        self.assertIsNone(_resolver_adjunto_correo(f'solmed:{self.estados.pk}', self.asesor))
+        self.assertIsNotNone(_resolver_adjunto_correo(f'solmed:{self.rut.pk}', self.asesor))
+        self.assertIsNotNone(_resolver_adjunto_correo(f'solmed:{self.estados.pk}', self.admin))
 
 
 class AccesosDeAsesorTests(BaseCRM):

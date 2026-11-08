@@ -37,6 +37,48 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
 .ga-tipos-lista li{ border-bottom:1px solid var(--line-2); }
 .ga-tipos-lista li:last-child{ border-bottom:0; }
 .ga-tipos-lista label{ display:flex; align-items:center; gap:.6rem; padding:.65rem .2rem; margin:0; cursor:pointer; font-size:.92rem; }
+
+/* ---- Documentación de SOLMED, documento por documento (nov-2026) ----
+   Con las guías de Apple: la fila entera es el blanco (44 px), el estado se
+   dice en texto y no solo en color, y el popup dice qué pasa con lo que no
+   se marca. Con la skill de frontend: sobrio, sin etiquetas en mayúsculas;
+   lo único con peso es el nombre del documento. */
+.ga-docs-elegir{ display:flex; align-items:center; gap:.75rem; padding:.4rem .5rem; border-radius:var(--r-sm); }
+.ga-docs-elegir .n{ font-weight:600; font-size:.9rem; line-height:1.2; }
+.ga-docs-elegir .s{ display:block; font-size:.76rem; color:var(--ink-3); margin-top:.1rem; }
+.ga-docs-elegir .btn{ margin-left:auto; white-space:nowrap; font-size:.8rem; }
+.ga-docs-elegir.apagado{ opacity:.45; }
+.gd .modal-content{ border:0; border-radius:14px; overflow:hidden; box-shadow:0 24px 64px rgba(15,23,32,.22); }
+.gd .modal-header{ align-items:flex-start; border-bottom:0; padding:1.25rem 1.4rem .5rem; }
+.gd .modal-title{ font-size:1.15rem; font-weight:600; letter-spacing:-.01em; }
+.gd .bajada{ font-size:.84rem; color:var(--ink-2); margin-top:.25rem; max-width:46ch; }
+.gd .modal-body{ padding:.4rem 1.4rem 1rem; }
+.gd-buscar{ position:relative; margin-bottom:.6rem; }
+.gd-buscar i{ position:absolute; left:.75rem; top:50%; transform:translateY(-50%); color:var(--ink-3); }
+.gd-buscar input{ padding-left:2.1rem; border-radius:10px; background:var(--panel-2); border-color:transparent; }
+.gd-buscar input:focus{ background:var(--panel); }
+.gd-grupo + .gd-grupo{ margin-top:1.1rem; }
+.gd-grupo-cab{ display:flex; align-items:baseline; gap:.6rem; padding:0 .15rem .4rem; }
+.gd-grupo-cab h3{ font-size:.9rem; font-weight:600; margin:0; color:var(--ink); }
+.gd-grupo-cab .cuenta{ font-size:.8rem; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+.gd-grupo-cab .todos{ margin-left:auto; font-size:.8rem; font-weight:500; padding:0; border:0; background:none; color:var(--steel); }
+.gd-grupo-cab .todos:hover{ text-decoration:underline; }
+.gd-grupo-cab .todos:disabled{ color:var(--ink-3); text-decoration:none; }
+.gd-lista{ list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--panel); }
+.gd-lista li + li{ border-top:1px solid var(--line-2); }
+.gd-fila{ display:flex; align-items:center; gap:.75rem; min-height:44px; padding:.55rem .85rem; margin:0; cursor:pointer; }
+.gd-fila:hover{ background:var(--panel-2); }
+.gd-fila input{ flex:0 0 auto; width:1.1rem; height:1.1rem; margin:0; }
+.gd-fila .nom{ flex:1 1 auto; min-width:0; font-size:.9rem; color:var(--ink); line-height:1.25; }
+.gd-fila .est{ flex:0 0 auto; font-size:.76rem; color:var(--ink-3); white-space:nowrap; }
+.gd-fila .est.falta{ font-style:italic; }
+.gd-fila input:checked ~ .nom{ font-weight:600; }
+.gd-vacio{ padding:.9rem 1rem; font-size:.84rem; color:var(--ink-2); border:1px dashed var(--line); border-radius:12px; }
+.gd-nada{ display:none; padding:1rem .2rem; font-size:.85rem; color:var(--ink-2); }
+.gd .modal-footer{ border-top:1px solid var(--line-2); background:var(--panel-2); padding:.8rem 1.4rem; justify-content:space-between; }
+.gd .total{ font-size:.86rem; color:var(--ink-2); font-variant-numeric:tabular-nums; }
+.gd .total b{ color:var(--ink); }
+@media (max-width:576px){ .gd-fila .est{ display:none; } }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -98,6 +140,17 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
             </label>
             {% endif %}
             {% endif %}{% endfor %}
+            {% if m.clave == 'documentacion' %}
+            {# Nov-2026: cuáles documentos puede abrir, uno por uno. #}
+            <div class="ga-docs-elegir" id="ga-docs-fila">
+                <span><span class="n">Qué documentos puede abrir</span>
+                    <span class="s">Uno por uno. Lo que no marques lo ve en la lista, pero no lo abre.</span></span>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="ga-docs-btn"
+                        data-bs-toggle="modal" data-bs-target="#ga-docs" aria-label="Elegir los documentos que puede abrir">
+                    <i class="bi bi-ui-checks me-1" aria-hidden="true"></i><span id="ga-docs-n">{{ n_docs_marcados }} de {{ n_docs }}</span>
+                </button>
+            </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -124,6 +177,72 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
                         <button type="button" class="btn btn-link btn-sm px-0" id="ga-tipos-todos">Marcar todos</button>
                         <button type="button" class="btn btn-link btn-sm px-0" id="ga-tipos-ninguno">Ninguno</button>
                     </div>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ---------- Popup: qué documentos de SOLMED puede abrir (nov-2026) ---------- #}
+    <div class="modal fade gd" id="ga-docs" tabindex="-1" aria-labelledby="ga-docs-titulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" style="max-width:560px">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title" id="ga-docs-titulo">Documentación que puede abrir</h2>
+                        <div class="bajada">{{ persona.get_full_name|default:persona.username }} verá todos en la lista, pero solo podrá abrir, reemplazar o adjuntar a un correo los que marques.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    {% if n_docs > 8 %}
+                    <div class="gd-buscar">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input type="search" class="form-control form-control-sm" id="gd-buscar" placeholder="Buscar un documento" aria-label="Buscar un documento" autocomplete="off">
+                    </div>
+                    {% endif %}
+
+                    <section class="gd-grupo" data-grupo="fijos">
+                        <div class="gd-grupo-cab">
+                            <h3>Expediente de la empresa</h3>
+                            <span class="cuenta" aria-live="polite"></span>
+                            <button type="button" class="todos"></button>
+                        </div>
+                        <ul class="gd-lista">
+                            {% for d in docs_fijos %}
+                            <li class="gd-item"><label class="gd-fila">
+                                <input type="checkbox" class="form-check-input ga-doc" name="claves" value="{{ d.clave }}" {% if d.marcada %}checked{% endif %}>
+                                <span class="nom">{{ d.nombre }}</span>
+                                <span class="est{% if not d.cargado %} falta{% endif %}">{{ d.estado }}</span>
+                            </label></li>
+                            {% endfor %}
+                        </ul>
+                    </section>
+
+                    <section class="gd-grupo" data-grupo="adicionales">
+                        <div class="gd-grupo-cab">
+                            <h3>Documentación adicional</h3>
+                            <span class="cuenta" aria-live="polite"></span>
+                            <button type="button" class="todos"></button>
+                        </div>
+                        {% if docs_adicionales %}
+                        <ul class="gd-lista">
+                            {% for d in docs_adicionales %}
+                            <li class="gd-item"><label class="gd-fila">
+                                <input type="checkbox" class="form-check-input ga-doc" name="claves" value="{{ d.clave }}" {% if d.marcada %}checked{% endif %}>
+                                <span class="nom">{{ d.nombre }}</span>
+                                <span class="est">{{ d.estado }}</span>
+                            </label></li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <div class="gd-vacio">Todavía no hay documentación adicional. Cuando se suba una, aparece aquí desmarcada.</div>
+                        {% endif %}
+                    </section>
+                    <div class="gd-nada" id="gd-nada">Ningún documento coincide con la búsqueda.</div>
+                </div>
+                <div class="modal-footer">
+                    <span class="total" id="gd-total" aria-live="polite"></span>
                     <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button>
                 </div>
             </div>
@@ -166,6 +285,26 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
             var marcados = Array.prototype.filter.call(tipos, function (c) { return c.checked; }).length;
             document.getElementById('ga-tipos-n').textContent = marcados + ' de ' + tipos.length;
         }
+        // Documentación de SOLMED: los documentos solo con el módulo abierto.
+        var verDocs = form.querySelector('.ga-modulo[data-modulo="documentacion"] .ga-ver');
+        var docsBtn = document.getElementById('ga-docs-btn');
+        if (verDocs && docsBtn) {
+            var abierto = verDocs.checked;
+            docsBtn.disabled = !abierto;
+            document.getElementById('ga-docs-fila').classList.toggle('apagado', !abierto);
+            var todosDocs = form.querySelectorAll('.ga-doc');
+            todosDocs.forEach(function (c) { c.disabled = !abierto; if (!abierto) c.checked = false; });
+            var nDocs = Array.prototype.filter.call(todosDocs, function (c) { return c.checked; }).length;
+            document.getElementById('ga-docs-n').textContent = nDocs + ' de ' + todosDocs.length;
+            document.getElementById('gd-total').innerHTML = '<b>' + nDocs + '</b> de ' + todosDocs.length + ' documentos marcados';
+            form.querySelectorAll('.gd-grupo').forEach(function (g) {
+                var cs = g.querySelectorAll('.ga-doc'), m = Array.prototype.filter.call(cs, function (c) { return c.checked; }).length;
+                g.querySelector('.cuenta').textContent = cs.length ? m + ' de ' + cs.length : '';
+                var b = g.querySelector('.todos');
+                b.textContent = cs.length && m === cs.length ? 'Quitar todos' : 'Marcar todos';
+                b.disabled = !cs.length || !abierto;
+            });
+        }
         var n = form.querySelectorAll('input[name="claves"]:checked').length;
         document.getElementById('ga-resumen').textContent = n + ' de ' + total + ' accesos marcados';
     }
@@ -181,6 +320,39 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
         if (docsCasilla.checked && ninguno) {
             setTimeout(function () { document.getElementById('ga-tipos-btn').click(); }, 0);
         }
+    });
+    // Documentación: marcar o quitar un grupo entero; abrir el popup la primera vez.
+    form.querySelectorAll('.gd-grupo .todos').forEach(function (b) {
+        b.addEventListener('click', function () {
+            var cs = b.closest('.gd-grupo').querySelectorAll('.ga-doc');
+            var todos = Array.prototype.every.call(cs, function (c) { return c.checked; });
+            cs.forEach(function (c) { if (!c.closest('.gd-item').hidden) c.checked = !todos; });
+            refrescar();
+        });
+    });
+    var verDocsCasilla = form.querySelector('.ga-modulo[data-modulo="documentacion"] .ga-ver');
+    if (verDocsCasilla) verDocsCasilla.addEventListener('change', function () {
+        if (verDocsCasilla.checked && !form.querySelector('.ga-doc:checked')) {
+            setTimeout(function () { document.getElementById('ga-docs-btn').click(); }, 0);
+        }
+    });
+    var buscar = document.getElementById('gd-buscar');
+    if (buscar) buscar.addEventListener('input', function () {
+        var q = buscar.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''), visibles = 0;
+        form.querySelectorAll('.gd-grupo').forEach(function (g) {
+            var enGrupo = 0;
+            g.querySelectorAll('.gd-item').forEach(function (li) {
+                var t = li.querySelector('.nom').textContent.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                li.hidden = !!q && t.indexOf(q) === -1;
+                if (!li.hidden) enGrupo += 1;
+            });
+            g.hidden = !!q && !enGrupo;
+            visibles += enGrupo;
+        });
+        document.getElementById('gd-nada').style.display = q && !visibles ? 'block' : 'none';
+    });
+    document.getElementById('ga-docs').addEventListener('hidden.bs.modal', function () {
+        if (buscar && buscar.value) { buscar.value = ''; buscar.dispatchEvent(new Event('input')); }
     });
     function tipos(valor) { form.querySelectorAll('.ga-tipo').forEach(function (c) { c.checked = valor; }); refrescar(); }
     var bTodos = document.getElementById('ga-tipos-todos'), bNinguno = document.getElementById('ga-tipos-ninguno');

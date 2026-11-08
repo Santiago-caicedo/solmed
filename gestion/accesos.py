@@ -26,6 +26,9 @@ Cómo funciona:
 La CARTERA de clientes sigue aplicando aparte: un asesor con acceso a un
 módulo ve en él solo sus clientes, donde ese módulo la recorta.
 """
+import re
+
+from django.utils.text import slugify
 
 # Las acciones de cada módulo: (sufijo, nombre, descripción, base).
 # `base` = lo tenía el rol Asesores antes de los accesos por persona.
@@ -237,8 +240,53 @@ TIPOS_DOCUMENTO_PERSONAL = [
 ]
 CLAVES_DOCUMENTO = {f'personal.documento_{tipo}' for tipo, _ in TIPOS_DOCUMENTO_PERSONAL}
 
+# DOCUMENTACIÓN DE SOLMED por documento (nov-2026, pedido de Santiago): en
+# «Gestionar accesos» un popup marca cuáles puede abrir el asesor.
+# - Los del expediente fijo son `documentacion.doc_<TIPO>` (los de
+#   DocumentoInterno.TIPO_CHOICES salvo OTRO; una prueba vigila que coincidan).
+#   La certificación bancaria es UNA casilla para todas sus cuentas.
+# - Cada documentación ADICIONAL es `documentacion.adicional_<nombre-en-slug>`:
+#   se llama por su nombre porque cargar otra con el mismo nombre la reemplaza
+#   (otro pk); así la marca sobrevive al reemplazo. Al eliminarla, la marca se
+#   borra de todos (EliminarDocumentoInternoView): lo nuevo nace oculto.
+# Lo no marcado se ve en la lista (cargado o falta) pero no se abre, ni se
+# reemplaza, ni se borra, ni se adjunta a un correo. Todo exige además
+# `documentacion.ver`.
+TIPOS_DOCUMENTACION = [
+    ('RUT', 'RUT completo'),
+    ('RUT_PRIMERA_PAGINA', 'RUT primera página'),
+    ('CAMARA_COMERCIO', 'Cámara de Comercio'),
+    ('CEDULA_REP_LEGAL', 'Cédula del representante legal'),
+    ('CEDULA_REP_SUPLENTE', 'Cédula del representante legal suplente'),
+    ('ESTADOS_FINANCIEROS', 'Estados financieros'),
+    ('CERTIFICACION_BANCARIA', 'Certificación bancaria'),
+    ('RIT', 'RIT'),
+    ('CERT_CONTRALORIA', 'Certificado de la Contraloría'),
+    ('CERT_PROCURADURIA', 'Certificado de la Procuraduría'),
+]
+CLAVES_DOCUMENTACION = {f'documentacion.doc_{tipo}' for tipo, _ in TIPOS_DOCUMENTACION}
+PREFIJO_ADICIONAL = 'documentacion.adicional_'
+_SLUG_ADICIONAL = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
+
+
+def clave_adicional(nombre):
+    """La clave de una documentación adicional por su nombre («Póliza RC» → …adicional_poliza-rc)."""
+    return PREFIJO_ADICIONAL + (slugify(nombre or '')[:80].strip('-') or 'sin-nombre')
+
+
+def clave_documento_interno(documento):
+    """La casilla que abre este DocumentoInterno."""
+    if documento.tipo == 'OTRO':
+        return clave_adicional(documento.descripcion)
+    return f'documentacion.doc_{documento.tipo}'
+
+
+def es_clave_adicional(clave):
+    return clave.startswith(PREFIJO_ADICIONAL) and bool(_SLUG_ADICIONAL.fullmatch(clave[len(PREFIJO_ADICIONAL):]))
+
 # Todas las claves válidas, y las que el rol Asesores tenía de siempre.
-TODAS = frozenset({f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones']} | CLAVES_DOCUMENTO)
+TODAS = frozenset({f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones']}
+                  | CLAVES_DOCUMENTO | CLAVES_DOCUMENTACION)
 BASE = frozenset(f"{m['clave']}.{a[0]}" for m in MODULOS for a in m['acciones'] if a[3])
 
 # Dónde «vive» un asesor al iniciar sesión, en orden de preferencia
@@ -289,10 +337,15 @@ def normalizar(claves):
     módulo exige poder VERLO (sin «ver» no hay menú ni pantalla donde hacerla).
     """
     # Claves que cambiaron de nombre (nov-2026): lo guardado antes sigue valiendo.
-    claves = {RENOMBRADAS.get(c, c) for c in claves} & TODAS
+    claves = {RENOMBRADAS.get(c, c) for c in claves}
+    # Las de documentación adicional no están en TODAS: dependen de lo cargado.
+    claves = (claves & TODAS) | {c for c in claves if es_clave_adicional(c)}
     # Los tipos de documento solo valen con «Ver los documentos» marcado.
     if 'personal.documentos' not in claves:
         claves -= CLAVES_DOCUMENTO
+    # Y los documentos de SOLMED, solo con el módulo Documentación abierto.
+    if 'documentacion.ver' not in claves:
+        claves = {c for c in claves if c not in CLAVES_DOCUMENTACION and not es_clave_adicional(c)}
     for clave in list(claves):
         modulo = clave.split('.', 1)[0]
         if f'{modulo}.ver' in TODAS:
@@ -357,6 +410,17 @@ def puede_ver_documento(user, tipo):
     if es_administrador(user) or not es_asesor(user):
         return True
     return tiene_acceso(user, 'personal.documentos') and tiene_acceso(user, f'personal.documento_{tipo}')
+
+
+def puede_ver_documento_interno(user, documento):
+    """
+    ¿Puede ABRIR este documento de SOLMED? (nov-2026). Solo recorta a los
+    asesores: hace falta el módulo y la casilla de ese documento.
+    Administradores, como siempre.
+    """
+    if es_administrador(user) or not es_asesor(user):
+        return True
+    return tiene_acceso(user, 'documentacion.ver') and tiene_acceso(user, clave_documento_interno(documento))
 
 
 def para_plantilla(user):
