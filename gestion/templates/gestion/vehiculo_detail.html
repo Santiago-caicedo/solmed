@@ -51,8 +51,11 @@ empresa), el veredicto y el semáforo de papeles; lo demás va debajo.
         <div class="dt">{{ doc.detalle }}</div>
         <div class="pie">
             {% if doc.fecha %}<span class="fe">{{ doc.fecha|date:"d/m/Y" }}</span>{% endif %}
-            {% if doc.archivo %}
+            {% if doc.archivo and doc.puede_abrir %}
             <a href="{{ doc.archivo.url }}" target="_blank"><i class="bi bi-file-earmark-text"></i>Ver</a>
+            {% elif doc.archivo %}
+            {# Nov-2026: cargado, pero sin permiso para abrirlo. #}
+            <span class="text-muted" title="No tienes permiso para abrir este documento. Pídeselo a un administrador."><i class="bi bi-lock"></i>Sin permiso</span>
             {% endif %}
         </div>
     </div>

@@ -81,6 +81,8 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
 @media (max-width:576px){ .gd-fila .est{ display:none; } }
 /* Proveedores: cada uno con sus tipos de documento debajo, al marcarlo. */
 .gp-item.inactivo .nom{ color:var(--ink-2); }
+.gv-placa{ font-family:var(--mono); font-weight:600; letter-spacing:.04em; }
+.gv-det{ color:var(--ink-3); font-size:.82rem; margin-left:.35rem; }
 .gp-tag{ font-size:.7rem; font-weight:500; color:var(--ink-3); border:1px solid var(--line); border-radius:999px; padding:.05rem .45rem; margin-left:.4rem; }
 .gp-docs{ display:flex; flex-wrap:wrap; gap:.4rem; padding:0 .85rem .75rem 2.7rem; }
 .gp-item:not(.abierto) .gp-docs{ display:none; }
@@ -152,6 +154,17 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
             </label>
             {% endif %}
             {% endif %}{% endfor %}
+            {% if m.clave == 'vehiculos' %}
+            {# Nov-2026: cuáles vehículos ve y, de cada uno, qué papeles. #}
+            <div class="ga-docs-elegir" id="ga-vehs-fila">
+                <span><span class="n">Qué vehículos puede ver</span>
+                    <span class="s">Uno por uno, y de cada uno qué papeles abre. Los que no marques no le salen en la lista.</span></span>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="ga-vehs-btn"
+                        data-bs-toggle="modal" data-bs-target="#ga-vehs" aria-label="Elegir los vehículos que puede ver">
+                    <i class="bi bi-ui-checks me-1" aria-hidden="true"></i><span id="ga-vehs-n">{{ n_vehs_marcados }} de {{ vehs|length }}</span>
+                </button>
+            </div>
+            {% endif %}
             {% if m.clave == 'proveedores' %}
             {# Nov-2026: cuáles proveedores ve y, de cada uno, qué documentos. #}
             <div class="ga-docs-elegir" id="ga-provs-fila">
@@ -266,6 +279,64 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
                 </div>
                 <div class="modal-footer">
                     <span class="total" id="gd-total" aria-live="polite"></span>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ---------- Popup: qué vehículos ve, y sus papeles (nov-2026) ---------- #}
+    <div class="modal fade gd" id="ga-vehs" tabindex="-1" aria-labelledby="ga-vehs-titulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" style="max-width:600px">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title" id="ga-vehs-titulo">Vehículos que puede ver</h2>
+                        <div class="bajada">Los que no marques no le salen en la lista; de los marcados, solo abre los papeles elegidos. En programación, órdenes y el plan puede usar cualquiera.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    {% if vehs|length > 6 %}
+                    <div class="gd-buscar">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <input type="search" class="form-control form-control-sm" id="gv-buscar" placeholder="Buscar una placa" aria-label="Buscar una placa" autocomplete="off">
+                    </div>
+                    {% endif %}
+                    <section class="gd-grupo" id="gv-grupo">
+                        <div class="gd-grupo-cab">
+                            <h3>Flota</h3>
+                            <span class="cuenta" aria-live="polite"></span>
+                            <button type="button" class="todos" id="gv-todos"></button>
+                        </div>
+                        {% if vehs %}
+                        <ul class="gd-lista">
+                            {% for v in vehs %}
+                            <li class="gd-item gp-item gv-item">
+                                <label class="gd-fila">
+                                    <input type="checkbox" class="form-check-input ga-veh" name="claves" value="{{ v.clave }}" {% if v.marcada %}checked{% endif %}>
+                                    <span class="nom"><span class="gv-placa">{{ v.placa }}</span>{% if v.detalle %} <span class="gv-det">{{ v.detalle }}</span>{% endif %}{% if v.estado %}<span class="gp-tag">{{ v.estado }}</span>{% endif %}</span>
+                                    <span class="est gp-resumen"></span>
+                                </label>
+                                <div class="gp-docs" role="group" aria-label="Papeles de {{ v.placa }}">
+                                    {% for d in v.docs %}
+                                    <label class="gp-chip" title="{% if d.cargado %}Cargado{% else %}Sin cargar todavía{% endif %}">
+                                        <input type="checkbox" class="form-check-input ga-veh-doc" name="claves" value="{{ d.clave }}" {% if d.marcada %}checked{% endif %}>
+                                        {{ d.nombre }}<span class="punto{% if not d.cargado %} falta{% endif %}" aria-hidden="true"></span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <div class="gd-vacio">Todavía no hay vehículos. Cuando se cree uno, aparece aquí desmarcado.</div>
+                        {% endif %}
+                    </section>
+                    <div class="gd-nada" id="gv-nada">Ninguna placa coincide con la búsqueda.</div>
+                </div>
+                <div class="modal-footer">
+                    <span class="total" id="gv-total" aria-live="polite"></span>
                     <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button>
                 </div>
             </div>
@@ -411,9 +482,81 @@ administradores. Ver gestion/accesos.py (el catálogo y cómo se aplica).
             bT.textContent = provs.length && nProvs === provs.length ? 'Quitar todos' : 'Marcar todos';
             bT.disabled = !provs.length || !conModulo;
         }
+        // Vehículos: igual que los proveedores.
+        refrescarGrupo({modulo: 'vehiculos', btn: 'ga-vehs-btn', fila: 'ga-vehs-fila', n: 'ga-vehs-n',
+                        total: 'gv-total', grupo: 'gv-grupo', todos: 'gv-todos', item: '.gv-item',
+                        casilla: '.ga-veh', doc: '.ga-veh-doc', nombre: 'vehículos', papeles: 'papeles'});
         var n = form.querySelectorAll('input[name="claves"]:checked').length;
         document.getElementById('ga-resumen').textContent = n + ' de ' + total + ' accesos marcados';
     }
+    // Un grupo «cosa + sus documentos» (vehículos), como el de proveedores.
+    function refrescarGrupo(g) {
+        var ver = form.querySelector('.ga-modulo[data-modulo="' + g.modulo + '"] .ga-ver');
+        var btn = document.getElementById(g.btn);
+        if (!ver || !btn) return;
+        var abierto = ver.checked;
+        btn.disabled = !abierto;
+        document.getElementById(g.fila).classList.toggle('apagado', !abierto);
+        var casillas = form.querySelectorAll(g.casilla), marcadas = 0;
+        casillas.forEach(function (c) {
+            c.disabled = !abierto; if (!abierto) c.checked = false;
+            var item = c.closest(g.item), docs = item.querySelectorAll(g.doc);
+            docs.forEach(function (d) { d.disabled = !c.checked; if (!c.checked) d.checked = false; });
+            item.classList.toggle('abierto', c.checked);
+            var m = Array.prototype.filter.call(docs, function (d) { return d.checked; }).length;
+            item.querySelector('.gp-resumen').textContent = c.checked ? (m + ' de ' + docs.length + ' ' + g.papeles) : '';
+            if (c.checked) marcadas += 1;
+        });
+        document.getElementById(g.n).textContent = marcadas + ' de ' + casillas.length;
+        document.getElementById(g.total).innerHTML = '<b>' + marcadas + '</b> de ' + casillas.length + ' ' + g.nombre + ' marcados';
+        document.getElementById(g.grupo).querySelector('.cuenta').textContent = casillas.length ? marcadas + ' de ' + casillas.length : '';
+        var t = document.getElementById(g.todos);
+        t.textContent = casillas.length && marcadas === casillas.length ? 'Quitar todos' : 'Marcar todos';
+        t.disabled = !casillas.length || !abierto;
+    }
+    function montarGrupo(g) {
+        form.querySelectorAll(g.casilla).forEach(function (c) {
+            c.addEventListener('change', function () {
+                var docs = c.closest(g.item).querySelectorAll(g.doc);
+                if (c.checked && !Array.prototype.some.call(docs, function (d) { return d.checked; })) {
+                    docs.forEach(function (d) { d.disabled = false; d.checked = true; });
+                }
+                refrescar();
+            });
+        });
+        var t = document.getElementById(g.todos);
+        if (t) t.addEventListener('click', function () {
+            var cs = form.querySelectorAll(g.casilla);
+            var todos = Array.prototype.every.call(cs, function (c) { return c.checked; });
+            cs.forEach(function (c) {
+                if (c.closest(g.item).hidden) return;
+                c.checked = !todos;
+                c.closest(g.item).querySelectorAll(g.doc).forEach(function (d) { d.disabled = false; d.checked = !todos; });
+            });
+            refrescar();
+        });
+        var ver = form.querySelector('.ga-modulo[data-modulo="' + g.modulo + '"] .ga-ver');
+        if (ver) ver.addEventListener('change', function () {
+            if (ver.checked && !form.querySelector(g.casilla + ':checked')) {
+                setTimeout(function () { document.getElementById(g.btn).click(); }, 0);
+            }
+        });
+        var buscar = document.getElementById(g.buscar);
+        var sinTilde = function (x) { return x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); };
+        if (buscar) buscar.addEventListener('input', function () {
+            var q = sinTilde(buscar.value.trim()), visibles = 0;
+            form.querySelectorAll(g.item).forEach(function (it) {
+                it.hidden = !!q && sinTilde(it.querySelector('.nom').textContent).indexOf(q) === -1;
+                if (!it.hidden) visibles += 1;
+            });
+            document.getElementById(g.nada).style.display = q && !visibles ? 'block' : 'none';
+        });
+        document.getElementById(g.modal).addEventListener('hidden.bs.modal', function () {
+            if (buscar && buscar.value) { buscar.value = ''; buscar.dispatchEvent(new Event('input')); }
+        });
+    }
+    montarGrupo({modulo: 'vehiculos', btn: 'ga-vehs-btn', todos: 'gv-todos', item: '.gv-item', casilla: '.ga-veh',
+                 doc: '.ga-veh-doc', buscar: 'gv-buscar', nada: 'gv-nada', modal: 'ga-vehs'});
     function poner(fn) {
         form.querySelectorAll('input[name="claves"]').forEach(function (c) { c.checked = fn(c.value); });
         refrescar();

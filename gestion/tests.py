@@ -126,6 +126,17 @@ def con_todos_los_proveedores(asesor):
     AccesosAsesor.objects.update_or_create(usuario=asesor, defaults={'claves': sorted(claves)})
 
 
+def con_todos_los_vehiculos(asesor):
+    """Nov-2026: los vehículos se ven uno por uno; las pruebas que no son de permisos le marcan todos."""
+    from .accesos import BASE, claves_de_un_vehiculo
+    from .models import AccesosAsesor
+    registro = AccesosAsesor.objects.filter(usuario=asesor).first()
+    claves = set(registro.claves) if registro else set(BASE)
+    for pk in Vehiculo.objects.values_list('pk', flat=True):
+        claves |= claves_de_un_vehiculo(pk)
+    AccesosAsesor.objects.update_or_create(usuario=asesor, defaults={'claves': sorted(claves)})
+
+
 def con_todos_los_documentos(asesor):
     """
     Nov-2026: los documentos del personal se abren por tipo y, de base, la
@@ -5412,6 +5423,7 @@ class VehiculosTests(BaseCRM):
     def setUp(self):
         self.asesor = self.persona('asesor', 'Asesores')
         self.camion = self.vehiculo()
+        con_todos_los_vehiculos(self.asesor)
         self.entrar(self.asesor)
 
     def test_los_documentos_avisan_veinte_dias_antes_y_marcan_los_vencidos(self):
@@ -6879,6 +6891,7 @@ class SoloGestionVeLaOperacionTests(BaseCRM):
         self.siso = self.persona('siso', 'SISO')
         Manifiesto.objects.create(recorrido=self.recorrido,
                                   tiempo_inicio_operativo=datetime.time(7, 0))
+        con_todos_los_vehiculos(self.asesor)
 
     def pantallas(self):
         """Todo lo que expone clientes, órdenes, programación o vehículos."""
@@ -8210,6 +8223,7 @@ class DisposicionDeLaOrdenTests(BaseDisposicion):
     def test_el_camion_no_muestra_carga_en_su_lista_ni_en_su_expediente(self):
         orden = self._orden()
         camion = orden.recorridos.get().vehiculo
+        con_todos_los_vehiculos(self.asesor)
         self.entrar(self.asesor)
         self.assertNotContains(self.client.get(reverse('gestion:lista_vehiculos')), 'CARGADO')
         respuesta = self.client.get(reverse('gestion:detalle_vehiculo', args=[camion.pk]))
@@ -10388,6 +10402,7 @@ class PreoperacionalTests(BaseCRM):
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
     def test_el_vehiculo_lleva_su_tipo_en_la_ficha_y_la_lista(self):
+        con_todos_los_vehiculos(self.asesor)
         self.entrar(self.asesor)
         self.assertContains(self.client.get(reverse('gestion:lista_vehiculos')), 'Camión Hino')
         self.camion.tipo = ''
@@ -11372,6 +11387,7 @@ class CarteraDeClientesTests(BaseCRM):
         from .accesos import TODAS
         from .models import AccesosAsesor, DisposicionOrden, Factura
         AccesosAsesor.objects.update_or_create(usuario=self.asesor, defaults={'claves': sorted(TODAS)})
+        con_todos_los_vehiculos(self.asesor)
         mia = Factura.objects.create(cliente=self.cli)
         ajena = Factura.objects.create(cliente=self.ajeno)
         for recorrido in (self.recorrido, self.recorrido_ajeno):
@@ -12329,6 +12345,106 @@ class ProveedoresPorAsesorTests(BaseCRM):
         self.assertTrue({f'proveedores.p{self.ecoplanta.pk}', f'proveedores.p{self.biogas.pk}_DOC_AMBIENTAL'} <= claves,
                         "la que tenía lo de siempre conserva todos")
         self.assertEqual(AccesosAsesor.objects.get(usuario=sin_modulo).claves, ['ordenes.ver'])
+
+
+class VehiculosPorAsesorTests(BaseCRM):
+    """
+    Nov-2026 (pedido de Santiago, igual que los proveedores): en «Gestionar
+    accesos», un popup marca qué vehículos ve cada asesora y, de cada uno, qué
+    papeles abre. Solo recorta el módulo Vehículos; en la operación se usa
+    cualquiera. Uno nuevo nace oculto, salvo para quien lo crea.
+    """
+
+    def setUp(self):
+        from .accesos import BASE
+        self.admin = self.persona('admin', 'Administradores')
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.base = set(BASE)
+        self.uno = Vehiculo.objects.create(placa='ZZZ101', marca='Chevrolet', modelo='NHR', capacidad='3 toneladas')
+        self.dos = Vehiculo.objects.create(placa='ZZZ202', marca='Hino', modelo='300', capacidad='3 toneladas')
+        for campo in ('archivo_soat', 'archivo_tecnomecanica', 'archivo_tarjeta'):
+            getattr(self.uno, campo).save(f'{campo}.pdf', archivo(f'{campo}.pdf'), save=False)
+        self.uno.save()
+
+    def accesos(self, *claves):
+        from .models import AccesosAsesor
+        AccesosAsesor.objects.update_or_create(usuario=self.asesor,
+                                               defaults={'claves': sorted(self.base | set(claves))})
+
+    def test_solo_ve_los_vehiculos_marcados(self):
+        self.accesos(f'vehiculos.v{self.uno.pk}')
+        self.entrar(self.asesor)
+        lista = self.client.get(reverse('gestion:lista_vehiculos'))
+        self.assertContains(lista, 'ZZZ101')
+        self.assertNotContains(lista, 'ZZZ202')
+        for nombre in ('gestion:detalle_vehiculo', 'gestion:actualizar_vehiculo'):
+            self.assertEqual(self.client.get(reverse(nombre, args=[self.dos.pk])).status_code, 404)
+            self.assertEqual(self.client.get(reverse(nombre, args=[self.uno.pk])).status_code, 200)
+        self.entrar(self.admin)
+        self.assertContains(self.client.get(reverse('gestion:lista_vehiculos')), 'ZZZ202')
+
+    def test_de_cada_vehiculo_abre_solo_los_papeles_marcados(self):
+        u = self.uno.pk
+        self.accesos(f'vehiculos.v{u}', f'vehiculos.v{u}_SOAT')
+        self.entrar(self.asesor)
+        hoja = self.client.get(reverse('gestion:detalle_vehiculo', args=[u]))
+        self.assertContains(hoja, self.uno.archivo_soat.url)
+        self.assertNotContains(hoja, self.uno.archivo_tarjeta.url)
+        self.assertContains(hoja, 'Sin permiso')
+        # Al editar, el papel no marcado ni se ve ni se reemplaza.
+        form = self.client.get(reverse('gestion:actualizar_vehiculo', args=[u])).context['form']
+        self.assertIn('archivo_soat', form.fields)
+        self.assertNotIn('archivo_tarjeta', form.fields)
+        self.assertNotIn('archivo_tecnomecanica', form.fields)
+
+    def test_el_vehiculo_nuevo_nace_oculto_salvo_para_quien_lo_crea(self):
+        from .accesos import puede_ver_documento_vehiculo, puede_ver_vehiculo
+        from .forms import VehiculoForm
+        otra = self.persona('otra', 'Asesores')
+        self.entrar(self.asesor)
+        datos = {'placa': 'ZZZ303', 'marca': 'Isuzu', 'modelo': 'NPR', 'capacidad': '2 toneladas',
+                 'estado': 'OPERATIVO'}
+        for nombre, campo in VehiculoForm().fields.items():
+            if nombre not in datos and campo.required and getattr(campo, 'choices', None):
+                datos[nombre] = [v for v, _ in campo.choices if v][0]
+        self.client.post(reverse('gestion:crear_vehiculo'), datos)
+        nuevo = Vehiculo.objects.get(placa='ZZZ303')
+        self.asesor = type(self.asesor).objects.get(pk=self.asesor.pk)
+        self.assertTrue(puede_ver_vehiculo(self.asesor, nuevo.pk))
+        self.assertTrue(puede_ver_documento_vehiculo(self.asesor, nuevo.pk, 'SOAT'))
+        self.assertFalse(puede_ver_vehiculo(otra, nuevo.pk))
+
+    def test_en_correos_solo_adjunta_lo_marcado(self):
+        from .views import _resolver_adjunto_correo
+        u = self.uno.pk
+        self.accesos(f'vehiculos.v{u}', f'vehiculos.v{u}_SOAT')
+        self.assertIsNotNone(_resolver_adjunto_correo(f'vehiculo:{u}:soat', self.asesor))
+        self.assertIsNone(_resolver_adjunto_correo(f'vehiculo:{u}:tarjeta', self.asesor))
+        self.assertIsNotNone(_resolver_adjunto_correo(f'vehiculo:{u}:tarjeta', self.admin))
+
+    def test_el_popup_lista_la_flota_de_hoy_y_guarda(self):
+        self.entrar(self.admin)
+        url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'Vehículos que puede ver')
+        self.assertContains(pagina, f'value="vehiculos.v{self.dos.pk}"')
+        self.assertContains(pagina, f'value="vehiculos.v{self.uno.pk}_TARJETA"')
+        u = self.uno.pk
+        self.client.post(url, {'claves': ['vehiculos.ver', f'vehiculos.v{u}', f'vehiculos.v{u}_SOAT',
+                                          f'vehiculos.v{self.dos.pk}_SOAT']})
+        from .models import AccesosAsesor
+        claves = AccesosAsesor.objects.get(usuario=self.asesor).claves
+        self.assertIn(f'vehiculos.v{u}_SOAT', claves)
+        self.assertNotIn(f'vehiculos.v{self.dos.pk}_SOAT', claves, "sin marcar el vehículo no vale")
+
+    def test_la_migracion_le_marca_todo_a_quien_ya_los_veia(self):
+        import importlib
+        from django.apps import apps as registro_apps
+        from .models import AccesosAsesor
+        migracion = importlib.import_module('gestion.migrations.0107_vehiculos_por_asesor')
+        migracion.marcar_todo(registro_apps, None)
+        claves = set(AccesosAsesor.objects.get(usuario=self.asesor).claves)
+        self.assertTrue({f'vehiculos.v{self.uno.pk}', f'vehiculos.v{self.dos.pk}_TARJETA'} <= claves)
 
 
 class AccesosDeAsesorTests(BaseCRM):

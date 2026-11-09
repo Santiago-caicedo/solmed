@@ -41,7 +41,8 @@ from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
 from .accesos import (autoriza, casa_de_asesor, es_asesor, puede_ver_documento,
                       puede_ver_documento_interno, puede_ver_documento_proveedor,
-                      puede_ver_proveedor, proveedores_visibles, tiene_acceso)
+                      puede_ver_proveedor, proveedores_visibles, tiene_acceso,
+                      puede_ver_documento_vehiculo, vehiculos_visibles)
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -1308,6 +1309,10 @@ class ListaVehiculosView(AsesorRequiredMixin, PaginadoMixin, ListView):
     # Orden estable: sin él la paginación puede repetir o saltarse filas.
     ordering = ['placa']
 
+    def get_queryset(self):
+        # Nov-2026: el asesor ve solo los vehículos que tiene marcados.
+        return vehiculos_visibles(self.request.user, super().get_queryset())
+
 class CrearVehiculoView(AsesorRequiredMixin, CreateView):
     acceso = 'vehiculos.editar'
     model = Vehiculo
@@ -1315,12 +1320,31 @@ class CrearVehiculoView(AsesorRequiredMixin, CreateView):
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
 
+    def form_valid(self, form):
+        respuesta = super().form_valid(form)
+        # Nov-2026: nace oculto para las asesoras, salvo para quien lo crea.
+        from .accesos import claves_de_un_vehiculo
+        _marcar_para_quien_lo_crea(self.request.user, self.object.pk, claves_de_un_vehiculo(self.object.pk))
+        return respuesta
+
 class ActualizarVehiculoView(AsesorRequiredMixin, UpdateView):
     acceso = 'vehiculos.editar'
     model = Vehiculo
     form_class = VehiculoForm
     template_name = 'gestion/form_vehiculo.html'
     success_url = reverse_lazy('gestion:lista_vehiculos')
+
+    def get_queryset(self):
+        return vehiculos_visibles(self.request.user, super().get_queryset())
+
+    def get_form(self, form_class=None):
+        # Nov-2026: el documento que no tiene marcado no lo puede reemplazar.
+        from .accesos import TIPOS_DOCUMENTO_VEHICULO
+        form = super().get_form(form_class)
+        for tipo, _nombre, campo in TIPOS_DOCUMENTO_VEHICULO:
+            if not puede_ver_documento_vehiculo(self.request.user, self.object.pk, tipo):
+                form.fields.pop(campo, None)
+        return form
 
 # --- Vistas para Clientes ---
 class ListaClientesView(AsesorRequiredMixin, PaginadoMixin, ListView):
@@ -1466,6 +1490,7 @@ def _documentos_vehiculo(vehiculo):
         ('Tecnomecánica', vehiculo.fecha_vencimiento_tecnomecanica,
          vehiculo.archivo_tecnomecanica),
     ):
+        tipo = 'SOAT' if nombre == 'SOAT' else 'TECNOMECANICA'
         if fecha is None:
             nivel, titular, detalle = 'vacio', 'Sin fecha', 'Regístrala al editar'
         else:
@@ -1484,14 +1509,14 @@ def _documentos_vehiculo(vehiculo):
                 detalle = f"{dias} días por delante"
         filas.append({
             'nombre': nombre, 'nivel': nivel, 'titular': titular,
-            'detalle': detalle, 'fecha': fecha, 'archivo': archivo,
+            'detalle': detalle, 'fecha': fecha, 'archivo': archivo, 'tipo': tipo,
         })
     filas.append({
         'nombre': 'Tarjeta de propiedad',
         'nivel': 'ok' if vehiculo.archivo_tarjeta else 'vacio',
         'titular': 'Adjunta' if vehiculo.archivo_tarjeta else 'Sin adjuntar',
         'detalle': 'No vence' if vehiculo.archivo_tarjeta else 'Súbela al editar',
-        'fecha': None, 'archivo': vehiculo.archivo_tarjeta,
+        'fecha': None, 'archivo': vehiculo.archivo_tarjeta, 'tipo': 'TARJETA',
     })
     return filas
 
@@ -1534,6 +1559,9 @@ class VehiculoDetailView(AsesorRequiredMixin, DetailView):
     template_name = 'gestion/vehiculo_detail.html'
     context_object_name = 'vehiculo'
 
+    def get_queryset(self):
+        return vehiculos_visibles(self.request.user, super().get_queryset())
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         vehiculo = self.get_object()
@@ -1563,6 +1591,9 @@ class VehiculoDetailView(AsesorRequiredMixin, DetailView):
         # El veredicto de la cabecera y el semáforo de papeles.
         context['veredicto'] = _puede_programarse(vehiculo)
         context['documentos'] = _documentos_vehiculo(vehiculo)
+        # Nov-2026: el papel que no tiene marcado se ve (vigencia), pero no se abre.
+        for fila in context['documentos']:
+            fila['puede_abrir'] = puede_ver_documento_vehiculo(self.request.user, vehiculo.pk, fila['tipo'])
         context['placa_letras'], context['placa_numeros'] = _placa_partes(vehiculo.placa)
         # Los "ingresos generados" se quitaron: salían de valor_servicio, que no
         # se llena en ninguna parte, así que la tarjeta siempre mostraba $0.
@@ -1593,7 +1624,7 @@ class RegistrarFiltroAceiteView(AsesorRequiredMixin, View):
     """Registra un cambio de filtro o aceite en el expediente del vehículo (solo POST)."""
     acceso = 'vehiculos.editar'
     def post(self, request, pk):
-        vehiculo = get_object_or_404(Vehiculo, pk=pk)
+        vehiculo = get_object_or_404(vehiculos_visibles(request.user, Vehiculo.objects.all()), pk=pk)
         form = FiltroAceiteForm(request.POST)
         if form.is_valid():
             registro = form.save(commit=False)
@@ -1616,7 +1647,8 @@ class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
     """Elimina un registro de filtro/aceite del expediente del vehículo (solo POST)."""
     acceso = 'vehiculos.editar'
     def post(self, request, pk):
-        registro = get_object_or_404(FiltroAceite, pk=pk)
+        registro = get_object_or_404(
+            FiltroAceite, pk=pk, vehiculo__in=vehiculos_visibles(request.user, Vehiculo.objects.all()))
         vehiculo_pk = registro.vehiculo_id
         registro.delete()
         messages.success(request, "Registro eliminado del historial de filtros y aceites.")
@@ -2897,7 +2929,7 @@ class EliminarVehiculoView(AdministradorRequiredMixin, View):
     """Elimina un vehículo que aún no se ha usado en recorridos ni cuadrillas."""
     acceso = 'vehiculos.eliminar'
     def post(self, request, pk):
-        vehiculo = get_object_or_404(Vehiculo, pk=pk)
+        vehiculo = get_object_or_404(vehiculos_visibles(request.user, Vehiculo.objects.all()), pk=pk)
         return _eliminar_si_no_tiene_uso(request, vehiculo, 'el vehículo', 'gestion:lista_vehiculos')
 
 
@@ -4326,6 +4358,8 @@ DOCS_VEHICULO = {
     'tecno': ('archivo_tecnomecanica', 'Tecnomecánica'),
     'tarjeta': ('archivo_tarjeta', 'Tarjeta de propiedad'),
 }
+# La casilla de «Gestionar accesos» de cada papel del vehículo (nov-2026).
+TIPO_DOC_VEHICULO = {'soat': 'SOAT', 'tecno': 'TECNOMECANICA', 'tarjeta': 'TARJETA'}
 DOCS_CLIENTE_FIJOS = {
     'rut': ('doc_rut', 'RUT'),
     'camara': ('doc_camara_comercio', 'Cámara de Comercio'),
@@ -4379,6 +4413,9 @@ def _resolver_adjunto_correo(token, user=None):
         campo, etiqueta = DOCS_VEHICULO[partes[2]]
         archivo = getattr(vehiculo, campo, None) if vehiculo else None
         if not archivo:
+            return None
+        # Nov-2026: el asesor solo adjunta los papeles que tiene marcados.
+        if user is not None and not puede_ver_documento_vehiculo(user, vehiculo.pk, TIPO_DOC_VEHICULO[partes[2]]):
             return None
         return {'archivo': archivo,
                 'nombre': _nombre(archivo.name, f"{etiqueta} - {vehiculo.placa}"),
@@ -4633,11 +4670,13 @@ def _docs_de_persona(usuario, docs=None):
     return out
 
 
-def _docs_de_vehiculo(v):
-    """[{token, label}] de los documentos presentes de una placa."""
+def _docs_de_vehiculo(v, user=None):
+    """[{token, label}] de los documentos presentes de una placa (los que `user` puede abrir)."""
     out = []
     for sub, (campo, etiqueta) in DOCS_VEHICULO.items():
         if not getattr(v, campo):
+            continue
+        if user is not None and not puede_ver_documento_vehiculo(user, v.pk, TIPO_DOC_VEHICULO[sub]):
             continue
         vence = (v.fecha_vencimiento_soat if sub == 'soat'
                  else v.fecha_vencimiento_tecnomecanica if sub == 'tecno' else None)
@@ -4780,14 +4819,15 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
         }
 
     def _vehiculos(self, q):
-        qs = Vehiculo.objects.order_by('placa')
+        user = self.request.user
+        qs = vehiculos_visibles(user, Vehiculo.objects.order_by('placa'))
         if q:
             qs = qs.filter(Q(placa__icontains=q) | Q(marca__icontains=q)
                            | Q(modelo__icontains=q))
         return qs, lambda v: {
             'clave': f'vehiculo-{v.pk}', 'nombre': v.placa,
             'detalle': f"{v.marca} {v.modelo}".strip(),
-            'docs': _docs_de_vehiculo(v),
+            'docs': _docs_de_vehiculo(v, user),
         }
 
     def _proveedores(self, q):
@@ -8347,7 +8387,21 @@ class GestionarAccesosView(AdministradorRequiredMixin, View):
             'n_tipos_marcados': sum(1 for t in tipos_documento if t['marcada']),
             **self._documentacion(marcadas),
             **self._proveedores(marcadas),
+            **self._vehiculos(marcadas),
         })
+
+    @staticmethod
+    def _vehiculos(marcadas):
+        """Las casillas del popup de vehículos (nov-2026): la flota de HOY y sus tres papeles."""
+        from .accesos import TIPOS_DOCUMENTO_VEHICULO, clave_vehiculo
+        vehs = []
+        for v in Vehiculo.objects.order_by('placa'):
+            docs = [{'clave': clave_vehiculo(v.pk, t), 'nombre': n, 'cargado': bool(getattr(v, campo)),
+                     'marcada': clave_vehiculo(v.pk, t) in marcadas} for t, n, campo in TIPOS_DOCUMENTO_VEHICULO]
+            vehs.append({'pk': v.pk, 'clave': clave_vehiculo(v.pk), 'placa': v.placa,
+                         'detalle': f"{v.marca} {v.modelo}".strip(), 'estado': '' if v.estado == 'OPERATIVO' else v.get_estado_display(),
+                         'marcada': clave_vehiculo(v.pk) in marcadas, 'docs': docs})
+        return {'vehs': vehs, 'n_vehs_marcados': sum(1 for x in vehs if x['marcada'])}
 
     @staticmethod
     def _proveedores(marcadas):
@@ -8648,7 +8702,7 @@ class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
         return context
 
 
-def _marcar_para_quien_lo_crea(user, pk):
+def _marcar_para_quien_lo_crea(user, pk, claves_nuevas=None):
     """
     Nov-2026: un proveedor nuevo nace oculto para las asesoras, salvo para la
     que lo crea (si no, lo perdería de vista al instante): a ella se le marca
@@ -8660,7 +8714,7 @@ def _marcar_para_quien_lo_crea(user, pk):
         return
     registro = AccesosAsesor.objects.filter(usuario=user).first()
     claves = set(registro.claves) if registro else set(BASE)
-    claves |= claves_de_un_proveedor(pk)
+    claves |= claves_nuevas if claves_nuevas is not None else claves_de_un_proveedor(pk)
     AccesosAsesor.objects.update_or_create(usuario=user, defaults={'claves': sorted(normalizar(claves))})
     user._accesos = None
 

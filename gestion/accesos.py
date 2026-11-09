@@ -314,6 +314,34 @@ def claves_de_un_proveedor(pk):
     return {clave_proveedor(pk)} | {clave_proveedor(pk, t) for t, _ in TIPOS_DOCUMENTO_PROVEEDOR}
 
 
+# VEHÍCULOS por vehículo (nov-2026, pedido de Santiago, igual que los
+# proveedores de disposición): `vehiculos.v<pk>` para ver ese vehículo (lista,
+# hoja de vida, editar, filtros y aceites) y `vehiculos.v<pk>_<DOC>` para
+# abrir, reemplazar y adjuntar ese documento (SOAT, tecnomecánica, tarjeta de
+# propiedad). Solo recorta el módulo: en programación, órdenes, el plan y el
+# preoperacional se usa cualquier vehículo. Uno nuevo nace oculto, salvo para
+# quien lo crea. Al desplegar, la migración 0107 marcó todo a quien ya veía.
+TIPOS_DOCUMENTO_VEHICULO = [
+    ('SOAT', 'SOAT', 'archivo_soat'),
+    ('TECNOMECANICA', 'Tecnomecánica', 'archivo_tecnomecanica'),
+    ('TARJETA', 'Tarjeta de propiedad', 'archivo_tarjeta'),
+]
+_CLAVE_VEHICULO = re.compile(r'vehiculos\.v(\d+)(?:_(' + '|'.join(t for t, _, _ in TIPOS_DOCUMENTO_VEHICULO) + r'))?')
+
+
+def clave_vehiculo(pk, tipo=None):
+    return f'vehiculos.v{pk}' + (f'_{tipo}' if tipo else '')
+
+
+def es_clave_vehiculo(clave):
+    return bool(_CLAVE_VEHICULO.fullmatch(clave))
+
+
+def claves_de_un_vehiculo(pk):
+    """La del vehículo y las de sus tres documentos (para marcarlo entero)."""
+    return {clave_vehiculo(pk)} | {clave_vehiculo(pk, t) for t, _, _ in TIPOS_DOCUMENTO_VEHICULO}
+
+
 def es_clave_adicional(clave):
     return clave.startswith(PREFIJO_ADICIONAL) and bool(_SLUG_ADICIONAL.fullmatch(clave[len(PREFIJO_ADICIONAL):]))
 
@@ -372,7 +400,8 @@ def normalizar(claves):
     # Claves que cambiaron de nombre (nov-2026): lo guardado antes sigue valiendo.
     claves = {RENOMBRADAS.get(c, c) for c in claves}
     # Las de documentación adicional no están en TODAS: dependen de lo cargado.
-    claves = (claves & TODAS) | {c for c in claves if es_clave_adicional(c) or es_clave_proveedor(c)}
+    claves = (claves & TODAS) | {c for c in claves
+                                 if es_clave_adicional(c) or es_clave_proveedor(c) or es_clave_vehiculo(c)}
     # Los tipos de documento solo valen con «Ver los documentos» marcado.
     if 'personal.documentos' not in claves:
         claves -= CLAVES_DOCUMENTO
@@ -384,6 +413,11 @@ def normalizar(claves):
         claves = {c for c in claves if not es_clave_proveedor(c)}
     claves = {c for c in claves if not (es_clave_proveedor(c) and _CLAVE_PROVEEDOR.fullmatch(c).group(2)
                                         and clave_proveedor(_CLAVE_PROVEEDOR.fullmatch(c).group(1)) not in claves)}
+    # Los vehículos, igual: con el módulo; sus documentos, con el vehículo.
+    if 'vehiculos.ver' not in claves:
+        claves = {c for c in claves if not es_clave_vehiculo(c)}
+    claves = {c for c in claves if not (es_clave_vehiculo(c) and _CLAVE_VEHICULO.fullmatch(c).group(2)
+                                        and clave_vehiculo(_CLAVE_VEHICULO.fullmatch(c).group(1)) not in claves)}
     for clave in list(claves):
         modulo = clave.split('.', 1)[0]
         if f'{modulo}.ver' in TODAS:
@@ -487,6 +521,31 @@ def proveedores_visibles(user, qs):
         return qs.none()
     ids = {int(m.group(1)) for c in accesos_de(user)
            if (m := _CLAVE_PROVEEDOR.fullmatch(c)) and not m.group(2)}
+    return qs.filter(pk__in=ids)
+
+
+def puede_ver_vehiculo(user, pk):
+    """¿Puede ver este vehículo en el módulo Vehículos? Solo recorta a los asesores."""
+    if not _recorta_asesor(user):
+        return True
+    return tiene_acceso(user, 'vehiculos.ver') and tiene_acceso(user, clave_vehiculo(pk))
+
+
+def puede_ver_documento_vehiculo(user, pk, tipo):
+    """¿Puede abrir, reemplazar o adjuntar ese documento (SOAT, TECNOMECANICA, TARJETA)?"""
+    if not _recorta_asesor(user):
+        return True
+    return puede_ver_vehiculo(user, pk) and tiene_acceso(user, clave_vehiculo(pk, tipo))
+
+
+def vehiculos_visibles(user, qs):
+    """El queryset de Vehiculo recortado a los que el asesor puede ver en el módulo."""
+    if not _recorta_asesor(user):
+        return qs
+    if not tiene_acceso(user, 'vehiculos.ver'):
+        return qs.none()
+    ids = {int(m.group(1)) for c in accesos_de(user)
+           if (m := _CLAVE_VEHICULO.fullmatch(c)) and not m.group(2)}
     return qs.filter(pk__in=ids)
 
 
