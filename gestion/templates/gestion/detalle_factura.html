@@ -304,13 +304,6 @@
                     {{ factura.corte_facturacion }}
                 </div>
                 {% endif %}
-                {% if factura.observaciones_internas %}
-                {# Notas de la oficina: no van al PDF ni al cliente. #}
-                <div class="fd-internas">
-                    <div class="et"><i class="bi bi-eye-slash me-1"></i>Observaciones internas · no salen en el PDF ni al cliente</div>
-                    {{ factura.observaciones_internas|linebreaksbr }}
-                </div>
-                {% endif %}
             </div>
         </div>
 

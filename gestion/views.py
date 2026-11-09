@@ -9539,7 +9539,6 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 'numero': factura.numero, 'fecha_emision': factura.fecha_emision,
                 'descripcion': factura.descripcion,
                 'corte_facturacion': factura.corte_facturacion,
-                'observaciones_internas': factura.observaciones_internas,
                 'concepto_facturacion': factura.concepto_facturacion,
                 'copiar_a_comercial': factura.copiar_a_comercial,
                 'correos_copia': factura.correos_copia,
@@ -9576,7 +9575,6 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'numero': (request.POST.get('numero') or '').strip(),
             'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
             'descripcion': (request.POST.get('descripcion') or '').strip(),
-            'observaciones_internas': (request.POST.get('observaciones_internas') or '').strip(),
             'corte_facturacion': (request.POST.get('corte_facturacion') or '').strip(),
             'concepto_facturacion': (request.POST.get('concepto_facturacion') or '').strip(),
             'copiar_a_comercial': bool(request.POST.get('copiar_a_comercial')),
@@ -9678,7 +9676,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             creada = factura is None
             if factura is None:
                 factura = Factura(cliente=cliente, creada_por=request.user)
-            for campo in ('descripcion', 'observaciones_internas', 'corte_facturacion',
+            for campo in ('descripcion', 'corte_facturacion',
                           'correo_facturacion', 'concepto_facturacion', 'copiar_a_comercial',
                           'correos_copia') + COPIAR_FACTURA:
                 setattr(factura, campo, datos[campo])
