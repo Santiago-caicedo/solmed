@@ -58,7 +58,12 @@
                     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <span class="text-truncate">
                             <i class="bi bi-file-earmark-arrow-down me-1 text-muted"></i>
+                            {% if s.puede_abrir %}
                             <a href="{{ d.archivo.url }}" target="_blank">{{ d.archivo.name|cut:"dispositores_documentos/" }}</a>
+                            {% else %}
+                            {# Nov-2026: cargado, pero sin permiso para abrirlo. #}
+                            <span class="text-muted" title="No tienes permiso para abrir este documento. Pídeselo a un administrador."><i class="bi bi-lock me-1" aria-hidden="true"></i>Sin permiso para abrirlo</span>
+                            {% endif %}
                             {% if not s.multiple and forloop.first and s.docs|length > 1 %}
                                 <span class="badge bg-info text-dark ms-1">Vigente (más reciente)</span>
                             {% endif %}
@@ -66,7 +71,7 @@
                                 Cargado el {{ d.fecha_subida|date:"d/m/Y" }}{% if d.descripcion %} · {{ d.descripcion }}{% endif %}
                             </small>
                         </span>
-                        {% if acceso.proveedores.editar %}
+                        {% if acceso.proveedores.editar and s.puede_abrir %}
                         <form method="post" action="{% url 'gestion:eliminar_documento_dispositor' d.pk %}"
                               onsubmit="return confirm('¿Eliminar este documento del expediente?');">
                             {% csrf_token %}
@@ -81,7 +86,7 @@
                 {% endif %}
 
                 {# Formulario de carga #}
-                {% if acceso.proveedores.editar %}
+                {% if acceso.proveedores.editar and s.puede_abrir %}
                 <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
                     {% csrf_token %}
                     <input type="hidden" name="tipo" value="{{ s.tipo }}">

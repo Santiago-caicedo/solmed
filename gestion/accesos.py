@@ -281,6 +281,39 @@ def clave_documento_interno(documento):
     return f'documentacion.doc_{documento.tipo}'
 
 
+# PROVEEDORES DE DISPOSICIÓN FINAL por proveedor (nov-2026, pedido de
+# Santiago): en «Gestionar accesos» un popup marca qué proveedores ve el
+# asesor y, de cada uno, qué tipos de documento abre.
+# - `proveedores.p<pk>`: ver ese proveedor (lista y ficha).
+# - `proveedores.p<pk>_<TIPO>`: abrir, cargar y borrar sus documentos de ese
+#   tipo; los ambientales son UNA casilla. Exige la del proveedor.
+# Solo recorta el módulo (lista, ficha, documentos y adjuntos de correo): en
+# disposiciones, órdenes y el plan se puede escoger cualquier proveedor para
+# no frenar la operación. Un proveedor nuevo nace oculto, salvo para quien lo
+# crea. Al desplegar, la migración 0106 marcó todo a quien ya los veía.
+TIPOS_DOCUMENTO_PROVEEDOR = [
+    ('RUT', 'RUT'),
+    ('CAMARA_COMERCIO', 'Cámara de Comercio'),
+    ('CEDULA_REP_LEGAL', 'Cédula del representante legal'),
+    ('CERTIFICACION_BANCARIA', 'Certificación bancaria'),
+    ('DOC_AMBIENTAL', 'Documentos ambientales'),
+]
+_CLAVE_PROVEEDOR = re.compile(r'proveedores\.p(\d+)(?:_(' + '|'.join(t for t, _ in TIPOS_DOCUMENTO_PROVEEDOR) + r'))?')
+
+
+def clave_proveedor(pk, tipo=None):
+    return f'proveedores.p{pk}' + (f'_{tipo}' if tipo else '')
+
+
+def es_clave_proveedor(clave):
+    return bool(_CLAVE_PROVEEDOR.fullmatch(clave))
+
+
+def claves_de_un_proveedor(pk):
+    """La del proveedor y las de todos sus tipos de documento (para marcarlo entero)."""
+    return {clave_proveedor(pk)} | {clave_proveedor(pk, t) for t, _ in TIPOS_DOCUMENTO_PROVEEDOR}
+
+
 def es_clave_adicional(clave):
     return clave.startswith(PREFIJO_ADICIONAL) and bool(_SLUG_ADICIONAL.fullmatch(clave[len(PREFIJO_ADICIONAL):]))
 
@@ -339,13 +372,18 @@ def normalizar(claves):
     # Claves que cambiaron de nombre (nov-2026): lo guardado antes sigue valiendo.
     claves = {RENOMBRADAS.get(c, c) for c in claves}
     # Las de documentación adicional no están en TODAS: dependen de lo cargado.
-    claves = (claves & TODAS) | {c for c in claves if es_clave_adicional(c)}
+    claves = (claves & TODAS) | {c for c in claves if es_clave_adicional(c) or es_clave_proveedor(c)}
     # Los tipos de documento solo valen con «Ver los documentos» marcado.
     if 'personal.documentos' not in claves:
         claves -= CLAVES_DOCUMENTO
     # Y los documentos de SOLMED, solo con el módulo Documentación abierto.
     if 'documentacion.ver' not in claves:
         claves = {c for c in claves if c not in CLAVES_DOCUMENTACION and not es_clave_adicional(c)}
+    # Los proveedores, solo con el módulo; sus documentos, solo con el proveedor.
+    if 'proveedores.ver' not in claves:
+        claves = {c for c in claves if not es_clave_proveedor(c)}
+    claves = {c for c in claves if not (es_clave_proveedor(c) and _CLAVE_PROVEEDOR.fullmatch(c).group(2)
+                                        and clave_proveedor(_CLAVE_PROVEEDOR.fullmatch(c).group(1)) not in claves)}
     for clave in list(claves):
         modulo = clave.split('.', 1)[0]
         if f'{modulo}.ver' in TODAS:
@@ -421,6 +459,35 @@ def puede_ver_documento_interno(user, documento):
     if es_administrador(user) or not es_asesor(user):
         return True
     return tiene_acceso(user, 'documentacion.ver') and tiene_acceso(user, clave_documento_interno(documento))
+
+
+def _recorta_asesor(user):
+    return not es_administrador(user) and es_asesor(user)
+
+
+def puede_ver_proveedor(user, pk):
+    """¿Puede ver este proveedor de disposición final? Solo recorta a los asesores."""
+    if not _recorta_asesor(user):
+        return True
+    return tiene_acceso(user, 'proveedores.ver') and tiene_acceso(user, clave_proveedor(pk))
+
+
+def puede_ver_documento_proveedor(user, pk, tipo):
+    """¿Puede abrir (cargar, borrar, adjuntar) los documentos de ese tipo de ese proveedor?"""
+    if not _recorta_asesor(user):
+        return True
+    return puede_ver_proveedor(user, pk) and tiene_acceso(user, clave_proveedor(pk, tipo))
+
+
+def proveedores_visibles(user, qs):
+    """El queryset de Dispositor recortado a los que el asesor puede ver."""
+    if not _recorta_asesor(user):
+        return qs
+    if not tiene_acceso(user, 'proveedores.ver'):
+        return qs.none()
+    ids = {int(m.group(1)) for c in accesos_de(user)
+           if (m := _CLAVE_PROVEEDOR.fullmatch(c)) and not m.group(2)}
+    return qs.filter(pk__in=ids)
 
 
 def para_plantilla(user):

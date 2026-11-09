@@ -112,6 +112,20 @@ def con_toda_la_documentacion(asesor, *nombres_adicionales):
     AccesosAsesor.objects.update_or_create(usuario=asesor, defaults={'claves': sorted(claves)})
 
 
+def con_todos_los_proveedores(asesor):
+    """
+    Nov-2026: los proveedores de disposición final se ven uno por uno. Las
+    pruebas que NO son de permisos le marcan a la asesora todos los que existan.
+    """
+    from .accesos import BASE, claves_de_un_proveedor
+    from .models import AccesosAsesor, Dispositor
+    registro = AccesosAsesor.objects.filter(usuario=asesor).first()
+    claves = set(registro.claves) if registro else set(BASE)
+    for pk in Dispositor.objects.filter(tipo='PROVEEDOR').values_list('pk', flat=True):
+        claves |= claves_de_un_proveedor(pk)
+    AccesosAsesor.objects.update_or_create(usuario=asesor, defaults={'claves': sorted(claves)})
+
+
 def con_todos_los_documentos(asesor):
     """
     Nov-2026: los documentos del personal se abren por tipo y, de base, la
@@ -5307,6 +5321,7 @@ class ProveedoresTests(BaseCRM):
         externo = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
         interno = Dispositor.objects.create(
             nombre=Dispositor.DEJAR_CARRO_CARGADO, tipo='INTERNO')
+        con_todos_los_proveedores(self.asesor)
 
         self.assertEqual(self.client.get(reverse(
             'gestion:ficha_dispositor', args=[externo.pk])).status_code, 200)
@@ -5322,6 +5337,7 @@ class ProveedoresTests(BaseCRM):
         for i in range(2):
             DocumentoDispositor.objects.create(
                 dispositor=dispositor, tipo='DOC_AMBIENTAL', archivo=archivo())
+        con_todos_los_proveedores(self.asesor)
         respuesta = self.client.get(reverse('gestion:ficha_dispositor',
                                             args=[dispositor.pk]))
         ambientales = [s for s in respuesta.context['secciones']
@@ -12200,6 +12216,119 @@ class DocumentacionPorDocumentoTests(BaseCRM):
         self.assertIsNone(_resolver_adjunto_correo(f'solmed:{self.estados.pk}', self.asesor))
         self.assertIsNotNone(_resolver_adjunto_correo(f'solmed:{self.rut.pk}', self.asesor))
         self.assertIsNotNone(_resolver_adjunto_correo(f'solmed:{self.estados.pk}', self.admin))
+
+
+class ProveedoresPorAsesorTests(BaseCRM):
+    """
+    Nov-2026 (pedido de Santiago): en «Gestionar accesos», un popup marca qué
+    proveedores de disposición final ve cada asesora y, de cada uno, qué tipos
+    de documento abre. Solo recorta el módulo; en la operación se escoge
+    cualquiera. Lo nuevo nace oculto, salvo para quien lo crea.
+    """
+
+    def setUp(self):
+        from .accesos import BASE
+        from .models import Dispositor, DocumentoDispositor
+        self.Dispositor, self.Doc = Dispositor, DocumentoDispositor
+        self.admin = self.persona('admin', 'Administradores')
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.base = set(BASE)
+        self.ecoplanta = Dispositor.objects.create(nombre='Ecoplanta SAS', tipo='PROVEEDOR')
+        self.biogas = Dispositor.objects.create(nombre='Biogás del Norte', tipo='PROVEEDOR')
+        self.rut = DocumentoDispositor.objects.create(dispositor=self.ecoplanta, tipo='RUT', archivo=archivo('rut.pdf'))
+        self.licencia = DocumentoDispositor.objects.create(dispositor=self.ecoplanta, tipo='DOC_AMBIENTAL',
+                                                           archivo=archivo('licencia.pdf'))
+
+    def accesos(self, *claves):
+        from .models import AccesosAsesor
+        AccesosAsesor.objects.update_or_create(usuario=self.asesor,
+                                               defaults={'claves': sorted(self.base | set(claves))})
+
+    def test_solo_ve_los_proveedores_marcados(self):
+        self.accesos('proveedores.p%d' % self.ecoplanta.pk)
+        self.entrar(self.asesor)
+        lista = self.client.get(reverse('gestion:lista_dispositores'))
+        self.assertContains(lista, 'Ecoplanta SAS')
+        self.assertNotContains(lista, 'Biogás del Norte')
+        self.assertEqual(self.client.get(reverse('gestion:ficha_dispositor', args=[self.biogas.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:actualizar_dispositor', args=[self.biogas.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('gestion:ficha_dispositor', args=[self.ecoplanta.pk])).status_code, 200)
+        # El administrador, todos.
+        self.entrar(self.admin)
+        lista = self.client.get(reverse('gestion:lista_dispositores'))
+        self.assertContains(lista, 'Biogás del Norte')
+
+    def test_de_cada_proveedor_abre_solo_los_documentos_marcados(self):
+        e = self.ecoplanta.pk
+        self.accesos(f'proveedores.p{e}', f'proveedores.p{e}_DOC_AMBIENTAL')
+        self.entrar(self.asesor)
+        ficha = self.client.get(reverse('gestion:ficha_dispositor', args=[e]))
+        self.assertContains(ficha, self.licencia.archivo.url)
+        self.assertNotContains(ficha, self.rut.archivo.url)
+        self.assertContains(ficha, 'Sin permiso para abrirlo')
+        # Ni lo reemplaza ni lo borra.
+        self.client.post(reverse('gestion:ficha_dispositor', args=[e]), {'tipo': 'RUT', 'archivo': archivo('otro.pdf')})
+        self.assertEqual(self.Doc.objects.filter(dispositor=self.ecoplanta, tipo='RUT').count(), 1)
+        self.client.post(reverse('gestion:eliminar_documento_dispositor', args=[self.rut.pk]))
+        self.assertTrue(self.Doc.objects.filter(pk=self.rut.pk).exists())
+        self.client.post(reverse('gestion:eliminar_documento_dispositor', args=[self.licencia.pk]))
+        self.assertFalse(self.Doc.objects.filter(pk=self.licencia.pk).exists(), "lo marcado sí")
+
+    def test_sin_el_proveedor_sus_documentos_no_valen(self):
+        from .accesos import normalizar
+        e = self.ecoplanta.pk
+        self.assertNotIn(f'proveedores.p{e}_RUT', normalizar({'proveedores.ver', f'proveedores.p{e}_RUT'}))
+        self.assertEqual(normalizar({f'proveedores.p{e}', f'proveedores.p{e}_RUT'}), set(),
+                         "sin el módulo, ningún proveedor")
+
+    def test_el_proveedor_nuevo_nace_oculto_salvo_para_quien_lo_crea(self):
+        from .accesos import puede_ver_documento_proveedor, puede_ver_proveedor
+        otra = self.persona('otra', 'Asesores')
+        self.entrar(self.asesor)
+        self.client.post(reverse('gestion:crear_dispositor'), {'nombre': 'Planta Nueva', 'descripcion': '', 'activo': 'on'})
+        nuevo = self.Dispositor.objects.get(nombre='Planta Nueva')
+        self.asesor = type(self.asesor).objects.get(pk=self.asesor.pk)
+        self.assertTrue(puede_ver_proveedor(self.asesor, nuevo.pk))
+        self.assertTrue(puede_ver_documento_proveedor(self.asesor, nuevo.pk, 'RUT'))
+        self.assertFalse(puede_ver_proveedor(otra, nuevo.pk))
+
+    def test_en_correos_solo_adjunta_lo_marcado(self):
+        from .views import _resolver_adjunto_correo
+        e = self.ecoplanta.pk
+        self.accesos(f'proveedores.p{e}', f'proveedores.p{e}_RUT')
+        self.assertIsNotNone(_resolver_adjunto_correo(f'proveedor:{self.rut.pk}', self.asesor))
+        self.assertIsNone(_resolver_adjunto_correo(f'proveedor:{self.licencia.pk}', self.asesor))
+        self.assertIsNotNone(_resolver_adjunto_correo(f'proveedor:{self.licencia.pk}', self.admin))
+
+    def test_el_popup_lista_los_proveedores_de_hoy_y_guarda(self):
+        self.entrar(self.admin)
+        url = reverse('gestion:accesos_persona', args=[self.asesor.pk])
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'Proveedores de disposición final que puede ver')
+        self.assertContains(pagina, f'value="proveedores.p{self.biogas.pk}"')
+        self.assertContains(pagina, f'value="proveedores.p{self.ecoplanta.pk}_DOC_AMBIENTAL"')
+        nuevo = self.Dispositor.objects.create(nombre='Recién llegado', tipo='PROVEEDOR')
+        self.assertContains(self.client.get(url), f'value="proveedores.p{nuevo.pk}"', msg_prefix="se actualiza solo")
+        e = self.ecoplanta.pk
+        self.client.post(url, {'claves': ['proveedores.ver', f'proveedores.p{e}', f'proveedores.p{e}_RUT',
+                                          f'proveedores.p{self.biogas.pk}_RUT']})
+        from .models import AccesosAsesor
+        claves = AccesosAsesor.objects.get(usuario=self.asesor).claves
+        self.assertIn(f'proveedores.p{e}_RUT', claves)
+        self.assertNotIn(f'proveedores.p{self.biogas.pk}_RUT', claves, "sin marcar el proveedor no vale")
+
+    def test_la_migracion_le_marca_todo_a_quien_ya_los_veia(self):
+        import importlib
+        from django.apps import apps as registro_apps
+        from .models import AccesosAsesor
+        migracion = importlib.import_module('gestion.migrations.0106_proveedores_por_asesor')
+        sin_modulo = self.persona('sin', 'Asesores')
+        AccesosAsesor.objects.create(usuario=sin_modulo, claves=['ordenes.ver'])
+        migracion.marcar_todo(registro_apps, None)
+        claves = set(AccesosAsesor.objects.get(usuario=self.asesor).claves)
+        self.assertTrue({f'proveedores.p{self.ecoplanta.pk}', f'proveedores.p{self.biogas.pk}_DOC_AMBIENTAL'} <= claves,
+                        "la que tenía lo de siempre conserva todos")
+        self.assertEqual(AccesosAsesor.objects.get(usuario=sin_modulo).claves, ['ordenes.ver'])
 
 
 class AccesosDeAsesorTests(BaseCRM):

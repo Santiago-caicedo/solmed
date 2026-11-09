@@ -40,7 +40,8 @@ from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, Encue
 from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
 from .accesos import (autoriza, casa_de_asesor, es_asesor, puede_ver_documento,
-                      puede_ver_documento_interno, tiene_acceso)
+                      puede_ver_documento_interno, puede_ver_documento_proveedor,
+                      puede_ver_proveedor, proveedores_visibles, tiene_acceso)
 from django.http import JsonResponse
 from django.contrib.auth.forms import SetPasswordForm
 from .renumeracion import reubicar_orden
@@ -462,10 +463,11 @@ class DashboardView(AdministradorRequiredMixin, TemplateView):
 
         # ================= PROVEEDORES (dispositores) =================
         tipos_doc_proveedor = [t for t, _ in DocumentoDispositor.TIPO_CHOICES]
-        proveedores = list(
+        proveedores = list(proveedores_visibles(
+            self.request.user,
             Dispositor.objects.filter(tipo='PROVEEDOR', activo=True)
             .prefetch_related('documentos')
-        )
+        ))
         proveedores_incompletos = [
             p for p in proveedores
             if {d.tipo for d in p.documentos.all()} < set(tipos_doc_proveedor)
@@ -2903,7 +2905,8 @@ class EliminarDispositorView(AdministradorRequiredMixin, View):
     """Elimina un proveedor de disposición que aún no se ha usado."""
     acceso = 'proveedores.eliminar'
     def post(self, request, pk):
-        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
+        dispositor = get_object_or_404(
+            proveedores_visibles(request.user, Dispositor.objects.filter(tipo='PROVEEDOR')), pk=pk)
         return _eliminar_si_no_tiene_uso(
             request, dispositor, 'el proveedor', 'gestion:lista_dispositores')
 
@@ -4386,6 +4389,10 @@ def _resolver_adjunto_correo(token, user=None):
                .filter(pk=partes[1]).first())
         if not doc or not doc.archivo:
             return None
+        # Nov-2026: el asesor solo adjunta los documentos que tiene marcados.
+        if (user is not None and doc.dispositor.tipo == 'PROVEEDOR'
+                and not puede_ver_documento_proveedor(user, doc.dispositor_id, doc.tipo)):
+            return None
         return {'archivo': doc.archivo,
                 'nombre': _nombre(doc.archivo.name,
                                   f"{doc.get_tipo_display()} - {doc.dispositor.nombre}"),
@@ -4785,7 +4792,11 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
 
     def _proveedores(self, q):
         from .models import Dispositor
+        user = self.request.user
         qs = Dispositor.objects.prefetch_related('documentos').order_by('nombre')
+        # Nov-2026: de los de disposición final, solo los marcados (los internos, todos).
+        visibles = proveedores_visibles(user, Dispositor.objects.filter(tipo='PROVEEDOR'))
+        qs = qs.filter(Q(tipo='INTERNO') | Q(pk__in=visibles.values('pk')))
         if q:
             qs = qs.filter(nombre__icontains=q)
         return qs, lambda d: {
@@ -4794,7 +4805,8 @@ class BuscarDocsCorreoView(AsesorRequiredMixin, View):
             'docs': [{'token': f'proveedor:{doc.pk}',
                       'label': doc.get_tipo_display()
                                + (f" — {doc.descripcion}" if doc.descripcion else '')}
-                     for doc in d.documentos.all()],
+                     for doc in d.documentos.all()
+                     if d.tipo != 'PROVEEDOR' or puede_ver_documento_proveedor(user, d.pk, doc.tipo)],
         }
 
     def _clientes(self, q):
@@ -8334,7 +8346,26 @@ class GestionarAccesosView(AdministradorRequiredMixin, View):
             'tipos_documento': tipos_documento,
             'n_tipos_marcados': sum(1 for t in tipos_documento if t['marcada']),
             **self._documentacion(marcadas),
+            **self._proveedores(marcadas),
         })
+
+    @staticmethod
+    def _proveedores(marcadas):
+        """
+        Las casillas del popup de proveedores de disposición final (nov-2026):
+        cada proveedor que exista HOY y, de cada uno, sus tipos de documento,
+        con lo que tiene cargado.
+        """
+        from .accesos import TIPOS_DOCUMENTO_PROVEEDOR, clave_proveedor
+        provs = []
+        for d in Dispositor.objects.filter(tipo='PROVEEDOR').prefetch_related('documentos').order_by('-activo', 'nombre'):
+            cargados = {doc.tipo for doc in d.documentos.all()}
+            docs = [{'clave': clave_proveedor(d.pk, t), 'nombre': n, 'cargado': t in cargados,
+                     'marcada': clave_proveedor(d.pk, t) in marcadas} for t, n in TIPOS_DOCUMENTO_PROVEEDOR]
+            provs.append({'pk': d.pk, 'clave': clave_proveedor(d.pk), 'nombre': d.nombre, 'activo': d.activo,
+                          'marcada': clave_proveedor(d.pk) in marcadas, 'docs': docs,
+                          'n_docs_marcados': sum(1 for x in docs if x['marcada']), 'n_cargados': len(cargados)})
+        return {'provs': provs, 'n_provs_marcados': sum(1 for x in provs if x['marcada'])}
 
     @staticmethod
     def _documentacion(marcadas):
@@ -8596,12 +8627,13 @@ class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
     context_object_name = 'dispositores'
 
     def get_queryset(self):
-        # Solo los proveedores externos; los inactivos van al final.
-        return (
+        # Solo los proveedores externos; los inactivos van al final. Nov-2026:
+        # el asesor ve solo los que tiene marcados en «Gestionar accesos».
+        return proveedores_visibles(self.request.user, (
             Dispositor.objects.filter(tipo='PROVEEDOR')
             .prefetch_related('documentos')
             .order_by('-activo', 'nombre')
-        )
+        ))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -8616,6 +8648,23 @@ class ListaDispositoresView(AsesorRequiredMixin, PaginadoMixin, ListView):
         return context
 
 
+def _marcar_para_quien_lo_crea(user, pk):
+    """
+    Nov-2026: un proveedor nuevo nace oculto para las asesoras, salvo para la
+    que lo crea (si no, lo perdería de vista al instante): a ella se le marca
+    con todos sus documentos.
+    """
+    from .accesos import BASE, claves_de_un_proveedor, es_administrador, normalizar
+    from .models import AccesosAsesor
+    if es_administrador(user) or not es_asesor(user):
+        return
+    registro = AccesosAsesor.objects.filter(usuario=user).first()
+    claves = set(registro.claves) if registro else set(BASE)
+    claves |= claves_de_un_proveedor(pk)
+    AccesosAsesor.objects.update_or_create(usuario=user, defaults={'claves': sorted(normalizar(claves))})
+    user._accesos = None
+
+
 class CrearDispositorView(AsesorRequiredMixin, CreateView):
     acceso = 'proveedores.editar'
     model = Dispositor
@@ -8626,6 +8675,7 @@ class CrearDispositorView(AsesorRequiredMixin, CreateView):
         # El panel solo crea proveedores externos.
         form.instance.tipo = 'PROVEEDOR'
         self.object = form.save()
+        _marcar_para_quien_lo_crea(self.request.user, self.object.pk)
         messages.success(
             self.request,
             "Proveedor creado. Ahora puedes cargar los documentos de su expediente."
@@ -8639,6 +8689,9 @@ class ActualizarDispositorView(AsesorRequiredMixin, UpdateView):
     form_class = DispositorForm
     template_name = 'gestion/form_dispositor.html'
     queryset = Dispositor.objects.filter(tipo='PROVEEDOR')
+
+    def get_queryset(self):
+        return proveedores_visibles(self.request.user, super().get_queryset())
 
     def form_valid(self, form):
         self.object = form.save()
@@ -8655,7 +8708,7 @@ class FichaDispositorView(AsesorRequiredMixin, View):
     acceso = 'proveedores.ver'
     template_name = 'gestion/ficha_dispositor.html'
 
-    def _context(self, dispositor):
+    def _context(self, dispositor, user):
         docs = list(dispositor.documentos.all())
         por_tipo = {}
         for d in docs:
@@ -8670,6 +8723,8 @@ class FichaDispositorView(AsesorRequiredMixin, View):
                 'titulo': 'Documentos ambientales' if tipo == 'DOC_AMBIENTAL' else label,
                 'docs': por_tipo.get(tipo, []),
                 'multiple': multiple,
+                # Nov-2026: lo que no tiene marcado lo ve cargado, pero no lo abre.
+                'puede_abrir': puede_ver_documento_proveedor(user, dispositor.pk, tipo),
             })
         faltan = [s['label'] for s in secciones if not s['docs']]
         return {
@@ -8678,13 +8733,19 @@ class FichaDispositorView(AsesorRequiredMixin, View):
             'faltan': faltan,
         }
 
+    def _dispositor(self, request, pk):
+        return get_object_or_404(proveedores_visibles(request.user, Dispositor.objects.filter(tipo='PROVEEDOR')), pk=pk)
+
     def get(self, request, pk):
-        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
-        return render(request, self.template_name, self._context(dispositor))
+        dispositor = self._dispositor(request, pk)
+        return render(request, self.template_name, self._context(dispositor, request.user))
 
     def post(self, request, pk):
         # Carga de un documento al expediente (cada tarjeta envía su 'tipo').
-        dispositor = get_object_or_404(Dispositor, pk=pk, tipo='PROVEEDOR')
+        dispositor = self._dispositor(request, pk)
+        if not puede_ver_documento_proveedor(request.user, dispositor.pk, request.POST.get('tipo') or ''):
+            messages.error(request, "No tienes permiso para los documentos de ese tipo de este proveedor.")
+            return redirect('gestion:ficha_dispositor', pk=pk)
         form = DocumentoDispositorForm(request.POST, request.FILES)
         if form.is_valid():
             documento = form.save(commit=False)
@@ -8702,6 +8763,9 @@ class EliminarDocumentoDispositorView(AsesorRequiredMixin, View):
     def post(self, request, pk):
         documento = get_object_or_404(DocumentoDispositor, pk=pk)
         dispositor_pk = documento.dispositor_id
+        if not puede_ver_documento_proveedor(request.user, dispositor_pk, documento.tipo):
+            messages.error(request, "No tienes permiso para ese documento.")
+            return redirect('gestion:lista_dispositores')
         documento.delete()
         messages.success(request, "Documento eliminado del expediente.")
         return redirect('gestion:ficha_dispositor', pk=dispositor_pk)
