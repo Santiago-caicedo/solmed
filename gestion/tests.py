@@ -12421,6 +12421,120 @@ class VehiculosPorAsesorTests(BaseCRM):
         self.assertTrue({f'vehiculos.v{self.uno.pk}', f'vehiculos.v{self.dos.pk}_TARJETA'} <= claves)
 
 
+class ServiciosRealizadosExcelTests(BaseCRM):
+    """
+    Nov-2026 (pedido de la clienta): desde la lista de Órdenes, un Excel con
+    los servicios ya prestados: orden, cliente, fecha, placa, residuo,
+    cantidad conciliada, dispositor y la fecha de la disposición solo si se
+    hizo otro día. Solo administradores; respeta los filtros de la lista.
+    """
+
+    def setUp(self):
+        from .models import Dispositor
+        self.admin = self.persona('admin', 'Administradores')
+        self.asesor = self.persona('asesor', 'Asesores')
+        self.conductor = self.persona('conductor1', 'Conductores', 'Carlos', 'Pérez')
+        self.con_ss(self.conductor)
+        self.cli = self.cliente()
+        self.gestor = Dispositor.objects.create(nombre='Gestor Ambiental S.A.')
+        self.hoy = timezone.localdate()
+
+    def prestado(self, dias_atras, residuo='Lodos', cantidad='', placa='WHB123'):
+        programacion = self.programacion(
+            cliente=self.cli, conductor=self.conductor, vehiculo=self.vehiculo(placa),
+            fecha=self.hoy - datetime.timedelta(days=dias_atras),
+            transporte_tipo=residuo, transporte_cantidad=cantidad)
+        orden = programacion.convertir_en_orden(self.asesor)
+        orden.recorridos.update(estado='COMPLETADO',
+                                fecha_recorrido=self.hoy - datetime.timedelta(days=dias_atras))
+        return orden
+
+    def filas(self, **filtros):
+        from openpyxl import load_workbook
+        self.entrar(self.admin)
+        r = self.client.get(reverse('gestion:servicios_realizados_excel'), filtros)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('servicios-realizados-', r['Content-Disposition'])
+        hoja = load_workbook(io.BytesIO(r.content)).active
+        return [list(f) for f in hoja.iter_rows(values_only=True)]
+
+    def test_las_columnas_y_los_datos_de_cada_servicio(self):
+        orden = self.prestado(5, residuo='Lodos de trampa de grasa', cantidad='3,5')
+        orden.registrar_disposicion('MANUAL', self.hoy - datetime.timedelta(days=3),
+                                    dispositor=self.gestor)
+        filas = self.filas()
+        self.assertEqual(filas[0][:7], ['# Orden', 'Cliente', 'Fecha del servicio', 'Placa',
+                                        'Nombre del residuo', 'Conciliación cantidad', 'Dispositor'])
+        self.assertTrue(filas[0][7].startswith('Fecha de la disposición'))
+        fila = filas[1]
+        self.assertEqual(fila[0], orden.numero_orden)
+        self.assertEqual(fila[1], self.cli.nombre)
+        self.assertEqual(fila[2].date(), self.hoy - datetime.timedelta(days=5))
+        self.assertEqual(fila[3], 'WHB123')
+        self.assertEqual(fila[4], 'Lodos de trampa de grasa')
+        self.assertEqual(fila[5], 3.5)
+        self.assertEqual(fila[6], 'Gestor Ambiental S.A.')
+        self.assertEqual(fila[7].date(), self.hoy - datetime.timedelta(days=3))
+
+    def test_la_fecha_de_disposicion_va_vacia_si_fue_el_mismo_dia(self):
+        orden = self.prestado(2)
+        orden.registrar_disposicion('MANUAL', self.hoy - datetime.timedelta(days=2),
+                                    dispositor=self.gestor)
+        fila = self.filas()[1]
+        self.assertEqual(fila[6], 'Gestor Ambiental S.A.')
+        self.assertIsNone(fila[7])
+
+    def test_sin_conciliar_ni_disponer_salen_las_celdas_vacias(self):
+        self.prestado(2, cantidad='')
+        fila = self.filas()[1]
+        self.assertIn(fila[5], (None, ''))
+        self.assertIn(fila[6], (None, ''))
+        self.assertIsNone(fila[7])
+
+    def test_dos_camiones_en_la_misma_orden_salen_juntos(self):
+        from .models import Recorrido
+        orden = self.prestado(2)
+        Recorrido.objects.create(orden=orden, vehiculo=self.vehiculo('ZZZ999'),
+                                 conductor=self.conductor, estado='COMPLETADO',
+                                 fecha_recorrido=self.hoy - datetime.timedelta(days=2))
+        filas = self.filas()
+        self.assertEqual(len(filas), 2, "una sola fila por orden")
+        self.assertEqual(filas[1][3], 'WHB123, ZZZ999')
+
+    def test_solo_servicios_prestados(self):
+        prestada = self.prestado(4)
+        sin_prestar = self.prestado(1)
+        sin_prestar.recorridos.update(estado='PROGRAMADO')
+        cancelada = self.prestado(3)
+        type(cancelada).objects.filter(pk=cancelada.pk).update(estado_orden='CANCELADA')
+        numeros = [f[0] for f in self.filas()[1:]]
+        self.assertEqual(numeros, [prestada.numero_orden])
+
+    def test_respeta_los_filtros_de_la_lista(self):
+        vieja = self.prestado(40)
+        nueva = self.prestado(2)
+        desde = (self.hoy - datetime.timedelta(days=10)).isoformat()
+        self.assertEqual([f[0] for f in self.filas(desde=desde)[1:]], [nueva.numero_orden])
+        self.assertEqual([f[0] for f in self.filas(q=str(vieja.numero_orden))[1:]],
+                         [vieja.numero_orden])
+        type(vieja).objects.filter(pk=vieja.pk).update(estado_disposicion='PENDIENTE')
+        self.assertEqual([f[0] for f in self.filas(disposicion='SIN_DISPONER')[1:]],
+                         [vieja.numero_orden])
+
+    def test_solo_administradores(self):
+        from .models import AccesosAsesor
+        from .accesos import TODAS
+        self.prestado(2)
+        AccesosAsesor.objects.update_or_create(usuario=self.asesor, defaults={'claves': sorted(TODAS)})
+        self.entrar(self.asesor)
+        url = reverse('gestion:servicios_realizados_excel')
+        self.assertNotEqual(self.client.get(url).status_code, 200)
+        self.assertNotContains(self.client.get(reverse('gestion:lista_ordenes')), url)
+        self.entrar(self.admin)
+        lista = self.client.get(reverse('gestion:lista_ordenes'), {'q': 'Norte'})
+        self.assertContains(lista, url + '?q=Norte')
+
+
 class AccesosDeAsesorTests(BaseCRM):
     """
     «Gestionar accesos» (nov-2026, pedido de Santiago): un administrador marca

@@ -12,6 +12,8 @@ urlpatterns = [
     
     # Las URLs de las órdenes ahora tendrán un prefijo
     path('ordenes/', views.ListaOrdenesView.as_view(), name='lista_ordenes'),
+    path('ordenes/servicios-realizados.xlsx', views.ServiciosRealizadosExcelView.as_view(),
+         name='servicios_realizados_excel'),
     path('ordenes/historica/', views.OrdenHistoricaView.as_view(), name='orden_historica'),
     # Las órdenes NO se crean a mano: siempre nacen de una programación
     # (por eso no hay ruta 'ordenes/nueva/'). Aquí solo se ven y se editan.

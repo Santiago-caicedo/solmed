@@ -9,18 +9,27 @@ siguen existiendo, solo se les quitó el botón de aquí.
 {% endcomment %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <h1>Órdenes de Servicio</h1>
-    {# La cola de conciliación de Transporte - Cantidad: se trabaja fila por fila #}
-    {% if acceso.ordenes.conciliar %}
-    <a href="{% url 'gestion:conciliaciones' %}" class="btn btn-warning">
-        <i class="bi bi-calculator me-1"></i>Conciliaciones
-    </a>
-    {% endif %}
+    <div class="d-flex flex-wrap gap-2">
+        {# Nov-2026: Excel de servicios realizados con los filtros puestos. Solo administradores. #}
+        {% if es_administrador %}
+        <a href="{% url 'gestion:servicios_realizados_excel' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}"
+           class="btn btn-outline-success" title="Los servicios ya prestados, con los filtros de abajo">
+            <i class="bi bi-file-earmark-excel me-1" aria-hidden="true"></i>Excel de servicios
+        </a>
+        {% endif %}
+        {# La cola de conciliación de Transporte - Cantidad: se trabaja fila por fila #}
+        {% if acceso.ordenes.conciliar %}
+        <a href="{% url 'gestion:conciliaciones' %}" class="btn btn-warning">
+            <i class="bi bi-calculator me-1"></i>Conciliaciones
+        </a>
+        {% endif %}
+    </div>
 </div>
 
 <div class="card shadow mb-4">
     <div class="card-body">
         <form method="get" action="{% url 'gestion:lista_ordenes' %}" class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <label for="q" class="form-label">Buscar</label>
                 <input type="text" name="q" id="q" class="form-control" placeholder="N° de orden o cliente" value="{{ request.GET.q }}">
             </div>
@@ -42,14 +51,22 @@ siguen existiendo, solo se les quitó el botón de aquí.
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
                 <label for="disposicion" class="form-label">Disposición</label>
                 <select name="disposicion" id="disposicion" class="form-select">
                     <option value="">Todas</option>
                     <option value="SIN_DISPONER" {% if current_disposicion == 'SIN_DISPONER' %}selected{% endif %}>Sin disponer</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-6 col-md-3">
+                <label for="desde" class="form-label">Servicio desde</label>
+                <input type="date" name="desde" id="desde" class="form-control" value="{{ current_desde }}">
+            </div>
+            <div class="col-6 col-md-3">
+                <label for="hasta" class="form-label">Servicio hasta</label>
+                <input type="date" name="hasta" id="hasta" class="form-control" value="{{ current_hasta }}">
+            </div>
+            <div class="col-md-2 ms-md-auto">
                 <button type="submit" class="btn btn-primary w-100">Filtrar</button>
             </div>
         </form>

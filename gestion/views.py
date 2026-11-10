@@ -629,6 +629,175 @@ def _pendientes_orden(orden):
     return faltan
 
 
+def _filtrar_ordenes(queryset, get):
+    """
+    Los filtros de la lista de Órdenes, compartidos con su Excel de servicios
+    realizados (nov-2026): lo que se ve filtrado es lo que se descarga. El
+    queryset debe traer anotada `fecha_servicio` (el primer recorrido).
+    """
+    from django.utils.dateparse import parse_date
+    query = (get.get('q') or '').strip()
+    if query:
+        queryset = queryset.filter(
+            Q(numero_orden__icontains=query) |
+            Q(cliente__nombre__icontains=query)
+        )
+    if get.get('estado'):
+        queryset = queryset.filter(estado_orden=get.get('estado'))
+    if get.get('pago'):
+        queryset = queryset.filter(estado_pago=get.get('pago'))
+    # Conciliación de "Transporte - Cantidad".
+    if get.get('conciliacion'):
+        queryset = queryset.filter(estado_conciliacion=get.get('conciliacion'))
+    # Órdenes SIN DISPONER: su residuo sigue pendiente. Es a donde navega
+    # la tarjeta del tablero; se disponen desde el plan o el panel.
+    if get.get('disposicion') == 'SIN_DISPONER':
+        queryset = queryset.filter(estado_disposicion='PENDIENTE')
+    # Rango por la fecha en que se PRESTÓ el servicio (nov-2026).
+    desde = parse_date((get.get('desde') or '').strip())
+    hasta = parse_date((get.get('hasta') or '').strip())
+    if desde:
+        queryset = queryset.filter(fecha_servicio__gte=desde)
+    if hasta:
+        queryset = queryset.filter(fecha_servicio__lte=hasta)
+    return queryset
+
+
+def _filas_servicios_realizados(get):
+    """
+    Una fila por orden YA PRESTADA (finalizada o con un recorrido completado;
+    nunca canceladas), de la más vieja a la más nueva, con los filtros de la
+    lista de Órdenes. Pedido de la clienta (nov-2026): orden, cliente, fecha
+    del servicio, placa, residuo, cantidad conciliada, dispositor y fecha de
+    la disposición, esta última SOLO si se hizo otro día que el servicio.
+    """
+    from django.db.models import Prefetch
+    ordenes = (OrdenServicio.objects
+               .annotate(fecha_servicio=Min('recorridos__fecha_recorrido'))
+               .filter(Q(estado_orden='FINALIZADA') | Q(recorridos__estado='COMPLETADO'))
+               .exclude(estado_orden='CANCELADA')
+               .select_related('cliente', 'programacion_origen')
+               .prefetch_related(
+                   'recorridos__vehiculo', 'recorridos__manifiesto',
+                   Prefetch('disposiciones',
+                            queryset=DisposicionOrden.objects.filter(deshecha=False)
+                            .select_related('dispositor').order_by('-fecha', '-pk'),
+                            to_attr='disposiciones_vigentes'))
+               .distinct())
+    ordenes = _filtrar_ordenes(ordenes, get).order_by('fecha_servicio', 'numero_orden')
+
+    filas = []
+    for orden in ordenes:
+        recorridos = list(orden.recorridos.all())
+        actas = [getattr(r, 'manifiesto', None) for r in recorridos]
+        actas = [a for a in actas if a is not None]
+        programacion = getattr(orden, 'programacion_origen', None)
+        # El residuo y la cantidad viven en la programación; las órdenes
+        # históricas (sin programación) los traen en el acta.
+        residuo = (programacion.transporte_tipo if programacion else '') or next(
+            (a.transporte_tipo for a in actas if a.transporte_tipo), '')
+        cantidad = (programacion.transporte_cantidad if programacion else '') or next(
+            (a.transporte_cantidad for a in actas if a.transporte_cantidad), '')
+        disposicion = orden.disposiciones_vigentes[0] if orden.disposiciones_vigentes else None
+        fecha_disposicion = None
+        if disposicion and disposicion.fecha != orden.fecha_servicio:
+            fecha_disposicion = disposicion.fecha
+        filas.append({
+            'orden': orden.numero_orden,
+            'cliente': orden.cliente.nombre,
+            'fecha_servicio': orden.fecha_servicio,
+            'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
+            'residuo': residuo,
+            'cantidad': _cantidad_excel(cantidad),
+            'dispositor': disposicion.dispositor.nombre if disposicion and disposicion.dispositor else '',
+            'fecha_disposicion': fecha_disposicion,
+        })
+    return filas
+
+
+def _cantidad_excel(texto):
+    """La cantidad conciliada como número si se puede (para sumarla en Excel); si no, el texto tal cual."""
+    from decimal import Decimal, InvalidOperation
+    texto = (texto or '').strip()
+    if not texto:
+        return ''
+    limpio = texto.replace(' ', '')
+    if ',' in limpio and '.' in limpio:
+        # El último separador es el decimal.
+        if limpio.rfind(',') > limpio.rfind('.'):
+            limpio = limpio.replace('.', '').replace(',', '.')
+        else:
+            limpio = limpio.replace(',', '')
+    else:
+        limpio = limpio.replace(',', '.')
+    try:
+        return Decimal(limpio)
+    except InvalidOperation:
+        return texto
+
+
+class ServiciosRealizadosExcelView(AdministradorRequiredMixin, View):
+    """
+    Excel de los servicios realizados (pedido de la clienta, nov-2026), con
+    los filtros puestos en la lista de Órdenes. SOLO administradores
+    (decisión de Santiago): no declara `acceso`, así que a una asesora no se
+    le puede ampliar.
+    """
+
+    def get(self, request):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        filas = _filas_servicios_realizados(request.GET)
+        libro = Workbook()
+        hoja = libro.active
+        hoja.title = 'Servicios realizados'
+        hoja.sheet_view.showGridLines = False
+
+        cabeceras = ['# Orden', 'Cliente', 'Fecha del servicio', 'Placa',
+                     'Nombre del residuo', 'Conciliación cantidad', 'Dispositor',
+                     'Fecha de la disposición\n(cuando se hace otro día)']
+        hoja.append(cabeceras)
+        for celda in hoja[1]:
+            celda.font = Font(bold=True, color='FFFFFF', size=10)
+            celda.fill = PatternFill('solid', fgColor='2C4D9E')
+            celda.alignment = Alignment(horizontal='center', vertical='center',
+                                        wrap_text=True)
+        hoja.row_dimensions[1].height = 32
+        for f in filas:
+            hoja.append([f['orden'], f['cliente'], f['fecha_servicio'], f['placa'],
+                         f['residuo'], f['cantidad'], f['dispositor'],
+                         f['fecha_disposicion']])
+        borde = Side(style='thin', color='D6DDEA')
+        for n, fila in enumerate(hoja.iter_rows(min_row=2), start=2):
+            for celda in fila:
+                celda.border = Border(bottom=borde, left=borde, right=borde)
+                celda.alignment = Alignment(vertical='center', wrap_text=True)
+                if n % 2 == 0:
+                    celda.fill = PatternFill('solid', fgColor='F5F8FC')
+                if celda.column in (3, 8):
+                    celda.number_format = 'DD/MM/YYYY'
+                    celda.alignment = Alignment(horizontal='center', vertical='center')
+                elif celda.column in (1, 4):
+                    celda.alignment = Alignment(horizontal='center', vertical='center',
+                                                wrap_text=True)
+        for i, ancho in enumerate([10, 38, 14, 14, 32, 14, 30, 22], start=1):
+            hoja.column_dimensions[get_column_letter(i)].width = ancho
+        hoja.freeze_panes = 'A2'
+        hoja.auto_filter.ref = f"A1:H{len(filas) + 1}"
+
+        flujo = BytesIO()
+        libro.save(flujo)
+        respuesta = HttpResponse(
+            flujo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        hoy = timezone.localdate()
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="servicios-realizados-{hoy:%Y-%m-%d}.xlsx"')
+        return respuesta
+
+
 class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
     acceso = 'ordenes.ver'
     model = OrdenServicio
@@ -649,39 +818,7 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
             'programacion_origen__cuadrillas__fotos_ayudantes')
         # Cartera (oct-2026): la asesora solo ve las órdenes de sus clientes.
         queryset = solo_cartera(queryset, self.request.user)
-        query = self.request.GET.get('q')
-        
-        # --- LÓGICA DE FILTROS ---
-        estado_filtro = self.request.GET.get('estado')
-        pago_filtro = self.request.GET.get('pago')
-        conciliacion_filtro = self.request.GET.get('conciliacion')
-        disposicion_filtro = self.request.GET.get('disposicion')
-
-        # Búsqueda por texto
-        if query:
-            queryset = queryset.filter(
-                Q(numero_orden__icontains=query) |
-                Q(cliente__nombre__icontains=query)
-            )
-
-        # Filtro por estado de la orden
-        if estado_filtro:
-            queryset = queryset.filter(estado_orden=estado_filtro)
-
-        # Filtro por estado del pago
-        if pago_filtro:
-            queryset = queryset.filter(estado_pago=pago_filtro)
-
-        # Filtro por conciliación de "Transporte - Cantidad"
-        if conciliacion_filtro:
-            queryset = queryset.filter(estado_conciliacion=conciliacion_filtro)
-
-        # Órdenes SIN DISPONER: su residuo sigue pendiente. Es a donde navega
-        # la tarjeta del tablero; se disponen desde el plan o el panel.
-        if disposicion_filtro == 'SIN_DISPONER':
-            queryset = queryset.filter(estado_disposicion='PENDIENTE')
-
-        return queryset
+        return _filtrar_ordenes(queryset, self.request.GET)
 
     # --- MÉTODO NUEVO PARA PASAR DATOS EXTRAS A LA PLANTILLA ---
     def get_context_data(self, **kwargs):
@@ -696,6 +833,8 @@ class ListaOrdenesView(AsesorRequiredMixin, PaginadoMixin, ListView):
         context['current_pago'] = self.request.GET.get('pago', '')
         context['current_conciliacion'] = self.request.GET.get('conciliacion', '')
         context['current_disposicion'] = self.request.GET.get('disposicion', '')
+        context['current_desde'] = self.request.GET.get('desde', '')
+        context['current_hasta'] = self.request.GET.get('hasta', '')
         # Lo que le falta a cada orden de ESTA página, como guía de seguimiento.
         # Se cuelga del propio objeto: en la plantilla no hay forma de buscar
         # en un diccionario por clave.
