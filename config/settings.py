@@ -159,6 +159,11 @@ USE_TZ = True
 
 USE_L10N = True
 
+# Nov-2026: la tabla de «Registrar gastos» manda 10 campos por fila y acepta
+# hasta 500 filas (gestion/gastos.py MAX_FILAS). Con el tope de Django (1000
+# campos) la clienta pegó 400 gastos y recibió un 400 sin explicación.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 6000
+
 # Sin separador de miles automático: pintaba los números de orden como
 # "#22.207" (son identificadores, no cantidades). El dinero conserva su
 # separador porque las plantillas usan |intcomma explícito.

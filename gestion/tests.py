@@ -11980,6 +11980,19 @@ class GastosTests(BaseCRM):
         self.assertRedirects(r, reverse('gestion:gastos'))
         self.assertEqual(Gasto.objects.count(), 3)
 
+    def test_el_lote_aguanta_las_500_filas_que_permite_la_tabla(self):
+        """Nov-2026: la clienta pegó 400 gastos y Django devolvió 400 (tope de 1000 campos por formulario)."""
+        from .gastos import COLUMNAS_LOTE, MAX_FILAS
+        from .models import Gasto
+        r = self.lote([['Factura', str(n), 'LT', '03-08-2026', '900534356', 'PROVEEDOR', '10000',
+                        'ADMINISTRATIVO', '', ''] for n in range(1, MAX_FILAS + 1)],
+                      crear_categoria=['X'] * 20)
+        self.assertNotEqual(r.status_code, 400)
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(Gasto.objects.count(), MAX_FILAS)
+        from django.conf import settings
+        self.assertGreater(settings.DATA_UPLOAD_MAX_NUMBER_FIELDS, MAX_FILAS * len(COLUMNAS_LOTE))
+
     def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
         """Como los deja el campo de dinero («$ 1.248.750», «$ 120.039,44») o como los pega Excel en inglés."""
         from .models import Gasto
