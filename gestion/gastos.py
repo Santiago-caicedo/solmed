@@ -339,7 +339,20 @@ COLUMNAS_LOTE = [
     ('total', 'Total'), ('costos', 'Costos'), ('placa', 'Placas'), ('detalle', 'Detalle'),
 ]
 FILAS_INICIALES = 12
-MAX_FILAS = 500
+# Nov-2026: el tope de filas SALE DE UNA CUENTA. Cada fila de la tabla manda
+# un campo por columna (aunque esté vacía), y Django rechaza con 400 un
+# formulario con más de DATA_UPLOAD_MAX_NUMBER_FIELDS campos. Se reservan
+# unos para el csrf y las casillas de categorías nuevas. Con 6000 → 590.
+RESERVA_CAMPOS = 100
+
+
+def max_filas():
+    from django.conf import settings
+    tope = getattr(settings, 'DATA_UPLOAD_MAX_NUMBER_FIELDS', 1000) or 100000
+    return max((tope - RESERVA_CAMPOS) // len(COLUMNAS_LOTE), 1)
+
+
+MAX_FILAS = max_filas()
 
 
 def _texto_pesos(valor):
@@ -471,7 +484,7 @@ def revisar_lote(filas, crear_categorias=()):
 def _filas_del_post(request):
     """Las filas de la tabla tal como llegan: una lista por columna, alineadas."""
     columnas = {clave: request.POST.getlist(f'c_{clave}') for clave, _ in COLUMNAS_LOTE}
-    n = min(max((len(v) for v in columnas.values()), default=0), MAX_FILAS)
+    n = max((len(v) for v in columnas.values()), default=0)
     return [{clave: (columnas[clave][i] if i < len(columnas[clave]) else '') for clave, _ in COLUMNAS_LOTE}
             for i in range(n)]
 
@@ -496,6 +509,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                  for i, f in enumerate(filas)]
         return render(request, self.template_name, {
             'columnas': COLUMNAS_LOTE, 'tabla': tabla, 'nuevas': nuevas, 'crear': set(crear),
+            'max_filas': MAX_FILAS,
             'n_errores': sum(1 for r in (resultado or []) if r['errores']),
             'placas': list(Vehiculo.objects.order_by('placa').values_list('placa', flat=True)),
             'categorias': list(CategoriaGasto.objects.filter(activa=True).order_by('nombre').values_list('nombre', flat=True)),
@@ -509,6 +523,14 @@ class GastosLoteView(AdministradorRequiredMixin, View):
         from django.db import transaction
         filas = _filas_del_post(request)
         crear = request.POST.getlist('crear_categoria')
+        # La tabla no deja pasar del tope; si igual llegan más (otro navegador,
+        # JS apagado), no se guarda NADA en vez de descartar filas en silencio.
+        llenas = [f for f in filas if any((v or '').strip() for v in f.values())]
+        if len(llenas) > MAX_FILAS:
+            messages.error(request, f"Llegaron {len(llenas)} filas y caben {MAX_FILAS} por vez. "
+                                    f"No se guardó nada: deja las primeras {MAX_FILAS}, guárdalas y pega el resto después.")
+            return self._render(request, llenas[:MAX_FILAS])
+        filas = filas[:MAX_FILAS] if len(filas) > MAX_FILAS else filas
         resultado, nuevas = revisar_lote(filas, crear)
         if not resultado:
             messages.error(request, "La tabla está vacía: pega las filas del Excel o escríbelas.")

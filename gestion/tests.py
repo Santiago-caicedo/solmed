@@ -11993,6 +11993,21 @@ class GastosTests(BaseCRM):
         from django.conf import settings
         self.assertGreater(settings.DATA_UPLOAD_MAX_NUMBER_FIELDS, MAX_FILAS * len(COLUMNAS_LOTE))
 
+    def test_el_tope_sale_de_la_cuenta_y_si_se_pasa_no_guarda_nada(self):
+        """La tabla no deja pasar del tope; si igual llegan más filas, avisa y no guarda (antes descartaba en silencio)."""
+        from django.conf import settings
+        from .gastos import COLUMNAS_LOTE, MAX_FILAS, RESERVA_CAMPOS
+        from .models import Gasto
+        self.assertEqual(MAX_FILAS, (settings.DATA_UPLOAD_MAX_NUMBER_FIELDS - RESERVA_CAMPOS) // len(COLUMNAS_LOTE))
+        pagina = self.client.get(reverse('gestion:crear_gasto'))
+        self.assertContains(pagina, f'var MAX = {MAX_FILAS};')
+        self.assertContains(pagina, f'Caben <b>{MAX_FILAS} filas</b> por vez')
+        r = self.lote([['Factura', str(n), 'TP', '03-08-2026', '900534356', 'PROVEEDOR', '10000',
+                        'ADMINISTRATIVO', '', ''] for n in range(1, MAX_FILAS + 4)])
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, f'Llegaron {MAX_FILAS + 3} filas y caben {MAX_FILAS} por vez')
+        self.assertEqual(Gasto.objects.count(), 0)
+
     def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
         """Como los deja el campo de dinero («$ 1.248.750», «$ 120.039,44») o como los pega Excel en inglés."""
         from .models import Gasto

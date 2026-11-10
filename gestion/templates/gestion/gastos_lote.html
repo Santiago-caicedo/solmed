@@ -46,6 +46,14 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     padding:.75rem 1rem; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 -4px 16px rgba(0,0,0,.05); }
 .gl-barra .resumen{ font-size:.9rem; color:var(--ink-2); margin-right:auto; }
 .gl-barra .resumen b{ color:var(--ink); font-size:1.05rem; }
+.gl-barra .cupo{ display:block; font-size:.75rem; color:var(--ink-3); margin-top:.1rem; }
+.gl-barra .cupo.lleno{ color:var(--warn); font-weight:600; }
+.gl-aviso{ display:flex; gap:.75rem; align-items:flex-start; padding:.85rem 1.1rem; margin-bottom:1rem; border-left:3px solid var(--warn); }
+.gl-aviso[hidden]{ display:none; }
+.gl-aviso i{ color:var(--warn); font-size:1.15rem; margin-top:.05rem; }
+.gl-aviso p{ margin:0; font-size:.9rem; color:var(--ink-2); }
+.gl-aviso p b{ color:var(--ink); }
+.gl-aviso .cerrar{ margin-left:auto; background:none; border:0; color:var(--ink-3); font-size:1.2rem; line-height:1; padding:0 .25rem; }
 </style>
 
 <div class="gx">
@@ -58,6 +66,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             Las columnas van en el mismo orden de tu Excel, de «Tipo de documento» a «Detalle»; si copias también los títulos, se ignoran.
             Con <b>Placas</b> el gasto resta a ese vehículo; sin placa, va a la categoría de <b>Costos</b>.
             Los documentos que ya estén registrados se omiten solos.
+            Caben <b>{{ max_filas }} filas</b> por vez; si tienes más, guarda y pega el resto después.
         </p>
     </div>
 
@@ -72,6 +81,13 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             {% endfor %}
         </div>
         {% endif %}
+
+        {# Nov-2026: cuando un pegado no cabe entero, se dice cuántas quedaron fuera y desde cuál seguir. #}
+        <div class="gx-panel gl-aviso" id="gl-aviso" role="status" aria-live="polite" hidden>
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            <p id="gl-aviso-texto"></p>
+            <button type="button" class="cerrar" id="gl-aviso-cerrar" aria-label="Cerrar el aviso">&times;</button>
+        </div>
 
         <div class="gx-panel gl-marco">
             <table class="gl-tabla" id="gl-tabla" aria-label="Gastos a registrar">
@@ -119,7 +135,8 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
         {% endif %}
 
         <div class="gl-barra">
-            <div class="resumen" aria-live="polite"><b id="gl-n">0</b> gastos por <b id="gl-total">$0</b></div>
+            <div class="resumen" aria-live="polite"><b id="gl-n">0</b> gastos por <b id="gl-total">$0</b>
+                <span class="cupo" id="gl-cupo"></span></div>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="gl-mas"><i class="bi bi-plus-lg me-1"></i>10 filas más</button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="gl-vaciar">Vaciar la tabla</button>
             <a href="{% url 'gestion:gastos' %}" class="btn btn-link btn-sm">Cancelar</a>
@@ -136,6 +153,11 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     var PLACAS = {}; Array.prototype.forEach.call(document.querySelectorAll('#gl-placas option'), function (o) { PLACAS[o.value.toUpperCase()] = 1; });
     var CATS = {}; Array.prototype.forEach.call(document.querySelectorAll('#gl-categorias option'), function (o) { CATS[o.value.toLowerCase()] = 1; });
     var plantilla = cuerpo.rows[cuerpo.rows.length - 1].cloneNode(true);
+    // Tope de filas (lo calcula el servidor con el límite de campos del formulario).
+    var MAX = {{ max_filas }};
+    var aviso = document.getElementById('gl-aviso');
+    function avisar(html) { document.getElementById('gl-aviso-texto').innerHTML = html; aviso.hidden = !html; }
+    document.getElementById('gl-aviso-cerrar').addEventListener('click', function () { avisar(''); });
 
     function numero(t) { return Dinero.valor(t) || 0; }
     function filaVacia() {
@@ -148,7 +170,20 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     function renumerar() {
         Array.prototype.forEach.call(cuerpo.rows, function (tr, i) { tr.cells[0].textContent = i + 1; });
     }
-    function asegurar(n) { while (cuerpo.rows.length < n) cuerpo.appendChild(filaVacia()); renumerar(); }
+    function asegurar(n) {
+        n = Math.min(n, MAX);
+        while (cuerpo.rows.length < n) cuerpo.appendChild(filaVacia());
+        renumerar(); cupo();
+    }
+    function cupo() {
+        var usadas = cuerpo.rows.length, lleno = usadas >= MAX, el = document.getElementById('gl-cupo');
+        el.textContent = lleno ? 'La tabla está llena: ' + MAX + ' filas como máximo por vez.'
+                               : usadas + ' de ' + MAX + ' filas';
+        el.classList.toggle('lleno', lleno);
+        var mas = document.getElementById('gl-mas');
+        mas.disabled = lleno;
+        mas.title = lleno ? 'Caben ' + MAX + ' filas por vez: guarda estas y pega el resto después.' : '';
+    }
 
     // Lo que se ve de inmediato (el servidor revisa de verdad al guardar):
     // placa que no existe y categoría nueva, en ámbar; y la suma de la barra.
@@ -187,6 +222,18 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
         if (filas.length && /tipo de documento/i.test(filas[0])) filas.shift();             // los títulos se ignoran
         var tr = input.closest('tr'), fila0 = Array.prototype.indexOf.call(cuerpo.rows, tr);
         var col0 = COLS.indexOf(input.name.slice(2));
+        // Lo que no cabe no se pega: se avisa cuántas quedaron fuera y desde cuál seguir.
+        var caben = MAX - fila0, fuera = Math.max(filas.length - caben, 0);
+        if (fuera) {
+            var sigue = filas[caben].split('\t');
+            var folio = (sigue[COLS.indexOf('folio') - col0] || '').trim();
+            avisar('<b>Se pegaron ' + caben + ' de ' + filas.length + ' filas</b>: la tabla llega hasta ' + MAX + ' por vez. ' +
+                   'Quedaron fuera ' + fuera + '. Guarda estas y luego pega desde la fila ' + (caben + 1) + ' de lo que copiaste' +
+                   (folio ? ' (folio <b>' + folio.replace(/[<>&]/g, '') + '</b>)' : '') + '.');
+            filas = filas.slice(0, caben);
+        } else {
+            avisar('');
+        }
         asegurar(fila0 + filas.length);
         filas.forEach(function (linea, i) {
             var celdas = linea.split('\t'), destino = cuerpo.rows[fila0 + i];
@@ -216,6 +263,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
         e.preventDefault();
         var tr = e.target.closest('tr'), i = Array.prototype.indexOf.call(cuerpo.rows, tr);
         asegurar(i + 2);
+        if (!cuerpo.rows[i + 1]) return;                // la última fila del tope
         var siguiente = cuerpo.rows[i + 1].querySelector('input[name="' + e.target.name + '"]');
         if (siguiente) siguiente.focus();
     });
@@ -223,12 +271,12 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
         var b = e.target.closest('.gl-quitar'); if (!b) return;
         var tr = b.closest('tr');
         if (cuerpo.rows.length > 1) tr.remove(); else tr.querySelectorAll('input').forEach(function (i) { i.value = ''; });
-        renumerar(); sumar();
+        renumerar(); cupo(); sumar();
     });
     document.getElementById('gl-mas').addEventListener('click', function () { asegurar(cuerpo.rows.length + 10); });
     document.getElementById('gl-vaciar').addEventListener('click', function () {
         if (!confirm('¿Vaciar la tabla? Se borra lo que pegaste (no se ha guardado nada).')) return;
-        cuerpo.innerHTML = ''; asegurar({{ tabla|length }}); sumar();
+        cuerpo.innerHTML = ''; asegurar({{ tabla|length }}); sumar(); avisar('');
         cuerpo.rows[0].querySelector('input').focus();
     });
     // Un solo envío: el botón se apaga para que un doble clic no mande dos veces.
@@ -239,7 +287,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
         if (i.value) i.value = Dinero.normalizar(i.value);
     });
     tabla.querySelectorAll('input').forEach(revisarCelda);
-    sumar();
+    cupo(); sumar();
     var primero = tabla.querySelector('td.mal input') || cuerpo.rows[0].querySelector('input');
     if (primero) primero.focus();
 })();
