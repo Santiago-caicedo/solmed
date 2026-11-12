@@ -265,8 +265,9 @@ class GastoForm(forms.ModelForm):
     class Meta:
         model = Gasto
         fields = ['tipo_documento', 'folio', 'prefijo', 'fecha_emision', 'nit_emisor', 'nombre_emisor',
-                  'categoria', 'vehiculo', 'nota', 'archivo']
-        labels = {'categoria': 'Costos (categoría)', 'vehiculo': 'Placa', 'nota': 'Detalle'}
+                  'categoria', 'vehiculo', 'placa_texto', 'nota', 'archivo']
+        labels = {'categoria': 'Costos (categoría)', 'vehiculo': 'Placa', 'nota': 'Detalle',
+                  'placa_texto': 'Placa informativa'}
         widgets = {
             'tipo_documento': forms.Select(attrs={'class': 'form-select'}),
             'folio': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off'}),
@@ -277,6 +278,8 @@ class GastoForm(forms.ModelForm):
             'categoria': forms.Select(attrs={'class': 'form-select'}),
             'vehiculo': forms.Select(attrs={'class': 'form-select'}),
             'nota': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: Llantas'}),
+            'placa_texto': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off',
+                                                  'placeholder': 'Otra placa u «Oficina»: solo informa'}),
             'archivo': forms.FileInput(attrs={'class': 'form-control', 'accept': '.pdf,.xml,.zip,image/*'}),
         }
 
@@ -418,36 +421,48 @@ def _placa(texto):
     return str(texto or '').strip().upper().replace(' ', '').replace('-', '')
 
 
-def revisar_lote(filas, crear_categorias=(), crear_tipos=()):
+def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confirmado=False):
     """
-    Revisa las filas pegadas. Devuelve (resultado, categorias_nuevas, tipos_nuevos):
-    `resultado` es una lista con, por fila, los valores tal como se ven,
-    los datos normalizados, los errores por columna y si se omite (ya estaba
-    registrada). `categorias_nuevas`: los COSTOS que no existen (para
-    ofrecer crearlos). Con `crear_categorias`, esos nombres se aceptan.
-    `tipos_nuevos`: los tipos de documento que no existen; con
-    `crear_tipos` se aceptan y se crean al guardar (nov-2026).
-    Las dos listas incluyen también las ya confirmadas, para que el aviso no
-    desaparezca si la tabla vuelve con otro error.
+    Revisa las filas pegadas. Devuelve (resultado, pendientes).
+
+    `resultado`: por fila, los valores tal como se ven, los datos
+    normalizados, los ERRORES por columna (hay que corregirlos), lo PENDIENTE
+    de confirmar por columna y si se omite (ya estaba registrada).
+
+    `pendientes` (nov-2026, el popup por pasos al guardar): lo que no es un
+    error pero hay que confirmar antes de guardar —categorías de COSTOS
+    nuevas, tipos de documento nuevos y textos de PLACAS que no son un
+    vehículo de la empresa—. Lo ya confirmado llega en `crear_categorias`,
+    `crear_tipos` y `placas_ok`. Con `confirmado` (se pasó por el popup), lo
+    que se desmarcó deja de ser pendiente y pasa a ser error de su fila.
     """
     vehiculos = {v.placa.upper(): v for v in Vehiculo.objects.all()}
     categorias = {c.nombre.strip().lower(): c for c in CategoriaGasto.objects.all()}
-    crear = {c.strip().lower() for c in crear_categorias if c.strip()}
-    nuevas = {}
     tipos = {t.nombre.lower(): t.nombre for t in TipoDocumentoGasto.objects.all()}
-    crear_t = {}
-    for t in crear_tipos:
-        t = ' '.join(str(t or '').split())[:120]
-        if t:
-            crear_t.setdefault(t.lower(), t)
-    tipos_nuevos = {}
+
+    def _conjunto(valores, largo):
+        salida = {}
+        for v in valores:
+            v = ' '.join(str(v or '').split())[:largo]
+            if v:
+                salida.setdefault(v.lower(), v)
+        return salida
+    crear = _conjunto(crear_categorias, 80)
+    crear_t = _conjunto(crear_tipos, 120)
+    placas_conf = {_placa(p) for p in placas_ok if _placa(p)}
+    pend = {'categorias': {}, 'tipos': {}, 'placas': {}}
     vistos = {}
     resultado = []
+
+    def pendiente(grupo, clave, texto, n, **extra):
+        item = pend[grupo].setdefault(clave, {'texto': texto, 'filas': [], **extra})
+        item['filas'].append(n)
+
     for i, fila in enumerate(filas):
         if not any(str(v or '').strip() for v in fila.values()):
             continue
-        errores, datos = {}, {}
-        # TIPO: uno de siempre, uno ya creado o uno nuevo (se confirma y se crea al guardar).
+        errores, pendientes, datos = {}, {}, {}
+        # TIPO: uno de siempre, uno ya creado o uno nuevo (se confirma en el popup).
         tipo_texto = ' '.join(str(fila.get('tipo') or '').split())[:120]
         datos['tipo_documento'] = _tipo_documento(tipo_texto, tipos)
         datos['tipo_nuevo'] = ''
@@ -455,10 +470,13 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=()):
             clave = tipo_texto.lower()
             if clave in crear_t:
                 datos['tipo_documento'] = datos['tipo_nuevo'] = crear_t[clave]
-                tipos_nuevos.setdefault(clave, crear_t[clave])
+            elif confirmado:
+                errores['tipo'] = f"No se confirmó crear el tipo «{tipo_texto}»: corrígelo."
             else:
-                tipos_nuevos.setdefault(clave, tipo_texto)
-                errores['tipo'] = f"«{tipo_texto}» es un tipo nuevo: se crea al volver a guardar."
+                # Provisional, para revisar repetidos en la misma tabla.
+                datos['tipo_documento'] = tipo_texto
+                pendientes['tipo'] = f"«{tipo_texto}» es un tipo nuevo: se crea al guardar."
+                pendiente('tipos', clave, tipo_texto, i + 1)
         datos['folio'] = str(fila.get('folio') or '').strip()
         if datos['folio'].endswith('.0'):
             datos['folio'] = datos['folio'][:-2]
@@ -478,7 +496,7 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=()):
         datos['total'] = total
         if total is None or total <= 0:
             errores['total'] = "Total no válido."
-        # COSTOS: una categoría (existente, o nueva si se pidió crearla).
+        # COSTOS: una categoría (existente, o nueva confirmada en el popup).
         costos = ' '.join(str(fila.get('costos') or '').split())
         datos['categoria'] = None
         datos['categoria_nueva'] = ''
@@ -487,37 +505,50 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=()):
             if cat is not None:
                 datos['categoria'] = cat
             elif costos.lower() in crear:
-                datos['categoria_nueva'] = costos
-                nuevas.setdefault(costos.lower(), costos)
+                datos['categoria_nueva'] = crear[costos.lower()]
+            elif confirmado:
+                errores['costos'] = f"No se confirmó crear la categoría «{costos}»: corrígela."
             else:
-                nuevas.setdefault(costos.lower(), costos)
-                errores['costos'] = f"La categoría «{costos}» no existe: márcala para crearla."
-        # PLACAS: un vehículo del sistema; si no existe o viene incompleta, se pide corregir.
-        placa = _placa(fila.get('placa'))
+                pendientes['costos'] = f"La categoría «{costos}» es nueva: se crea al guardar."
+                pendiente('categorias', costos.lower(), costos, i + 1)
+        # PLACAS: si es un vehículo de la empresa, el gasto se le carga. Si no
+        # (otra placa, «OFICINA»…), se guarda el texto solo como información.
+        placa_cruda = ' '.join(str(fila.get('placa') or '').split())
+        placa = _placa(placa_cruda)
         datos['vehiculo'] = None
+        datos['placa_texto'] = ''
         if placa:
             v = vehiculos.get(placa)
             if v is not None:
                 datos['vehiculo'] = v
             else:
-                parecidas = [p for p in vehiculos if p.startswith(placa) or placa.startswith(p)]
-                errores['placa'] = (f"No existe {placa}." + (f" ¿Es {', '.join(sorted(parecidas))}?" if parecidas else ""))
-        if not costos and not placa:
-            errores['costos'] = "Escribe la categoría (COSTOS), la placa o las dos."
+                datos['placa_texto'] = placa_cruda[:60]
+                if placa not in placas_conf:
+                    if confirmado:
+                        errores['placa'] = f"No se confirmó guardar «{placa_cruda}» como texto: corrige la placa."
+                    else:
+                        parecidas = sorted(p for p in vehiculos if p.startswith(placa) or placa.startswith(p))
+                        pendientes['placa'] = (f"«{placa_cruda}» no es un vehículo de la empresa: se guarda solo como texto."
+                                               + (f" ¿Es {', '.join(parecidas)}?" if parecidas else ""))
+                        pendiente('placas', placa, placa_cruda, i + 1, parecidas=parecidas)
+        if not costos and datos['vehiculo'] is None and 'costos' not in errores:
+            errores['costos'] = (f"«{placa_cruda}» no es un vehículo de la empresa: escribe la categoría en COSTOS."
+                                 if placa else "Escribe la categoría (COSTOS), la placa o las dos.")
         datos['nota'] = str(fila.get('detalle') or '').strip()[:255]
         # Duplicados: en la misma tabla es error; ya registrado en el sistema se omite.
         omitir = False
         if datos['folio'] and datos['nit_emisor'] and datos['tipo_documento']:
-            llave = (datos['tipo_documento'], datos['nit_emisor'], datos['prefijo'], datos['folio'])
+            llave = (datos['tipo_documento'].lower(), datos['nit_emisor'], datos['prefijo'], datos['folio'])
             if llave in vistos:
                 errores['folio'] = f"Repetido en la fila {vistos[llave] + 1}."
             else:
                 vistos[llave] = i
-                omitir = Gasto.objects.filter(tipo_documento=llave[0], nit_emisor=llave[1],
+                omitir = Gasto.objects.filter(tipo_documento__iexact=datos['tipo_documento'], nit_emisor=llave[1],
                                               prefijo=llave[2], folio=llave[3]).exists()
-        resultado.append({'n': i + 1, 'valores': fila, 'datos': datos, 'errores': errores, 'omitir': omitir})
-    return (resultado, sorted(nuevas.values(), key=str.lower),
-            sorted(tipos_nuevos.values(), key=str.lower))
+        resultado.append({'n': i + 1, 'valores': fila, 'datos': datos, 'errores': errores,
+                          'pendientes': pendientes, 'omitir': omitir})
+    pendientes = {g: sorted(items.values(), key=lambda x: x['texto'].lower()) for g, items in pend.items()}
+    return resultado, pendientes
 
 
 def _filas_del_post(request):
@@ -537,18 +568,20 @@ class GastosLoteView(AdministradorRequiredMixin, View):
     acceso = 'gastos.editar'
     template_name = 'gestion/gastos_lote.html'
 
-    def _render(self, request, filas, resultado=None, nuevas=(), crear=(), tipos_nuevos=()):
+    def _render(self, request, filas, resultado=None, pasos=()):
         errores = {r['n'] - 1: r['errores'] for r in (resultado or [])}
+        avisos = {r['n'] - 1: r['pendientes'] for r in (resultado or [])}
         omitidas = {r['n'] - 1 for r in (resultado or []) if r['omitir']}
         while len(filas) < FILAS_INICIALES:
             filas.append({clave: '' for clave, _ in COLUMNAS_LOTE})
-        tabla = [{'n': i + 1, 'celdas': [{'clave': c, 'valor': f.get(c, ''), 'error': errores.get(i, {}).get(c, '')}
-                                          for c, _ in COLUMNAS_LOTE],
+        tabla = [{'n': i + 1, 'celdas': [{'clave': c, 'valor': f.get(c, ''), 'error': errores.get(i, {}).get(c, ''),
+                                          'aviso': avisos.get(i, {}).get(c, '')}
+                                         for c, _ in COLUMNAS_LOTE],
                   'con_error': bool(errores.get(i)), 'omitida': i in omitidas}
                  for i, f in enumerate(filas)]
         return render(request, self.template_name, {
-            'columnas': COLUMNAS_LOTE, 'tabla': tabla, 'nuevas': nuevas, 'crear': set(crear),
-            'max_filas': MAX_FILAS, 'tipos_nuevos': tipos_nuevos,
+            'columnas': COLUMNAS_LOTE, 'tabla': tabla, 'pasos': pasos,
+            'max_filas': MAX_FILAS,
             'n_errores': sum(1 for r in (resultado or []) if r['errores']),
             'placas': list(Vehiculo.objects.order_by('placa').values_list('placa', flat=True)),
             'categorias': list(CategoriaGasto.objects.filter(activa=True).order_by('nombre').values_list('nombre', flat=True)),
@@ -563,6 +596,8 @@ class GastosLoteView(AdministradorRequiredMixin, View):
         filas = _filas_del_post(request)
         crear = request.POST.getlist('crear_categoria')
         crear_tipos = request.POST.getlist('crear_tipo')
+        placas_ok = request.POST.getlist('placa_texto_ok')
+        confirmado = bool(request.POST.get('pasos_confirmados'))
         # La tabla no deja pasar del tope; si igual llegan más (otro navegador,
         # JS apagado), no se guarda NADA en vez de descartar filas en silencio.
         llenas = [f for f in filas if any((v or '').strip() for v in f.values())]
@@ -571,21 +606,34 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                                     f"No se guardó nada: deja las primeras {MAX_FILAS}, guárdalas y pega el resto después.")
             return self._render(request, llenas[:MAX_FILAS])
         filas = filas[:MAX_FILAS] if len(filas) > MAX_FILAS else filas
-        resultado, nuevas, tipos_nuevos = revisar_lote(filas, crear, crear_tipos)
+        resultado, pendientes = revisar_lote(filas, crear, crear_tipos, placas_ok, confirmado)
         if not resultado:
             messages.error(request, "La tabla está vacía: pega las filas del Excel o escríbelas.")
             return self._render(request, filas)
         con_error = [r for r in resultado if r['errores']]
         if con_error:
-            # Si lo único pendiente son tipos nuevos, se dice así (no es un error de la clienta).
-            solo_tipos = all(set(r['errores']) == {'tipo'} and not r['datos']['tipo_documento'] for r in con_error)
-            if solo_tipos:
-                messages.warning(request, "Hay tipos de documento nuevos (ver arriba). No se guardó nada todavía: "
-                                          "vuelve a guardar para crearlos y registrar los gastos.")
-            else:
-                messages.error(request, f"{len(con_error)} fila{'s' if len(con_error) != 1 else ''} con algo por corregir "
-                                        "(marcadas en rojo). No se guardó nada todavía.")
-            return self._render(request, filas, resultado, nuevas, crear, tipos_nuevos)
+            messages.error(request, f"{len(con_error)} fila{'s' if len(con_error) != 1 else ''} con algo por corregir "
+                                    "(marcadas en rojo). No se guardó nada todavía.")
+            return self._render(request, filas, resultado)
+        # Sin errores, pero con algo por confirmar: el popup por pasos
+        # (categorías → tipos → placas) y, en el último, se guarda.
+        pasos = [p for p in (
+            {'clave': 'categorias', 'campo': 'crear_categoria', 'icono': 'bi-tag',
+             'titulo': 'Se crearán estas categorías de costos',
+             'bajada': 'Aparecerán en COSTOS para cargarles gastos. Desmarca la que esté mal escrita y corrígela en la tabla.',
+             'items': pendientes['categorias']},
+            {'clave': 'tipos', 'campo': 'crear_tipo', 'icono': 'bi-file-earmark-plus',
+             'titulo': 'Se crearán estos tipos de documento',
+             'bajada': 'Sus gastos suman como una factura. Desmarca el que esté mal escrito y corrígelo en la tabla.',
+             'items': pendientes['tipos']},
+            {'clave': 'placas', 'campo': 'placa_texto_ok', 'icono': 'bi-truck',
+             'titulo': 'Estas placas no son vehículos de la empresa',
+             'bajada': 'Se guardan solo como texto informativo: el gasto no se carga a ningún vehículo y queda en su '
+                       'categoría de COSTOS. Si es una placa de la empresa mal escrita, desmárcala y corrígela.',
+             'items': pendientes['placas']},
+        ) if p['items']]
+        if pasos:
+            return self._render(request, filas, resultado, pasos)
         por_guardar = [r for r in resultado if not r['omitir']]
         omitidas = len(resultado) - len(por_guardar)
         try:
@@ -610,6 +658,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                         tipo_documento=d['tipo_documento'], folio=d['folio'], prefijo=d['prefijo'],
                         fecha_emision=d['fecha_emision'], nit_emisor=d['nit_emisor'], nombre_emisor=d['nombre_emisor'],
                         total=d['total'], categoria=d['categoria'], vehiculo=d['vehiculo'], nota=d['nota'],
+                        placa_texto=d['placa_texto'],
                         registrado_por=request.user)
         except IntegrityError:
             messages.error(request, "Alguien registró uno de estos documentos al mismo tiempo. No se guardó nada: "

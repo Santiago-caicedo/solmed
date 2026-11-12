@@ -33,6 +33,27 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
 .gl-tabla td.mal{ background:var(--err-tint); }
 .gl-tabla td.mal input{ color:var(--err); font-weight:600; }
 .gl-tabla td.duda{ background:var(--warn-tint); }
+/* Popup por pasos antes de guardar (nov-2026) */
+.gl-pasos .modal-content{ border:0; border-radius:16px; }
+.gl-pasos .modal-header{ border-bottom:0; padding:1.1rem 1.25rem .4rem; align-items:flex-start; }
+.gl-pasos .modal-title{ font-size:1.1rem; font-weight:650; margin:.15rem 0 0; }
+.gp-cuenta{ font-size:.75rem; color:var(--ink-3); letter-spacing:.02em; }
+.gp-barra{ display:flex; gap:4px; padding:0 1.25rem .5rem; }
+.gp-barra span{ flex:1; height:3px; border-radius:2px; background:var(--line); }
+.gp-barra span.hecho{ background:var(--steel); }
+.gl-pasos .modal-body{ padding:.5rem 1.25rem 1rem; }
+.gp-bajada{ display:flex; gap:.6rem; font-size:.88rem; color:var(--ink-2); margin:0 0 .75rem; }
+.gp-bajada i{ color:var(--steel); font-size:1.1rem; }
+.gp-lista{ list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:12px; }
+.gp-item{ padding:.6rem .85rem; }
+.gp-item + .gp-item{ border-top:1px solid var(--line); }
+.gp-item label{ display:flex; align-items:center; gap:.6rem; cursor:pointer; min-height:28px; margin:0; }
+.gp-item .form-check-input{ margin:0; flex:none; }
+.gp-texto{ font-weight:600; color:var(--ink); overflow-wrap:anywhere; }
+.gp-filas{ margin-left:auto; flex:none; font-size:.75rem; color:var(--ink-3); }
+.gp-sugerencia{ font-size:.8rem; color:var(--warn); margin:.3rem 0 0 1.75rem; }
+.gp-sugerencia i{ margin-right:.3rem; }
+.gl-pasos .modal-footer{ border-top:1px solid var(--line); padding:.75rem 1.25rem; }
 .gl-tabla tr.omitida td{ background:var(--panel-2); }
 .gl-tabla tr.omitida input{ color:var(--ink-3); text-decoration:line-through; }
 .gl-tabla td.quitar{ text-align:center; background:var(--panel-2); }
@@ -72,33 +93,12 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
 
     <form method="post" id="gl-form" novalidate>
         {% csrf_token %}
-        {% if nuevas %}
-        {# Categorías de COSTOS que aún no existen: se ofrecen crear al guardar. #}
-        <div class="gx-panel gl-nuevas" role="alert">
-            <div class="t"><i class="bi bi-tag me-1" aria-hidden="true"></i>Estas categorías no existen todavía. Márcalas para crearlas al guardar:</div>
-            {% for c in nuevas %}
-            <label><input type="checkbox" class="form-check-input" name="crear_categoria" value="{{ c }}" {% if c in crear %}checked{% endif %}>{{ c }}</label>
-            {% endfor %}
-        </div>
-        {% endif %}
-
         {# Nov-2026: cuando un pegado no cabe entero, se dice cuántas quedaron fuera y desde cuál seguir. #}
         <div class="gx-panel gl-aviso" id="gl-aviso" role="status" aria-live="polite" hidden>
             <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
             <p id="gl-aviso-texto"></p>
             <button type="button" class="cerrar" id="gl-aviso-cerrar" aria-label="Cerrar el aviso">&times;</button>
         </div>
-
-        {% if tipos_nuevos %}
-        {# Nov-2026: tipos de documento que no existen; se crean al volver a guardar. #}
-        <div class="gx-panel gl-nuevas" role="alert">
-            <div class="t"><i class="bi bi-file-earmark-plus me-1" aria-hidden="true"></i>Al guardar se crearán estos tipos de documento:</div>
-            {% for t in tipos_nuevos %}
-            <label><input type="checkbox" class="form-check-input" name="crear_tipo" value="{{ t }}" checked>{{ t }}</label>
-            {% endfor %}
-            <div class="form-text mt-1">Si alguno está mal escrito, desmárcalo y corrige esas filas.</div>
-        </div>
-        {% endif %}
 
         <div class="gx-panel gl-marco">
             <table class="gl-tabla" id="gl-tabla" aria-label="Gastos a registrar">
@@ -120,7 +120,7 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
                     <tr class="{% if fila.omitida %}omitida{% endif %}">
                         <td class="num">{{ fila.n }}</td>
                         {% for c in fila.celdas %}
-                        <td class="c-{{ c.clave }}{% if c.error %} mal{% endif %}" {% if c.error %}title="{{ c.error }}"{% endif %}>
+                        <td class="c-{{ c.clave }}{% if c.error %} mal{% elif c.aviso %} duda{% endif %}" {% if c.error %}title="{{ c.error }}"{% elif c.aviso %}title="{{ c.aviso }}"{% endif %}>
                             <input type="text" name="c_{{ c.clave }}" value="{{ c.valor }}" autocomplete="off"
                                    {% if c.clave == 'costos' %}list="gl-categorias"{% elif c.clave == 'placa' %}list="gl-placas"{% endif %}
                                    {% if c.clave == 'total' %}inputmode="decimal"{% endif %}
@@ -154,6 +154,52 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             <button class="btn btn-primary" id="gl-guardar"><i class="bi bi-check2 me-1"></i>Guardar gastos</button>
         </div>
     </form>
+
+    {% if pasos %}
+    {# ---------- Nov-2026: antes de guardar, lo que hay que confirmar, paso por paso ---------- #}
+    <button type="button" hidden id="gl-pasos-abrir" data-bs-toggle="modal" data-bs-target="#gl-pasos"></button>
+    <div class="modal fade gl-pasos" id="gl-pasos" tabindex="-1" aria-labelledby="gl-pasos-titulo" aria-hidden="true"
+         data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" style="max-width:560px">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <div class="gp-cuenta" aria-live="polite">Paso <span id="gp-n">1</span> de {{ pasos|length }} · antes de guardar</div>
+                        <h2 class="modal-title" id="gl-pasos-titulo"></h2>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Volver a la tabla sin guardar"></button>
+                </div>
+                <div class="gp-barra" aria-hidden="true">{% for p in pasos %}<span></span>{% endfor %}</div>
+                <div class="modal-body">
+                    <input type="hidden" name="pasos_confirmados" value="1" form="gl-form">
+                    {% for p in pasos %}
+                    <section class="gp-paso" data-titulo="{{ p.titulo }}" {% if not forloop.first %}hidden{% endif %}>
+                        <p class="gp-bajada"><i class="bi {{ p.icono }}" aria-hidden="true"></i>{{ p.bajada }}</p>
+                        <ul class="gp-lista">
+                            {% for it in p.items %}
+                            <li class="gp-item">
+                                <label>
+                                    <input type="checkbox" class="form-check-input" name="{{ p.campo }}" value="{{ it.texto }}" form="gl-form" checked>
+                                    <span class="gp-texto">{{ it.texto }}</span>
+                                    <span class="gp-filas">{% if it.filas|length == 1 %}fila {{ it.filas.0 }}{% else %}{{ it.filas|length }} filas{% endif %}</span>
+                                </label>
+                                {% if it.parecidas %}<div class="gp-sugerencia"><i class="bi bi-lightbulb" aria-hidden="true"></i>¿Es {{ it.parecidas|join:", " }}? Si es así, desmárcala y corrígela en la tabla.</div>{% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </section>
+                    {% endfor %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-link me-auto" data-bs-dismiss="modal">Volver a la tabla</button>
+                    <button type="button" class="btn btn-outline-secondary" id="gp-atras">Atrás</button>
+                    <button type="button" class="btn btn-primary" id="gp-siguiente">Siguiente</button>
+                    <button type="button" class="btn btn-primary" id="gp-guardar" hidden><i class="bi bi-check2 me-1" aria-hidden="true"></i>Guardar gastos</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 {% include 'gestion/partials/_dinero_js.html' %}
@@ -301,6 +347,34 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
     cupo(); sumar();
     var primero = tabla.querySelector('td.mal input') || cuerpo.rows[0].querySelector('input');
     if (primero) primero.focus();
+
+    // Nov-2026: el popup por pasos (categorías → tipos → placas); en el último se guarda.
+    var pasosModal = document.getElementById('gl-pasos');
+    if (pasosModal) {
+        var pasos = pasosModal.querySelectorAll('.gp-paso'), barra = pasosModal.querySelectorAll('.gp-barra span'), actual = 0;
+        var atras = document.getElementById('gp-atras'), sig = document.getElementById('gp-siguiente'), guardar = document.getElementById('gp-guardar');
+        function mostrar(i) {
+            actual = i;
+            pasos.forEach(function (p, j) { p.hidden = j !== i; });
+            barra.forEach(function (b, j) { b.classList.toggle('hecho', j <= i); });
+            document.getElementById('gp-n').textContent = i + 1;
+            document.getElementById('gl-pasos-titulo').textContent = pasos[i].getAttribute('data-titulo');
+            atras.hidden = i === 0;
+            sig.hidden = i === pasos.length - 1;
+            guardar.hidden = i !== pasos.length - 1;
+            var foco = pasos[i].querySelector('input'); if (foco) foco.focus();
+        }
+        atras.addEventListener('click', function () { mostrar(actual - 1); });
+        sig.addEventListener('click', function () { mostrar(actual + 1); });
+        guardar.addEventListener('click', function () { guardar.disabled = true; guardar.textContent = 'Guardando…'; document.getElementById('gl-form').submit(); });
+        pasosModal.addEventListener('shown.bs.modal', function () { mostrar(0); });
+        // Al volver a la tabla, el siguiente «Guardar» vuelve a preguntar desde el principio.
+        pasosModal.addEventListener('hidden.bs.modal', function () {
+            pasosModal.querySelectorAll('input[form="gl-form"]').forEach(function (i) { i.disabled = true; });
+        });
+        mostrar(0);
+        window.addEventListener('load', function () { document.getElementById('gl-pasos-abrir').click(); });
+    }
 })();
 </script>
 {% endblock %}

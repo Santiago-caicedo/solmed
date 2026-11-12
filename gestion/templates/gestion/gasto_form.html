@@ -37,6 +37,8 @@ la tabla). Mismos campos de la tabla de la clienta, en el mismo orden.
                 <div class="col-md-4"><label for="{{ form.categoria.id_for_label }}">Costos (categoría)</label>{{ form.categoria }}{% for e in form.categoria.errors %}<div class="gf-err">{{ e }}</div>{% endfor %}</div>
                 <div class="col-md-3"><label for="{{ form.vehiculo.id_for_label }}">Placa</label>{{ form.vehiculo }}</div>
                 <div class="col-md-5"><label for="{{ form.nota.id_for_label }}">Detalle</label>{{ form.nota }}</div>
+                <div class="col-md-4"><label for="{{ form.placa_texto.id_for_label }}">Placa informativa</label>{{ form.placa_texto }}
+                    <div class="form-text">Otra placa u otro texto: solo informa, no carga el gasto a ningún vehículo.</div></div>
                 <div class="col-12 small text-muted">Con placa, el gasto resta a ese vehículo y la categoría queda como clasificación. Sin placa, va a la categoría.</div>
                 <div class="col-md-6"><label for="{{ form.archivo.id_for_label }}">Archivo de la factura <span class="text-muted">(opcional)</span></label>{{ form.archivo }}
                     {% if gasto.archivo %}<div class="small mt-1">Hoy tiene <a href="{{ gasto.archivo.url }}" target="_blank" rel="noopener">un archivo</a>; si subes otro, lo reemplaza.</div>{% endif %}</div>

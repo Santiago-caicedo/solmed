@@ -56,7 +56,7 @@
                     <td class="text-nowrap">{{ g.fecha_emision|date:"d/m/Y" }}</td>
                     <td><span class="fuerte">{{ g.documento }}</span>{% if g.tipo_documento != 'FACTURA' %}<span class="gx-chip">{{ g.tipo_nombre|cut:" electrónica" }}</span>{% endif %}{% if g.nota %}<small>{{ g.nota }}</small>{% endif %}</td>
                     <td>{{ g.nombre_emisor }}<small>NIT {{ g.nit_emisor }}</small></td>
-                    <td><span class="gx-centro"><i class="bi {% if g.vehiculo_id %}bi-truck{% else %}bi-tag{% endif %}" aria-hidden="true"></i>{{ g.centro }}</span></td>
+                    <td><span class="gx-centro"><i class="bi {% if g.vehiculo_id %}bi-truck{% else %}bi-tag{% endif %}" aria-hidden="true"></i>{{ g.centro }}</span>{% if g.placa_texto %}<small title="No es un vehículo de la empresa: solo informa">Placa: {{ g.placa_texto }}</small>{% endif %}</td>
                     <td>{{ g.get_forma_pago_display }}<small>{{ g.get_medio_pago_display }}</small></td>
                     <td class="n fuerte {% if g.tipo_documento == 'NOTA_CREDITO' %}gx-neg{% endif %}">{% if g.tipo_documento == 'NOTA_CREDITO' %}−{% endif %}${{ g.total|floatformat:0|intcomma }}</td>
                     <td>

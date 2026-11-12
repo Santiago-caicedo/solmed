@@ -12008,8 +12008,8 @@ class GastosTests(BaseCRM):
         self.assertContains(r, f'Llegaron {MAX_FILAS + 3} filas y caben {MAX_FILAS} por vez')
         self.assertEqual(Gasto.objects.count(), 0)
 
-    def test_un_tipo_de_documento_nuevo_se_crea_al_volver_a_guardar(self):
-        """Nov-2026: la clienta pega de varias fuentes; un tipo que no existe se avisa y se crea al confirmar."""
+    def test_un_tipo_de_documento_nuevo_se_crea_al_confirmar_el_popup(self):
+        """Nov-2026: la clienta pega de varias fuentes; un tipo que no existe se confirma en el popup y se crea."""
         from .models import Gasto, TipoDocumentoGasto
         pos = 'Documento equivalente electrónico del tiquete de máquina registradora con sistema POS'
         filas = [[pos, '77', 'POS', '03-08-2026', '800100200', 'PEAJE', '12.500', 'ADMINISTRATIVO', '', ''],
@@ -12017,12 +12017,12 @@ class GastosTests(BaseCRM):
                  ['Factura electrónica', '9', 'FE', '03-08-2026', '900534356', 'X', '1000', 'ADMINISTRATIVO', '', '']]
         r = self.lote(filas)
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, 'Al guardar se crearán estos tipos de documento')
-        self.assertContains(r, f'name="crear_tipo" value="{pos}" checked')
-        self.assertContains(r, 'Hay tipos de documento nuevos')
-        self.assertEqual(Gasto.objects.count(), 0, "el primer intento solo avisa")
-        # Segundo intento, con la casilla marcada: se crea UNA vez y se guardan las tres.
-        r = self.lote(filas, crear_tipo=[pos])
+        self.assertContains(r, 'id="gl-pasos"')
+        self.assertContains(r, 'Se crearán estos tipos de documento')
+        self.assertContains(r, f'name="crear_tipo" value="{pos}" form="gl-form" checked')
+        self.assertEqual(Gasto.objects.count(), 0, "el primer intento solo pregunta")
+        # Guardar desde el popup: se crea UNA vez y se guardan las tres.
+        r = self.lote(filas, crear_tipo=[pos], pasos_confirmados='1')
         self.assertRedirects(r, reverse('gestion:gastos'))
         self.assertEqual(list(TipoDocumentoGasto.objects.values_list('nombre', flat=True)), [pos])
         self.assertEqual(Gasto.objects.filter(tipo_documento=pos).count(), 2)
@@ -12036,12 +12036,38 @@ class GastosTests(BaseCRM):
         self.assertEqual(g.tipo_nombre, pos)
         self.assertEqual(g.valor, g.total, "suma como cualquier factura")
 
-    def test_si_hay_otro_error_el_tipo_confirmado_no_se_pierde(self):
+    def test_el_popup_va_por_pasos_categorias_tipos_y_placas(self):
+        from .models import CategoriaGasto, Gasto
+        filas = [['Application response', '5', '', '03-08-2026', '9001', 'X', '1000', 'TUNJA', 'OFICINA', ''],
+                 ['Factura', '6', '', '03-08-2026', '9001', 'X', '1000', 'ADMINISTRATIVO', self.camion.placa, '']]
+        r = self.lote(filas)
+        pagina = r.content.decode()
+        orden = [pagina.index(t) for t in ('Se crearán estas categorías de costos', 'Se crearán estos tipos de documento',
+                                            'Estas placas no son vehículos de la empresa')]
+        self.assertEqual(orden, sorted(orden), "categorías → tipos → placas")
+        self.assertContains(r, 'Paso <span id="gp-n">1</span> de 3')
+        self.assertEqual(Gasto.objects.count(), 0)
+        r = self.lote(filas, crear_categoria=['TUNJA'], crear_tipo=['Application response'],
+                      placa_texto_ok=['OFICINA'], pasos_confirmados='1')
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        g = Gasto.objects.get(folio='5')
+        self.assertEqual((g.vehiculo, g.placa_texto, g.categoria.nombre), (None, 'OFICINA', 'Tunja'),
+                         "la placa que no es de la empresa solo informa")
+        self.assertEqual(Gasto.objects.get(folio='6').vehiculo, self.camion, "la de la empresa se carga como siempre")
+        self.assertContains(self.client.get(reverse('gestion:gastos')), 'Placa: OFICINA')
+
+    def test_placa_que_no_es_de_la_empresa_sin_costos_pide_la_categoria(self):
+        r = self.lote([['Factura', '5', '', '03-08-2026', '9001', 'X', '1000', '', 'XYZ999', '']])
+        self.assertContains(r, '«XYZ999» no es un vehículo de la empresa: escribe la categoría en COSTOS.')
+        self.assertNotContains(r, 'id="gl-pasos"')
+
+    def test_lo_que_se_desmarca_en_el_popup_queda_para_corregir(self):
         from .models import Gasto
-        filas = [['Application response', '5', '', '03-08-2026', '9001', 'X', '', 'ADMINISTRATIVO', '', '']]
-        r = self.lote(filas, crear_tipo=['Application response'])
-        self.assertContains(r, 'value="Application response" checked')
-        self.assertContains(r, 'Total no válido')
+        filas = [['Factura', '5', '', '03-08-2026', '9001', 'X', '1000', 'ADMINISTRATIVO', 'OBC72', '']]
+        r = self.lote(filas)
+        self.assertContains(r, '¿Es OBC727?')
+        r = self.lote(filas, pasos_confirmados='1')          # la desmarcó
+        self.assertContains(r, 'No se confirmó guardar «OBC72» como texto: corrige la placa.')
         self.assertEqual(Gasto.objects.count(), 0)
 
     def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
@@ -12063,12 +12089,14 @@ class GastosTests(BaseCRM):
         ])
         self.assertEqual(r.status_code, 200)
         self.assertEqual(Gasto.objects.count(), 0, "con una fila mala no se guarda ninguna")
-        self.assertContains(r, 'No existe OBC')
+        # Con errores no sale el popup: lo que solo hay que confirmar queda en ámbar con su explicación.
+        self.assertContains(r, '«OBC» no es un vehículo de la empresa: se guarda solo como texto. ¿Es OBC727?')
+        self.assertNotContains(r, 'id="gl-pasos"')
         self.assertContains(r, 'Fecha no válida')
         self.assertContains(r, 'Falta el NIT')
         self.assertContains(r, 'Total no válido')
         self.assertContains(r, 'Escribe la categoría (COSTOS), la placa o las dos')
-        self.assertContains(r, 'name="crear_categoria" value="TUNJA"')
+        self.assertContains(r, 'La categoría «TUNJA» es nueva: se crea al guardar.')
         self.assertContains(r, 'value="OBC"', msg_prefix="lo pegado se conserva para corregir")
         # Corregidas, y con «crear TUNJA» marcado, se guardan todas.
         r = self.lote([

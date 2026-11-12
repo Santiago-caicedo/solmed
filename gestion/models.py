@@ -3577,6 +3577,9 @@ class Gasto(models.Model):
     categoria = models.ForeignKey(CategoriaGasto, on_delete=models.PROTECT, null=True, blank=True,
                                   related_name='gastos', verbose_name="Categoría")
     nota = models.CharField(max_length=255, blank=True, verbose_name="Nota")
+    # Nov-2026: lo que vino en PLACAS cuando no es un vehículo de la empresa
+    # (otra placa, «OFICINA»…). Solo informa: no carga el gasto a nada.
+    placa_texto = models.CharField(max_length=60, blank=True, verbose_name="Placa (texto informativo)")
     archivo = models.FileField(upload_to='gastos/', blank=True, null=True, verbose_name="Archivo de la factura")
     registrado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
                                        blank=True, related_name='gastos_registrados')
