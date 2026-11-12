@@ -3507,6 +3507,25 @@ class CategoriaGasto(models.Model):
         return self.nombre
 
 
+class TipoDocumentoGasto(models.Model):
+    """
+    Un tipo de documento de compra que no es de los de siempre (nov-2026):
+    la clienta pega filas de varias fuentes y a veces trae «Documento
+    equivalente POS», «Application response»… Se crean al guardar la tabla en
+    lote, confirmándolos. Sus gastos suman como cualquier factura.
+    """
+    nombre = models.CharField(max_length=120, unique=True, verbose_name="Nombre")
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['nombre']
+        verbose_name = "Tipo de documento de gasto"
+        verbose_name_plural = "Tipos de documento de gasto"
+
+    def __str__(self):
+        return self.nombre
+
+
 class Gasto(models.Model):
     """
     Un documento de compra (factura, nota débito o nota crédito). Lleva su
@@ -3536,7 +3555,9 @@ class Gasto(models.Model):
         ('ZZZ', 'Otro'),
     ]
 
-    tipo_documento = models.CharField(max_length=15, choices=TIPO_CHOICES, default='FACTURA',
+    # Los de siempre van con su código (TIPO_CHOICES); los creados por la
+    # oficina (TipoDocumentoGasto, nov-2026), con su nombre tal cual.
+    tipo_documento = models.CharField(max_length=120, default='FACTURA',
                                       verbose_name="Tipo de documento")
     prefijo = models.CharField(max_length=20, blank=True, verbose_name="Prefijo")
     folio = models.CharField(max_length=30, verbose_name="Folio")
@@ -3589,6 +3610,11 @@ class Gasto(models.Model):
         if self.categoria_id:
             partes.append(self.categoria.nombre)
         return ' · '.join(partes) or 'Sin asignar'
+
+    @property
+    def tipo_nombre(self):
+        """El tipo como se lee: el de siempre por su código o el creado por la oficina."""
+        return dict(self.TIPO_CHOICES).get(self.tipo_documento, self.tipo_documento)
 
     @property
     def valor(self):

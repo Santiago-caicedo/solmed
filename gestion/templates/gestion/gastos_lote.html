@@ -89,6 +89,17 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             <button type="button" class="cerrar" id="gl-aviso-cerrar" aria-label="Cerrar el aviso">&times;</button>
         </div>
 
+        {% if tipos_nuevos %}
+        {# Nov-2026: tipos de documento que no existen; se crean al volver a guardar. #}
+        <div class="gx-panel gl-nuevas" role="alert">
+            <div class="t"><i class="bi bi-file-earmark-plus me-1" aria-hidden="true"></i>Al guardar se crearán estos tipos de documento:</div>
+            {% for t in tipos_nuevos %}
+            <label><input type="checkbox" class="form-check-input" name="crear_tipo" value="{{ t }}" checked>{{ t }}</label>
+            {% endfor %}
+            <div class="form-text mt-1">Si alguno está mal escrito, desmárcalo y corrige esas filas.</div>
+        </div>
+        {% endif %}
+
         <div class="gx-panel gl-marco">
             <table class="gl-tabla" id="gl-tabla" aria-label="Gastos a registrar">
                 {# Anchos pensados para lo que trae cada columna: el nombre del emisor se lleva el espacio que sobra. #}

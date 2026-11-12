@@ -12008,6 +12008,42 @@ class GastosTests(BaseCRM):
         self.assertContains(r, f'Llegaron {MAX_FILAS + 3} filas y caben {MAX_FILAS} por vez')
         self.assertEqual(Gasto.objects.count(), 0)
 
+    def test_un_tipo_de_documento_nuevo_se_crea_al_volver_a_guardar(self):
+        """Nov-2026: la clienta pega de varias fuentes; un tipo que no existe se avisa y se crea al confirmar."""
+        from .models import Gasto, TipoDocumentoGasto
+        pos = 'Documento equivalente electrónico del tiquete de máquina registradora con sistema POS'
+        filas = [[pos, '77', 'POS', '03-08-2026', '800100200', 'PEAJE', '12.500', 'ADMINISTRATIVO', '', ''],
+                 [pos.upper(), '78', 'POS', '03-08-2026', '800100200', 'PEAJE', '12.500', 'ADMINISTRATIVO', '', ''],
+                 ['Factura electrónica', '9', 'FE', '03-08-2026', '900534356', 'X', '1000', 'ADMINISTRATIVO', '', '']]
+        r = self.lote(filas)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Al guardar se crearán estos tipos de documento')
+        self.assertContains(r, f'name="crear_tipo" value="{pos}" checked')
+        self.assertContains(r, 'Hay tipos de documento nuevos')
+        self.assertEqual(Gasto.objects.count(), 0, "el primer intento solo avisa")
+        # Segundo intento, con la casilla marcada: se crea UNA vez y se guardan las tres.
+        r = self.lote(filas, crear_tipo=[pos])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(list(TipoDocumentoGasto.objects.values_list('nombre', flat=True)), [pos])
+        self.assertEqual(Gasto.objects.filter(tipo_documento=pos).count(), 2)
+        self.assertEqual(Gasto.objects.get(folio='9').tipo_documento, 'FACTURA')
+        # La próxima vez ya existe: entra sin preguntar, y se ve en la lista y al editar.
+        r = self.lote([[pos.lower(), '79', 'POS', '03-08-2026', '800100200', 'PEAJE', '1000', 'ADMINISTRATIVO', '', '']])
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(Gasto.objects.get(folio='79').tipo_documento, pos)
+        self.assertContains(self.client.get(reverse('gestion:gastos')), 'tiquete de máquina registradora')
+        g = Gasto.objects.get(folio='79')
+        self.assertEqual(g.tipo_nombre, pos)
+        self.assertEqual(g.valor, g.total, "suma como cualquier factura")
+
+    def test_si_hay_otro_error_el_tipo_confirmado_no_se_pierde(self):
+        from .models import Gasto
+        filas = [['Application response', '5', '', '03-08-2026', '9001', 'X', '', 'ADMINISTRATIVO', '', '']]
+        r = self.lote(filas, crear_tipo=['Application response'])
+        self.assertContains(r, 'value="Application response" checked')
+        self.assertContains(r, 'Total no válido')
+        self.assertEqual(Gasto.objects.count(), 0)
+
     def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
         """Como los deja el campo de dinero («$ 1.248.750», «$ 120.039,44») o como los pega Excel en inglés."""
         from .models import Gasto
