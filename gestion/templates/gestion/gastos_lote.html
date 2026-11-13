@@ -51,6 +51,8 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
 .gp-item .form-check-input{ margin:0; flex:none; }
 .gp-texto{ font-weight:600; color:var(--ink); overflow-wrap:anywhere; }
 .gp-filas{ margin-left:auto; flex:none; font-size:.75rem; color:var(--ink-3); }
+.gp-detalle{ font-size:.8rem; color:var(--ink-3); margin:.2rem 0 0 1.75rem; }
+.gp-todos{ padding:0; margin:-.35rem 0 .5rem; font-size:.82rem; }
 .gp-sugerencia{ font-size:.8rem; color:var(--warn); margin:.3rem 0 0 1.75rem; }
 .gp-sugerencia i{ margin-right:.3rem; }
 .gl-pasos .modal-footer{ border-top:1px solid var(--line); padding:.75rem 1.25rem; }
@@ -175,14 +177,16 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
                     {% for p in pasos %}
                     <section class="gp-paso" data-titulo="{{ p.titulo }}" {% if not forloop.first %}hidden{% endif %}>
                         <p class="gp-bajada"><i class="bi {{ p.icono }}" aria-hidden="true"></i>{{ p.bajada }}</p>
+                        {% if p.items|length > 3 %}<button type="button" class="btn btn-link btn-sm gp-todos">Desmarcar todos</button>{% endif %}
                         <ul class="gp-lista">
                             {% for it in p.items %}
                             <li class="gp-item">
                                 <label>
-                                    <input type="checkbox" class="form-check-input" name="{{ p.campo }}" value="{{ it.texto }}" form="gl-form" checked>
+                                    <input type="checkbox" class="form-check-input" name="{{ p.campo }}" value="{{ it.valor|default:it.texto }}" form="gl-form" checked>
                                     <span class="gp-texto">{{ it.texto }}</span>
                                     <span class="gp-filas">{% if it.filas|length == 1 %}fila {{ it.filas.0 }}{% else %}{{ it.filas|length }} filas{% endif %}</span>
                                 </label>
+                                {% if it.detalle %}<div class="gp-detalle">{{ it.detalle }}</div>{% endif %}
                                 {% if it.parecidas %}<div class="gp-sugerencia"><i class="bi bi-lightbulb" aria-hidden="true"></i>¿Es {{ it.parecidas|join:", " }}? Si es así, desmárcala y corrígela en la tabla.</div>{% endif %}
                             </li>
                             {% endfor %}
@@ -364,6 +368,15 @@ servidor (gastos.revisar_lote); el JS solo ayuda a pegar y a sumar.
             guardar.hidden = i !== pasos.length - 1;
             var foco = pasos[i].querySelector('input'); if (foco) foco.focus();
         }
+        // Marcar o desmarcar todo un paso de una vez (útil con muchos repetidos).
+        pasosModal.querySelectorAll('.gp-todos').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var cajas = b.closest('.gp-paso').querySelectorAll('input[type="checkbox"]');
+                var todas = Array.prototype.every.call(cajas, function (c) { return c.checked; });
+                cajas.forEach(function (c) { c.checked = !todas; });
+                b.textContent = todas ? 'Marcar todos' : 'Desmarcar todos';
+            });
+        });
         atras.addEventListener('click', function () { mostrar(actual - 1); });
         sig.addEventListener('click', function () { mostrar(actual + 1); });
         guardar.addEventListener('click', function () { guardar.disabled = true; guardar.textContent = 'Guardando…'; document.getElementById('gl-form').submit(); });

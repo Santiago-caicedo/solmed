@@ -3560,16 +3560,18 @@ class Gasto(models.Model):
     tipo_documento = models.CharField(max_length=120, default='FACTURA',
                                       verbose_name="Tipo de documento")
     prefijo = models.CharField(max_length=20, blank=True, verbose_name="Prefijo")
-    folio = models.CharField(max_length=30, verbose_name="Folio")
+    # Nov-2026: folio, NIT, proveedor y fecha pueden quedar vacíos (a veces aún
+    # no se tienen); el gasto queda INCOMPLETO (`faltantes`) hasta completarlo.
+    folio = models.CharField(max_length=30, blank=True, verbose_name="Folio")
     divisa = models.CharField(max_length=3, default='COP', verbose_name="Divisa")
     forma_pago = models.CharField(max_length=2, choices=FORMA_PAGO_CHOICES, default='1',
                                   verbose_name="Forma de pago")
     medio_pago = models.CharField(max_length=4, choices=MEDIO_PAGO_CHOICES, default='10',
                                   verbose_name="Medio de pago")
-    fecha_emision = models.DateField(verbose_name="Fecha de emisión")
+    fecha_emision = models.DateField(null=True, blank=True, verbose_name="Fecha de emisión")
     fecha_recepcion = models.DateTimeField(null=True, blank=True, verbose_name="Fecha de recepción")
-    nit_emisor = models.CharField(max_length=20, verbose_name="NIT del proveedor")
-    nombre_emisor = models.CharField(max_length=200, verbose_name="Proveedor")
+    nit_emisor = models.CharField(max_length=20, blank=True, verbose_name="NIT del proveedor")
+    nombre_emisor = models.CharField(max_length=200, blank=True, verbose_name="Proveedor")
     total = models.DecimalField(max_digits=14, decimal_places=2, verbose_name="Total")
     # A qué se carga: un vehículo o una categoría (uno de los dos).
     vehiculo = models.ForeignKey('Vehiculo', on_delete=models.PROTECT, null=True, blank=True,
@@ -3589,18 +3591,33 @@ class Gasto(models.Model):
         ordering = ['-fecha_emision', '-pk']
         verbose_name = "Gasto"
         verbose_name_plural = "Gastos"
-        constraints = [
-            # El mismo documento del mismo proveedor no se registra dos veces.
-            models.UniqueConstraint(fields=['tipo_documento', 'nit_emisor', 'prefijo', 'folio'],
-                                    name='gasto_documento_unico'),
-        ]
+        # Nov-2026 (Santiago): el mismo folio y prefijo del mismo proveedor SÍ
+        # se puede repetir. Ya no hay restricción: la tabla en lote avisa los
+        # que parecen repetidos y la oficina decide si los guarda.
 
     def __str__(self):
         return f"{self.documento} · {self.nombre_emisor}"
 
     @property
     def documento(self):
+        if not self.folio:
+            return f"{self.prefijo}-sin folio" if self.prefijo else "Sin folio"
         return f"{self.prefijo}-{self.folio}" if self.prefijo else self.folio
+
+    # Lo que puede quedar pendiente al registrar (nov-2026), con su nombre corto.
+    CAMPOS_COMPLETAR = (('folio', 'folio'), ('nit_emisor', 'NIT'), ('nombre_emisor', 'proveedor'),
+                        ('fecha_emision', 'fecha'))
+
+    @classmethod
+    def q_incompletos(cls):
+        """Los gastos a los que les falta algo por completar."""
+        return (models.Q(folio='') | models.Q(nit_emisor='') | models.Q(nombre_emisor='')
+                | models.Q(fecha_emision__isnull=True))
+
+    @property
+    def faltantes(self):
+        """Lo que le falta por completar, en palabras: ['folio', 'NIT']."""
+        return [nombre for campo, nombre in self.CAMPOS_COMPLETAR if not getattr(self, campo)]
 
     @property
     def centro(self):

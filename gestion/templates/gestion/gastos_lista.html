@@ -29,9 +29,24 @@
         </div>
     </div>
 
+    {% if n_incompletos %}
+    {# Nov-2026: los gastos guardados sin folio, NIT, proveedor o fecha, para completarlos. #}
+    <div class="gx-panel gx-incompletos mb-3" role="status">
+        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+        <div class="t"><b>{{ n_incompletos }} gasto{{ n_incompletos|pluralize }} incompleto{{ n_incompletos|pluralize }}</b>
+            <span>Les falta folio, NIT, proveedor o fecha. Complétalos con «Editar» cuando tengas el dato{% if not solo_incompletos %}; los que no tienen fecha no suman en ningún mes{% endif %}.</span></div>
+        {% if solo_incompletos %}
+        <a href="?periodo={{ periodo }}" class="btn btn-sm btn-outline-secondary">Ver todos los gastos</a>
+        {% else %}
+        <a href="?periodo={{ periodo }}&amp;incompletos=1" class="btn btn-sm btn-outline-warning">Ver solo los incompletos</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {# ---------- Filtros ---------- #}
     <form method="get" class="d-flex gap-2 flex-wrap align-items-center mb-3">
         <input type="hidden" name="periodo" value="{{ periodo }}">
+        {% if solo_incompletos %}<input type="hidden" name="incompletos" value="1">{% endif %}
         {% if periodo == 'personalizado' %}<input type="hidden" name="desde" value="{{ desde|date:'Y-m-d' }}"><input type="hidden" name="hasta" value="{{ hasta|date:'Y-m-d' }}">{% endif %}
         <select name="centro" class="form-select form-select-sm" style="max-width:240px" aria-label="Cargado a">
             <option value="">Todo, vehículos y categorías</option>
@@ -53,9 +68,9 @@
                 <tbody>
                 {% for g in gastos %}
                 <tr>
-                    <td class="text-nowrap">{{ g.fecha_emision|date:"d/m/Y" }}</td>
-                    <td><span class="fuerte">{{ g.documento }}</span>{% if g.tipo_documento != 'FACTURA' %}<span class="gx-chip">{{ g.tipo_nombre|cut:" electrónica" }}</span>{% endif %}{% if g.nota %}<small>{{ g.nota }}</small>{% endif %}</td>
-                    <td>{{ g.nombre_emisor }}<small>NIT {{ g.nit_emisor }}</small></td>
+                    <td class="text-nowrap">{% if g.fecha_emision %}{{ g.fecha_emision|date:"d/m/Y" }}{% else %}<span class="text-muted">Sin fecha</span>{% endif %}</td>
+                    <td><span class="fuerte">{{ g.documento }}</span>{% if g.tipo_documento != 'FACTURA' %}<span class="gx-chip">{{ g.tipo_nombre|cut:" electrónica" }}</span>{% endif %}{% if g.nota %}<small>{{ g.nota }}</small>{% endif %}{% with f=g.faltantes %}{% if f %}<span class="gx-falta" title="Complétalo con «Editar»"><i class="bi bi-exclamation-circle" aria-hidden="true"></i>Le falta: {{ f|join:", " }}</span>{% endif %}{% endwith %}</td>
+                    <td>{% if g.nombre_emisor %}{{ g.nombre_emisor }}{% else %}<span class="text-muted">Sin proveedor</span>{% endif %}<small>{% if g.nit_emisor %}NIT {{ g.nit_emisor }}{% else %}Sin NIT{% endif %}</small></td>
                     <td><span class="gx-centro"><i class="bi {% if g.vehiculo_id %}bi-truck{% else %}bi-tag{% endif %}" aria-hidden="true"></i>{{ g.centro }}</span>{% if g.placa_texto %}<small title="No es un vehículo de la empresa: solo informa">Placa: {{ g.placa_texto }}</small>{% endif %}</td>
                     <td>{{ g.get_forma_pago_display }}<small>{{ g.get_medio_pago_display }}</small></td>
                     <td class="n fuerte {% if g.tipo_documento == 'NOTA_CREDITO' %}gx-neg{% endif %}">{% if g.tipo_documento == 'NOTA_CREDITO' %}−{% endif %}${{ g.total|floatformat:0|intcomma }}</td>
@@ -73,7 +88,7 @@
                 </tr>
                 {% endfor %}
                 </tbody>
-                <tfoot><tr><td colspan="5">{{ resumen.n }} documento{{ resumen.n|pluralize }}{% if filtrado %} con los filtros puestos{% endif %}</td><td class="n">${{ resumen.total|floatformat:0|intcomma }}</td><td></td></tr></tfoot>
+                <tfoot><tr><td colspan="5">{{ pie.n }} documento{{ pie.n|pluralize }}{% if solo_incompletos %} incompleto{{ pie.n|pluralize }}{% elif filtrado %} con los filtros puestos{% endif %}</td><td class="n">${{ pie.total|floatformat:0|intcomma }}</td><td></td></tr></tfoot>
             </table>
         </div>
         {% else %}

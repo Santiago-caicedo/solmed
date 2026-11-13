@@ -25,7 +25,7 @@ from decimal import Decimal, InvalidOperation
 from django import forms
 from django.contrib import messages
 from django.db import IntegrityError
-from django.db.models import Count, Min, Q, Sum
+from django.db.models import Count, F, Min, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -233,13 +233,19 @@ class GastosView(AdministradorRequiredMixin, PaginadoMixin, View):
         from django.core.paginator import Paginator
         ctx = _periodo_contexto(request)
         base = Gasto.objects.filter(fecha_emision__range=(ctx['desde'], ctx['hasta']))
-        qs, centro, q = _filtrar(base.select_related('vehiculo', 'categoria'), request)
-        total = _suma(qs)
+        # Nov-2026: los incompletos se ven TODOS (de cualquier fecha, o sin ella)
+        # para completarlos; el aviso de arriba los cuenta siempre.
+        incompletos = Gasto.objects.filter(Gasto.q_incompletos())
+        solo_incompletos = request.GET.get('incompletos') == '1'
+        qs, centro, q = _filtrar((incompletos if solo_incompletos else base).select_related('vehiculo', 'categoria'), request)
+        # El resumen de arriba es SIEMPRE del periodo, aunque abajo se vean solo los incompletos.
+        del_periodo = _filtrar(base, request)[0] if solo_incompletos else qs
+        total = _suma(del_periodo)
         anterior = _suma(_filtrar(Gasto.objects.filter(fecha_emision__range=(ctx['a_desde'], ctx['a_hasta'])), request)[0])
-        pagina = Paginator(qs.order_by('-fecha_emision', '-pk'), 30).get_page(request.GET.get('page'))
+        pagina = Paginator(qs.order_by(F('fecha_emision').desc(nulls_first=True), '-pk'), 30).get_page(request.GET.get('page'))
         # El resumen de arriba: siempre sobre el periodo, sin el filtro de centro.
         resumen = {
-            'total': total, 'delta': _delta(total, anterior), 'n': qs.count(),
+            'total': total, 'delta': _delta(total, anterior), 'n': del_periodo.count(),
             'vehiculos': _suma(base.filter(vehiculo__isnull=False)),
             'categorias': _suma(base.filter(categoria__isnull=False)),
         }
@@ -247,7 +253,10 @@ class GastosView(AdministradorRequiredMixin, PaginadoMixin, View):
         ctx.update({
             'gastos': pagina.object_list, 'page_obj': pagina, 'pagina_rango': rango_de_paginas(pagina, 2),
             'resumen': resumen, 'mayor_proveedor': mayor, 'centro': centro, 'q': q,
-            'centros': _opciones_centro(), 'filtrado': bool(centro or q),
+            'centros': _opciones_centro(), 'filtrado': bool(centro or q or solo_incompletos),
+            'n_incompletos': incompletos.count(), 'solo_incompletos': solo_incompletos,
+            # El pie de la tabla: lo que se lista (con el filtro de incompletos, solo esos).
+            'pie': {'n': qs.count(), 'total': _suma(qs)},
             'pestana': 'registro',
         })
         return render(request, self.template_name, ctx)
@@ -315,12 +324,6 @@ class GastoForm(forms.ModelForm):
         datos = super().clean()
         if not datos.get('categoria') and not datos.get('vehiculo'):
             self.add_error('categoria', "Escoge la categoría (COSTOS), la placa o las dos.")
-        if datos.get('folio') and datos.get('nit_emisor') and datos.get('tipo_documento'):
-            repetido = Gasto.objects.filter(tipo_documento=datos['tipo_documento'], nit_emisor=datos['nit_emisor'],
-                                            prefijo=(datos.get('prefijo') or '').strip().upper(),
-                                            folio=datos['folio'].strip()).exclude(pk=self.instance.pk)
-            if repetido.exists():
-                self.add_error('folio', "Ese documento de ese proveedor ya está registrado.")
         return datos
 
     def save(self, commit=True):
@@ -421,7 +424,7 @@ def _placa(texto):
     return str(texto or '').strip().upper().replace(' ', '').replace('-', '')
 
 
-def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confirmado=False):
+def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confirmado=False, repetidos_ok=()):
     """
     Revisa las filas pegadas. Devuelve (resultado, pendientes).
 
@@ -435,6 +438,11 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
     vehículo de la empresa—. Lo ya confirmado llega en `crear_categorias`,
     `crear_tipos` y `placas_ok`. Con `confirmado` (se pasó por el popup), lo
     que se desmarcó deja de ser pendiente y pasa a ser error de su fila.
+
+    Repetidos (mismo tipo, NIT, prefijo y folio que otra fila o que un gasto
+    ya registrado): no bloquean (Santiago, nov-2026). Se preguntan en el
+    popup; los confirmados (`repetidos_ok`, por número de fila) se guardan y
+    los desmarcados se omiten.
     """
     vehiculos = {v.placa.upper(): v for v in Vehiculo.objects.all()}
     categorias = {c.nombre.strip().lower(): c for c in CategoriaGasto.objects.all()}
@@ -450,7 +458,8 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
     crear = _conjunto(crear_categorias, 80)
     crear_t = _conjunto(crear_tipos, 120)
     placas_conf = {_placa(p) for p in placas_ok if _placa(p)}
-    pend = {'categorias': {}, 'tipos': {}, 'placas': {}}
+    pend = {'categorias': {}, 'tipos': {}, 'placas': {}, 'repetidos': {}}
+    repetidos_ok = {str(n) for n in repetidos_ok}
     vistos = {}
     resultado = []
 
@@ -480,18 +489,23 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
         datos['folio'] = str(fila.get('folio') or '').strip()
         if datos['folio'].endswith('.0'):
             datos['folio'] = datos['folio'][:-2]
+        # Folio, NIT, proveedor y fecha pueden faltar (nov-2026): se guarda y queda
+        # INCOMPLETO en la lista, para completarlo cuando se tenga el dato.
         if not datos['folio']:
-            errores['folio'] = "Falta el folio."
+            pendientes['folio'] = "Sin folio: se guarda y queda incompleto para completarlo después."
         datos['prefijo'] = str(fila.get('prefijo') or '').strip().upper()
-        datos['fecha_emision'] = _fecha(fila.get('fecha'))
-        if datos['fecha_emision'] is None:
+        fecha_cruda = str(fila.get('fecha') or '').strip()
+        datos['fecha_emision'] = _fecha(fecha_cruda) if fecha_cruda else None
+        if fecha_cruda and datos['fecha_emision'] is None:
             errores['fecha'] = "Fecha no válida (usa día-mes-año)."
-        datos['nit_emisor'] = _nit(fila.get('nit'))
+        elif not fecha_cruda:
+            pendientes['fecha'] = "Sin fecha: se guarda incompleto y no suma en ningún mes hasta completarla."
+        datos['nit_emisor'] = _nit(fila.get('nit')) or ''
         if not datos['nit_emisor']:
-            errores['nit'] = "Falta el NIT (en el Excel puede venir como #VALUE!)."
+            pendientes['nit'] = "Sin NIT (en el Excel puede venir como #VALUE!): se guarda incompleto."
         datos['nombre_emisor'] = str(fila.get('nombre') or '').strip()[:200]
         if not datos['nombre_emisor']:
-            errores['nombre'] = "Falta el nombre del emisor."
+            pendientes['nombre'] = "Sin nombre del emisor: se guarda incompleto."
         total = _numero(fila.get('total'))
         datos['total'] = total
         if total is None or total <= 0:
@@ -535,19 +549,32 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
             errores['costos'] = (f"«{placa_cruda}» no es un vehículo de la empresa: escribe la categoría en COSTOS."
                                  if placa else "Escribe la categoría (COSTOS), la placa o las dos.")
         datos['nota'] = str(fila.get('detalle') or '').strip()[:255]
-        # Duplicados: en la misma tabla es error; ya registrado en el sistema se omite.
+        # Repetidos: se avisan en el popup; se guardan si se dejan marcados.
         omitir = False
         if datos['folio'] and datos['nit_emisor'] and datos['tipo_documento']:
             llave = (datos['tipo_documento'].lower(), datos['nit_emisor'], datos['prefijo'], datos['folio'])
+            motivo = ''
             if llave in vistos:
-                errores['folio'] = f"Repetido en la fila {vistos[llave] + 1}."
+                motivo = f"igual a la fila {vistos[llave] + 1}"
             else:
                 vistos[llave] = i
-                omitir = Gasto.objects.filter(tipo_documento__iexact=datos['tipo_documento'], nit_emisor=llave[1],
-                                              prefijo=llave[2], folio=llave[3]).exists()
+                ya = Gasto.objects.filter(tipo_documento__iexact=datos['tipo_documento'], nit_emisor=llave[1],
+                                          prefijo=llave[2], folio=llave[3]).order_by('creado_en').first()
+                if ya is not None:
+                    motivo = f"ya registrado el {timezone.localtime(ya.creado_en):%d/%m/%Y}"
+            if motivo and str(i + 1) not in repetidos_ok:
+                if confirmado:
+                    omitir = True                     # lo desmarcó: no se guarda
+                else:
+                    documento = f"{datos['prefijo']}-{datos['folio']}" if datos['prefijo'] else datos['folio']
+                    pendientes['folio'] = f"Parece repetido ({motivo}): se pregunta al guardar."
+                    pendiente('repetidos', str(i + 1), f"{documento} · {datos['nombre_emisor'] or datos['nit_emisor']}",
+                              i + 1, valor=str(i + 1), detalle=motivo[:1].upper() + motivo[1:] + '.')
         resultado.append({'n': i + 1, 'valores': fila, 'datos': datos, 'errores': errores,
                           'pendientes': pendientes, 'omitir': omitir})
-    pendientes = {g: sorted(items.values(), key=lambda x: x['texto'].lower()) for g, items in pend.items()}
+    pendientes = {g: sorted(items.values(), key=lambda x: x['texto'].lower()) for g, items in pend.items()
+                  if g != 'repetidos'}
+    pendientes['repetidos'] = list(pend['repetidos'].values())          # en el orden de la tabla
     return resultado, pendientes
 
 
@@ -598,6 +625,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
         crear_tipos = request.POST.getlist('crear_tipo')
         placas_ok = request.POST.getlist('placa_texto_ok')
         confirmado = bool(request.POST.get('pasos_confirmados'))
+        repetidos_ok = request.POST.getlist('repetido_ok')
         # La tabla no deja pasar del tope; si igual llegan más (otro navegador,
         # JS apagado), no se guarda NADA en vez de descartar filas en silencio.
         llenas = [f for f in filas if any((v or '').strip() for v in f.values())]
@@ -606,7 +634,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                                     f"No se guardó nada: deja las primeras {MAX_FILAS}, guárdalas y pega el resto después.")
             return self._render(request, llenas[:MAX_FILAS])
         filas = filas[:MAX_FILAS] if len(filas) > MAX_FILAS else filas
-        resultado, pendientes = revisar_lote(filas, crear, crear_tipos, placas_ok, confirmado)
+        resultado, pendientes = revisar_lote(filas, crear, crear_tipos, placas_ok, confirmado, repetidos_ok)
         if not resultado:
             messages.error(request, "La tabla está vacía: pega las filas del Excel o escríbelas.")
             return self._render(request, filas)
@@ -616,7 +644,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                                     "(marcadas en rojo). No se guardó nada todavía.")
             return self._render(request, filas, resultado)
         # Sin errores, pero con algo por confirmar: el popup por pasos
-        # (categorías → tipos → placas) y, en el último, se guarda.
+        # (categorías → tipos → placas → repetidos) y, en el último, se guarda.
         pasos = [p for p in (
             {'clave': 'categorias', 'campo': 'crear_categoria', 'icono': 'bi-tag',
              'titulo': 'Se crearán estas categorías de costos',
@@ -631,6 +659,11 @@ class GastosLoteView(AdministradorRequiredMixin, View):
              'bajada': 'Se guardan solo como texto informativo: el gasto no se carga a ningún vehículo y queda en su '
                        'categoría de COSTOS. Si es una placa de la empresa mal escrita, desmárcala y corrígela.',
              'items': pendientes['placas']},
+            {'clave': 'repetidos', 'campo': 'repetido_ok', 'icono': 'bi-files',
+             'titulo': 'Estos documentos parecen repetidos',
+             'bajada': 'Tienen el mismo tipo, NIT, prefijo y folio que otra fila o que un gasto ya registrado. '
+                       'Los marcados se guardan igual; desmarca los que no quieras duplicar.',
+             'items': pendientes['repetidos']},
         ) if p['items']]
         if pasos:
             return self._render(request, filas, resultado, pasos)
@@ -661,8 +694,8 @@ class GastosLoteView(AdministradorRequiredMixin, View):
                         placa_texto=d['placa_texto'],
                         registrado_por=request.user)
         except IntegrityError:
-            messages.error(request, "Alguien registró uno de estos documentos al mismo tiempo. No se guardó nada: "
-                                    "vuelve a guardar y el sistema omitirá los que ya estén.")
+            messages.error(request, "No se pudo guardar (otro registro chocó al mismo tiempo). No se guardó nada: "
+                                    "vuelve a guardar.")
             return self._render(request, filas)
         total = sum((r['datos']['total'] for r in por_guardar), Decimal('0'))
         texto = f"{len(por_guardar)} gasto{'s' if len(por_guardar) != 1 else ''} registrado{'s' if len(por_guardar) != 1 else ''} por ${_texto_pesos(total)}"
@@ -670,8 +703,13 @@ class GastosLoteView(AdministradorRequiredMixin, View):
             texto += f"; se crearon las categorías {', '.join(c.nombre for c in creadas.values())}"
         if tipos_creados:
             texto += f"; se crearon los tipos de documento {', '.join(t.nombre for t in tipos_creados.values())}"
+        incompletos = sum(1 for r in por_guardar if not (r['datos']['folio'] and r['datos']['nit_emisor']
+                                                          and r['datos']['nombre_emisor'] and r['datos']['fecha_emision']))
+        if incompletos:
+            texto += (f". {incompletos} quedaron incompletos" if incompletos != 1 else ". 1 quedó incompleto") + \
+                     ": complétalos cuando tengas el dato"
         if omitidas:
-            texto += f". {omitidas} ya estaba{'n' if omitidas != 1 else ''} registrado{'s' if omitidas != 1 else ''} y se omiti{'eron' if omitidas != 1 else 'ó'}"
+            texto += f". {omitidas} repetido{'s' if omitidas != 1 else ''} no se guard{'aron' if omitidas != 1 else 'ó'}, como elegiste"
         messages.success(request, texto + ".")
         return redirect('gestion:gastos')
 
@@ -697,6 +735,9 @@ class GastoFormView(AdministradorRequiredMixin, View):
             form.add_error('folio', "Ese documento de ese proveedor ya está registrado.")
             return render(request, self.template_name, {'form': form, 'gasto': gasto, 'pestana': 'registro'})
         messages.success(request, f"Gasto {gasto.documento} actualizado.")
+        if Gasto.objects.filter(tipo_documento=gasto.tipo_documento, nit_emisor=gasto.nit_emisor, prefijo=gasto.prefijo,
+                                folio=gasto.folio).exclude(pk=gasto.pk).exists():
+            messages.warning(request, f"Ojo: hay otro gasto con el mismo documento {gasto.documento} de este proveedor.")
         return redirect('gestion:gastos')
 
 

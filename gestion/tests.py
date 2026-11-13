@@ -11974,9 +11974,12 @@ class GastosTests(BaseCRM):
         self.assertEqual((g.prefijo, g.fecha_emision, g.total, g.nota), ('PZVP', datetime.date(2026, 8, 3), Decimal('148750'), 'LLANTAS'))
         self.assertEqual((g.vehiculo, g.categoria), (self.camion, self.admin_cat), "placa y categoría juntas")
         self.assertEqual(Gasto.objects.get(folio='605297').categoria.nombre, 'Operacional')
-        # Volver a pegar lo mismo no duplica: se omiten.
-        r = self.lote([['Factura electrónica', '393001', 'PZVP', '03-08-2026', '900534356', 'WORLD OFFICE',
-                        '148750', 'Administrativo', '', '']])
+        # Volver a pegar lo mismo: se pregunta como repetido; desmarcado no se duplica.
+        repetida = [['Factura electrónica', '393001', 'PZVP', '03-08-2026', '900534356', 'WORLD OFFICE',
+                     '148750', 'Administrativo', '', '']]
+        r = self.lote(repetida)
+        self.assertContains(r, 'Estos documentos parecen repetidos')
+        r = self.lote(repetida, pasos_confirmados='1')
         self.assertRedirects(r, reverse('gestion:gastos'))
         self.assertEqual(Gasto.objects.count(), 3)
 
@@ -12070,6 +12073,68 @@ class GastosTests(BaseCRM):
         self.assertContains(r, 'No se confirmó guardar «OBC72» como texto: corrige la placa.')
         self.assertEqual(Gasto.objects.count(), 0)
 
+    def test_el_mismo_folio_y_prefijo_del_mismo_proveedor_se_puede_repetir(self):
+        """Nov-2026 (Santiago): los repetidos no bloquean; se avisan al final del popup y se guardan si quedan marcados."""
+        from .models import Gasto
+        Gasto.objects.create(folio='100', prefijo='FE', fecha_emision=datetime.date(2026, 8, 1), nit_emisor='9001',
+                             nombre_emisor='PROVEEDOR', total=Decimal('1000'), categoria=self.admin_cat)
+        filas = [['Factura', '100', 'FE', '03-08-2026', '9001', 'PROVEEDOR', '2000', 'ADMINISTRATIVO', '', ''],
+                 ['Factura', '200', 'FE', '03-08-2026', '9001', 'PROVEEDOR', '3000', 'ADMINISTRATIVO', '', ''],
+                 ['Factura', '200', 'FE', '03-08-2026', '9001', 'PROVEEDOR', '3000', 'ADMINISTRATIVO', '', '']]
+        r = self.lote(filas)
+        self.assertContains(r, 'Estos documentos parecen repetidos')
+        self.assertContains(r, 'name="repetido_ok" value="1" form="gl-form" checked')
+        self.assertContains(r, 'name="repetido_ok" value="3" form="gl-form" checked')
+        self.assertNotContains(r, 'name="repetido_ok" value="2"', msg_prefix="la primera vez que aparece no es repetida")
+        self.assertContains(r, 'Ya registrado el')
+        self.assertEqual(Gasto.objects.count(), 1)
+        # Deja marcada la 1 y desmarca la 3: se guardan la 1 y la 2.
+        r = self.lote(filas, repetido_ok=['1'], pasos_confirmados='1')
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        self.assertEqual(Gasto.objects.filter(folio='100').count(), 2)
+        self.assertEqual(Gasto.objects.filter(folio='200').count(), 1)
+        # Editar uno repetido ya no da error: avisa.
+        g = Gasto.objects.filter(folio='100').last()
+        r = self.client.post(reverse('gestion:editar_gasto', args=[g.pk]), {
+            'tipo_documento': 'FACTURA', 'folio': '100', 'prefijo': 'FE', 'fecha_emision': '2026-08-03',
+            'nit_emisor': '9001', 'nombre_emisor': 'PROVEEDOR', 'total_texto': '2.000',
+            'categoria': self.admin_cat.pk, 'vehiculo': '', 'placa_texto': '', 'nota': ''}, follow=True)
+        self.assertContains(r, 'Ojo: hay otro gasto con el mismo documento FE-100')
+
+    def test_sin_folio_nit_proveedor_o_fecha_se_guarda_incompleto(self):
+        """Nov-2026: a veces aún no se tiene el dato; se guarda y queda marcado para completarlo."""
+        from .models import Gasto
+        r = self.lote([['Factura', '', 'FE', '', '#VALUE!', '', '50.000', 'ADMINISTRATIVO', '', 'Peaje'],
+                       ['Factura', '8', 'FE', '03-08-2026', '9001', 'COMPLETO SAS', '1000', 'ADMINISTRATIVO', '', '']])
+        self.assertEqual(r.status_code, 302)
+        self.assertContains(self.client.get(r.url), '1 quedó incompleto')
+        g = Gasto.objects.get(nota='Peaje')
+        self.assertEqual((g.folio, g.nit_emisor, g.nombre_emisor, g.fecha_emision), ('', '', '', None))
+        self.assertEqual(g.faltantes, ['folio', 'NIT', 'proveedor', 'fecha'])
+        self.assertEqual(Gasto.objects.get(folio='8').faltantes, [])
+        lista = self.client.get(reverse('gestion:gastos'), follow=True)
+        self.assertContains(lista, '1 gasto incompleto')
+        # El filtro muestra los incompletos aunque no tengan fecha (no caen en ningún periodo).
+        solo = self.client.get(reverse('gestion:gastos'), {'incompletos': '1'})
+        self.assertContains(solo, 'Le falta: folio, NIT, proveedor, fecha')
+        self.assertContains(solo, 'Sin fecha')
+        self.assertNotContains(solo, 'NIT 9001', msg_prefix='en la tabla solo van los incompletos')
+        # Se completa con «Editar» y deja de estar incompleto.
+        r = self.client.post(reverse('gestion:editar_gasto', args=[g.pk]), {
+            'tipo_documento': 'FACTURA', 'folio': '55', 'prefijo': 'FE', 'fecha_emision': '2026-08-05',
+            'nit_emisor': '9002', 'nombre_emisor': 'PEAJES SA', 'total_texto': '50.000',
+            'categoria': self.admin_cat.pk, 'vehiculo': '', 'placa_texto': '', 'nota': 'Peaje'})
+        self.assertRedirects(r, reverse('gestion:gastos'))
+        g.refresh_from_db()
+        self.assertEqual(g.faltantes, [])
+        self.assertFalse(Gasto.objects.filter(Gasto.q_incompletos()).exists())
+
+    def test_lo_mal_escrito_sigue_siendo_error(self):
+        r = self.lote([['Factura', '1', '', 'el martes', '9001', 'X', '1000', 'ADMINISTRATIVO', '', '']])
+        self.assertContains(r, 'Fecha no válida')
+        r = self.lote([['Factura', '1', '', '03-08-2026', '9001', 'X', '', 'ADMINISTRATIVO', '', '']])
+        self.assertContains(r, 'Total no válido', msg_prefix="el total sigue siendo obligatorio")
+
     def test_los_montos_con_signo_y_separadores_se_guardan_bien(self):
         """Como los deja el campo de dinero («$ 1.248.750», «$ 120.039,44») o como los pega Excel en inglés."""
         from .models import Gasto
@@ -12093,7 +12158,7 @@ class GastosTests(BaseCRM):
         self.assertContains(r, '«OBC» no es un vehículo de la empresa: se guarda solo como texto. ¿Es OBC727?')
         self.assertNotContains(r, 'id="gl-pasos"')
         self.assertContains(r, 'Fecha no válida')
-        self.assertContains(r, 'Falta el NIT')
+        self.assertContains(r, 'Sin NIT (en el Excel puede venir como #VALUE!): se guarda incompleto.')
         self.assertContains(r, 'Total no válido')
         self.assertContains(r, 'Escribe la categoría (COSTOS), la placa o las dos')
         self.assertContains(r, 'La categoría «TUNJA» es nueva: se crea al guardar.')
@@ -12109,7 +12174,8 @@ class GastosTests(BaseCRM):
         # Repetido dentro de la misma tabla: error.
         r = self.lote([['Factura', '9', '', '05-08-2026', '1', 'X', '100', 'ADMINISTRATIVO', '', ''],
                        ['Factura', '9', '', '05-08-2026', '1', 'X', '100', 'ADMINISTRATIVO', '', '']])
-        self.assertContains(r, 'Repetido en la fila 1')
+        self.assertContains(r, 'Estos documentos parecen repetidos')
+        self.assertContains(r, 'Igual a la fila 1.')
 
     def test_corregir_un_gasto_suelto(self):
         from .models import Gasto
