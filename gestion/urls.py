@@ -2,7 +2,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import cotizaciones, gastos, gerencia, views, visitas
+from . import aprobacion, cotizaciones, gastos, gerencia, views, visitas
 
 app_name = 'gestion'
 
@@ -167,6 +167,10 @@ urlpatterns = [
     path('facturacion/<int:pk>/editar/', views.FacturaFormView.as_view(), name='editar_factura'),
     path('facturacion/<int:pk>/pdf/', views.FacturaPDFView.as_view(), name='factura_pdf'),
     path('facturacion/<int:pk>/excel/', views.FacturaExcelView.as_view(), name='factura_excel'),
+    # El enlace del cliente para aprobar la preliquidación (nov-2026), sin usuario.
+    path('facturacion/revision/<uuid:token>/', aprobacion.RevisionClienteView.as_view(), name='revision_cliente'),
+    path('facturacion/revision/<uuid:token>/<str:clave>/', aprobacion.RevisionArchivoView.as_view(),
+         name='revision_archivo'),
 
     # --- Módulo de Programación (paso previo a la orden) ---
     path('programaciones/', views.ListaProgramacionesView.as_view(), name='lista_programaciones'),

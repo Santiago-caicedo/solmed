@@ -213,10 +213,10 @@ acero #1f6fb0 y verde #5E8C1B sobre blanco. Datos en gestion/gerencia.py.
                     <div class="s">{% if k.fev_pct is not None %}{{ k.fev_pct|floatformat:0 }}% de lo preliquidado{% else %}Nada preliquidado aún{% endif %}</div>
                 </div>
                 <div class="ger-cifra">
-                    <div class="k">Enviado al cliente</div>
-                    <div class="v">${{ k.enviado|floatformat:0|intcomma }}</div>
-                    <div class="ger-avance" aria-hidden="true"><span style="width:{{ k.enviado_pct|default:0|floatformat:0 }}%"></span></div>
-                    <div class="s">{% if k.enviado_pct is not None %}{{ k.enviado_pct|floatformat:0 }}% de lo preliquidado{% else %}Nada enviado aún{% endif %}</div>
+                    <div class="k">Listas para facturar</div>
+                    <div class="v">${{ k.lista|floatformat:0|intcomma }}</div>
+                    <div class="ger-avance" aria-hidden="true"><span style="width:{{ k.lista_pct|default:0|floatformat:0 }}%"></span></div>
+                    <div class="s">{% if k.lista_pct is not None %}{{ k.lista_pct|floatformat:0 }}% de lo preliquidado, aprobado por el cliente y a la espera de la FEV{% else %}Nada preliquidado aún{% endif %}</div>
                 </div>
                 <div class="ger-cifra">
                     <div class="k">Clientes con facturación</div>

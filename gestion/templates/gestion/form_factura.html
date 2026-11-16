@@ -80,6 +80,11 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 /* ---- El popup «Enviar al cliente»: todo lo que se envía sale de aquí ---- */
 .fe-modal .modal-body{ background:var(--panel); }
 .fe-dest{ padding:.7rem 1.25rem; font-size:.82rem; color:var(--ink-2); background:var(--panel-2); border-bottom:1px solid var(--line); }
+.fe-dest .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-bottom:.15rem; }
+.fe-copias{ padding:.8rem 1.25rem; border-bottom:1px solid var(--line); font-size:.88rem; }
+#fe-docs .fe-lista{ border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; }
+#fe-docs .fe-item{ padding-left:.25rem; }
+.fe-resumen{ font-size:.84rem; color:var(--ink-2); }
 .fe-dest .mono{ font-family:var(--mono); color:var(--ink); }
 .fe-dest-falta{ color:var(--warn); background:var(--warn-tint); }
 .fe-lista{ list-style:none; counter-reset:fe; margin:0; padding:.25rem 0; }
@@ -159,7 +164,17 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 {# Ya salió de manos de la comercial: aquí la corrige la administradora (nov-2026). #}
 <div class="alert alert-info d-flex align-items-start gap-2">
     <i class="bi bi-info-circle-fill mt-1"></i>
-    <div><strong>{{ factura.codigo }} está en «{{ factura.get_estado_display }}».</strong> Lo que guardes aquí lo verá la comercial en el expediente; la etapa no cambia al guardar.</div>
+    <div><strong>{{ factura.codigo }} está «{{ factura.get_estado_display|lower }}».</strong> Lo que guardes aquí lo verá la comercial en el expediente; la etapa no cambia al guardar.</div>
+</div>
+{% elif factura and factura.estado == 'ESPERANDO_CLIENTE' %}
+<div class="alert alert-warning d-flex align-items-start gap-2">
+    <i class="bi bi-link-45deg mt-1"></i>
+    <div><strong>El cliente tiene abierto el enlace de {{ factura.codigo }}.</strong> Si guardas cambios, ese enlace se anula y tienes que volver a enviársela.</div>
+</div>
+{% elif factura and factura.devuelta %}
+<div class="alert alert-warning d-flex align-items-start gap-2">
+    <i class="bi bi-arrow-counterclockwise mt-1"></i>
+    <div><strong>El cliente devolvió {{ factura.codigo }}</strong>{% if factura.cliente_nombre %} ({{ factura.cliente_nombre }}){% endif %}: <span style="white-space:pre-line">{{ factura.observaciones_cliente }}</span><br><span class="small">Corrige lo que pide y vuelve a enviársela: recibirá un enlace nuevo.</span></div>
 </div>
 {% endif %}
 
@@ -390,45 +405,68 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
     <input type="hidden" name="basculas_excluidas" id="ff-basculas-excluidas"
            value="{{ datos.basculas_excluidas|default:'' }}">
 
-    {# ---------- 5. Documentos: se marcan en el popup (botón abajo) ---------- #}
-    {# ---------- 6. Orden de facturación (nov-2026, bosquejo de la clienta) ---------- #}
-    <div class="card shadow mb-4" id="ff-orden-facturacion">
+    {# ---------- 5. Documentos para el cliente (nov-2026): lo que verá en su enlace ---------- #}
+    <div class="card shadow mb-4" id="fe-docs">
         <div class="card-body">
-            <div class="ff-paso">6 · Orden de facturación</div>
-            <p class="text-muted small mb-2">
-                Aquí la comercial le describe a la administradora <b>qué se factura y los detalles</b>. Cuando esté completo, «Pasar a facturación»:
-                la administradora la recibe, la deja pendiente de aprobación del cliente o procede a facturar, hace la factura electrónica (FEV y XML) y la envía.
-            </p>
-            <label class="ff-etq" for="concepto_facturacion">Concepto a facturar y detalles{% if not factura or not factura.en_facturacion %} <span class="text-muted text-lowercase">(obligatorio para pasarla a facturación)</span>{% endif %}</label>
-            <textarea name="concepto_facturacion" id="concepto_facturacion" class="form-control ff-internas" rows="4"
-                      placeholder="Ej: Facturar el global de las órdenes marcadas por transporte y disposición de lodos de la sede Norte, corte del 1 al 15. Incluye el concepto adicional de la orden #22410 (doble viaje). El cliente pidió que la factura cite su orden de compra OC-1187.">{{ datos.concepto_facturacion|default:"" }}</textarea>
-            <div class="form-text"><i class="bi bi-eye-slash me-1"></i>Es interno: no sale en el PDF ni se le envía al cliente. Llega por correo a la administración al pasarla a facturación.</div>
-
-            <div class="ff-etq mt-3">Con copia a, en los correos al cliente</div>
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="copiar_a_comercial" value="1" id="copiar_a_comercial" {% if datos.copiar_a_comercial %}checked{% endif %}>
-                <label class="form-check-label" for="copiar_a_comercial">La comercial que armó la preliquidación{% if factura and factura.comercial %} ({{ factura.comercial.get_full_name|default:factura.comercial.username }}){% endif %}</label>
-            </div>
-            <label class="ff-etq" for="correos_copia">Contactos adicionales <span class="text-muted text-lowercase">(opcional, separados por coma)</span></label>
-            <input type="text" name="correos_copia" id="correos_copia" class="form-control" value="{{ datos.correos_copia|default:'' }}"
-                   placeholder="Ej: contacto@cliente.com, compras@cliente.com" autocomplete="off">
-            <div class="form-text">Van en copia tanto en el envío de la preliquidación como en el de la factura final.</div>
+            <div class="ff-paso">5 · Documentos para el cliente</div>
+            <p class="text-muted small mb-2">Marca lo que el cliente podrá ver y descargar en su enlace, junto con la preliquidación. Lo que subas se guarda con ella.</p>
+            <ol class="fe-lista">
+                <li class="fe-item" data-clave="orden_compra">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_compra" value="1" {% if datos.copiar_orden_compra %}checked{% endif %}><span>Orden de compra</span></label>
+                    <div class="fe-est" id="fe-est-orden_compra">{% if factura.archivo_orden_compra %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_compra.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_compra.name|cut:"facturas/orden_compra/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
+                    <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_compra %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_compra" data-para="orden_compra"></label></div>
+                </li>
+                <li class="fe-item" data-clave="orden_pedido">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_pedido" value="1" {% if datos.copiar_orden_pedido %}checked{% endif %}><span>Orden de pedido</span></label>
+                    <div class="fe-est" id="fe-est-orden_pedido">{% if factura.archivo_orden_pedido %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_pedido.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_pedido.name|cut:"facturas/orden_pedido/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
+                    <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_pedido %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_pedido" data-para="orden_pedido"></label></div>
+                </li>
+                <li class="fe-item" data-clave="actas">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_actas" value="1" {% if datos.copiar_actas %}checked{% endif %}><span>Órdenes de servicio</span></label>
+                    <div class="fe-est"><span id="fe-est-actas">las actas firmadas de las órdenes marcadas</span> · <button type="button" class="fe-link" id="fe-abrir-actas" aria-expanded="false" aria-controls="fe-actas">ver cuáles</button></div>
+                    <div class="fe-tiquetes" id="fe-actas" hidden><div id="fe-ac-lista"></div></div>
+                </li>
+                <li class="fe-item" data-clave="basculas">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_basculas" value="1" {% if datos.copiar_basculas %}checked{% endif %}><span>Básculas</span></label>
+                    <div class="fe-est"><span id="fe-est-basculas">—</span> · <button type="button" class="fe-link" id="fe-abrir-tiquetes" aria-expanded="false" aria-controls="fe-tiquetes">elegir cuáles</button></div>
+                    <div class="fe-tiquetes" id="fe-tiquetes" hidden>
+                        <div class="fe-tq-todas"><button type="button" class="fe-link" id="fe-tq-todas">Marcar todas</button></div>
+                        <div id="fe-tq-lista"></div>
+                        <div class="fe-tq-falta" id="fe-tq-falta" hidden></div>
+                    </div>
+                </li>
+                <li class="fe-item" data-clave="excel">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_excel" value="1" {% if datos.copiar_excel %}checked{% endif %}><span>Preliquidación en Excel</span></label>
+                    <div class="fe-est">la misma preliquidación en hoja de cálculo: la genera el sistema{% if factura %} · <a href="{% url 'gestion:factura_excel' factura.pk %}">descargar</a>{% endif %}</div>
+                </li>
+                <li class="fe-item" data-clave="informes">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_informes" value="1" {% if datos.copiar_informes %}checked{% endif %}><span>Informes</span></label>
+                    <div class="fe-est" id="fe-est-informes" data-guardados="{{ factura.informes|length|default:0 }}">{% if factura.informes %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.informes|length }} informe{{ factura.informes|length|pluralize }}</span>: {% for o in factura.informes %}<a href="{{ o.archivo.url }}" target="_blank" rel="noopener">{{ o.nombre }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}informes del servicio que pida el cliente: súbelos desde tu computador{% endif %}</div>
+                    <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>Subir informes</span><input type="file" name="informes_archivos" multiple data-para="informes"></label></div>
+                </li>
+                <li class="fe-item" data-clave="fotos">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_fotos" value="1" {% if datos.copiar_fotos %}checked{% endif %}><span>Fotos del servicio</span></label>
+                    <div class="fe-est">el registro fotográfico que ya está en cada orden marcada (si lo tiene)</div>
+                </li>
+                <li class="fe-item" data-clave="otros">
+                    <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_otros" value="1" {% if datos.copiar_otros %}checked{% endif %}><span>Otros</span></label>
+                    <div class="fe-est" id="fe-est-otros" data-guardados="{{ factura.otros_adjuntos|length|default:0 }}">{% if factura.otros_adjuntos %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.otros_adjuntos|length }} archivo{{ factura.otros_adjuntos|length|pluralize }}</span>: {% for o in factura.otros_adjuntos %}<a href="{{ o.archivo.url }}" target="_blank" rel="noopener">{{ o.nombre }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}lo que no esté en el sistema, súbelo desde tu computador{% endif %}</div>
+                    <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>Subir archivos</span><input type="file" name="otros_archivos" multiple data-para="otros"></label></div>
+                </li>
+            </ol>
+            <div class="fe-resumen mt-2" id="fe-resumen">—</div>
+            <div class="form-text"><i class="bi bi-file-earmark-pdf me-1"></i>La preliquidación en PDF siempre va. La factura electrónica y el XML los sube la administradora al final, en el expediente.</div>
         </div>
     </div>
 
     <div class="ff-guardar">
         <div class="acciones">
             <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
-            {# Todo lo que se envía sale de un solo sitio: el popup. #}
-            <button type="button" class="btn btn-outline-primary" id="ff-abrir-enviar"
-                    data-bs-toggle="modal" data-bs-target="#fe-modal">
-                <i class="bi bi-send me-1"></i>5 · Documentos · Enviar al cliente…
-            </button>
-            <button name="submit_guardar" value="1" class="btn btn-success" id="ff-guardar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar preliquidación{% endif %}</button>
+            <button name="submit_guardar" value="1" class="btn btn-outline-success" id="ff-guardar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar preliquidación{% endif %}</button>
             {% if not factura or not factura.en_facturacion %}
-            <button name="submit_pasar" value="1" class="btn btn-primary" id="ff-pasar"
-                    onclick="return confirm('Se guarda la preliquidación y pasa a la administradora para facturar. ¿Seguir?');">
-                <i class="bi bi-arrow-right-circle me-1"></i>Guardar y pasar a facturación
+            {# Guardar y enviar: primero se confirma a qué correo va (nov-2026). #}
+            <button type="button" class="btn btn-primary" id="ff-abrir-enviar" data-bs-toggle="modal" data-bs-target="#fe-modal">
+                <i class="bi bi-send me-1"></i>Guardar y enviar al cliente…
             </button>
             {% endif %}
         </div>
@@ -455,87 +493,40 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 </div>
 </div>
 
-{# ---------- Enviar al cliente: UN popup con todo lo que se le manda, en el orden que pidió la clienta ---------- #}
-{# Sus campos llevan form="form-factura": viajan con el formulario, así lo marcado queda guardado aunque no se envíe ahora. #}
+{# ---------- Enviar al cliente (nov-2026): se confirma a quién va y sale el enlace ---------- #}
+{# Sus campos llevan form="form-factura": se guardan con la preliquidación. #}
 <div class="modal fade ff-modal fe-modal" id="fe-modal" tabindex="-1" aria-labelledby="fe-titulo">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="fe-titulo"><i class="bi bi-send me-1"></i>5 · Documentos y envío al cliente
-                    <small>Marca lo que se le manda al cliente o lo que necesita el proceso de facturación. Lo marcado queda guardado con la preliquidación.</small>
+                <h5 class="modal-title" id="fe-titulo"><i class="bi bi-send me-1"></i>Enviar al cliente
+                    <small>Se guarda la preliquidación y el cliente recibe un enlace único para verla, descargar los documentos y aprobarla o pedir correcciones.</small>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body p-0">
-                <div class="fe-dest" id="fe-dest-ok">Se le envía a <span class="mono" id="fe-dest">—</span></div>
-                <div class="fe-dest fe-dest-falta" id="fe-dest-falta" hidden><i class="bi bi-exclamation-triangle me-1"></i>Escribe el correo de facturación (paso 3) para poder enviar.</div>
-                <ol class="fe-lista">
-                    <li class="fe-item" data-clave="orden_compra">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_compra" value="1" form="form-factura" {% if datos.copiar_orden_compra %}checked{% endif %}><span>Orden de compra</span></label>
-                        <div class="fe-est" id="fe-est-orden_compra">{% if factura.archivo_orden_compra %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_compra.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_compra.name|cut:"facturas/orden_compra/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_compra %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_compra" form="form-factura" data-para="orden_compra"></label></div>
-                    </li>
-                    <li class="fe-item" data-clave="orden_pedido">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_orden_pedido" value="1" form="form-factura" {% if datos.copiar_orden_pedido %}checked{% endif %}><span>Orden de pedido</span></label>
-                        <div class="fe-est" id="fe-est-orden_pedido">{% if factura.archivo_orden_pedido %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.archivo_orden_pedido.url }}" target="_blank" rel="noopener">{{ factura.archivo_orden_pedido.name|cut:"facturas/orden_pedido/" }}</a></span>{% else %}<span class="falta">no está en el sistema</span>{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.archivo_orden_pedido %}Cambiar archivo{% else %}Subir archivo{% endif %}</span><input type="file" name="archivo_orden_pedido" form="form-factura" data-para="orden_pedido"></label></div>
-                    </li>
-                    <li class="fe-item" data-clave="factura">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_factura" value="1" form="form-factura" {% if datos.copiar_factura %}checked{% endif %}><span>Factura electrónica de venta</span></label>
-                        {# Con la electrónica cargada se manda esa; sin ella, la PRELIQUIDACIÓN interna (el PDF de este sistema). #}
-                        <div class="fe-est" id="fe-est-factura" data-cargada="{% if factura.pdf_oficial %}1{% else %}0{% endif %}">{% if factura.pdf_oficial %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.pdf_oficial.url }}" target="_blank" rel="noopener">{{ factura.pdf_oficial.name|cut:"facturas/pdf/" }}</a></span> · se manda la electrónica{% else %}<span class="falta">aún no está cargada</span> · si no la subes, se manda la <b>preliquidación interna</b>, el PDF de esta factura{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.pdf_oficial %}Cambiar archivo{% else %}Subir la electrónica{% endif %}</span><input type="file" name="pdf_oficial" form="form-factura" accept="application/pdf,.pdf" data-para="factura"></label></div>
-                    </li>
-                    <li class="fe-item" data-clave="xml">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_xml" value="1" form="form-factura" {% if datos.copiar_xml %}checked{% endif %}><span>XML</span></label>
-                        <div class="fe-est" id="fe-est-xml">{% if factura.xml %}<span class="ok"><i class="bi bi-check2 me-1"></i><a href="{{ factura.xml.url }}" target="_blank" rel="noopener">{{ factura.xml.name|cut:"facturas/xml/" }}</a></span>{% else %}<span class="falta">aún no está cargado</span>{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>{% if factura.xml %}Cambiar archivo{% else %}Subir el XML{% endif %}</span><input type="file" name="xml" form="form-factura" accept=".xml,text/xml,application/xml" data-para="xml"></label></div>
-                    </li>
-                    <li class="fe-item" data-clave="actas">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_actas" value="1" form="form-factura" {% if datos.copiar_actas %}checked{% endif %}><span>Órdenes de servicio</span></label>
-                        <div class="fe-est"><span id="fe-est-actas">las actas firmadas de las órdenes marcadas</span> · <button type="button" class="fe-link" id="fe-abrir-actas" aria-expanded="false" aria-controls="fe-actas">ver cuáles</button></div>
-                        {# Cuáles actas van, con su enlace para verlas antes de mandarlas. #}
-                        <div class="fe-tiquetes" id="fe-actas" hidden><div id="fe-ac-lista"></div></div>
-                    </li>
-                    <li class="fe-item" data-clave="basculas">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_basculas" value="1" form="form-factura" {% if datos.copiar_basculas %}checked{% endif %}><span>Básculas</span></label>
-                        <div class="fe-est"><span id="fe-est-basculas">—</span> · <button type="button" class="fe-link" id="fe-abrir-tiquetes" aria-expanded="false" aria-controls="fe-tiquetes">elegir cuáles</button></div>
-                        <div class="fe-tiquetes" id="fe-tiquetes" hidden>
-                            <div class="fe-tq-todas"><button type="button" class="fe-link" id="fe-tq-todas">Marcar todas</button></div>
-                            <div id="fe-tq-lista"></div>
-                            <div class="fe-tq-falta" id="fe-tq-falta" hidden></div>
-                        </div>
-                    </li>
-                    {# Nov-2026 (bosquejo de la clienta): la preliquidación en Excel, los informes y las fotos del servicio. #}
-                    <li class="fe-item" data-clave="excel">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_excel" value="1" form="form-factura" {% if datos.copiar_excel %}checked{% endif %}><span>Preliquidación en Excel</span></label>
-                        <div class="fe-est">la misma preliquidación en hoja de cálculo: la genera el sistema{% if factura %} · <a href="{% url 'gestion:factura_excel' factura.pk %}">descargar</a>{% endif %}</div>
-                    </li>
-                    <li class="fe-item" data-clave="informes">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_informes" value="1" form="form-factura" {% if datos.copiar_informes %}checked{% endif %}><span>Informes</span></label>
-                        <div class="fe-est" id="fe-est-informes" data-guardados="{{ factura.informes|length|default:0 }}">{% if factura.informes %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.informes|length }} informe{{ factura.informes|length|pluralize }}</span>: {% for o in factura.informes %}<a href="{{ o.archivo.url }}" target="_blank" rel="noopener">{{ o.nombre }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}informes del servicio que pida el cliente: súbelos desde tu computador{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>Subir informes</span><input type="file" name="informes_archivos" form="form-factura" multiple data-para="informes"></label></div>
-                    </li>
-                    <li class="fe-item" data-clave="fotos">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_fotos" value="1" form="form-factura" {% if datos.copiar_fotos %}checked{% endif %}><span>Fotos del servicio</span></label>
-                        <div class="fe-est">el registro fotográfico que ya está en cada orden marcada (si lo tiene)</div>
-                    </li>
-                    <li class="fe-item" data-clave="otros">
-                        <label class="fe-chk"><input type="checkbox" class="form-check-input" name="copiar_otros" value="1" form="form-factura" {% if datos.copiar_otros %}checked{% endif %}><span>Otros</span></label>
-                        <div class="fe-est" id="fe-est-otros" data-guardados="{{ factura.otros_adjuntos|length|default:0 }}">{% if factura.otros_adjuntos %}<span class="ok"><i class="bi bi-check2 me-1"></i>{{ factura.otros_adjuntos|length }} archivo{{ factura.otros_adjuntos|length|pluralize }}</span>: {% for o in factura.otros_adjuntos %}<a href="{{ o.archivo.url }}" target="_blank" rel="noopener">{{ o.nombre }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}lo que no esté en el sistema, súbelo desde tu computador{% endif %}</div>
-                        <div class="fe-ctl"><label class="fe-subir"><i class="bi bi-upload"></i><span>Subir archivos</span><input type="file" name="otros_archivos" form="form-factura" multiple data-para="otros"></label></div>
-                    </li>
-                </ol>
-                <div class="fe-dest">Con copia a: {% if datos.copiar_a_comercial %}la comercial{% if datos.correos_copia %} y {% endif %}{% endif %}{{ datos.correos_copia }}{% if not datos.copiar_a_comercial and not datos.correos_copia %}nadie más{% endif %} · se cambia en el paso 6.</div>
-            </div>
-            <div class="modal-footer justify-content-between">
-                <span class="fe-resumen" id="fe-resumen">—</span>
-                <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
-                    <button type="button" class="btn btn-success" id="fe-enviar" disabled>
-                        <i class="bi bi-send-fill me-1"></i>Enviar ahora
-                    </button>
+                <div class="fe-dest" id="fe-dest-ok">
+                    <div class="k">Correo de facturación registrado</div>
+                    <div class="mono" id="fe-dest">—</div>
+                    <button type="button" class="fe-link mt-1" id="fe-cambiar-correo">Cambiarlo o agregar otro (paso 3)</button>
                 </div>
+                <div class="fe-dest fe-dest-falta" id="fe-dest-falta" hidden><i class="bi bi-exclamation-triangle me-1"></i>Escribe el correo de facturación en el paso 3 para poder enviar.</div>
+                <div class="fe-copias">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="copiar_a_comercial" value="1" id="copiar_a_comercial" form="form-factura" {% if datos.copiar_a_comercial %}checked{% endif %}>
+                        <label class="form-check-label" for="copiar_a_comercial">Con copia a mí{% if factura and factura.comercial %} ({{ factura.comercial.get_full_name|default:factura.comercial.username }}){% endif %}</label>
+                    </div>
+                    <label class="ff-etq mt-2" for="correos_copia">Enviar también a <span class="text-muted text-lowercase">(opcional, separados por coma)</span></label>
+                    <input type="text" name="correos_copia" id="correos_copia" class="form-control form-control-sm" form="form-factura" value="{{ datos.correos_copia|default:'' }}"
+                           placeholder="Ej: compras@cliente.com, gerencia@cliente.com" autocomplete="off">
+                </div>
+                <div class="fe-dest" id="fe-que">—</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="fe-enviar" name="submit_enviar_cliente" value="1" form="form-factura" disabled>
+                    <i class="bi bi-send-fill me-1"></i>Guardar y enviar
+                </button>
             </div>
         </div>
     </div>
@@ -809,13 +800,13 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         hoja.style.height = Math.round(1056 * k) + 'px';
     }
     window.addEventListener('resize', escalar);
-    // ===== Enviar al cliente: un solo popup con todo =====
-    var feModal = document.getElementById('fe-modal');
+    // ===== Los documentos para el cliente (tarjeta 5) y el popup de envío =====
+    var feModal = document.getElementById('fe-docs');
+    var feEnvio = document.getElementById('fe-modal');
     var feEnviar = document.getElementById('fe-enviar');
     var campoExcluidas = document.getElementById('ff-basculas-excluidas');
     var tqLista = document.getElementById('fe-tq-lista');
-    var ETIQUETAS = { orden_compra: 'Orden de compra', orden_pedido: 'Orden de pedido',
-                      factura: 'Preliquidación interna', xml: 'XML', actas: 'Órdenes de servicio',
+    var ETIQUETAS = { orden_compra: 'Orden de compra', orden_pedido: 'Orden de pedido', actas: 'Órdenes de servicio',
                       basculas: 'Básculas', excel: 'Preliquidación en Excel', informes: 'Informes',
                       fotos: 'Fotos del servicio', otros: 'Otros' };
 
@@ -866,8 +857,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                     + (campo.dataset.para === 'informes' ? plural(n, 'informe', 'informes') : plural(n, 'archivo', 'archivos'))
                     + '</span> · ' + campo.files.length + ' por subir al guardar';
             } else {
-                est.innerHTML = '<span class="ok"><i class="bi bi-check2 me-1"></i>' + campo.files[0].name + '</span>'
-                    + (campo.dataset.para === 'factura' ? ' · se sube al guardar y se manda esta, no la preliquidación' : ' · se sube al guardar');
+                est.innerHTML = '<span class="ok"><i class="bi bi-check2 me-1"></i>' + campo.files[0].name + '</span> · se sube al guardar';
             }
         });
         // A quién, y qué va.
@@ -875,15 +865,13 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         document.getElementById('fe-dest').textContent = correo || '—';
         document.getElementById('fe-dest-ok').hidden = !correo;
         document.getElementById('fe-dest-falta').hidden = !!correo;
-        var estFactura = document.getElementById('fe-est-factura');
-        ETIQUETAS.factura = (estFactura.dataset.cargada === '1'
-                             || feModal.querySelector('input[data-para=factura]').files.length)
-                            ? 'Factura electrónica' : 'Preliquidación interna';
         var marcados = Array.prototype.slice.call(feModal.querySelectorAll('.fe-chk input:checked'))
             .map(function (c) { return ETIQUETAS[c.closest('.fe-item').dataset.clave]; });
         document.getElementById('fe-resumen').innerHTML = marcados.length
-            ? 'Va: <b>' + marcados.join(' · ') + '</b>' : 'Nada marcado todavía';
-        feEnviar.disabled = !(correo && marcados.length && ordenes.length);
+            ? 'El cliente verá: <b>la preliquidación en PDF · ' + marcados.join(' · ') + '</b>'
+            : 'El cliente verá solo <b>la preliquidación en PDF</b>. Marca arriba lo demás que necesite.';
+        document.getElementById('fe-que').innerHTML = document.getElementById('fe-resumen').innerHTML;
+        if (feEnviar) feEnviar.disabled = !(correo && ordenes.length);
     }
 
     // Los tiquetes, desplegados dentro de su punto: uno por orden marcada con tiquete.
@@ -971,20 +959,16 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         }
         pintarEstados();
     });
-    feModal.addEventListener('show.bs.modal', function () {
-        if (!document.getElementById('fe-tiquetes').hidden) pintarTiquetes();
-        if (!document.getElementById('fe-actas').hidden) pintarActas();
-        pintarEstados();
-    });
-    feEnviar.addEventListener('click', function () {
-        guardarEleccion();
-        if (!confirm('Se guarda la factura y se le envía al cliente lo marcado. ¿Seguir?')) return;
-        feEnviar.disabled = true;
-        var oculto = document.createElement('input');
-        oculto.type = 'hidden'; oculto.name = 'submit_enviar_ahora'; oculto.value = '1';
-        form.appendChild(oculto);
-        form.submit();
-    });
+    if (feEnvio) {
+        feEnvio.addEventListener('show.bs.modal', function () { guardarEleccion(); pintarEstados(); });
+        // «Cambiarlo»: cierra el popup y lleva al correo del paso 3.
+        document.getElementById('fe-cambiar-correo').addEventListener('click', function () {
+            feEnvio.querySelector('[data-bs-dismiss="modal"]').click();
+            var primero = listaCorreos.querySelector('input');
+            if (primero) { primero.scrollIntoView({block: 'center'}); primero.focus(); }
+        });
+        feEnviar.addEventListener('click', function () { guardarEleccion(); feEnviar.disabled = true; });
+    }
 
     // «Ampliar»: el popup muestra la misma vista previa a tamaño real (lo último recibido).
     // Bootstrap lo abre por data-bs-toggle; aquí solo se copia el contenido al abrirlo.

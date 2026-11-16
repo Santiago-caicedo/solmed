@@ -58,7 +58,7 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
     {% endif %}
 </div>
 
-{# El proceso (nov-2026, bosquejo de la clienta): seis etapas entre la comercial y la administradora. #}
+{# El proceso (nov-2026, simple): cinco etapas entre la comercial, el cliente y la administradora. #}
 <div class="fc-proceso" role="note">
     <span class="k">Proceso</span>
     {% for clave, nombre, quien, que in etapas %}<span class="et{% if quien == 'comercial' %} com{% endif %}" title="{{ que }}">{{ nombre }}<small>{{ quien }}</small></span>{% if not forloop.last %}<i class="bi bi-arrow-right"></i>{% endif %}{% endfor %}
@@ -80,12 +80,11 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
 {# Cada cifra es también el filtro de la tabla (oct-2026). #}
 <div class="fc-tiles mb-4">
     <a href="?ver=todas" class="fc-tile {% if ver == 'todas' %}act{% endif %}"><div class="v">{{ n_total }}</div><div class="k">Todas</div></a>
-    <a href="?ver=preliquidaciones" class="fc-tile {% if ver == 'preliquidaciones' %}act{% endif %}"><div class="v">{{ n_estado.PRELIQUIDACION|default:0 }}</div><div class="k">En preliquidación</div></a>
-    <a href="?ver=por_facturar" class="fc-tile pendiente {% if ver == 'por_facturar' %}act{% endif %}"><div class="v">{{ n_estado.POR_FACTURAR|default:0 }}</div><div class="k">Por facturar</div></a>
-    <a href="?ver=pendiente_cliente" class="fc-tile pendiente {% if ver == 'pendiente_cliente' %}act{% endif %}"><div class="v">{{ n_estado.PENDIENTE_CLIENTE|default:0 }}</div><div class="k">Pendiente aprobación del cliente</div></a>
-    <a href="?ver=proceder" class="fc-tile pendiente {% if ver == 'proceder' %}act{% endif %}"><div class="v">{{ n_estado.PROCEDER|default:0 }}</div><div class="k">Proceder a facturar</div></a>
-    <a href="?ver=emitidas" class="fc-tile {% if ver == 'emitidas' %}act{% endif %}"><div class="v">{{ n_electronica }}</div><div class="k">Con factura electrónica</div></a>
-    <a href="?ver=enviadas" class="fc-tile {% if ver == 'enviadas' %}act{% endif %}"><div class="v">{{ n_enviadas }}</div><div class="k">Enviadas al cliente</div></a>
+    <a href="?ver=preliquidaciones" class="fc-tile {% if ver == 'preliquidaciones' %}act{% endif %}"><div class="v">{{ n_estado.EN_PRELIQUIDACION|default:0 }}</div><div class="k">En preliquidación{% if n_estado.DEVUELTA %} · {{ n_estado.DEVUELTA }} devuelta{{ n_estado.DEVUELTA|pluralize }}{% endif %}</div></a>
+    <a href="?ver=esperando" class="fc-tile pendiente {% if ver == 'esperando' %}act{% endif %}"><div class="v">{{ n_estado.ESPERANDO_CLIENTE|default:0 }}</div><div class="k">Esperando al cliente</div></a>
+    <a href="?ver=aprobadas" class="fc-tile pendiente {% if ver == 'aprobadas' %}act{% endif %}"><div class="v">{{ n_estado.APROBADA|default:0 }}</div><div class="k">Aprobadas por el cliente</div></a>
+    <a href="?ver=listas" class="fc-tile pendiente {% if ver == 'listas' %}act{% endif %}"><div class="v">{{ n_estado.LISTA|default:0 }}</div><div class="k">Listas para facturar</div></a>
+    <a href="?ver=facturadas" class="fc-tile {% if ver == 'facturadas' %}act{% endif %}"><div class="v">{{ n_estado.FACTURADA|default:0 }}</div><div class="k">Facturadas</div></a>
 </div>
 
 <div class="card shadow">
@@ -137,8 +136,8 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
                             {% endif %}
                         </td>
                         <td>
-                            {% if f.estado == 'ENVIADA' %}<span class="badge bg-success">Enviada</span>
-                            {% elif f.estado == 'EMITIDA' %}<span class="badge bg-primary">Facturada</span>
+                            {% if f.estado == 'FACTURADA' %}<span class="badge bg-success">Facturada</span>
+                            {% elif f.estado == 'APROBADA' %}<span class="badge bg-primary">Aprobada por el cliente</span>
                             {% elif f.estado == 'PRELIQUIDACION' %}<span class="badge bg-secondary">Preliquidación</span>
                             {% else %}<span class="badge bg-warning text-dark">{{ f.get_estado_display }}</span>{% endif %}
                         </td>

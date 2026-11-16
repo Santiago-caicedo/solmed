@@ -163,15 +163,16 @@ def _total(factura):
 
 
 def _resumen_facturacion(facturas):
-    pre = fev = enviado = Decimal('0')
+    """Lo preliquidado, lo que ya tiene FEV y lo que está lista para facturar (nov-2026)"""
+    pre = fev = lista = Decimal('0')
     for f in facturas:
         t = _total(f)
         pre += t
         if f.fe_realizada_en:
             fev += t
-        if f.estado == 'ENVIADA':
-            enviado += t
-    return {'preliquidado': pre, 'fev': fev, 'enviado': enviado}
+        if f.estado == 'LISTA':
+            lista += t
+    return {'preliquidado': pre, 'fev': fev, 'lista': lista}
 
 
 def _ingreso(desde, hasta):
@@ -382,8 +383,10 @@ def _proceso():
     facturas = Factura.objects.prefetch_related('lineas__conceptos')
     por_estado = defaultdict(lambda: {'n': 0, 'valor': Decimal('0')})
     for f in facturas:
-        por_estado[f.estado]['n'] += 1
-        por_estado[f.estado]['valor'] += _total(f)
+        # Devuelta por el cliente = otra vez en preliquidación (nov-2026).
+        estado = 'PRELIQUIDACION' if f.estado == 'DEVUELTA' else f.estado
+        por_estado[estado]['n'] += 1
+        por_estado[estado]['valor'] += _total(f)
     return [{'clave': clave, 'nombre': nombre, 'quien': quien,
              'n': por_estado[clave]['n'], 'valor': float(por_estado[clave]['valor'])}
             for clave, nombre, quien, _que in Factura.ETAPAS]
@@ -505,9 +508,9 @@ def tablero_gerencia(desde, hasta, clave=None):
         'fev_pct': (float(resumen['fev'] / resumen['preliquidado'] * 100)
                     if resumen['preliquidado'] else None),
         'fev_delta': _delta(resumen['fev'], anterior['fev']),
-        'enviado': float(resumen['enviado']),
-        'enviado_pct': (float(resumen['enviado'] / resumen['preliquidado'] * 100)
-                       if resumen['preliquidado'] else None),
+        'lista': float(resumen['lista']),
+        'lista_pct': (float(resumen['lista'] / resumen['preliquidado'] * 100)
+                      if resumen['preliquidado'] else None),
         'servicios': n_servicios,
         'servicios_delta': _delta(n_servicios, n_servicios_ant),
         'ticket': ticket,

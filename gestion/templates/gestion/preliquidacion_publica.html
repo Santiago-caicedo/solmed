@@ -1,0 +1,233 @@
+{% load static humanize %}<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    {% include 'gestion/partials/_favicon.html' %}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Preliquidación {{ factura.codigo }} — SOLMED</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    {% comment %}
+    La página del CLIENTE (nov-2026, sin usuario): abre el enlace del correo,
+    ve la preliquidación y sus documentos, y la aprueba o pide correcciones.
+    Mismos colores que las otras páginas públicas (acta y visita). Una sola
+    cosa manda aquí: la decisión. Todo lo demás es quieto.
+    {% endcomment %}
+    <style>
+        :root{ --verde:#5E8C1B; --verde-2:#4D7416; --verde-tinte:#EEF5E1; --acero:#215E8C; --tinta:#121B26; --tinta-2:#4F5D6B; --tinta-3:#7E8B99;
+               --linea:#D9DFE7; --fondo:#EEF1F5; --panel:#fff; --ambar:#9A5A14; --ambar-tinte:#FBF3E6; --ambar-linea:#EBCFA3; --rojo:#9F2B2B; --rojo-tinte:#FBECEC; }
+        *{ box-sizing:border-box; }
+        html{ -webkit-text-size-adjust:100%; }
+        body{ margin:0; background:var(--fondo); color:var(--tinta); font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-size:16px; line-height:1.5; padding-bottom:3rem; }
+        a{ color:var(--acero); }
+        :focus-visible{ outline:3px solid var(--acero); outline-offset:2px; border-radius:4px; }
+        .pp-top{ background:linear-gradient(160deg,#16222F,#0A111A); color:#fff; padding:1.1rem 1rem 2.4rem; }
+        .pp-top .in{ max-width:1100px; margin:0 auto; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+        .pp-top img{ height:40px; background:#fff; border-radius:8px; padding:5px 11px; }
+        .pp-top .t{ flex:1; min-width:220px; }
+        .pp-top h1{ font-size:1.2rem; font-weight:700; margin:0; letter-spacing:.01em; }
+        .pp-top .s{ color:#A9B4C0; font-size:.9rem; margin-top:.1rem; }
+        .pp-wrap{ max-width:1100px; margin:-1.4rem auto 0; padding:0 .9rem; display:grid; gap:1rem; grid-template-columns:1fr; grid-template-areas:"resumen" "lado" "pdf"; }
+        .pp-lado{ grid-area:lado; display:flex; flex-direction:column; gap:1rem; min-width:0; }
+        @media (min-width:980px){
+            .pp-wrap{ grid-template-columns:minmax(0,1fr) 380px; grid-template-areas:"resumen lado" "pdf lado"; align-items:start; }
+            .pp-lado{ position:sticky; top:1rem; }
+        }
+        .pp-card{ background:var(--panel); border:1px solid var(--linea); border-radius:12px; box-shadow:0 2px 10px rgba(15,23,35,.05); padding:1.1rem 1.2rem; }
+        .pp-card h2{ font-size:1rem; font-weight:700; margin:0 0 .75rem; }
+        .pp-resumen{ grid-area:resumen; }
+        .pp-pdf{ grid-area:pdf; padding:.6rem; }
+        /* El resumen: el total grande, lo demás en una línea */
+        .pp-cifra{ display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+        .pp-cifra .v{ font-size:2.2rem; font-weight:700; letter-spacing:-.01em; font-variant-numeric:tabular-nums; line-height:1.1; }
+        .pp-cifra .k{ color:var(--tinta-2); font-size:.92rem; }
+        .pp-meta{ display:flex; gap:.4rem 1.4rem; flex-wrap:wrap; color:var(--tinta-2); font-size:.9rem; margin-top:.8rem; padding-top:.8rem; border-top:1px solid var(--linea); }
+        .pp-meta b{ color:var(--tinta); font-weight:600; }
+        .pp-ordenes{ width:100%; border-collapse:collapse; margin-top:.9rem; font-size:.9rem; }
+        .pp-ordenes th{ text-align:left; font-weight:600; color:var(--tinta-2); font-size:.8rem; padding:.35rem .4rem; border-bottom:1px solid var(--linea); }
+        .pp-ordenes td{ padding:.45rem .4rem; border-bottom:1px solid #EEF1F5; vertical-align:top; }
+        .pp-ordenes .n{ font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+        .pp-ordenes .d{ color:var(--tinta-2); font-size:.82rem; }
+        .pp-ordenes .p{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+        .pp-ordenes tfoot td{ border-bottom:0; font-weight:700; }
+        /* El PDF, como hoja */
+        .pp-pdf iframe{ display:block; width:100%; height:78vh; min-height:520px; border:0; border-radius:8px; background:#fff; }
+        .pp-pdf .acciones{ display:flex; gap:.5rem 1rem; flex-wrap:wrap; align-items:center; padding:.5rem .5rem .3rem; font-size:.9rem; }
+        .pp-pdf .acciones span{ color:var(--tinta-2); margin-right:auto; }
+        /* Los documentos: una lista plana, un enlace por archivo */
+        .pp-docs ul{ list-style:none; margin:0; padding:0; }
+        .pp-docs li.g{ padding:.55rem 0; border-top:1px solid #EEF1F5; }
+        .pp-docs li.g:first-child{ border-top:0; padding-top:0; }
+        .pp-docs .et{ font-size:.82rem; color:var(--tinta-2); margin-bottom:.15rem; }
+        .pp-docs a{ display:flex; align-items:center; gap:.5rem; padding:.25rem 0; text-decoration:none; font-size:.92rem; min-height:32px; }
+        .pp-docs a:hover{ text-decoration:underline; }
+        .pp-docs a i{ color:var(--tinta-3); flex:none; }
+        .pp-docs .vacio{ color:var(--tinta-2); font-size:.9rem; margin:0; }
+        /* La respuesta: lo único con color */
+        .pp-respuesta p.intro{ margin:0 0 .9rem; color:var(--tinta-2); font-size:.92rem; }
+        .pp-campo{ margin-bottom:.8rem; }
+        .pp-campo label{ display:block; font-weight:600; font-size:.88rem; margin-bottom:.25rem; }
+        .pp-campo input, .pp-campo textarea{ width:100%; font:inherit; padding:.6rem .7rem; border:1px solid var(--linea); border-radius:8px; background:#fff; color:var(--tinta); }
+        .pp-campo input:focus, .pp-campo textarea:focus{ border-color:var(--acero); outline:3px solid rgba(33,94,140,.18); outline-offset:0; }
+        .pp-btn{ display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; min-height:50px; padding:.75rem 1rem; font:inherit; font-weight:700; font-size:1.02rem; border-radius:10px; border:1px solid transparent; cursor:pointer; }
+        .pp-btn.aprobar{ background:var(--verde); color:#fff; }
+        .pp-btn.aprobar:hover{ background:var(--verde-2); }
+        .pp-btn.corregir{ background:#fff; color:var(--tinta); border-color:var(--linea); font-weight:600; margin-top:.6rem; }
+        .pp-btn.corregir:hover{ border-color:var(--tinta-3); }
+        .pp-btn.enviar{ background:var(--ambar); color:#fff; margin-top:.6rem; }
+        .pp-btn:disabled{ opacity:.6; cursor:default; }
+        .pp-correccion{ margin-top:.9rem; padding-top:.9rem; border-top:1px solid var(--linea); }
+        .pp-correccion[hidden]{ display:none; }
+        .pp-error{ background:var(--rojo-tinte); border:1px solid #F0B9B9; color:var(--rojo); border-radius:8px; padding:.65rem .85rem; margin-bottom:.9rem; font-weight:600; font-size:.92rem; }
+        .pp-nota{ color:var(--tinta-2); font-size:.82rem; margin:.7rem 0 0; }
+        /* Ya respondida, o enlace vencido */
+        .pp-hecho{ text-align:center; padding:.6rem 0 .2rem; }
+        .pp-hecho i{ font-size:3rem; display:block; margin-bottom:.3rem; }
+        .pp-hecho.ok i{ color:var(--verde); }
+        .pp-hecho.dev i{ color:var(--ambar); }
+        .pp-hecho.vencido i{ color:var(--tinta-3); }
+        .pp-hecho h3{ font-size:1.1rem; margin:.2rem 0 .4rem; }
+        .pp-hecho p{ margin:0; color:var(--tinta-2); font-size:.92rem; }
+        .pp-obs{ margin-top:.8rem; padding:.7rem .85rem; background:var(--ambar-tinte); border:1px solid var(--ambar-linea); border-radius:8px; text-align:left; font-size:.9rem; white-space:pre-line; }
+        .pp-obs .k{ display:block; font-size:.78rem; color:var(--ambar); font-weight:700; margin-bottom:.2rem; }
+        .pp-pie{ text-align:center; color:var(--tinta-3); font-size:.8rem; margin-top:1.2rem; padding:0 1rem; }
+        @media (prefers-reduced-motion: no-preference){ .pp-correccion{ transition:opacity .15s; } }
+    </style>
+</head>
+<body>
+<header class="pp-top">
+    <div class="in">
+        <img src="{% static 'images/logo-solmed.png' %}" alt="SOLMED">
+        <div class="t">
+            <h1>Preliquidación {{ factura.codigo }}</h1>
+            <div class="s">{{ cliente.nombre }} · NIT {{ cliente.identificacion }} · {{ factura.fecha_emision|date:"j \d\e F \d\e Y" }}</div>
+        </div>
+    </div>
+</header>
+
+<main class="pp-wrap">
+    {# ---- Qué va a aprobar ---- #}
+    <section class="pp-card pp-resumen" aria-labelledby="t-resumen">
+        <h2 id="t-resumen">Lo que va a aprobar</h2>
+        <div class="pp-cifra">
+            <div>
+                <div class="v">${{ total|floatformat:0|intcomma }}</div>
+                <div class="k">por {{ lineas|length }} {% if lineas|length == 1 %}orden de servicio{% else %}órdenes de servicio{% endif %}{% if apartes %}, más {{ apartes|length }} preliquidación{{ apartes|length|pluralize:"es" }} aparte{% endif %}</div>
+            </div>
+            <div class="k">Antes de expedir la factura electrónica, SOLMED SAS le pide revisar esta preliquidación.</div>
+        </div>
+        <table class="pp-ordenes">
+            <thead><tr><th>Orden</th><th>Servicio</th><th style="text-align:right">Valor</th></tr></thead>
+            <tbody>
+            {% for l in lineas %}
+            <tr>
+                <td class="n">#{{ l.orden.numero_orden }}</td>
+                <td>{% if l.servicio %}{{ l.servicio|date:"d/m/Y" }}{% endif %}{% if l.sede %} · {{ l.sede }}{% endif %}{% if l.placa %} · {{ l.placa }}{% endif %}
+                    {% if l.servicios %}<div class="d">{{ l.servicios|join:" · " }}</div>{% endif %}
+                    {% if l.conceptos_lista %}<div class="d">{% for c in l.conceptos_lista %}{{ c.descripcion }} (${{ c.precio|floatformat:0|intcomma }}){% if not forloop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+                </td>
+                <td class="p">${{ l.subtotal|floatformat:0|intcomma }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot><tr><td colspan="2">Total</td><td class="p">${{ total|floatformat:0|intcomma }}</td></tr></tfoot>
+        </table>
+    </section>
+
+    {# ---- La preliquidación, tal cual ---- #}
+    <section class="pp-card pp-pdf" aria-label="La preliquidación en PDF">
+        <div class="acciones">
+            <span>La preliquidación completa</span>
+            <a href="{% url 'gestion:revision_archivo' revision.token 'pdf' %}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Abrir en otra pestaña</a>
+            <a href="{% url 'gestion:revision_archivo' revision.token 'pdf' %}?descargar=1"><i class="bi bi-download"></i> Descargar el PDF</a>
+        </div>
+        {% if vigente %}<iframe src="{% url 'gestion:revision_archivo' revision.token 'pdf' %}#toolbar=0" title="Preliquidación {{ factura.codigo }} en PDF"></iframe>{% endif %}
+    </section>
+
+    <div class="pp-lado">
+    {# ---- Su respuesta ---- #}
+    <section class="pp-card pp-respuesta" aria-labelledby="t-respuesta">
+        {% if not vigente %}
+        <div class="pp-hecho vencido">
+            <i class="bi bi-link-45deg" aria-hidden="true"></i>
+            <h3>Este enlace ya no está vigente</h3>
+            <p>SOLMED SAS le envió una versión más reciente de esta preliquidación. Busque el último correo o escríbale a su asesora comercial.</p>
+        </div>
+        {% elif not abierta %}
+        <div class="pp-hecho {% if revision.respuesta == 'APROBADA' %}ok{% else %}dev{% endif %}">
+            {% if revision.respuesta == 'APROBADA' %}
+            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+            <h3>{% if recien %}¡Gracias! Quedó aprobada{% else %}Esta preliquidación ya fue aprobada{% endif %}</h3>
+            <p>{{ revision.nombre }}{% if revision.cargo %} ({{ revision.cargo }}){% endif %} la aprobó el {{ revision.respondida_en|date:"j \d\e F \d\e Y" }} a las {{ revision.respondida_en|time:"g:i a" }}; SOLMED SAS procede a expedir la factura electrónica.</p>
+            {% else %}
+            <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+            <h3>{% if recien %}Recibimos sus observaciones{% else %}Esta preliquidación se devolvió para correcciones{% endif %}</h3>
+            <p>{{ revision.nombre }}{% if revision.cargo %} ({{ revision.cargo }}){% endif %} pidió correcciones el {{ revision.respondida_en|date:"j \d\e F \d\e Y" }}. Su asesora comercial las revisa y le enviará la versión corregida por un enlace nuevo.</p>
+            {% endif %}
+            {% if revision.observaciones %}<div class="pp-obs"><span class="k">{% if revision.respuesta == 'APROBADA' %}Su comentario{% else %}Lo que pidió corregir{% endif %}</span>{{ revision.observaciones }}</div>{% endif %}
+        </div>
+        {% else %}
+        <h2 id="t-respuesta">Su respuesta</h2>
+        <p class="intro">Si todo está correcto, apruébela. Si algo no cuadra, pídanos las correcciones.</p>
+        {% if error %}<div class="pp-error" role="alert"><i class="bi bi-exclamation-circle"></i> {{ error }}</div>{% endif %}
+        <form method="post" id="pp-form">
+            {% csrf_token %}
+            <div class="pp-campo">
+                <label for="nombre">Su nombre</label>
+                <input type="text" name="nombre" id="nombre" value="{{ nombre }}" required autocomplete="name" placeholder="Quién responde por {{ cliente.nombre|truncatechars:30 }}">
+            </div>
+            <div class="pp-campo">
+                <label for="cargo">Cargo <span style="font-weight:400; color:var(--tinta-2)">(opcional)</span></label>
+                <input type="text" name="cargo" id="cargo" value="{{ cargo }}" autocomplete="organization-title">
+            </div>
+            <button type="submit" name="accion" value="aprobar" class="pp-btn aprobar"><i class="bi bi-check2-circle"></i>Aprobar la preliquidación</button>
+            <button type="button" class="pp-btn corregir" id="pp-abrir" aria-expanded="{% if pedir %}true{% else %}false{% endif %}" aria-controls="pp-correccion"><i class="bi bi-pencil"></i>Pedir correcciones</button>
+            <div class="pp-correccion" id="pp-correccion" {% if not pedir %}hidden{% endif %}>
+                <div class="pp-campo">
+                    <label for="observaciones">¿Qué hay que corregir?</label>
+                    <textarea name="observaciones" id="observaciones" rows="4" placeholder="Ej: El valor de la orden #22410 debe ser $450.000 según la cotización. Falta la orden de compra OC-1187.">{{ observaciones }}</textarea>
+                </div>
+                <button type="submit" name="accion" value="devolver" class="pp-btn enviar" formnovalidate><i class="bi bi-send"></i>Enviar las correcciones</button>
+            </div>
+            <p class="pp-nota">Su respuesta le llega directamente a su asesora comercial. Este enlace es personal: no lo comparta.</p>
+        </form>
+        {% endif %}
+    </section>
+
+    {# ---- Los documentos ---- #}
+    <section class="pp-card pp-docs" aria-labelledby="t-docs">
+        <h2 id="t-docs">Documentos{% if n_documentos %} · {{ n_documentos }}{% endif %}</h2>
+        {% if not vigente %}
+        <p class="vacio">Los documentos están en el enlace más reciente.</p>
+        {% elif documentos %}
+        <ul>
+            {% for g in documentos %}
+            <li class="g">
+                <div class="et">{{ g.etiqueta }}</div>
+                {% for nombre, clave in g.archivos %}
+                <a href="{% url 'gestion:revision_archivo' revision.token clave %}" target="_blank" rel="noopener"><i class="bi {% if clave == 'excel' %}bi-file-earmark-spreadsheet{% elif 'foto' in clave %}bi-image{% else %}bi-file-earmark-text{% endif %}" aria-hidden="true"></i>{{ nombre }}</a>
+                {% endfor %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="vacio">Esta preliquidación no trae documentos adicionales: solo el PDF de arriba.</p>
+        {% endif %}
+    </section>
+    </div>
+</main>
+<p class="pp-pie">SOLMED SAS · Juntos por un ambiente más limpio y sostenible.</p>
+
+<script>
+(function () {
+    var abrir = document.getElementById('pp-abrir'), caja = document.getElementById('pp-correccion');
+    if (!abrir || !caja) return;
+    abrir.addEventListener('click', function () {
+        caja.hidden = !caja.hidden;
+        abrir.setAttribute('aria-expanded', String(!caja.hidden));
+        if (!caja.hidden) document.getElementById('observaciones').focus();
+    });
+})();
+</script>
+</body>
+</html>

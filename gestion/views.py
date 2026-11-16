@@ -36,6 +36,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from .roles import CONDUCTOR_AYUDANTE, GRUPOS_AYUDANTE, GRUPOS_BASCULA, GRUPOS_CONDUCTOR, GRUPOS_DISPOSICION_FINAL, GRUPOS_PESV, es_de
 from .formatos import formato_de as _formato_de_cliente, pide_detalle_d1
+from . import aprobacion
 from .models import ADJUNTOS_FACTURA, CURSOS_EXIGIBLES, DocumentoPersonal, EncuestaConductor, FotoAyudante, FotoPreoperacional, ItemPreoperacional, Manifiesto, OrdenServicio, Pago, PerfilPersona, Preoperacional, Programacion, ProgramacionCuadrilla, Recorrido, Sede, cursos_faltantes_ayudante, _recalcular_estado_orden
 from .preoperacional import nombre_tipo
 from .cartera import clientes_de, puede_ver_cliente, solo_cartera, tiene_cartera
@@ -9335,11 +9336,13 @@ def _correo_facturacion_de(cliente):
 
 
 # ============================================================
-#  EL PROCESO DE FACTURACIÓN (nov-2026, bosquejo de la clienta)
-#  La comercial arma la preliquidación y la pasa a facturación con el
-#  concepto; la administradora la recibe, la deja pendiente del cliente o
-#  procede, hace la factura electrónica y la envía. Cada paso se anota en
-#  EventoFactura y se avisa por correo a la otra parte.
+#  EL PROCESO DE FACTURACIÓN (nov-2026; simplificado el 15-nov)
+#  La comercial arma la preliquidación y se la envía al cliente por un
+#  enlace único; el cliente la aprueba o la devuelve; aprobada, la comercial
+#  deja las instrucciones y la pasa a «Lista para facturar»; la
+#  administradora factura en su software contable y sube la FEV y el XML.
+#  Los pasos viven en gestion/aprobacion.py; cada uno se anota en
+#  EventoFactura y se avisa por correo a quien sigue.
 # ============================================================
 
 def _nombre_de(usuario):
@@ -9379,38 +9382,6 @@ def _resumen_para_correo(factura):
             f"Total: ${factura.total:,.0f}".replace(',', '.')]
 
 
-def _pasar_a_facturacion(request, factura):
-    """La comercial la entrega: queda «Por facturar» y se le avisa a las administradoras."""
-    factura.estado = 'POR_FACTURAR'
-    factura.pasada_a_facturacion_por = request.user
-    factura.pasada_a_facturacion_en = timezone.now()
-    factura.save(update_fields=['estado', 'pasada_a_facturacion_por', 'pasada_a_facturacion_en'])
-    _registrar_evento(factura, 'Pasada a facturación', request.user, 'POR_FACTURAR',
-                      factura.concepto_facturacion)
-    _correo_proceso(
-        request, factura, _correos_administradoras(excepto=request.user),
-        f"Orden de facturación {factura.codigo} · {factura.cliente.nombre}",
-        [f"{_nombre_de(request.user)} pasó a facturación la preliquidación {factura.codigo}.", ""]
-        + _resumen_para_correo(factura)
-        + ["", "Concepto a facturar y detalles:", factura.concepto_facturacion])
-    messages.success(request, f"{factura.codigo} pasó a facturación: queda «Por facturar» y se le avisó "
-                              "a la administración.")
-
-
-def _cambiar_estado(request, factura, nuevo, nota='', titulo=None):
-    """La administradora mueve la preliquidación de etapa; la comercial se entera por correo."""
-    nombres = dict(Factura.ESTADO_CHOICES)
-    factura.estado = nuevo
-    factura.save(update_fields=['estado'])
-    _registrar_evento(factura, titulo or nombres[nuevo], request.user, nuevo, nota)
-    comercial = factura.comercial
-    if comercial is not None and comercial != request.user and comercial.email:
-        lineas = [f"{_nombre_de(request.user)} marcó la preliquidación {factura.codigo} como "
-                  f"«{nombres[nuevo]}».", ""] + _resumen_para_correo(factura)
-        if nota:
-            lineas += ["", "Nota:", nota]
-        _correo_proceso(request, factura, [comercial.email],
-                        f"{factura.codigo} · {nombres[nuevo]} · {factura.cliente.nombre}", lineas)
 
 
 def _copias_de(factura):
@@ -9453,13 +9424,14 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
     VISTAS = {
         'todas': ('Todas', Q()),
         # Las etapas del proceso (nov-2026).
-        'preliquidaciones': ('En preliquidación', Q(estado='PRELIQUIDACION')),
-        'por_facturar': ('Por facturar', Q(estado='POR_FACTURAR')),
-        'pendiente_cliente': ('Pendiente aprobación del cliente', Q(estado='PENDIENTE_CLIENTE')),
-        'proceder': ('Proceder a facturar', Q(estado='PROCEDER')),
+        'preliquidaciones': ('En preliquidación', Q(estado__in=('PRELIQUIDACION', 'DEVUELTA'))),
+        'devueltas': ('Devueltas por el cliente', Q(estado='DEVUELTA')),
+        'esperando': ('Esperando al cliente', Q(estado='ESPERANDO_CLIENTE')),
+        'aprobadas': ('Aprobadas por el cliente', Q(estado='APROBADA')),
+        'listas': ('Listas para facturar', Q(estado='LISTA')),
+        'facturadas': ('Facturadas', Q(estado='FACTURADA')),
         'por_emitir': ('Pendientes por emitir', Q(fe_realizada_en__isnull=True)),
         'emitidas': ('Con factura electrónica', Q(fe_realizada_en__isnull=False)),
-        'enviadas': ('Enviadas al cliente', Q(estado='ENVIADA')),
     }
 
     def _ver(self):
@@ -9487,12 +9459,14 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
         context['vistas'] = [(clave, nombre) for clave, (nombre, _f) in self.VISTAS.items()]
         facturas = solo_cartera(Factura.objects.all(), self.request.user)
         context['n_total'] = facturas.count()
-        context['n_enviadas'] = facturas.filter(estado='ENVIADA').count()
         # Cuántas ya tienen hecha la factura electrónica (marcada como realizada).
         context['n_electronica'] = facturas.filter(fe_realizada_en__isnull=False).count()
         context['n_sin_electronica'] = context['n_total'] - context['n_electronica']
         # Cuántas hay en cada etapa del proceso (nov-2026).
         context['n_estado'] = dict(facturas.values_list('estado').annotate(n=Count('pk')))
+        # «En preliquidación» junta las devueltas por el cliente: siguen en manos de la comercial.
+        context['n_estado']['EN_PRELIQUIDACION'] = (context['n_estado'].get('PRELIQUIDACION', 0)
+                                                    + context['n_estado'].get('DEVUELTA', 0))
         context['etapas'] = Factura.ETAPAS
         # La alerta de arriba: cuántas órdenes faltan por preliquidar (oct-2026).
         pendientes = _ordenes_por_preliquidar(self.request.user)
@@ -9636,14 +9610,22 @@ class FacturaFormView(AdministradorRequiredMixin, View):
 
     def _bloqueada(self, request, factura):
         """
-        Una preliquidación que ya pasó a facturación la edita solo quien
-        factura (la administradora); la comercial la recupera cuando se la
-        devuelven. Devuelve la respuesta de salida, o None si se puede editar.
+        La comercial edita la preliquidación mientras es suya (en
+        preliquidación, devuelta por el cliente o esperando al cliente).
+        Aprobada por el cliente ya no: para corregirla se vuelve a
+        preliquidación desde el expediente. Lista o facturada, la toca solo
+        quien factura. Devuelve la respuesta de salida, o None si se puede editar.
         """
-        if factura is None or not factura.en_facturacion or tiene_acceso(request.user, 'facturacion.facturar'):
+        if factura is None or factura.la_edita_la_comercial or tiene_acceso(request.user, 'facturacion.facturar'):
             return None
-        messages.warning(request, f"{factura.codigo} ya está en facturación ({factura.get_estado_display().lower()}): "
-                                  "la edita la administradora. Si hay que corregir algo, pídele que te la devuelva.")
+        if factura.estado == 'APROBADA':
+            messages.warning(request, f"El cliente ya aprobó {factura.codigo}. Si hay que corregirla, en el "
+                                      "expediente usa «Volver a preliquidación» (se pierde la aprobación) y "
+                                      "luego edítala.")
+        else:
+            messages.warning(request, f"{factura.codigo} está «{factura.get_estado_display().lower()}»: ya no la "
+                                      "edita la comercial. Si hay que corregir algo, pídele a la administradora "
+                                      "que te la devuelva.")
         return redirect('gestion:detalle_factura', pk=factura.pk)
 
     def _render(self, request, factura, cliente, datos=None, errores=(), filas=None):
@@ -9678,7 +9660,6 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 'numero': factura.numero, 'fecha_emision': factura.fecha_emision,
                 'descripcion': factura.descripcion,
                 'corte_facturacion': factura.corte_facturacion,
-                'concepto_facturacion': factura.concepto_facturacion,
                 'copiar_a_comercial': factura.copiar_a_comercial,
                 'correos_copia': factura.correos_copia,
                 'correo_facturacion': factura.correo_facturacion,
@@ -9696,7 +9677,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                      'correos': _lista_correos(_correo_facturacion_de(cliente)) or [''],
                      'numero': (Factura.objects.aggregate(m=Max('numero'))['m'] or 0) + 1,
                      'fecha_emision': timezone.localdate(),
-                     'concepto_facturacion': '', 'copiar_a_comercial': True, 'correos_copia': '',
+                     'copiar_a_comercial': True, 'correos_copia': '',
                      # Desde «Órdenes por preliquidar» llegan ya marcadas.
                      'marcadas': {int(x) for x in request.GET.getlist('orden') if x.isdigit()},
                      'basculas_excluidas': ''}
@@ -9715,7 +9696,6 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
             'descripcion': (request.POST.get('descripcion') or '').strip(),
             'corte_facturacion': (request.POST.get('corte_facturacion') or '').strip(),
-            'concepto_facturacion': (request.POST.get('concepto_facturacion') or '').strip(),
             'copiar_a_comercial': bool(request.POST.get('copiar_a_comercial')),
             'correos_copia': (request.POST.get('correos_copia') or '').strip(),
             # Los correos se validan más abajo, con `errores` ya creado.
@@ -9732,14 +9712,11 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         if cliente is None:
             errores.append("Elige el cliente.")
             return self._render(request, factura, None, datos, errores)
-        # «Pasar a facturación» exige el concepto: es lo que la administradora
-        # necesita para facturar (paso 6 del bosquejo de la clienta).
-        pasar = 'submit_pasar' in request.POST
-        if pasar and factura is not None and factura.en_facturacion:
-            pasar = False       # ya está en facturación: solo se guarda
-        if pasar and not datos['concepto_facturacion']:
-            errores.append("Para pasarla a facturación escribe el concepto a facturar y sus detalles "
-                           "(paso 6): es lo que la administradora necesita.")
+        # «Guardar y enviar al cliente» (nov-2026): se guarda y sale el enlace.
+        # Lista o facturada no se reenvía: ya no es de la comercial.
+        enviar = 'submit_enviar_cliente' in request.POST and not (factura is not None and factura.en_facturacion)
+        if enviar and not correos:
+            errores.append("Para enviársela al cliente escribe su correo de facturación (paso 3).")
 
         # El número de la factura: se puede corregir a cualquiera que esté libre.
         # OJO con el nombre: más abajo `numero` es el de cada ORDEN.
@@ -9815,16 +9792,14 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             creada = factura is None
             if factura is None:
                 factura = Factura(cliente=cliente, creada_por=request.user)
-            for campo in ('descripcion', 'corte_facturacion',
-                          'correo_facturacion', 'concepto_facturacion', 'copiar_a_comercial',
-                          'correos_copia') + COPIAR_FACTURA:
+            for campo in ('descripcion', 'corte_facturacion', 'correo_facturacion',
+                          'copiar_a_comercial', 'correos_copia') + COPIAR_FACTURA:
                 setattr(factura, campo, datos[campo])
             factura.numero = numero_factura
             factura.fecha_emision = fecha_emision
-            # Los dos documentos del cliente se suben desde el computador.
-            # …y también la factura electrónica y su XML (sep-2026): se pueden
-            # subir desde el popup de envío, no solo desde el expediente.
-            for campo in ('archivo_orden_compra', 'archivo_orden_pedido', 'pdf_oficial', 'xml'):
+            # Los dos documentos del cliente se suben desde el computador (la FEV
+            # y el XML los sube la administradora en el expediente, al final).
+            for campo in ('archivo_orden_compra', 'archivo_orden_pedido'):
                 if request.FILES.get(campo):
                     setattr(factura, campo, request.FILES[campo])
             factura.save()
@@ -9862,34 +9837,25 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                                               nombre=archivo.name[:150], archivo=archivo)
             if creada:
                 _registrar_evento(factura, 'Preliquidación registrada', request.user, 'PRELIQUIDACION')
-        # «Pasar a facturación» (nov-2026): se guarda y se entrega a la administradora.
-        if pasar:
-            _pasar_a_facturacion(request, factura)
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-        # «Enviar ahora» (el popup) guarda y envía en un solo paso lo marcado en
-        # «Copiar al cliente». Sin la factura electrónica cargada va como
-        # ADELANTO: sale la prefactura y el estado no cambia. Con ella cargada
-        # (también se puede subir desde el popup) es el envío de verdad.
-        if 'submit_enviar_ahora' in request.POST:
-            messages.success(request, f"Factura {factura.codigo} guardada con "
-                                      f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}.")
-            # La factura final (con la electrónica cargada) solo la manda quien factura.
-            if factura.pdf_oficial and factura.copiar_factura and not tiene_acceso(request.user, 'facturacion.facturar'):
-                messages.error(request, "La factura electrónica se la envía la administradora. "
-                                        "Tú puedes enviar la preliquidación y los soportes.")
-                return redirect('gestion:detalle_factura', pk=factura.pk)
-            _enviar_factura(request, factura, prefactura=not factura.pdf_oficial,
-                            incluir={clave: getattr(factura, f'copiar_{clave}')
-                                     for clave, _ in ADJUNTOS_FACTURA},
-                            basculas=_basculas_elegidas(factura), con_copia=_copias_de(factura))
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-
-        texto = (f"Factura {factura.codigo} guardada con "
+            # Si el cliente tenía un enlace abierto, lo que vio ya no es lo que hay:
+            # el enlace se anula y toca volver a enviársela.
+            if factura.estado == 'ESPERANDO_CLIENTE':
+                aprobacion.volver_a_preliquidacion(request, factura, 'Se editó la preliquidación: el enlace '
+                                                                     'que tenía el cliente quedó sin efecto.')
+        texto = (f"Preliquidación {factura.codigo} guardada con "
                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}")
         if apartes:
             texto += (f" y {len(apartes)} PDF{'s' if len(apartes) != 1 else ''} aparte "
                       f"({', '.join(h.codigo for h in apartes)})")
-        messages.success(request, texto + ". Revisa el PDF y, cuando esté bien, envíala.")
+        # «Guardar y enviar al cliente»: sale el enlace con lo guardado.
+        if enviar:
+            messages.success(request, texto + ".")
+            aprobacion.enviar_a_revision(request, factura, _lista_correos(factura.correo_facturacion),
+                                         _copias_de(factura))
+            return redirect('gestion:detalle_factura', pk=factura.pk)
+        if factura.estado == 'PRELIQUIDACION' or factura.estado == 'DEVUELTA':
+            texto += ". Revisa el PDF y, cuando esté bien, envíasela al cliente."
+        messages.success(request, texto + ".")
         return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
 
 
@@ -9907,8 +9873,8 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         factura = get_object_or_404(
             solo_cartera(Factura.objects.select_related('cliente', 'creada_por'), request.user), pk=pk)
         lineas = _lineas_con_detalle(factura)
-        copiar = _documentos_para_reenviar(factura)
         puede_facturar = tiene_acceso(request.user, 'facturacion.facturar')
+        revision = factura.revision_vigente
         return render(request, self.template_name, {
             'factura': factura,
             'lineas': lineas,
@@ -9921,18 +9887,17 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             'comercial': factura.comercial,
             'puede_facturar': puede_facturar,
             'puede_preliquidar': tiene_acceso(request.user, 'facturacion.preliquidar'),
-            'puede_editar': puede_facturar or not factura.en_facturacion,
+            'puede_editar': puede_facturar or factura.la_edita_la_comercial,
             'copias': _copias_de(factura),
-            'copiar': copiar,
-            'tiquetes': _tiquetes_de_la_factura(factura),
+            # El enlace del cliente: el vigente, su dirección y el historial de envíos.
+            'revision': revision,
+            'enlace': (request.build_absolute_uri(reverse('gestion:revision_cliente', args=[revision.token]))
+                       if revision else ''),
+            'revisiones': list(factura.revisiones.select_related('enviada_por')),
+            'documentos_cliente': aprobacion.documentos_para_el_cliente(factura),
+            'correos_cliente': factura.correo_facturacion or _correo_facturacion_de(factura.cliente),
             'numero_externo_sin_prefijo': _sin_prefijo_sms(factura.numero_externo),
             'apartes': list(factura.apartes.order_by('numero').prefetch_related('lineas__conceptos')),
-            'ultimo_envio': EnvioCorreo.objects.filter(
-                cliente=factura.cliente, asunto__contains=factura.codigo, estado='ENVIADO')
-                .select_related('enviado_por').order_by('-fecha').first(),
-            'envios': EnvioCorreo.objects.filter(
-                cliente=factura.cliente, asunto__startswith=f"Factura {factura.codigo}")
-                .select_related('enviado_por')[:10],
         })
 
     def post(self, request, pk):
@@ -9940,52 +9905,73 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         volver = redirect('gestion:detalle_factura', pk=pk)
         puede_facturar = tiene_acceso(request.user, 'facturacion.facturar')
 
-        # ---- El proceso (nov-2026) ----
-        if 'submit_concepto' in request.POST or 'submit_pasar' in request.POST:
-            # El concepto lo escribe la comercial mientras la tiene; después, quien factura.
-            if factura.en_facturacion and not puede_facturar:
-                messages.error(request, f"{factura.codigo} ya está en facturación: el concepto lo corrige "
-                                        "la administradora.")
+        # ---- El proceso (nov-2026, simple) ----
+        es_suya = factura.la_edita_la_comercial or factura.estado == 'APROBADA'
+        if 'submit_enviar_cliente' in request.POST:
+            # La comercial (o la administradora) le manda el enlace al cliente.
+            if factura.en_facturacion or factura.es_aparte:
+                messages.error(request, f"{factura.codigo} no se le envía al cliente desde aquí"
+                                        + (": va con su global." if factura.es_aparte else ": ya está en facturación."))
                 return volver
-            concepto = (request.POST.get('concepto_facturacion') or '').strip()
-            if 'submit_pasar' in request.POST:
-                if factura.en_facturacion:
-                    messages.info(request, f"{factura.codigo} ya está en facturación.")
-                    return volver
-                if not concepto:
-                    messages.error(request, "Para pasarla a facturación escribe el concepto a facturar y "
-                                            "sus detalles: es lo que la administradora necesita.")
-                    return volver
-                factura.concepto_facturacion = concepto
-                factura.save(update_fields=['concepto_facturacion'])
-                _pasar_a_facturacion(request, factura)
+            errores = []
+            correos = _correos_validos(request.POST.get('correo_facturacion'), errores, 'de facturación')
+            factura.copiar_a_comercial = bool(request.POST.get('copiar_a_comercial'))
+            factura.correos_copia = ', '.join(_correos_validos(request.POST.get('correos_copia'), errores, 'en copia'))
+            if errores:
+                messages.error(request, ' '.join(errores))
                 return volver
-            factura.concepto_facturacion = concepto
-            factura.save(update_fields=['concepto_facturacion'])
-            messages.success(request, "Concepto guardado.")
+            if correos:
+                factura.correo_facturacion = ', '.join(correos)
+            factura.save(update_fields=['copiar_a_comercial', 'correos_copia', 'correo_facturacion'])
+            aprobacion.enviar_a_revision(request, factura, correos, _copias_de(factura))
             return volver
 
-        if 'submit_estado' in request.POST:
-            if not puede_facturar:
-                messages.error(request, "Las etapas de facturación las mueve la administradora.")
+        if 'submit_volver' in request.POST:
+            # Anular el enlace abierto, o descartar la aprobación, para corregir.
+            if factura.estado not in ('ESPERANDO_CLIENTE', 'APROBADA') or factura.es_aparte:
+                messages.error(request, f"{factura.codigo} no está esperando al cliente ni aprobada.")
                 return volver
-            nuevo = request.POST.get('estado') or ''
-            nota = (request.POST.get('nota') or '').strip()
-            if nuevo not in ('PENDIENTE_CLIENTE', 'PROCEDER', 'PRELIQUIDACION'):
-                messages.error(request, "No se reconoció la etapa.")
-                return volver
-            if not factura.en_facturacion and nuevo != 'PRELIQUIDACION':
-                # La administradora también puede tomarla directo, sin esperar a la comercial.
-                _registrar_evento(factura, 'Tomada por la administración', request.user, 'POR_FACTURAR')
-            if nuevo == 'PRELIQUIDACION':
-                if not nota:
-                    messages.error(request, "Para devolvérsela a la comercial escribe qué hay que corregir.")
+            motivo = (request.POST.get('motivo') or '').strip()
+            aprobacion.volver_a_preliquidacion(
+                request, factura, motivo or ('Se anuló el enlace del cliente para corregir la preliquidación.'
+                                             if factura.estado == 'ESPERANDO_CLIENTE'
+                                             else 'Se descartó la aprobación del cliente para corregir la preliquidación.'))
+            messages.warning(request, f"{factura.codigo} volvió a preliquidación. Corrígela y vuelve a enviársela al cliente.")
+            return volver
+
+        if 'submit_instrucciones' in request.POST or 'submit_lista' in request.POST:
+            # Aprobada por el cliente: la comercial deja las instrucciones y la pasa.
+            instrucciones = (request.POST.get('concepto_facturacion') or '').strip()
+            if 'submit_lista' in request.POST:
+                if factura.estado != 'APROBADA' or factura.es_aparte:
+                    messages.error(request, f"{factura.codigo} pasa a «Lista para facturar» solo cuando el cliente la aprobó.")
                     return volver
-                _cambiar_estado(request, factura, nuevo, nota, titulo='Devuelta a la comercial')
-                messages.warning(request, f"{factura.codigo} volvió a la comercial con tu nota.")
-            else:
-                _cambiar_estado(request, factura, nuevo, nota)
-                messages.success(request, f"{factura.codigo}: «{factura.get_estado_display()}».")
+                if not instrucciones:
+                    messages.error(request, "Escribe las instrucciones para facturar: es lo que la administradora "
+                                            "necesita para hacer la factura electrónica.")
+                    return volver
+                aprobacion.pasar_a_lista(request, factura, instrucciones)
+                return volver
+            if factura.en_facturacion and not puede_facturar:
+                messages.error(request, f"{factura.codigo} ya está en facturación: las instrucciones las corrige la administradora.")
+                return volver
+            factura.concepto_facturacion = instrucciones
+            factura.save(update_fields=['concepto_facturacion'])
+            messages.success(request, "Instrucciones guardadas.")
+            return volver
+
+        if 'submit_devolver' in request.POST:
+            if not puede_facturar:
+                messages.error(request, "Devolverla a la comercial lo hace la administradora.")
+                return volver
+            if factura.estado != 'LISTA':
+                messages.error(request, f"{factura.codigo} no está lista para facturar.")
+                return volver
+            nota = (request.POST.get('nota') or '').strip()
+            if not nota:
+                messages.error(request, "Para devolvérsela a la comercial escribe qué hay que completar.")
+                return volver
+            aprobacion.devolver_a_comercial(request, factura, nota)
             return volver
 
         if 'submit_electronica' in request.POST or 'submit_realizada' in request.POST:
@@ -9993,26 +9979,38 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
                 messages.error(request, "La factura electrónica la registra la administradora.")
                 return volver
             marcar = 'submit_realizada' in request.POST
-            numero = _numero_sms(request.POST.get('numero_externo'))
-            if marcar and not numero:
-                messages.error(request, "Para marcarla como realizada, pon el número SMS de la "
-                                        "factura electrónica.")
+            if marcar and factura.estado not in ('LISTA', 'FACTURADA'):
+                messages.error(request, f"{factura.codigo} todavía no está lista para facturar: la comercial "
+                                        "tiene que pasarla cuando el cliente la apruebe.")
                 return volver
-            factura.numero_externo = numero
+            numero = _numero_sms(request.POST.get('numero_externo'))
             if request.FILES.get('xml'):
                 factura.xml = request.FILES['xml']
             if request.FILES.get('pdf_oficial'):
                 factura.pdf_oficial = request.FILES['pdf_oficial']
+            if marcar and not numero:
+                messages.error(request, "Pon el número SMS de la factura electrónica.")
+                return volver
+            if marcar and not factura.pdf_oficial:
+                messages.error(request, "Sube la FEV (el PDF de la factura electrónica) para darla por facturada.")
+                return volver
+            factura.numero_externo = numero
             # Trazabilidad: quién dijo que ya está hecha, y cuándo. Se marca una vez.
             if marcar and factura.fe_realizada_en is None:
                 factura.fe_realizada_por = request.user
                 factura.fe_realizada_en = timezone.now()
-                messages.success(request, f"Factura electrónica {numero} marcada como realizada.")
+                factura.estado = 'FACTURADA'
                 factura.save()
-                # Etapa «Facturada» (nov-2026), salvo que ya se hubiera enviado.
-                if factura.estado != 'ENVIADA':
-                    _cambiar_estado(request, factura, 'EMITIDA', f"Factura electrónica {numero}",
-                                    titulo=f"Factura electrónica realizada · {numero}")
+                _registrar_evento(factura, f"Facturada · {numero}", request.user, 'FACTURADA',
+                                  'Con FEV' + (' y XML' if factura.xml else ' (falta el XML)'))
+                comercial = factura.comercial
+                if comercial is not None and comercial != request.user and comercial.email:
+                    _correo_proceso(request, factura, [comercial.email],
+                                    f"{factura.codigo} · Facturada · {factura.cliente.nombre}",
+                                    [f"{_nombre_de(request.user)} facturó la preliquidación {factura.codigo}: "
+                                     f"factura electrónica {numero}.", ""] + _resumen_para_correo(factura))
+                messages.success(request, f"{factura.codigo} facturada: {numero}"
+                                          + ("" if factura.xml else ". Ojo: falta subir el XML") + ".")
                 return volver
             messages.success(request, "Datos de la factura electrónica guardados.")
             factura.save()
@@ -10060,12 +10058,9 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
                 messages.success(request, "Adjunto quitado.")
             return volver
 
-        if 'submit_enviar' in request.POST:
-            return self._enviar(request, factura)
-
         if 'submit_eliminar' in request.POST:
-            # La comercial borra su preliquidación mientras la tiene; después, quien factura.
-            if factura.en_facturacion and not puede_facturar:
+            # La comercial borra su preliquidación mientras es suya; después, quien factura.
+            if not es_suya and not puede_facturar:
                 messages.error(request, f"{factura.codigo} ya está en facturación: solo la administradora "
                                         "la elimina.")
                 return volver
@@ -10086,383 +10081,10 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
         messages.error(request, "No se reconoció la acción enviada.")
         return volver
 
-    def _enviar(self, request, factura):
-        """
-        Manda lo que se acabe de marcar en «Copiar al cliente». La selección
-        es de ESE envío: no se guarda (sep-2026, el expediente es para
-        reenviar a la carta). Sin la factura electrónica marcada va como
-        adelanto: asunto «Preliquidación» y el estado no cambia.
-        """
-        if not request.POST.get('revisado'):
-            messages.error(request, "Antes de enviar, revisa la vista previa del PDF y marca "
-                                    "«Revisé el PDF y está correcto».")
-            return redirect(reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
-        incluir = {clave: bool(request.POST.get(f'enviar_{clave}'))
-                   for clave, _ in ADJUNTOS_FACTURA}
-        incluir['preliquidacion'] = bool(request.POST.get('enviar_preliquidacion'))
-        # La factura electrónica se la manda quien factura (nov-2026).
-        if incluir['factura'] and not tiene_acceso(request.user, 'facturacion.facturar'):
-            messages.error(request, "La factura electrónica se la envía la administradora. "
-                                    "Tú puedes enviar la preliquidación (PDF y Excel) y los soportes.")
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-        # A quién más se copia: se elige aquí y queda guardado (nov-2026).
-        errores = []
-        factura.copiar_a_comercial = bool(request.POST.get('copiar_a_comercial'))
-        factura.correos_copia = ', '.join(_correos_validos(request.POST.get('correos_copia'), errores, 'en copia'))
-        if errores:
-            messages.error(request, ' '.join(errores))
-            return redirect('gestion:detalle_factura', pk=factura.pk)
-        factura.save(update_fields=['copiar_a_comercial', 'correos_copia'])
-        hijos = {h.pk: h for h in factura.apartes.all()}
-        apartes = [h for pk, h in sorted(hijos.items())
-                   if request.POST.get(f'enviar_aparte_{pk}')]
-        # Los tiquetes se eligen aquí mismo y esa elección SÍ se guarda: es la
-        # misma del formulario («añadir o quitar», pedido de Santiago).
-        if incluir['basculas']:
-            elegidas = {int(x) for x in request.POST.getlist('bascula_orden') if str(x).isdigit()}
-            for linea in factura.lineas.select_related('orden'):
-                if linea.orden.bascula_adjunto and linea.copiar_bascula != (linea.orden_id in elegidas):
-                    linea.copiar_bascula = linea.orden_id in elegidas
-                    linea.save(update_fields=['copiar_bascula'])
-        _enviar_factura(request, factura, incluir=incluir,
-                        prefactura=not incluir['factura'],
-                        basculas=_basculas_elegidas(factura), apartes=apartes,
-                        con_copia=_copias_de(factura))
-        return redirect('gestion:detalle_factura', pk=factura.pk)
 
 
-def _enviar_factura(request, factura, incluir, prefactura=False, basculas=(), apartes=(), con_copia=()):
-    """
-    Envía al correo de facturación lo que pida `incluir` y lo registra en el
-    Centro de correos. Devuelve True si el correo salió.
-
-    Las claves de `incluir` van en el orden en que se adjuntan, que es el que
-    pidió la clienta (sep-2026): `orden_compra`, `orden_pedido`, `factura`
-    (la electrónica), `xml`, `actas` (las órdenes de servicio), `basculas` y
-    `otros`.
-
-    Con `prefactura=True` va el PDF de ESTE sistema (aunque ya exista el
-    oficial), el asunto dice «Preliquidación» y la factura NO queda marcada como
-    enviada: es un adelanto para que el cliente lo revise, no la factura.
-
-    `basculas` son las ÓRDENES cuyo tiquete se adjunta; cuando es lo único
-    que se manda, el correo va como «Soportes de báscula» y tampoco toca el
-    estado de la factura. `apartes` son las preliquidaciones hijas cuyo PDF
-    se adjunta; con `incluir['preliquidacion']`/`['excel']` va la propia, en
-    PDF y en hoja de cálculo (reenvío a la carta desde el expediente).
-    """
-    from django.core.mail import EmailMultiAlternatives
-    from django.template.loader import render_to_string
-
-    # Sin la factura entre lo que va, el correo son SOPORTES: no marca la
-    # factura como enviada. Si además solo van básculas, se dice así. La
-    # preliquidación (PDF o Excel) no es un soporte: es el adelanto.
-    es_preliquidacion = incluir.get('preliquidacion') or incluir.get('excel')
-    solo_soportes = not incluir.get('factura') and not es_preliquidacion and any(
-        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k != 'factura')
-    solo_basculas = solo_soportes and not any(
-        incluir.get(k) for k, _ in ADJUNTOS_FACTURA if k not in ('factura', 'basculas'))
-    etiqueta = ('Soportes de báscula' if solo_basculas else 'Soportes' if solo_soportes
-                else 'Preliquidación' if prefactura else 'Factura')
-    correos = _lista_correos(factura.correo_facturacion)
-    if not correos:
-        messages.error(request, f"La factura no tiene correo de facturación: "
-                                f"edítala y ponlo para poder enviar la {etiqueta.lower()}.")
-        return False
-
-    adjuntos, avisos = [], []
-
-    def adjuntar(campo, nombre):
-        """Adjunta un archivo guardado conservando su extensión."""
-        extension = os.path.splitext(campo.name)[1] or ''
-        with campo.open('rb') as fh:
-            adjuntos.append((f"{nombre}{extension}", fh.read(),
-                             mimetypes.guess_type(campo.name)[0] or 'application/octet-stream'))
-
-    # La preliquidación misma y la de cada concepto aparte (reenvío a la carta).
-    if incluir.get('preliquidacion'):
-        adjuntos.append((f"Preliquidacion_{factura.codigo}.pdf", _pdf_factura(factura, request),
-                         'application/pdf'))
-    if incluir.get('excel'):
-        adjuntos.append((f"Preliquidacion_{factura.codigo}.xlsx", _excel_factura(factura),
-                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
-    for hijo in apartes:
-        adjuntos.append((f"Preliquidacion_{hijo.codigo}.pdf", _pdf_factura(hijo, request),
-                         'application/pdf'))
-
-    # 1 · Orden de compra   2 · Orden de pedido   (documentos del cliente)
-    if incluir.get('orden_compra'):
-        if factura.archivo_orden_compra:
-            adjuntar(factura.archivo_orden_compra,
-                     f"Orden_compra_{factura.codigo}")
-        else:
-            avisos.append("no se adjuntó la orden de compra porque aún no está cargada")
-    if incluir.get('orden_pedido'):
-        if factura.archivo_orden_pedido:
-            adjuntar(factura.archivo_orden_pedido, f"Orden_pedido_{factura.codigo}")
-        else:
-            avisos.append("no se adjuntó la orden de pedido porque aún no está cargada")
-    # 3 · Factura electrónica de venta. La interna solo va como PREFACTURA:
-    # decisión de la clienta (sep-2026), esta casilla es la electrónica.
-    if incluir.get('factura'):
-        if prefactura:
-            # Sin tilde en el nombre del archivo, como los demás adjuntos.
-            adjuntos.append((f"Preliquidacion_{factura.codigo}.pdf", _pdf_factura(factura, request),
-                             'application/pdf'))
-        elif factura.pdf_oficial:
-            adjuntar(factura.pdf_oficial,
-                     f"Factura_{factura.numero_externo or factura.codigo}")
-        else:
-            avisos.append("no se adjuntó la factura electrónica porque aún no está cargada")
-    # 4 · XML
-    if incluir.get('xml'):
-        if factura.xml:
-            with factura.xml.open('rb') as fh:
-                adjuntos.append((f"Factura_{factura.numero_externo or factura.codigo}.xml",
-                                 fh.read(), 'application/xml'))
-        else:
-            avisos.append("no se adjuntó el XML porque aún no está cargado")
-    # 5 · Órdenes de servicio (las actas firmadas)
-    if incluir.get('actas'):
-        actas = list(factura.actas_firmadas())
-        for acta in actas:
-            adjuntos.append((f"Acta_servicio_{acta.recorrido.orden.numero_orden}.pdf",
-                             _pdf_manifiesto(acta), 'application/pdf'))
-        if not actas:
-            avisos.append("ninguna de sus órdenes tiene acta firmada todavía")
-    # 6 · Básculas (solo las elegidas en el popup)
-    if incluir.get('basculas'):
-        con_tiquete = [o for o in basculas if o.bascula_adjunto]
-        for orden in con_tiquete:
-            adjuntar(orden.bascula_adjunto, f"Bascula_orden_{orden.numero_orden}")
-        if not con_tiquete:
-            avisos.append("ninguna de las órdenes elegidas tiene tiquete de báscula cargado")
-    # 7 · Informes (nov-2026): los que la oficina subió como informes
-    if incluir.get('informes'):
-        informes = list(factura.informes)
-        for informe in informes:
-            adjuntar(informe.archivo, os.path.splitext(informe.nombre)[0] or informe.archivo.name)
-        if not informes:
-            avisos.append("no hay informes cargados")
-    # 8 · Fotos del servicio (nov-2026): el registro fotográfico de las órdenes
-    if incluir.get('fotos'):
-        fotos = list(FotoRegistro.objects.filter(orden__lineas_factura__factura=factura)
-                     .select_related('orden').order_by('orden__numero_orden', 'subido_en'))
-        for i, foto in enumerate(fotos, 1):
-            adjuntar(foto.archivo, f"Foto_orden_{foto.orden.numero_orden}_{i}")
-        if not fotos:
-            avisos.append("ninguna de sus órdenes tiene fotos del servicio")
-    # 9 · Otros: lo que la oficina subió a mano desde su computador
-    if incluir.get('otros'):
-        otros = list(factura.otros_adjuntos)
-        for otro in otros:
-            adjuntar(otro.archivo, os.path.splitext(otro.nombre)[0] or otro.archivo.name)
-        if not otros:
-            avisos.append("no hay otros adjuntos cargados")
-    if not adjuntos:
-        # Con avisos, el porqué: «marcaste la factura electrónica pero no está cargada».
-        messages.error(request, "No hay nada que enviar: "
-                       + ('; '.join(avisos) + "." if avisos
-                          else "marca qué se le copia al cliente."))
-        return False
-    if sum(len(a[1]) for a in adjuntos) > PESO_MAX_ADJUNTOS:
-        messages.error(request, "Los adjuntos pesan más de lo que acepta el correo. "
-                                "Quita alguno (por ejemplo las actas) y vuelve a enviar.")
-        return False
-
-    if solo_basculas:
-        asunto = f"{etiqueta} · órdenes de servicio"
-    elif solo_soportes:
-        asunto = f"Soportes de la factura {factura.codigo}"
-    else:
-        asunto = f"{etiqueta} {factura.codigo}"
-    if factura.numero_externo and not prefactura and not solo_soportes:
-        asunto += f" ({factura.numero_externo})"
-    asunto += " — SOLMED SAS"
-    ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
-    if solo_basculas:
-        cuales = ', '.join(f"#{o.numero_orden}" for o in basculas if o.bascula_adjunto)
-        mensaje = (f"Buen día,\n\nAdjuntamos los tiquetes de báscula de las órdenes de "
-                   f"servicio {cuales}.")
-    elif solo_soportes:
-        mensaje = (f"Buen día,\n\nAdjuntamos los soportes de la factura {factura.codigo} "
-                   f"correspondientes a las órdenes de servicio {ordenes}.")
-    elif prefactura:
-        mensaje = (f"Buen día,\n\nAdjuntamos la PRELIQUIDACIÓN INTERNA {factura.codigo} correspondiente a "
-                   f"las órdenes de servicio {ordenes}, para su revisión antes de expedir la "
-                   f"factura electrónica.")
-    else:
-        mensaje = (f"Buen día,\n\nAdjuntamos la factura {factura.numero_externo or factura.codigo} "
-                   f"correspondiente a las órdenes de servicio {ordenes}.")
-    nombres = [a[0] for a in adjuntos]
-    con_copia = [c for c in con_copia if c not in correos]
-    destinatarios = ', '.join(correos)
-    if con_copia:
-        destinatarios = (destinatarios + " · copia: " + ', '.join(con_copia))[:500]
-    registro = EnvioCorreo(
-        cliente=factura.cliente, destinatarios=destinatarios, asunto=asunto,
-        mensaje=mensaje, adjuntos=[f"factura:{factura.pk}"], adjuntos_detalle=nombres,
-        responder_a=', '.join(_reply_to()), enviado_por=request.user,
-    )
-    cuerpo = mensaje + "\n\nDocumentos adjuntos:\n" + "\n".join(f"- {n}" for n in nombres) \
-        + "\n\nCordialmente,\nSOLMED SAS"
-    html = render_to_string('gestion/correo_envio.html', {
-        'mensaje': mensaje, 'adjuntos': nombres, 'cliente': factura.cliente})
-    correo = EmailMultiAlternatives(subject=asunto, body=cuerpo,
-                                    from_email=settings.DEFAULT_FROM_EMAIL,
-                                    to=correos, cc=con_copia, reply_to=_reply_to())
-    correo.attach_alternative(html, 'text/html')
-    for nombre, contenido, tipo in adjuntos:
-        correo.attach(nombre, contenido, tipo)
-    try:
-        correo.send(fail_silently=False)
-    except Exception as e:
-        registro.estado = 'FALLIDO'
-        registro.error = str(e)
-        registro.save()
-        messages.error(request, f"El servidor de correo rechazó el envío ({e}). "
-                                "Quedó registrado como fallido en el Centro de correos.")
-        return False
-    registro.save()
-    if not prefactura and not solo_soportes:
-        # La prefactura y los soportes son adelantos: la factura sigue sin enviarse.
-        factura.enviada_en = timezone.now()
-        factura.save(update_fields=['enviada_en'])
-        _cambiar_estado(request, factura, 'ENVIADA', f"A {registro.destinatarios}",
-                        titulo='Factura enviada al cliente')
-    elif prefactura and not solo_soportes:
-        _registrar_evento(factura, 'Preliquidación enviada al cliente', request.user,
-                          nota=f"A {registro.destinatarios}")
-    texto = ((f"{etiqueta} enviados a {registro.destinatarios} "
-              f"({len(adjuntos)} archivo{'s' if len(adjuntos) != 1 else ''}).") if solo_soportes
-             else (f"{etiqueta} {factura.codigo} enviada a {registro.destinatarios} "
-                   f"con {len(adjuntos)} adjunto(s)."))
-    if avisos:
-        messages.warning(request, texto + " Ojo: " + '; '.join(avisos) + ".")
-    else:
-        messages.success(request, texto)
-    return True
-
-
-def _basculas_elegidas(factura):
-    """Las órdenes de la factura cuyo tiquete de báscula se eligió enviar."""
-    return [l.orden for l in factura.lineas.select_related('orden')
-            if l.copiar_bascula and l.orden.bascula_adjunto]
-
-
+# Las casillas «qué ve el cliente» de la factura, una por adjunto de siempre.
 COPIAR_FACTURA = tuple(f'copiar_{clave}' for clave, _ in ADJUNTOS_FACTURA)
-
-
-def _copiar_al_cliente(factura):
-    """
-    Los siete adjuntos EN SU ORDEN, cada uno con si está marcado, si el
-    archivo ya está en el sistema y qué se adjuntaría. Lo usan el expediente
-    y el formulario para no repetir (ni desordenar) la lista.
-    """
-    lineas = list(factura.lineas.select_related('orden'))
-    con_tiquete = [l for l in lineas if l.orden.bascula_adjunto]
-    elegidas = [l for l in con_tiquete if l.copiar_bascula]
-    actas = list(factura.actas_firmadas())
-    otros = list(factura.otros_adjuntos)
-    informes = list(factura.informes)
-    fotos = list(FotoRegistro.objects.filter(orden__lineas_factura__factura=factura)
-                 .select_related('orden').order_by('orden__numero_orden', 'subido_en'))
-    estado = {
-        'orden_compra': (factura.copiar_orden_compra, bool(factura.archivo_orden_compra),
-                         _nombre_archivo(factura.archivo_orden_compra),
-                         "todavía no está cargada"),
-        'orden_pedido': (factura.copiar_orden_pedido, bool(factura.archivo_orden_pedido),
-                         _nombre_archivo(factura.archivo_orden_pedido),
-                         "todavía no está cargada"),
-        'factura': (factura.copiar_factura, bool(factura.pdf_oficial),
-                    _nombre_archivo(factura.pdf_oficial),
-                    "todavía no se ha cargado la factura electrónica"),
-        'xml': (factura.copiar_xml, bool(factura.xml), _nombre_archivo(factura.xml),
-                "todavía no está cargado"),
-        'actas': (factura.copiar_actas, bool(actas),
-                  f"{len(actas)} de {len(lineas)} órdenes",
-                  "ninguna orden tiene acta firmada todavía"),
-        'basculas': (factura.copiar_basculas, bool(elegidas),
-                     f"{len(elegidas)} de {len(con_tiquete)} tiquetes",
-                     "ninguna orden con tiquete está marcada"),
-        'excel': (factura.copiar_excel, True, "la misma preliquidación en hoja de cálculo", ""),
-        'informes': (factura.copiar_informes, bool(informes),
-                     f"{len(informes)} informe{'s' if len(informes) != 1 else ''}",
-                     "no hay informes cargados"),
-        'fotos': (factura.copiar_fotos, bool(fotos),
-                  f"{len(fotos)} foto{'s' if len(fotos) != 1 else ''} del registro fotográfico",
-                  "ninguna de sus órdenes tiene fotos del servicio"),
-        'otros': (factura.copiar_otros, bool(otros),
-                  f"{len(otros)} archivo{'s' if len(otros) != 1 else ''}",
-                  "no hay archivos cargados"),
-    }
-    # Cada archivo que ya está, con su enlace: se ve en otra pestaña o se vuelve a bajar.
-    def enlace(campo):
-        return [(_nombre_archivo(campo), campo.url)] if campo else []
-    enlaces = {
-        'orden_compra': enlace(factura.archivo_orden_compra),
-        'orden_pedido': enlace(factura.archivo_orden_pedido),
-        'factura': enlace(factura.pdf_oficial),
-        'xml': enlace(factura.xml),
-        'actas': [(f"Acta de servicio · orden #{a.recorrido.orden_id}",
-                   reverse('gestion:acta_pdf', args=[a.recorrido_id]) + '?ver=1') for a in actas],
-        'basculas': [(f"Tiquete · orden #{l.orden_id} · {_nombre_archivo(l.orden.bascula_adjunto)}",
-                      l.orden.bascula_adjunto.url) for l in elegidas],
-        'otros': [(o.nombre, o.archivo.url) for o in otros],
-        'excel': [(f'Preliquidacion_{factura.codigo}.xlsx', reverse('gestion:factura_excel', args=[factura.pk]))],
-        'informes': [(i.nombre, i.archivo.url) for i in informes],
-        'fotos': [(f"Orden #{f.orden.numero_orden} · {_nombre_archivo(f.archivo)}", f.archivo.url) for f in fotos],
-    }
-    return [{'clave': clave, 'etiqueta': etiqueta, 'marcado': estado[clave][0],
-             'listo': estado[clave][1], 'detalle': estado[clave][2],
-             'falta': estado[clave][3], 'enlaces': enlaces[clave]}
-            for clave, etiqueta in ADJUNTOS_FACTURA]
-
-
-def _documentos_para_reenviar(factura):
-    """
-    Lo que el EXPEDIENTE deja reenviar, en orden: la preliquidación en PDF y
-    en Excel, el PDF de cada concepto aparte, y después los siete adjuntos de
-    siempre. Nada nace marcado (sep-2026): el expediente es para reenviar a la
-    carta lo que se quiera, no para repetir lo que se marcó al crearla.
-    """
-    pdf = reverse('gestion:factura_pdf', args=[factura.pk])
-    filas = [
-        {'clave': 'preliquidacion', 'marcado': False,
-         'etiqueta': f'Preliquidación {factura.codigo} · PDF',
-         'listo': True, 'detalle': 'el PDF que genera el sistema', 'falta': '',
-         'enlaces': [(f'Preliquidacion_{factura.codigo}.pdf', pdf + '?ver=1')]},
-        # El Excel ya es uno de los adjuntos de siempre (ADJUNTOS_FACTURA,
-        # nov-2026), pero en el expediente va aquí, al lado del PDF.
-        {'clave': 'excel', 'marcado': False,
-         'etiqueta': f'Preliquidación {factura.codigo} · Excel',
-         'listo': True, 'detalle': 'la misma preliquidación en hoja de cálculo', 'falta': '',
-         'enlaces': [(f'Preliquidacion_{factura.codigo}.xlsx',
-                      reverse('gestion:factura_excel', args=[factura.pk]))]},
-    ]
-    for hijo in factura.apartes.order_by('numero').prefetch_related('lineas__conceptos'):
-        que = ' · '.join(c.descripcion for l in hijo.lineas.all() for c in l.conceptos.all())
-        filas.append({
-            'clave': f'aparte_{hijo.pk}', 'marcado': False,
-            'etiqueta': f'PDF aparte {hijo.codigo}',
-            'listo': True, 'detalle': que or 'concepto adicional', 'falta': '',
-            'enlaces': [(f'Preliquidacion_{hijo.codigo}.pdf',
-                         reverse('gestion:factura_pdf', args=[hijo.pk]) + '?ver=1')]})
-    for fila in _copiar_al_cliente(factura):
-        if fila['clave'] == 'excel':
-            continue        # ya está arriba, junto al PDF
-        # En el expediente ninguna nace marcada.
-        filas.append(dict(fila, marcado=False))
-    return filas
-
-
-def _tiquetes_de_la_factura(factura):
-    """Los tiquetes de báscula de sus órdenes, con si están elegidos para enviar."""
-    return [{'pk': l.orden_id, 'numero': l.orden.numero_orden, 'marcado': l.copiar_bascula,
-             'nombre': _nombre_archivo(l.orden.bascula_adjunto),
-             'url': l.orden.bascula_adjunto.url}
-            for l in factura.lineas.select_related('orden').order_by('orden__numero_orden')
-            if l.orden.bascula_adjunto]
 
 
 def _nombre_archivo(campo):
