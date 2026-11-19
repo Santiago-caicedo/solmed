@@ -42,7 +42,7 @@ restan solo en la utilidad de la empresa. Ingreso en acero, gasto en naranja.
         <table class="gu-cuenta" aria-label="Cuenta de la utilidad">
             <tr><td>Ingreso de los servicios prestados</td><td>${{ u.ingreso|floatformat:0|intcomma }}</td></tr>
             <tr><td>Gastos de los vehículos</td><td>−${{ u.gasto_vehiculos|floatformat:0|intcomma }}</td></tr>
-            <tr><td>Gastos de las categorías</td><td>−${{ u.gasto_categorias|floatformat:0|intcomma }}</td></tr>
+            <tr><td>Gastos de los centros de costos</td><td>−${{ u.gasto_categorias|floatformat:0|intcomma }}</td></tr>
             <tr class="res"><td>Utilidad</td><td class="{% if u.utilidad >= 0 %}pos{% else %}neg{% endif %}">{% if u.utilidad < 0 %}−{% endif %}${{ u.utilidad|floatformat:0|intcomma|cut:"-" }}</td></tr>
         </table>
     </div>
@@ -77,13 +77,13 @@ restan solo en la utilidad de la empresa. Ingreso en acero, gasto en naranja.
 
         {# ---------- Categorías ---------- #}
         <div class="gx-panel">
-            <div class="ph"><h2>Gastos de las categorías</h2><div class="cs">No se reparten entre vehículos: se restan solo en la utilidad de la empresa</div></div>
+            <div class="ph"><h2>Gastos de los centros de costos</h2><div class="cs">No se reparten entre vehículos: se restan solo en la utilidad de la empresa</div></div>
             {% if u.categorias %}
             <table class="gx-tabla">
                 <tbody>{% for c in u.categorias %}<tr><td><span class="gx-centro"><i class="bi bi-tag" aria-hidden="true"></i>{{ c.nombre }}</span><small>{{ c.n }} documento{{ c.n|pluralize }}</small></td><td class="n fuerte">${{ c.gasto|floatformat:0|intcomma }}</td></tr>{% endfor %}</tbody>
                 <tfoot><tr><td>Total</td><td class="n">${{ u.gasto_categorias|floatformat:0|intcomma }}</td></tr></tfoot>
             </table>
-            {% else %}<div class="gx-vacio">Sin gastos de categorías en {{ nombre_periodo }}.</div>{% endif %}
+            {% else %}<div class="gx-vacio">Sin gastos de centros de costos en {{ nombre_periodo }}.</div>{% endif %}
         </div>
     </div>
 

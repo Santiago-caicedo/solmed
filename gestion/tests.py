@@ -11339,6 +11339,23 @@ class ProcesoFacturacionTests(BaseCRM):
         self.assertContains(detalle, 'name="submit_volver"')
         self.assertNotContains(detalle, 'name="submit_realizada"')
 
+    def test_el_enlace_del_cliente_se_puede_copiar_desde_el_expediente(self):
+        """Nov-2026: el enlace queda a mano para copiarlo, también después de que el cliente responde."""
+        factura, revision = self.enviada()
+        url = reverse('gestion:detalle_factura', args=[factura.pk])
+        enlace = reverse('gestion:revision_cliente', args=[revision.token])
+        detalle = self.client.get(url)
+        self.assertContains(detalle, 'Copiar enlace')
+        self.assertContains(detalle, f'data-copiar="http://testserver{enlace}"')
+        self.assertContains(detalle, f'data-copiar="{enlace}"', msg_prefix="y en el historial de envíos")
+        self.client.logout()
+        self.client.post(enlace, {'accion': 'aprobar', 'nombre': 'Luis'})
+        self.entrar(self.asesor)
+        self.assertContains(self.client.get(url), f'data-copiar="{enlace}"', msg_prefix="aprobada, sigue a mano")
+        # Un enlace reemplazado ya no se ofrece.
+        self.client.post(url, {'submit_volver': '1'})
+        self.assertNotContains(self.client.get(url), f'data-copiar="{enlace}"')
+
     def test_el_cliente_ve_la_preliquidacion_y_sus_documentos_sin_usuario(self):
         from .aprobacion import documentos_para_el_cliente
         Manifiesto.objects.create(recorrido=self.recorrido, estado_firma='FIRMADO')
@@ -11799,7 +11816,7 @@ class GastosTests(BaseCRM):
         CategoriaGasto.objects.create(nombre='Operacional')
         pagina = self.client.get(reverse('gestion:crear_gasto'))
         for titulo in ('Tipo de documento', 'Folio', 'Prefijo', 'Fecha emisión', 'NIT emisor', 'Nombre emisor',
-                       'Total', 'Costos', 'Placas', 'Detalle'):
+                       'Total', 'Centro de costos', 'Placas', 'Detalle'):
             self.assertContains(pagina, titulo)
         r = self.lote([
             ['Factura electrónica', '393001', 'PZVP', '03-08-2026', '900534356', 'WORLD OFFICE COLOMBIA SAS',
@@ -11887,7 +11904,7 @@ class GastosTests(BaseCRM):
                  ['Factura', '6', '', '03-08-2026', '9001', 'X', '1000', 'ADMINISTRATIVO', self.camion.placa, '']]
         r = self.lote(filas)
         pagina = r.content.decode()
-        orden = [pagina.index(t) for t in ('Se crearán estas categorías de costos', 'Se crearán estos tipos de documento',
+        orden = [pagina.index(t) for t in ('Se crearán estos centros de costos', 'Se crearán estos tipos de documento',
                                             'Estas placas no son vehículos de la empresa')]
         self.assertEqual(orden, sorted(orden), "categorías → tipos → placas")
         self.assertContains(r, 'Paso <span id="gp-n">1</span> de 3')
@@ -11901,9 +11918,35 @@ class GastosTests(BaseCRM):
         self.assertEqual(Gasto.objects.get(folio='6').vehiculo, self.camion, "la de la empresa se carga como siempre")
         self.assertContains(self.client.get(reverse('gestion:gastos')), 'Placa: OFICINA')
 
+    def test_centros_de_costos_se_crean_y_se_eliminan_si_no_tienen_gastos(self):
+        """Nov-2026: la pestaña «Centros de costos»; solo se elimina el que no tiene gastos."""
+        from .models import CategoriaGasto, Gasto
+        url = reverse('gestion:categorias_gasto')
+        self.assertContains(self.client.get(reverse('gestion:gastos')), 'Centros de costos')
+        self.client.post(url, {'crear': '1', 'nombre': 'Junio'})
+        junio = CategoriaGasto.objects.get(nombre='Junio')
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'Nuevo centro de costos')
+        self.assertContains(pagina, f'aria-label="Eliminar Junio"')
+        Gasto.objects.create(folio='1', fecha_emision=timezone.localdate(), nit_emisor='1',
+                             nombre_emisor='X', total=Decimal('1000'), categoria=self.admin_cat)
+        pagina = self.client.get(url)
+        self.assertContains(pagina, 'title="Tiene 1 gasto asignado"')
+        self.assertNotContains(pagina, 'Para qué es')
+        # Editar solo cambia el nombre.
+        self.client.post(url, {'guardar': '1', 'categoria': junio.pk, 'nombre': 'Julio'})
+        junio.refresh_from_db()
+        self.assertEqual(junio.nombre, 'Julio')
+        r = self.client.post(url, {'eliminar': '1', 'categoria': self.admin_cat.pk, 'nombre': 'Administrativo'}, follow=True)
+        self.assertContains(r, 'no se puede eliminar')
+        self.assertTrue(CategoriaGasto.objects.filter(pk=self.admin_cat.pk).exists(), "con gastos no se borra")
+        r = self.client.post(url, {'eliminar': '1', 'categoria': junio.pk, 'nombre': 'Julio'}, follow=True)
+        self.assertContains(r, 'Centro de costos «Julio» eliminado.')
+        self.assertFalse(CategoriaGasto.objects.filter(pk=junio.pk).exists())
+
     def test_placa_que_no_es_de_la_empresa_sin_costos_pide_la_categoria(self):
         r = self.lote([['Factura', '5', '', '03-08-2026', '9001', 'X', '1000', '', 'XYZ999', '']])
-        self.assertContains(r, '«XYZ999» no es un vehículo de la empresa: escribe la categoría en COSTOS.')
+        self.assertContains(r, '«XYZ999» no es un vehículo de la empresa: escribe el centro de costos.')
         self.assertNotContains(r, 'id="gl-pasos"')
 
     def test_lo_que_se_desmarca_en_el_popup_queda_para_corregir(self):
@@ -12002,8 +12045,8 @@ class GastosTests(BaseCRM):
         self.assertContains(r, 'Fecha no válida')
         self.assertContains(r, 'Sin NIT (en el Excel puede venir como #VALUE!): se guarda incompleto.')
         self.assertContains(r, 'Total no válido')
-        self.assertContains(r, 'Escribe la categoría (COSTOS), la placa o las dos')
-        self.assertContains(r, 'La categoría «TUNJA» es nueva: se crea al guardar.')
+        self.assertContains(r, 'Escribe el centro de costos, la placa o las dos')
+        self.assertContains(r, 'El centro de costos «TUNJA» es nuevo: se crea al guardar.')
         self.assertContains(r, 'value="OBC"', msg_prefix="lo pegado se conserva para corregir")
         # Corregidas, y con «crear TUNJA» marcado, se guardan todas.
         r = self.lote([
@@ -12033,7 +12076,7 @@ class GastosTests(BaseCRM):
         self.assertEqual((g.total, g.vehiculo, g.nota), (Decimal('2500'), self.camion, 'Llantas'))
         r = self.client.post(url, {'tipo_documento': 'FACTURA', 'folio': '1', 'fecha_emision': '2026-08-03',
                                    'nit_emisor': '1', 'nombre_emisor': 'X', 'total_texto': '2500'})
-        self.assertContains(r, 'Escoge la categoría (COSTOS), la placa o las dos')
+        self.assertContains(r, 'Escoge el centro de costos, la placa o las dos')
 
     def test_la_utilidad_por_vehiculo_y_de_la_empresa(self):
         from .models import Gasto

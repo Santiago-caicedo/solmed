@@ -73,7 +73,7 @@ def _opciones_centro(gasto=None):
         categorias = CategoriaGasto.objects.filter(Q(activa=True) | Q(pk=gasto.categoria_id))
     return [('', 'Elige a qué se carga'),
             ('Vehículos', vehiculos),
-            ('Categorías', [(f'c{c.pk}', c.nombre) for c in categorias.order_by('nombre')])]
+            ('Centros de costos', [(f'c{c.pk}', c.nombre) for c in categorias.order_by('nombre')])]
 
 
 # ============================================================
@@ -275,7 +275,7 @@ class GastoForm(forms.ModelForm):
         model = Gasto
         fields = ['tipo_documento', 'folio', 'prefijo', 'fecha_emision', 'nit_emisor', 'nombre_emisor',
                   'categoria', 'vehiculo', 'placa_texto', 'nota', 'archivo']
-        labels = {'categoria': 'Costos (categoría)', 'vehiculo': 'Placa', 'nota': 'Detalle',
+        labels = {'categoria': 'Centro de costos', 'vehiculo': 'Placa', 'nota': 'Detalle',
                   'placa_texto': 'Placa informativa'}
         widgets = {
             'tipo_documento': forms.Select(attrs={'class': 'form-select'}),
@@ -297,7 +297,7 @@ class GastoForm(forms.ModelForm):
         g = self.instance
         categorias = CategoriaGasto.objects.filter(Q(activa=True) | Q(pk=g.categoria_id or 0)).order_by('nombre')
         self.fields['categoria'].queryset = categorias
-        self.fields['categoria'].empty_label = 'Sin categoría'
+        self.fields['categoria'].empty_label = 'Sin centro de costos'
         self.fields['vehiculo'].queryset = Vehiculo.objects.order_by('placa')
         self.fields['vehiculo'].empty_label = 'Sin placa'
         self.fields['prefijo'].required = False
@@ -323,7 +323,7 @@ class GastoForm(forms.ModelForm):
     def clean(self):
         datos = super().clean()
         if not datos.get('categoria') and not datos.get('vehiculo'):
-            self.add_error('categoria', "Escoge la categoría (COSTOS), la placa o las dos.")
+            self.add_error('categoria', "Escoge el centro de costos, la placa o las dos.")
         return datos
 
     def save(self, commit=True):
@@ -347,7 +347,7 @@ class GastoForm(forms.ModelForm):
 COLUMNAS_LOTE = [
     ('tipo', 'Tipo de documento'), ('folio', 'Folio'), ('prefijo', 'Prefijo'),
     ('fecha', 'Fecha emisión'), ('nit', 'NIT emisor'), ('nombre', 'Nombre emisor'),
-    ('total', 'Total'), ('costos', 'Costos'), ('placa', 'Placas'), ('detalle', 'Detalle'),
+    ('total', 'Total'), ('costos', 'Centro de costos'), ('placa', 'Placas'), ('detalle', 'Detalle'),
 ]
 FILAS_INICIALES = 12
 # Nov-2026: el tope de filas SALE DE UNA CUENTA. Cada fila de la tabla manda
@@ -521,9 +521,9 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
             elif costos.lower() in crear:
                 datos['categoria_nueva'] = crear[costos.lower()]
             elif confirmado:
-                errores['costos'] = f"No se confirmó crear la categoría «{costos}»: corrígela."
+                errores['costos'] = f"No se confirmó crear el centro de costos «{costos}»: corrígelo."
             else:
-                pendientes['costos'] = f"La categoría «{costos}» es nueva: se crea al guardar."
+                pendientes['costos'] = f"El centro de costos «{costos}» es nuevo: se crea al guardar."
                 pendiente('categorias', costos.lower(), costos, i + 1)
         # PLACAS: si es un vehículo de la empresa, el gasto se le carga. Si no
         # (otra placa, «OFICINA»…), se guarda el texto solo como información.
@@ -546,8 +546,8 @@ def revisar_lote(filas, crear_categorias=(), crear_tipos=(), placas_ok=(), confi
                                                + (f" ¿Es {', '.join(parecidas)}?" if parecidas else ""))
                         pendiente('placas', placa, placa_cruda, i + 1, parecidas=parecidas)
         if not costos and datos['vehiculo'] is None and 'costos' not in errores:
-            errores['costos'] = (f"«{placa_cruda}» no es un vehículo de la empresa: escribe la categoría en COSTOS."
-                                 if placa else "Escribe la categoría (COSTOS), la placa o las dos.")
+            errores['costos'] = (f"«{placa_cruda}» no es un vehículo de la empresa: escribe el centro de costos."
+                                 if placa else "Escribe el centro de costos, la placa o las dos.")
         datos['nota'] = str(fila.get('detalle') or '').strip()[:255]
         # Repetidos: se avisan en el popup; se guardan si se dejan marcados.
         omitir = False
@@ -647,8 +647,8 @@ class GastosLoteView(AdministradorRequiredMixin, View):
         # (categorías → tipos → placas → repetidos) y, en el último, se guarda.
         pasos = [p for p in (
             {'clave': 'categorias', 'campo': 'crear_categoria', 'icono': 'bi-tag',
-             'titulo': 'Se crearán estas categorías de costos',
-             'bajada': 'Aparecerán en COSTOS para cargarles gastos. Desmarca la que esté mal escrita y corrígela en la tabla.',
+             'titulo': 'Se crearán estos centros de costos',
+             'bajada': 'Aparecerán en Centro de costos para cargarles gastos. Desmarca el que esté mal escrito y corrígelo en la tabla.',
              'items': pendientes['categorias']},
             {'clave': 'tipos', 'campo': 'crear_tipo', 'icono': 'bi-file-earmark-plus',
              'titulo': 'Se crearán estos tipos de documento',
@@ -657,7 +657,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
             {'clave': 'placas', 'campo': 'placa_texto_ok', 'icono': 'bi-truck',
              'titulo': 'Estas placas no son vehículos de la empresa',
              'bajada': 'Se guardan solo como texto informativo: el gasto no se carga a ningún vehículo y queda en su '
-                       'categoría de COSTOS. Si es una placa de la empresa mal escrita, desmárcala y corrígela.',
+                       'centro de costos. Si es una placa de la empresa mal escrita, desmárcala y corrígela.',
              'items': pendientes['placas']},
             {'clave': 'repetidos', 'campo': 'repetido_ok', 'icono': 'bi-files',
              'titulo': 'Estos documentos parecen repetidos',
@@ -700,7 +700,7 @@ class GastosLoteView(AdministradorRequiredMixin, View):
         total = sum((r['datos']['total'] for r in por_guardar), Decimal('0'))
         texto = f"{len(por_guardar)} gasto{'s' if len(por_guardar) != 1 else ''} registrado{'s' if len(por_guardar) != 1 else ''} por ${_texto_pesos(total)}"
         if creadas:
-            texto += f"; se crearon las categorías {', '.join(c.nombre for c in creadas.values())}"
+            texto += f"; se crearon los centros de costos {', '.join(c.nombre for c in creadas.values())}"
         if tipos_creados:
             texto += f"; se crearon los tipos de documento {', '.join(t.nombre for t in tipos_creados.values())}"
         incompletos = sum(1 for r in por_guardar if not (r['datos']['folio'] and r['datos']['nit_emisor']
@@ -758,7 +758,7 @@ class EliminarGastoView(AdministradorRequiredMixin, View):
 
 
 class CategoriasGastoView(AdministradorRequiredMixin, View):
-    """Las categorías propias: crear, renombrar y archivar (no se borran: sus gastos se conservan)."""
+    """Los centros de costos (CategoriaGasto): una tabla para crear, cambiar el nombre y eliminar el que no tiene gastos."""
     acceso = 'gastos.ver'
     acceso_escribir = 'gastos.editar'
     template_name = 'gestion/gastos_categorias.html'
@@ -774,36 +774,44 @@ class CategoriasGastoView(AdministradorRequiredMixin, View):
     def post(self, request):
         volver = redirect('gestion:categorias_gasto')
         nombre = ' '.join((request.POST.get('nombre') or '').split())[:80]
-        descripcion = (request.POST.get('descripcion') or '').strip()[:255]
         if 'crear' in request.POST:
             if not nombre:
-                messages.error(request, "Escribe el nombre de la categoría.")
+                messages.error(request, "Escribe el nombre del centro de costos.")
                 return volver
             if CategoriaGasto.objects.filter(nombre__iexact=nombre).exists():
-                messages.error(request, f"Ya existe una categoría «{nombre}».")
+                messages.error(request, f"Ya existe un centro de costos «{nombre}».")
                 return volver
-            CategoriaGasto.objects.create(nombre=nombre, descripcion=descripcion)
-            messages.success(request, f"Categoría «{nombre}» creada.")
+            CategoriaGasto.objects.create(nombre=nombre)
+            messages.success(request, f"Centro de costos «{nombre}» creado.")
             return volver
         categoria = CategoriaGasto.objects.filter(pk=request.POST.get('categoria') or 0).first()
         if categoria is None:
-            messages.error(request, "Esa categoría ya no existe.")
+            messages.error(request, "Ese centro de costos ya no existe.")
             return volver
         if 'guardar' in request.POST:
             if not nombre:
                 messages.error(request, "El nombre no puede quedar vacío.")
                 return volver
             if CategoriaGasto.objects.filter(nombre__iexact=nombre).exclude(pk=categoria.pk).exists():
-                messages.error(request, f"Ya existe otra categoría «{nombre}».")
+                messages.error(request, f"Ya existe otro centro de costos «{nombre}».")
                 return volver
-            categoria.nombre, categoria.descripcion = nombre, descripcion
-            categoria.save(update_fields=['nombre', 'descripcion'])
-            messages.success(request, f"Categoría «{nombre}» guardada.")
+            categoria.nombre = nombre
+            categoria.save(update_fields=['nombre'])
+            messages.success(request, f"Centro de costos «{nombre}» guardado.")
         elif 'archivar' in request.POST:
             categoria.activa = not categoria.activa
             categoria.save(update_fields=['activa'])
-            messages.success(request, f"Categoría «{categoria.nombre}» "
-                                      f"{'activada de nuevo' if categoria.activa else 'archivada: ya no se ofrece al registrar'}.")
+            messages.success(request, f"Centro de costos «{categoria.nombre}» "
+                                      f"{'activado de nuevo' if categoria.activa else 'archivado: ya no se ofrece al registrar'}.")
+        elif 'eliminar' in request.POST:
+            # Solo el que no tiene gastos (el FK es PROTECT): el que tiene, se archiva.
+            n = categoria.gastos.count()
+            if n:
+                messages.error(request, f"«{categoria.nombre}» tiene {n} gasto{'s' if n != 1 else ''}: no se puede eliminar. "
+                                        "Archívalo para que no se ofrezca más; sus gastos se conservan.")
+            else:
+                categoria.delete()
+                messages.success(request, f"Centro de costos «{categoria.nombre}» eliminado.")
         return volver
 
 

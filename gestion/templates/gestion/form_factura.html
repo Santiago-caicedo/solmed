@@ -149,7 +149,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h2 class="mb-0">{% if factura %}Editar {{ factura.codigo }}{% else %}Nueva preliquidación{% endif %}</h2>
-        <div class="text-muted">Seis pasos: cliente, órdenes, datos, vista previa, documentos y la orden de facturación para la administradora</div>
+        <div class="text-muted">Cinco pasos: cliente, órdenes, datos, vista previa y los documentos para el cliente. Al final, guárdala o envíasela al cliente para que la apruebe</div>
     </div>
     <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
 </div>

@@ -112,6 +112,9 @@
 .fp-revs li{ padding:.3rem 0; border-top:1px solid var(--line-2); }
 .fp-revs .mono{ font-family:var(--mono); }
 .fp-revs .vieja{ color:var(--ink-3); }
+.fp-revs .fe-link{ background:none; border:0; padding:0; font-size:inherit; color:var(--brand-700); text-decoration:underline dotted; }
+.fp-copiar.copiado{ border-color:var(--ok); }
+.fp-aviso-copia{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 .fp-etapas li{ counter-increment:fp; padding:.5rem .6rem; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--panel-2); font-size:.78rem; color:var(--ink-3); }
 .fp-etapas li::before{ content:counter(fp); display:inline-block; width:1.35rem; height:1.35rem; line-height:1.35rem; text-align:center; border-radius:50%;
     background:var(--line); color:var(--ink-2); font-family:var(--mono); font-size:.7rem; font-weight:600; margin-bottom:.25rem; }
@@ -196,6 +199,7 @@
                 <p class="small mb-1">Enviado el {{ revision.enviada_en|date:"d/m/Y H:i" }} a <b>{{ revision.enviada_a }}</b>{% if revision.enviada_por %} por {{ revision.enviada_por.get_full_name|default:revision.enviada_por.username }}{% endif %}. Esperando su respuesta.</p>
                 <div class="fp-enlace">
                     <input type="text" class="form-control form-control-sm" value="{{ enlace }}" readonly aria-label="Enlace del cliente" onclick="this.select()">
+                    <button type="button" class="btn btn-primary btn-sm fp-copiar" data-copiar="{{ enlace }}"><i class="bi bi-clipboard me-1" aria-hidden="true"></i><span>Copiar enlace</span></button>
                     <a href="{{ enlace }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm">Ver como el cliente</a>
                 </div>
                 {% if puede_preliquidar or puede_facturar %}
@@ -294,7 +298,10 @@
                 {% if r.respuesta == 'APROBADA' %}<span class="text-success">aprobada por {{ r.nombre }} el {{ r.respondida_en|date:"d/m/Y H:i" }}</span>
                 {% elif r.respuesta == 'DEVUELTA' %}<span class="text-warning">devuelta por {{ r.nombre }} el {{ r.respondida_en|date:"d/m/Y H:i" }}</span>
                 {% elif r.vigente %}<span class="text-muted">sin respuesta todavía</span>
-                {% else %}<span class="text-muted">enlace reemplazado</span>{% endif %}</li>
+                {% else %}<span class="text-muted">enlace reemplazado</span>{% endif %}
+                {% if r.vigente %}{# El enlace vigente queda siempre a mano, también después de que el cliente responde. #}
+                <span class="fp-rev-enlace">· <button type="button" class="fe-link fp-copiar" data-copiar="{% url 'gestion:revision_cliente' r.token %}"><i class="bi bi-clipboard me-1" aria-hidden="true"></i><span>Copiar enlace</span></button>
+                    · <a href="{% url 'gestion:revision_cliente' r.token %}" target="_blank" rel="noopener">abrir</a></span>{% endif %}</li>
             {% endfor %}
         </ul>
         {% endif %}
@@ -499,4 +506,33 @@
         {% endif %}
     </div>
 </div>
+<div class="fp-aviso-copia" id="fp-aviso-copia" role="status" aria-live="polite"></div>
+<script>
+(function () {
+    // «Copiar enlace»: el enlace único del cliente al portapapeles (nov-2026).
+    var aviso = document.getElementById('fp-aviso-copia');
+    function copiar(texto) {
+        if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(texto);
+        return new Promise(function (bien, mal) {
+            var area = document.createElement('textarea');
+            area.value = texto; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+            document.body.appendChild(area); area.select();
+            try { document.execCommand('copy') ? bien() : mal(); } catch (e) { mal(e); }
+            document.body.removeChild(area);
+        });
+    }
+    document.addEventListener('click', function (e) {
+        var boton = e.target.closest('.fp-copiar');
+        if (!boton) return;
+        var enlace = new URL(boton.dataset.copiar, window.location.href).href;
+        var texto = boton.querySelector('span');
+        copiar(enlace).then(function () {
+            texto.textContent = 'Copiado'; boton.classList.add('copiado'); aviso.textContent = 'Enlace copiado';
+            setTimeout(function () { texto.textContent = 'Copiar enlace'; boton.classList.remove('copiado'); aviso.textContent = ''; }, 2000);
+        }, function () {
+            texto.textContent = 'No se pudo copiar'; aviso.textContent = 'No se pudo copiar: selecciona el enlace y cópialo a mano';
+        });
+    });
+})();
+</script>
 {% endblock %}

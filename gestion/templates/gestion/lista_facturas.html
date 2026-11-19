@@ -51,7 +51,7 @@ a.fc-tile:hover{ background:var(--panel-2); color:inherit; }
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h2 class="mb-0">Facturación</h2>
-        <div class="text-muted">La comercial arma la preliquidación y la pasa a facturación; la administradora la aprueba, hace la factura electrónica y la envía</div>
+        <div class="text-muted">La comercial arma la preliquidación y se la envía al cliente; cuando el cliente la aprueba, queda lista para que la administradora la facture</div>
     </div>
     {% if acceso.facturacion.preliquidar %}
     <a href="{% url 'gestion:crear_factura' %}" class="btn btn-success"><i class="bi bi-plus-lg me-1"></i>Nueva preliquidación</a>

@@ -67,7 +67,7 @@ gasto naranja #d4622b. `con_periodo`: muestra el selector de periodo.
 <div class="gx-cab">
     <div>
         <h1>Gastos</h1>
-        <div class="bajada">{% if con_periodo %}{{ nombre_periodo|capfirst }}{% else %}Facturas de compra cargadas a cada vehículo o categoría{% endif %}</div>
+        <div class="bajada">{% if con_periodo %}{{ nombre_periodo|capfirst }}{% else %}Facturas de compra cargadas a cada vehículo o centro de costos{% endif %}</div>
     </div>
     <div class="gx-acc">
         {% if con_periodo %}
@@ -92,5 +92,5 @@ gasto naranja #d4622b. `con_periodo`: muestra el selector de periodo.
 <nav class="gx-tabs" aria-label="Secciones de gastos">
     <a href="{% url 'gestion:gastos' %}{% if con_periodo %}?periodo={{ periodo }}{% endif %}" class="{% if pestana == 'registro' %}act{% endif %}">Registro</a>
     <a href="{% url 'gestion:utilidad' %}{% if con_periodo %}?periodo={{ periodo }}{% endif %}" class="{% if pestana == 'utilidad' %}act{% endif %}">Utilidad por vehículo</a>
-    <a href="{% url 'gestion:categorias_gasto' %}" class="{% if pestana == 'categorias' %}act{% endif %}">Categorías</a>
+    <a href="{% url 'gestion:categorias_gasto' %}" class="{% if pestana == 'categorias' %}act{% endif %}">Centros de costos</a>
 </nav>

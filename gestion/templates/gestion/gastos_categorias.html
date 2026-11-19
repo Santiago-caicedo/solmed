@@ -1,63 +1,104 @@
 {% extends 'gestion/base.html' %}
 {% load humanize %}
-{% block title %}Categorías de gasto{% endblock %}
+{% block title %}Centros de costos{% endblock %}
 {% block content %}
+{% comment %}
+Nov-2026 (Santiago): una tabla simple. Nombre, cuántos gastos tiene y su
+total; «Editar» cambia el nombre en la misma fila y «Eliminar» solo se
+habilita cuando el centro no tiene ningún gasto asignado.
+{% endcomment %}
+<style>
+.cc-nombre{ display:flex; align-items:center; gap:.5rem; }
+.cc-edita{ display:none; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.cc-edita input{ max-width:260px; }
+tr.editando .cc-nombre, tr.editando .cc-ver{ display:none; }
+tr.editando .cc-edita{ display:flex; }
+.cc-cero{ color:var(--ink-3); }
+</style>
 <div class="gx">
     {% include 'gestion/partials/_gastos_cabecera.html' %}
     <div class="row g-3">
         <div class="col-lg-8">
             <div class="gx-panel">
-                <div class="ph"><h2>Categorías</h2><div class="cs">Los centros de costo que no son un vehículo. Archivar una la saca del formulario; sus gastos se conservan.</div></div>
+                <div class="ph"><h2>Centros de costos</h2><div class="cs">Solo se puede eliminar un centro de costos que no tiene gastos.</div></div>
                 {% if categorias %}
                 <table class="gx-tabla">
-                    <thead><tr><th>Nombre y para qué es</th><th class="n">Gastos</th><th class="n">Total</th><th></th></tr></thead>
+                    <thead><tr><th>Nombre</th><th class="n">Gastos</th><th class="n">Total</th>{% if acceso.gastos.editar %}<th class="n">Acciones</th>{% endif %}</tr></thead>
                     <tbody>
                     {% for c in categorias %}
-                    <tr {% if not c.activa %}style="opacity:.6"{% endif %}>
+                    <tr id="fila-{{ c.pk }}">
                         <td>
+                            <div class="cc-nombre"><span class="fuerte">{{ c.nombre }}</span>{% if not c.activa %}<span class="gx-chip">Archivado</span>{% endif %}</div>
                             {% if acceso.gastos.editar %}
-                            <form method="post" class="d-flex gap-2 flex-wrap" id="cat-{{ c.pk }}">
+                            <form method="post" class="cc-edita" id="cat-{{ c.pk }}">
                                 {% csrf_token %}<input type="hidden" name="categoria" value="{{ c.pk }}">
-                                <input type="text" name="nombre" value="{{ c.nombre }}" class="form-control form-control-sm" style="max-width:200px" maxlength="80" aria-label="Nombre de la categoría">
-                                <input type="text" name="descripcion" value="{{ c.descripcion }}" class="form-control form-control-sm" style="max-width:280px" maxlength="255" placeholder="Para qué es (opcional)" aria-label="Para qué es">
+                                <input type="text" name="nombre" value="{{ c.nombre }}" class="form-control form-control-sm" maxlength="80" required aria-label="Nuevo nombre de {{ c.nombre }}">
+                                <button name="guardar" value="1" class="btn btn-sm btn-primary">Guardar</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-cancelar="{{ c.pk }}">Cancelar</button>
                             </form>
-                            {% else %}<span class="fuerte">{{ c.nombre }}</span><small>{{ c.descripcion }}</small>{% endif %}
-                            {% if not c.activa %}<small>Archivada</small>{% endif %}
-                        </td>
-                        <td class="n">{{ c.n }}</td>
-                        <td class="n fuerte">${{ c.t|default:0|floatformat:0|intcomma }}</td>
-                        <td>
-                            {% if acceso.gastos.editar %}
-                            <div class="gx-acciones">
-                                <button form="cat-{{ c.pk }}" name="guardar" value="1" class="btn btn-sm btn-outline-secondary">Guardar</button>
-                                <button form="cat-{{ c.pk }}" name="archivar" value="1" class="btn btn-sm btn-outline-secondary">{% if c.activa %}Archivar{% else %}Activar{% endif %}</button>
-                            </div>
                             {% endif %}
                         </td>
+                        <td class="n {% if not c.n %}cc-cero{% endif %}">{{ c.n }}</td>
+                        <td class="n fuerte">${{ c.t|default:0|floatformat:0|intcomma }}</td>
+                        {% if acceso.gastos.editar %}
+                        <td>
+                            <div class="gx-acciones cc-ver">
+                                {% if not c.activa %}<button form="cat-{{ c.pk }}" name="archivar" value="1" formnovalidate class="btn btn-sm btn-outline-secondary">Activar</button>{% endif %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-editar="{{ c.pk }}"><i class="bi bi-pencil me-1" aria-hidden="true"></i>Editar</button>
+                                {% if c.n %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Tiene {{ c.n }} gasto{{ c.n|pluralize }} asignado{{ c.n|pluralize }}"><i class="bi bi-trash me-1" aria-hidden="true"></i>Eliminar</button>
+                                {% else %}
+                                <button form="cat-{{ c.pk }}" name="eliminar" value="1" formnovalidate class="btn btn-sm btn-outline-danger" aria-label="Eliminar {{ c.nombre }}"><i class="bi bi-trash me-1" aria-hidden="true"></i>Eliminar</button>
+                                {% endif %}
+                            </div>
+                        </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                     </tbody>
                 </table>
                 {% else %}
-                <div class="gx-vacio">Todavía no hay categorías. Crea la primera, por ejemplo Administrativo, Operacional o Talento humano.</div>
+                <div class="gx-vacio">Todavía no hay centros de costos. Crea el primero, por ejemplo Administrativo, Operacional o Talento humano.</div>
                 {% endif %}
             </div>
         </div>
         {% if acceso.gastos.editar %}
         <div class="col-lg-4">
             <div class="gx-panel">
-                <div class="ph"><h2>Nueva categoría</h2><div class="cs">Para los gastos que no son de un vehículo</div></div>
+                <div class="ph"><h2>Nuevo centro de costos</h2></div>
                 <form method="post" class="px-3 pb-3 pt-2">
                     {% csrf_token %}
                     <label class="form-label small mb-1" for="cat-nombre">Nombre</label>
-                    <input type="text" name="nombre" id="cat-nombre" class="form-control mb-2" maxlength="80" placeholder="Ej: Administrativo" required>
-                    <label class="form-label small mb-1" for="cat-desc">Para qué es <span class="text-muted">(opcional)</span></label>
-                    <input type="text" name="descripcion" id="cat-desc" class="form-control mb-3" maxlength="255" placeholder="Ej: Papelería, software, servicios de la oficina">
-                    <button name="crear" value="1" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Crear categoría</button>
+                    <input type="text" name="nombre" id="cat-nombre" class="form-control mb-3" maxlength="80" placeholder="Ej: Administrativo" required>
+                    <button name="crear" value="1" class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Crear centro de costos</button>
                 </form>
             </div>
         </div>
         {% endif %}
     </div>
 </div>
+<script>
+(function () {
+    // «Editar» cambia la fila a un campo con el nombre; «Cancelar» la devuelve.
+    document.addEventListener('click', function (e) {
+        var ed = e.target.closest('[data-editar]'), ca = e.target.closest('[data-cancelar]');
+        if (ed) {
+            var fila = document.getElementById('fila-' + ed.dataset.editar);
+            fila.classList.add('editando');
+            var campo = fila.querySelector('input[name="nombre"]');
+            campo.focus(); campo.select();
+        } else if (ca) {
+            var f = document.getElementById('fila-' + ca.dataset.cancelar);
+            var c = f.querySelector('input[name="nombre"]');
+            c.value = c.defaultValue;
+            f.classList.remove('editando');
+        }
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        var f = e.target.closest && e.target.closest('tr.editando');
+        if (f) f.querySelector('[data-cancelar]').click();
+    });
+})();
+</script>
 {% endblock %}

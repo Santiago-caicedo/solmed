@@ -18,7 +18,7 @@
             <div class="s">Cuenta en la utilidad de cada vehículo</div>
         </div>
         <div class="c">
-            <div class="k">Cargado a categorías</div>
+            <div class="k">Cargado a centros de costos</div>
             <div class="v">${{ resumen.categorias|floatformat:0|intcomma }}</div>
             <div class="s">Administrativo y demás: se resta solo en el total</div>
         </div>
@@ -49,9 +49,9 @@
         {% if solo_incompletos %}<input type="hidden" name="incompletos" value="1">{% endif %}
         {% if periodo == 'personalizado' %}<input type="hidden" name="desde" value="{{ desde|date:'Y-m-d' }}"><input type="hidden" name="hasta" value="{{ hasta|date:'Y-m-d' }}">{% endif %}
         <select name="centro" class="form-select form-select-sm" style="max-width:240px" aria-label="Cargado a">
-            <option value="">Todo, vehículos y categorías</option>
+            <option value="">Todo, vehículos y centros de costos</option>
             <option value="vehiculos" {% if centro == 'vehiculos' %}selected{% endif %}>Solo vehículos</option>
-            <option value="categorias" {% if centro == 'categorias' %}selected{% endif %}>Solo categorías</option>
+            <option value="categorias" {% if centro == 'categorias' %}selected{% endif %}>Solo centros de costos</option>
             {% for grupo, opciones in centros %}{% if opciones and grupo %}<optgroup label="{{ grupo }}">{% for valor, nombre in opciones %}<option value="{{ valor }}" {% if centro == valor %}selected{% endif %}>{{ nombre }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
         </select>
         <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:320px" placeholder="Buscar proveedor, NIT o documento" aria-label="Buscar">
