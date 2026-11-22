@@ -9445,7 +9445,7 @@ class ListaFacturasView(AdministradorRequiredMixin, PaginadoMixin, ListView):
               .prefetch_related('lineas').filter(self.VISTAS[self._ver()][1]))
         q = self.request.GET.get('q', '').strip()
         if q:
-            numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('F-', '').lstrip('0')
+            numero = q.upper().replace(f'{Factura.PREFIJO}-', '').replace('SMS-', '').replace('F-', '').lstrip('0')
             filtro = Q(cliente__nombre__icontains=q) | Q(numero_externo__icontains=q)
             if numero.isdigit():
                 filtro |= Q(numero=int(numero))

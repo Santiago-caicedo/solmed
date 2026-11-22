@@ -3676,7 +3676,7 @@ class FacturacionTests(BaseCRM):
         self.assertNotIn(Decimal('1736898.00'), celdas)
 
     def test_d1_armada_con_precio_y_sin_los_seis_datos_vale_su_precio(self):
-        """El caso real de SMS-0002, 0010, 0011 y 0012: salían en $0 en todo."""
+        """El caso real de PL-0002, 0010, 0011 y 0012: salían en $0 en todo."""
         from .views import _html_factura, _lineas_con_detalle
         cli, ibague = self._cliente_con_formato('D1 SAS', '9002769621', 'IBAGUE')
         una = self._orden('WNO623', cliente=cli, sede_cliente=ibague)
@@ -3841,7 +3841,7 @@ class FacturacionTests(BaseCRM):
                                         ('Hora extra', '80.000'))
         principal = Factura.objects.get(principal__isnull=True)
         aparte = Factura.objects.get(principal=principal)
-        self.assertEqual((principal.codigo, aparte.codigo), ('SMS-0001', 'SMS-0002'))
+        self.assertEqual((principal.codigo, aparte.codigo), ('PL-0001', 'PL-0002'))
         self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[principal.pk]) + '#revisar')
         # La principal: su global y el concepto que NO va aparte.
         self.assertEqual(principal.total, Decimal('580000'))
@@ -3860,14 +3860,14 @@ class FacturacionTests(BaseCRM):
         html = _html_factura(aparte, _lineas_con_detalle(aparte), aparte.total)
         self.assertIn('Transporte adicional de lodos', html)
         self.assertIn('<td class="der mono">—</td>', html, "la orden va de referencia, sin global")
-        self.assertIn('SMS-0002', html)
+        self.assertIn('PL-0002', html)
         # El expediente del global la lista; el de la hija remite al global y no se borra sola.
         detalle = self.client.get(reverse('gestion:detalle_factura', args=[principal.pk]))
         self.assertContains(detalle, 'PDFs aparte')
-        self.assertContains(detalle, 'SMS-0002')
+        self.assertContains(detalle, 'PL-0002')
         detalle = self.client.get(reverse('gestion:detalle_factura', args=[aparte.pk]))
         self.assertContains(detalle, 'PDF aparte</b> de')
-        self.assertContains(detalle, 'Editar desde SMS-0001')
+        self.assertContains(detalle, 'Editar desde PL-0001')
         self.assertNotContains(detalle, 'name="submit_eliminar"')
         self.assertContains(detalle, 'Se sube cuando la comercial la deje lista para facturar',
                             msg_prefix="tiene su propia electrónica")
@@ -3881,10 +3881,10 @@ class FacturacionTests(BaseCRM):
                              reverse('gestion:editar_factura', args=[principal.pk]))
         # La lista y la orden lo dicen.
         lista = self.client.get(reverse('gestion:lista_facturas'))
-        self.assertContains(lista, 'aparte de SMS-0001')
+        self.assertContains(lista, 'aparte de PL-0001')
         orden = self.client.get(reverse('gestion:detalle_orden', args=[self.una.pk]))
-        self.assertContains(orden, 'Facturada en SMS-0001')
-        self.assertContains(orden, 'Conceptos adicionales en SMS-0002')
+        self.assertContains(orden, 'Facturada en PL-0001')
+        self.assertContains(orden, 'Conceptos adicionales en PL-0002')
         # Su factura electrónica es la suya, no la del global (se sube cuando está lista).
         Factura.objects.filter(pk=aparte.pk).update(estado='LISTA')
         self.client.post(reverse('gestion:detalle_factura', args=[aparte.pk]),
@@ -3903,7 +3903,7 @@ class FacturacionTests(BaseCRM):
         # El formulario lo trae marcado, con su número y su pk.
         fila = {f['orden'].pk: f for f in self.client.get(editar).context['filas']}[self.una.pk]
         self.assertEqual(fila['conceptos'], [{'descripcion': 'Transporte adicional', 'precio': Decimal('150000'),
-                                              'aparte': True, 'aparte_pk': aparte.pk, 'codigo': 'SMS-0002'}])
+                                              'aparte': True, 'aparte_pk': aparte.pk, 'codigo': 'PL-0002'}])
         # Guardar de nuevo (precio corregido) conserva la hija y su número.
         self._con_conceptos(self.una, ('Transporte adicional', '160.000', True, aparte.pk), url=editar)
         aparte.refresh_from_db()
@@ -3918,7 +3918,7 @@ class FacturacionTests(BaseCRM):
         self._con_conceptos(self.una, ('Transporte adicional', '160.000', True), url=editar)
         nueva = Factura.objects.get(principal=principal)
         self.assertNotEqual(nueva.pk, aparte.pk)
-        self.assertEqual(nueva.codigo, 'SMS-0002')
+        self.assertEqual(nueva.codigo, 'PL-0002')
         # Con la electrónica realizada, ya no se puede quitar ni desmarcar.
         Factura.objects.filter(pk=nueva.pk).update(estado='LISTA')
         self.client.post(reverse('gestion:detalle_factura', args=[nueva.pk]),
@@ -3937,7 +3937,7 @@ class FacturacionTests(BaseCRM):
             f'concepto_aparte_{self.una.pk}': ['1', '1'], f'concepto_aparte_pk_{self.una.pk}': ['', ''],
             'aparte_orden': self.una.pk, 'aparte_idx': '1', 'aparte_n': '2'}, HTTP_X_REQUESTED_WITH='fetch')
         html = respuesta.content.decode()
-        self.assertIn('SMS-0003', html, "provisional: el global sería SMS-0001 y este el segundo aparte")
+        self.assertIn('PL-0003', html, "provisional: el global sería PL-0001 y este el segundo aparte")
         self.assertIn('Concepto adicional:</span> B', html)
         self.assertNotIn('Concepto adicional:</span> A', html)
         self._con_conceptos(self.una, ('A', '10.000', True), ('B', '20.000', True))
@@ -4031,14 +4031,14 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn('spreadsheetml', respuesta['Content-Type'])
         self.assertEqual(respuesta['Content-Disposition'],
-                         'attachment; filename="factura_SMS-0001.xlsx"')
+                         'attachment; filename="factura_PL-0001.xlsx"')
 
         hoja = load_workbook(BytesIO(respuesta.content)).active
-        self.assertEqual(hoja.title, 'SMS-0001')
+        self.assertEqual(hoja.title, 'PL-0001')
         self.assertEqual(len(hoja._images), 1, "el logo de SOLMED va en la hoja")
         texto = '\n'.join(str(c.value) for fila in hoja.iter_rows() for c in fila
                            if c.value is not None)
-        for esperado in ('SMS-0001', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.', 'CLIENTE',
+        for esperado in ('PL-0001', 'SOLUCIONES MEDIOAMBIENTALES S.A.S.', 'CLIENTE',
                          self.cli.nombre, 'ÓRDENES DE SERVICIO FACTURADAS', 'Sede Norte',
                          'Cll 170 # 8-20', 'WGY347', '12 m³', 'FE-77', 'Total 2 órdenes',
                          'Observaciones: Hora extra de espera', 'No es una factura de venta'):
@@ -4086,7 +4086,7 @@ class FacturacionTests(BaseCRM):
         respuesta = self._crear(**{f'precio_{self.una.pk}': '1.250.000', f'precio_{self.otra.pk}': '$ 500.000,50'})
         factura = Factura.objects.get()
         self.assertRedirects(respuesta, reverse('gestion:detalle_factura', args=[factura.pk]) + '#revisar')
-        self.assertEqual(factura.codigo, 'SMS-0001')
+        self.assertEqual(factura.codigo, 'PL-0001')
         self.assertEqual(factura.creada_por, self.admin)
         self.assertEqual({l.orden_id: l.precio for l in factura.lineas.all()},
                          {self.una.pk: Decimal('1250000'), self.otra.pk: Decimal('500000.50')})
@@ -4095,7 +4095,7 @@ class FacturacionTests(BaseCRM):
         self.assertEqual(factura.lineas.get(orden=self.otra).peso, '')
         self.assertTrue(factura.copiar_factura and factura.copiar_xml and not factura.copiar_actas)
         segunda = Factura.objects.create(cliente=self.cli)
-        self.assertEqual(segunda.codigo, 'SMS-0002', "consecutivo propio")
+        self.assertEqual(segunda.codigo, 'PL-0002', "consecutivo propio")
 
     def test_la_vista_previa_en_vivo_pinta_el_pdf_con_lo_que_va_marcado(self):
         url = reverse('gestion:previa_factura')
@@ -4113,7 +4113,7 @@ class FacturacionTests(BaseCRM):
             'corte_facturacion': 'Corte 9'}, HTTP_X_REQUESTED_WITH='fetch')
         self.assertEqual(respuesta.status_code, 200)
         html = respuesta.content.decode()
-        self.assertIn('SMS-0001', html)
+        self.assertIn('PL-0001', html)
         self.assertIn('número provisional', html)
         self.assertIn(self.cli.nombre, html)
         self.assertIn(str(self.una.numero_orden), html)
@@ -4187,7 +4187,7 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, 'ya está facturada')
         self.assertEqual(Factura.objects.count(), 1)
         self.assertContains(self.client.get(reverse('gestion:detalle_orden', args=[self.una.pk])),
-                            'Facturada en SMS-0001')
+                            'Facturada en PL-0001')
 
     def test_editar_cambia_lineas_y_precios(self):
         self._crear()
@@ -4212,7 +4212,7 @@ class FacturacionTests(BaseCRM):
     def test_el_numero_y_la_fecha_de_la_factura_se_pueden_corregir(self):
         self._crear()
         factura = Factura.objects.get()
-        self.assertEqual(factura.codigo, 'SMS-0001')
+        self.assertEqual(factura.codigo, 'PL-0001')
         self.assertEqual(factura.fecha_emision, timezone.localdate())
 
         url = reverse('gestion:editar_factura', args=[factura.pk])
@@ -4228,7 +4228,7 @@ class FacturacionTests(BaseCRM):
                                'fecha_emision': emision.isoformat(),
                                'correo_facturacion': 'facturacion@cliente.co'})
         factura.refresh_from_db()
-        self.assertEqual((factura.numero, factura.codigo), (150, 'SMS-0150'))
+        self.assertEqual((factura.numero, factura.codigo), (150, 'PL-0150'))
         self.assertEqual(factura.fecha_emision, emision)
         # La fecha nueva manda en el PDF y en los listados; creada_en no se toca.
         from .views import _html_factura, _lineas_con_detalle
@@ -4250,7 +4250,7 @@ class FacturacionTests(BaseCRM):
             'cliente': self.cli.pk, 'ordenes': [self.otra.pk],
             f'precio_{self.otra.pk}': '500.000', 'numero': '1',
             'correo_facturacion': 'facturacion@cliente.co'})
-        self.assertContains(respuesta, 'SMS-0001 ya lo tiene otra factura')
+        self.assertContains(respuesta, 'PL-0001 ya lo tiene otra factura')
         segunda.refresh_from_db()
         self.assertEqual(segunda.numero, 2)
         # Dejarle SU mismo número no se toma como repetido.
@@ -4284,7 +4284,7 @@ class FacturacionTests(BaseCRM):
             'cliente': self.cli.pk, 'ordenes': [self.una.pk],
             f'precio_{self.una.pk}': '500.000', 'numero': '77',
             'fecha_emision': emision.isoformat()}, HTTP_X_REQUESTED_WITH='fetch').content.decode()
-        self.assertIn('SMS-0077', html)
+        self.assertIn('PL-0077', html)
         self.assertIn(f'{emision:%d-%m-%Y}', html)
 
     def test_cada_orden_dice_si_trae_tiquete_y_acta_para_el_popup(self):
@@ -4318,7 +4318,7 @@ class FacturacionTests(BaseCRM):
         self._crear()
         factura = Factura.objects.get()
         respuesta = self.client.get(reverse('gestion:detalle_factura', args=[factura.pk]))
-        self.assertContains(respuesta, 'SMS-0001')
+        self.assertContains(respuesta, 'PL-0001')
         self.assertContains(respuesta, '1.000.000')
         self.assertContains(respuesta, '12 m³')
         self.assertContains(respuesta, 'Sede Norte')
@@ -4410,7 +4410,7 @@ class FacturacionTests(BaseCRM):
         factura.numero_externo = 'FE-77'; factura.save()
         url = reverse('gestion:lista_facturas')
         # Ya no se busca por orden de compra: ese campo se quitó (sep-2026).
-        for q in ('SMS-0001', '1', 'Transportes', 'FE-77'):
+        for q in ('PL-0001', '1', 'Transportes', 'FE-77'):
             with self.subTest(q=q):
                 self.assertEqual([f.pk for f in self.client.get(url + f'?q={q}').context['facturas']], [factura.pk])
         self.assertEqual(list(self.client.get(url + '?q=nada').context['facturas']), [])

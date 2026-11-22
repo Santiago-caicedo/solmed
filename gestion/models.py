@@ -2652,7 +2652,9 @@ class Factura(models.Model):
     # El consecutivo interno. Se asigna solo (max + 1) y se puede corregir a
     # mano desde el formulario, a cualquier número que esté libre.
     # El prefijo lo pidió la clienta (23-sep-2026: «SMS»; antes era «F»).
-    PREFIJO = 'SMS'
+    # 22-nov-2026: la preliquidación pasó a «PL»; «SMS» queda solo para el
+    # número de la factura electrónica (`numero_externo`).
+    PREFIJO = 'PL'
     numero = models.PositiveIntegerField(unique=True)
     # PDF APARTE (sep-2026, decisión de la clienta): un servicio adicional de
     # una orden que se cobra en su propia preliquidación —número, envío y
