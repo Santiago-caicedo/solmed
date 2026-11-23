@@ -73,6 +73,9 @@
 .fd-adj .subir .form-control{ font-size:.78rem; padding:.2rem .4rem; }
 .fd-hecha{ padding:.55rem .75rem; border-radius:var(--r-sm); background:var(--ok-tint); color:var(--ok); font-size:.86rem; margin-bottom:.6rem; }
 .fd-hecha .mono{ font-family:var(--mono); }
+/* Enviarle al cliente la factura electrónica (23-nov-2026) */
+.fd-fe-envio{ margin-top:.9rem; padding:.7rem .8rem; border:1px solid var(--line-2); border-radius:var(--r-sm); background:var(--panel-2, transparent); }
+.fd-fe-envio #fe-correos-caja{ margin-top:.35rem; }
 /* La trazabilidad: tres pasos, hechos o pendientes */
 .fd-traza{ list-style:none; margin:0; padding:0; }
 .fd-traza li{ position:relative; padding:.35rem 0 .55rem 1.5rem; border-left:2px solid var(--line-2); margin-left:.45rem; }
@@ -282,7 +285,7 @@
             </div>
             <div class="col-lg-5">
                 <div class="fd-etq">{% if puede_facturar %}Ahora tú{% else %}Qué sigue{% endif %}</div>
-                <p class="text-muted small mb-0">{% if puede_facturar %}Haz la factura electrónica en el software contable y, en la tarjeta «Factura electrónica», pon su número SMS, sube la FEV y el XML y márcala <b>Facturada</b>. Con eso termina el proceso.{% else %}La administradora hace la factura electrónica y sube la FEV y el XML. Desde aquí ya no la editas; si algo falta, te la devuelve con una nota.{% endif %}</p>
+                <p class="text-muted small mb-0">{% if puede_facturar %}Haz la factura electrónica en el software contable y, en la tarjeta «Factura electrónica», pon su número SMS, sube la FEV y el XML y márcala <b>Facturada</b>; desde ahí mismo se la puedes enviar al cliente. Con eso termina el proceso.{% else %}La administradora hace la factura electrónica y sube la FEV y el XML. Desde aquí ya no la editas; si algo falta, te la devuelve con una nota.{% endif %}</p>
             </div>
         </div>
 
@@ -411,7 +414,7 @@
                 {% if not puede_facturar %}
                 {% if not factura.fe_realizada_en %}<p class="text-muted small mb-0">Pendiente. La hace y la sube la administradora cuando la preliquidación esté lista para facturar.</p>{% endif %}
                 {% elif factura.estado == 'LISTA' or factura.estado == 'FACTURADA' %}
-                <p class="text-muted small">{% if factura.fe_realizada_en %}Corrige el número o reemplaza la FEV o el XML si hace falta.{% else %}Hecha la factura en el software contable: su número SMS, la FEV y el XML. Al marcarla facturada termina el proceso.{% endif %}</p>
+                <p class="text-muted small">{% if factura.fe_realizada_en %}Corrige el número o reemplaza la FEV o el XML si hace falta.{% else %}Hecha la factura en el software contable: su número SMS, la FEV y el XML. Al marcarla facturada termina el proceso y, si dejas la casilla, le llega al cliente.{% endif %}</p>
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
                     <label class="fd-etq" for="numero_externo">Número SMS de la factura electrónica</label>
@@ -429,10 +432,35 @@
                     {% if factura.fe_realizada_en %}
                     <button name="submit_electronica" value="1" class="btn btn-outline-primary btn-sm mt-3 w-100">Guardar cambios</button>
                     {% else %}
-                    <button name="submit_realizada" value="1" class="btn btn-primary btn-sm mt-3 w-100"><i class="bi bi-check2-circle me-1"></i>Facturada: subir FEV y XML</button>
+                    {# Enviarle al cliente los datos de la factura electrónica al marcarla (23-nov-2026). #}
+                    <div class="fd-fe-envio">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="enviar_fe" value="1" id="fe-enviar" checked
+                                   aria-controls="fe-correos-caja">
+                            <label class="form-check-label small" for="fe-enviar"><b>Enviarle al cliente la factura electrónica</b> (número, FEV y XML adjuntos)</label>
+                        </div>
+                        <div id="fe-correos-caja">
+                            {% include "gestion/partials/_correos_factura_electronica.html" %}
+                        </div>
+                    </div>
+                    <button name="submit_realizada" value="1" class="btn btn-primary btn-sm mt-3 w-100"><i class="bi bi-check2-circle me-1"></i><span id="fe-boton">Facturada y enviar al cliente</span></button>
                     <button name="submit_electronica" value="1" class="btn btn-link btn-sm w-100 mt-1">Solo guardar, sin marcarla</button>
                     {% endif %}
                 </form>
+                {% if factura.fe_realizada_en and factura.pdf_oficial %}
+                {# Ya facturada: enviarla (o reenviarla) al cliente. #}
+                <form method="post" class="fd-fe-envio">
+                    {% csrf_token %}
+                    <div class="fd-etq">Enviar al cliente</div>
+                    {% if envio_fe %}
+                    <p class="small mb-2"><i class="bi bi-send-check text-success me-1"></i>Enviada el {{ envio_fe.en|date:"d/m/Y H:i" }}{% if envio_fe.por %} por {{ envio_fe.por.get_full_name|default:envio_fe.por.username }}{% endif %} · {{ envio_fe.nota|cut:"A " }}</p>
+                    {% else %}
+                    <p class="small text-muted mb-2">Aún no se le ha enviado. Le llega el número {{ factura.numero_externo }}, la FEV{% if factura.xml %} y el XML{% endif %} adjuntos.</p>
+                    {% endif %}
+                    {% include "gestion/partials/_correos_factura_electronica.html" %}
+                    <button name="submit_enviar_fe" value="1" class="btn btn-outline-primary btn-sm mt-2 w-100"><i class="bi bi-send me-1"></i>{% if envio_fe %}Enviar de nuevo al cliente{% else %}Enviar la factura electrónica al cliente{% endif %}</button>
+                </form>
+                {% endif %}
                 {% else %}
                 <p class="text-muted small mb-0">Se sube cuando la comercial la deje lista para facturar (el cliente ya la aprobó).</p>
                 {% endif %}
@@ -533,6 +561,18 @@
             texto.textContent = 'No se pudo copiar'; aviso.textContent = 'No se pudo copiar: selecciona el enlace y cópialo a mano';
         });
     });
+})();
+(function () {
+    // «Enviarle al cliente la factura electrónica»: sin la casilla, sin correos.
+    var casilla = document.getElementById('fe-enviar');
+    if (!casilla) return;
+    var caja = document.getElementById('fe-correos-caja'), boton = document.getElementById('fe-boton');
+    function pintar() {
+        caja.hidden = !casilla.checked;
+        boton.textContent = casilla.checked ? 'Facturada y enviar al cliente' : 'Facturada: subir FEV y XML';
+    }
+    casilla.addEventListener('change', pintar);
+    pintar();
 })();
 </script>
 {% endblock %}

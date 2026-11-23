@@ -9869,6 +9869,27 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
     acceso_escribir = 'facturacion.preliquidar'
     template_name = 'gestion/detalle_factura.html'
 
+    @staticmethod
+    def _correos_fe(request, factura):
+        """
+        Los correos a los que va la factura electrónica (campos `fe_correos` y
+        `fe_copias`). Si hay alguno mal escrito o ninguno, avisa y devuelve
+        (None, None). Los de facturación quedan guardados en la factura.
+        """
+        errores = []
+        correos = _correos_validos(request.POST.get('fe_correos'), errores, 'del cliente')
+        copias = _correos_validos(request.POST.get('fe_copias'), errores, 'en copia')
+        if not correos and not errores:
+            errores.append("Escribe al menos un correo del cliente para enviarle la factura electrónica.")
+        if errores:
+            messages.error(request, ' '.join(errores))
+            return None, None
+        nuevo = ', '.join(correos)
+        if nuevo != factura.correo_facturacion:
+            factura.correo_facturacion = nuevo[:Factura._meta.get_field('correo_facturacion').max_length]
+            factura.save(update_fields=['correo_facturacion'])
+        return correos, copias
+
     def get(self, request, pk):
         factura = get_object_or_404(
             solo_cartera(Factura.objects.select_related('cliente', 'creada_por'), request.user), pk=pk)
@@ -9897,6 +9918,9 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             'documentos_cliente': aprobacion.documentos_para_el_cliente(factura),
             'correos_cliente': factura.correo_facturacion or _correo_facturacion_de(factura.cliente),
             'numero_externo_sin_prefijo': _sin_prefijo_sms(factura.numero_externo),
+            # Enviarle la factura electrónica al cliente (23-nov-2026).
+            'envio_fe': aprobacion.ultimo_envio_fe(factura),
+            'copias_texto': ', '.join(_copias_de(factura)),
             'apartes': list(factura.apartes.order_by('numero').prefetch_related('lineas__conceptos')),
         })
 
@@ -9974,11 +9998,32 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
             aprobacion.devolver_a_comercial(request, factura, nota)
             return volver
 
+        if 'submit_enviar_fe' in request.POST:
+            # Enviarle (o reenviarle) al cliente la factura electrónica ya subida.
+            if not puede_facturar:
+                messages.error(request, "La factura electrónica se la envía al cliente la administradora.")
+                return volver
+            correos, copias = self._correos_fe(request, factura)
+            if correos is None:
+                return volver
+            if aprobacion.enviar_factura_electronica(request, factura, correos, copias):
+                messages.success(request, f"Factura electrónica {factura.numero_externo or factura.codigo} "
+                                          f"enviada a {', '.join(correos)}.")
+            return volver
+
         if 'submit_electronica' in request.POST or 'submit_realizada' in request.POST:
             if not puede_facturar:
                 messages.error(request, "La factura electrónica la registra la administradora.")
                 return volver
             marcar = 'submit_realizada' in request.POST
+            # La casilla «Enviarle al cliente la FEV y el XML»: los correos se
+            # revisan ANTES de marcarla, para no dejarla a medias.
+            enviar = marcar and factura.fe_realizada_en is None and bool(request.POST.get('enviar_fe'))
+            correos_fe = copias_fe = ()
+            if enviar:
+                correos_fe, copias_fe = self._correos_fe(request, factura)
+                if correos_fe is None:
+                    return volver
             if marcar and factura.estado not in ('LISTA', 'FACTURADA'):
                 messages.error(request, f"{factura.codigo} todavía no está lista para facturar: la comercial "
                                         "tiene que pasarla cuando el cliente la apruebe.")
@@ -10009,7 +10054,9 @@ class DetalleFacturaView(AdministradorRequiredMixin, View):
                                     f"{factura.codigo} · Facturada · {factura.cliente.nombre}",
                                     [f"{_nombre_de(request.user)} facturó la preliquidación {factura.codigo}: "
                                      f"factura electrónica {numero}.", ""] + _resumen_para_correo(factura))
+                enviada = enviar and aprobacion.enviar_factura_electronica(request, factura, correos_fe, copias_fe)
                 messages.success(request, f"{factura.codigo} facturada: {numero}"
+                                          + (f", y enviada al cliente ({', '.join(correos_fe)})" if enviada else "")
                                           + ("" if factura.xml else ". Ojo: falta subir el XML") + ".")
                 return volver
             messages.success(request, "Datos de la factura electrónica guardados.")

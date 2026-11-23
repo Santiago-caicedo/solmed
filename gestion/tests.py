@@ -11470,6 +11470,71 @@ class ProcesoFacturacionTests(BaseCRM):
         lista = self.client.get(reverse('gestion:lista_facturas'), {'ver': 'facturadas'})
         self.assertEqual(lista.context['n_estado'], {'FACTURADA': 1, 'EN_PRELIQUIDACION': 0})
 
+    def lista_para_facturar(self):
+        factura, _ = self.enviada()
+        Factura.objects.filter(pk=factura.pk).update(estado='LISTA')
+        self.entrar(self.admin)
+        return factura, reverse('gestion:detalle_factura', args=[factura.pk])
+
+    def subir_fe(self, **extra):
+        datos = {'submit_realizada': '1', 'numero_externo': '1245',
+                 'pdf_oficial': SimpleUploadedFile('fe.pdf', b'%PDF-1.4 fe', 'application/pdf'),
+                 'xml': SimpleUploadedFile('fe.xml', b'<xml/>', 'application/xml')}
+        datos.update(extra)
+        return datos
+
+    def test_al_facturar_se_le_envia_al_cliente_la_fev_y_el_xml(self):
+        """23-nov-2026 (Santiago): al subir la FEV, la opción de enviarle al cliente sus datos, con los correos ahí."""
+        factura, url = self.lista_para_facturar()
+        detalle = self.client.get(url)
+        self.assertContains(detalle, 'name="enviar_fe" value="1" id="fe-enviar" checked')
+        self.assertContains(detalle, 'name="fe_correos" id="fe-correos" class="form-control form-control-sm" value="facturacion@cliente.co"')
+        self.assertContains(detalle, 'value="%s, compras@cliente.co"' % self.asesor.email, msg_prefix="las copias del envío")
+        mail.outbox.clear()
+        self.client.post(url, self.subir_fe(enviar_fe='1', fe_correos='facturacion@cliente.co, conta@cliente.co',
+                                            fe_copias='compras@cliente.co'))
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'FACTURADA')
+        al_cliente = [m for m in mail.outbox if 'conta@cliente.co' in m.to]
+        self.assertEqual(len(al_cliente), 1)
+        correo = al_cliente[0]
+        self.assertEqual(correo.to, ['facturacion@cliente.co', 'conta@cliente.co'])
+        self.assertEqual(correo.cc, ['compras@cliente.co'])
+        self.assertEqual(correo.subject, 'Factura electrónica SMS-1245 — SOLMED SAS')
+        self.assertEqual([a[0] for a in correo.attachments], ['Factura_SMS-1245.pdf', 'Factura_SMS-1245.xml'])
+        self.assertEqual(correo.attachments[0][1], b'%PDF-1.4 fe')
+        self.assertEqual(factura.correo_facturacion, 'facturacion@cliente.co, conta@cliente.co')
+        self.assertEqual(factura.eventos.last().titulo, 'Factura electrónica enviada al cliente')
+        envio = EnvioCorreo.objects.get(asunto__startswith='Factura electrónica')
+        self.assertEqual(envio.adjuntos, [f'factura:{factura.pk}'], "fuera del Centro de correos de quien no factura")
+        # Ya facturada: queda el registro y el botón para reenviarla.
+        detalle = self.client.get(url)
+        self.assertContains(detalle, 'Enviar de nuevo al cliente')
+        mail.outbox.clear()
+        self.client.post(url, {'submit_enviar_fe': '1', 'fe_correos': 'otra@cliente.co', 'fe_copias': ''})
+        self.assertEqual([m.to for m in mail.outbox], [['otra@cliente.co']])
+
+    def test_sin_la_casilla_no_se_le_envia_y_un_correo_malo_no_la_marca(self):
+        factura, url = self.lista_para_facturar()
+        # Correo mal escrito: no se marca ni se envía nada.
+        mail.outbox.clear()
+        respuesta = self.client.post(url, self.subir_fe(enviar_fe='1', fe_correos='no-es-correo'), follow=True)
+        self.assertContains(respuesta, 'no es un correo válido')
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'LISTA')
+        self.assertEqual(mail.outbox, [])
+        # Sin la casilla: se marca y al cliente no le llega nada.
+        self.client.post(url, self.subir_fe(fe_correos='facturacion@cliente.co'))
+        factura.refresh_from_db()
+        self.assertEqual(factura.estado, 'FACTURADA')
+        self.assertFalse([m for m in mail.outbox if 'facturacion@cliente.co' in m.to])
+        self.assertContains(self.client.get(url), 'Aún no se le ha enviado')
+        # La comercial no se la envía.
+        self.entrar(self.asesor)
+        mail.outbox.clear()
+        self.client.post(url, {'submit_enviar_fe': '1', 'fe_correos': 'facturacion@cliente.co'})
+        self.assertEqual(mail.outbox, [])
+
     def test_el_cliente_devuelve_con_observaciones_y_el_reenvio_trae_enlace_nuevo(self):
         from .models import RevisionCliente
         factura, revision = self.enviada()

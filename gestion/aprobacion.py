@@ -287,6 +287,74 @@ def devolver_a_comercial(request, factura, nota):
     messages.warning(request, f"{factura.codigo} volvió a la comercial con tu nota.")
 
 
+TITULO_FE_ENVIADA = 'Factura electrónica enviada al cliente'
+
+
+def enviar_factura_electronica(request, factura, correos, copias=()):
+    """
+    Paso final opcional (23-nov-2026, Santiago): la administradora le manda
+    al cliente los datos de la factura electrónica —el número SMS, la FEV y
+    el XML adjuntos— a los correos que eligió. No cambia la etapa. Devuelve
+    True si el correo salió; queda en el Centro de correos y en el rastro.
+    """
+    v = _v()
+    correos = [c for c in correos if c]
+    if not correos:
+        messages.error(request, "Escribe al menos un correo del cliente para enviarle la factura electrónica.")
+        return False
+    if not factura.pdf_oficial:
+        messages.error(request, "Sube primero la FEV: es lo que se le envía al cliente.")
+        return False
+    copias = [c for c in copias if c and c not in correos]
+    numero = factura.numero_externo or factura.codigo
+    asunto = f"Factura electrónica {numero} — SOLMED SAS"
+    ordenes = ', '.join(f"#{l.orden_id}" for l in factura.lineas.all())
+    mensaje = (f"Buen día,\n\nLe enviamos la factura electrónica {numero}, correspondiente a la "
+               f"preliquidación {factura.codigo} que aprobaron"
+               + (f" (órdenes de servicio {ordenes})" if ordenes else '')
+               + f", por ${factura.total:,.0f}.".replace(',', '.')
+               + "\n\nAdjuntamos la representación gráfica (PDF)"
+               + (" y el archivo XML." if factura.xml else "."))
+    html = render_to_string('gestion/correo_factura_electronica.html', {
+        'factura': factura, 'numero': numero, 'ordenes': ordenes, 'total': factura.total,
+        'cliente': factura.cliente, 'con_xml': bool(factura.xml),
+    })
+    nombre = f"Factura_{numero}".replace(' ', '_')
+    adjuntos = [_archivo(factura.pdf_oficial, nombre)]
+    if factura.xml:
+        adjuntos.append(_archivo(factura.xml, nombre))
+    destinatarios = ', '.join(correos) + (" · copia: " + ', '.join(copias) if copias else '')
+    # El token «factura:» lo saca del Centro de correos a quien no ve facturación.
+    registro = EnvioCorreo(
+        cliente=factura.cliente, destinatarios=destinatarios[:500], asunto=asunto, mensaje=mensaje,
+        adjuntos=[f"factura:{factura.pk}"], adjuntos_detalle=[a[0] for a in adjuntos],
+        responder_a=', '.join(v._reply_to()), enviado_por=request.user)
+    correo = EmailMultiAlternatives(subject=asunto, body=mensaje + "\n\nCordialmente,\nSOLMED SAS",
+                                    from_email=settings.DEFAULT_FROM_EMAIL, to=correos, cc=copias,
+                                    reply_to=v._reply_to())
+    correo.attach_alternative(html, 'text/html')
+    try:
+        for nombre_archivo, archivo, tipo in adjuntos:
+            with archivo:
+                correo.attach(nombre_archivo, archivo.read(), tipo)
+        correo.send(fail_silently=False)
+    except Exception as e:  # noqa: BLE001 - lo que sea que rechace el servidor de correo
+        registro.estado = 'FALLIDO'
+        registro.error = str(e)
+        registro.save()
+        messages.error(request, f"No salió el correo con la factura electrónica ({e}). Quedó como fallido "
+                                "en el Centro de correos; puedes volver a enviarlo desde la tarjeta.")
+        return False
+    registro.save()
+    v._registrar_evento(factura, TITULO_FE_ENVIADA, request.user, factura.estado, f"A {destinatarios}")
+    return True
+
+
+def ultimo_envio_fe(factura):
+    """El último envío de la factura electrónica al cliente (un EventoFactura), o None."""
+    return factura.eventos.filter(titulo=TITULO_FE_ENVIADA).select_related('por').order_by('-en').first()
+
+
 def volver_a_preliquidacion(request, factura, motivo):
     """Se anula el enlace abierto (o la aprobación) y la comercial la retoma."""
     v = _v()

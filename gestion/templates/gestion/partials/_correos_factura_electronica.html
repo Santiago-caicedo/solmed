@@ -1,0 +1,12 @@
+{% comment %}
+Los correos a los que va la factura electrónica (23-nov-2026). Arranca con el
+correo de facturación de la preliquidación (o el del cliente) y las copias del
+envío de la preliquidación; se pueden cambiar. Lo lee DetalleFacturaView._correos_fe.
+{% endcomment %}
+<label class="fd-etq" for="fe-correos">Correos del cliente</label>
+<input type="text" name="fe_correos" id="fe-correos" class="form-control form-control-sm" value="{{ correos_cliente }}"
+       placeholder="facturacion@cliente.com" autocomplete="off" aria-describedby="fe-correos-ayuda">
+<div class="form-text" id="fe-correos-ayuda">{% if correos_cliente %}El de facturación registrado; cámbialo o pon varios separados por coma.{% else %}<span class="text-warning">El cliente no tiene correo de facturación registrado:</span> escríbelo aquí.{% endif %}</div>
+<label class="fd-etq" for="fe-copias">Con copia a <span class="text-muted text-lowercase">(opcional)</span></label>
+<input type="text" name="fe_copias" id="fe-copias" class="form-control form-control-sm" value="{{ copias_texto }}"
+       placeholder="Separados por coma" autocomplete="off">
