@@ -3282,7 +3282,9 @@ class FacturacionTests(BaseCRM):
         self.assertNotIn('name="xml"', contenido)
         self.assertNotIn('6 · Orden de facturación', contenido)
         self.assertNotIn('name="concepto_facturacion"', contenido)
-        self.assertIn('name="submit_enviar_cliente"', contenido)
+        # 23-nov-2026: sin «Guardar y enviar al cliente» en el formulario; se envía desde el expediente.
+        self.assertNotIn('name="submit_enviar_cliente"', contenido)
+        self.assertNotIn('Guardar y enviar al cliente', contenido)
         self.assertNotIn('submit_pasar', contenido)
         # Lo que no está en el sistema se sube desde el computador.
         self.assertIn('enctype="multipart/form-data"', contenido)
@@ -11469,6 +11471,18 @@ class ProcesoFacturacionTests(BaseCRM):
         self.assertContains(self.client.get(detalle_url), 'Proceso terminado')
         lista = self.client.get(reverse('gestion:lista_facturas'), {'ver': 'facturadas'})
         self.assertEqual(lista.context['n_estado'], {'FACTURADA': 1, 'EN_PRELIQUIDACION': 0})
+
+    def test_guardar_desde_el_formulario_conserva_las_copias_del_envio(self):
+        """23-nov-2026: el formulario ya no trae el popup de envío; guardar no borra a quién va en copia."""
+        factura, _ = self.enviada()
+        self.assertEqual((factura.copiar_a_comercial, factura.correos_copia), (True, 'compras@cliente.co'))
+        datos = self.datos(submit_guardar='1')
+        del datos['copiar_a_comercial'], datos['correos_copia']
+        self.client.post(reverse('gestion:editar_factura', args=[factura.pk]), datos)
+        factura.refresh_from_db()
+        self.assertEqual((factura.copiar_a_comercial, factura.correos_copia), (True, 'compras@cliente.co'))
+        self.assertNotContains(self.client.get(reverse('gestion:editar_factura', args=[factura.pk])),
+                               'Guardar y enviar al cliente')
 
     def lista_para_facturar(self):
         factura, _ = self.enviada()

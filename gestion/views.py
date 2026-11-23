@@ -9696,8 +9696,12 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             'fecha_emision': (request.POST.get('fecha_emision') or '').strip(),
             'descripcion': (request.POST.get('descripcion') or '').strip(),
             'corte_facturacion': (request.POST.get('corte_facturacion') or '').strip(),
-            'copiar_a_comercial': bool(request.POST.get('copiar_a_comercial')),
-            'correos_copia': (request.POST.get('correos_copia') or '').strip(),
+            # Las copias del envío se eligen en el expediente al enviar (23-nov-2026:
+            # el formulario ya no trae el popup); si no vienen, se conservan.
+            'copiar_a_comercial': (bool(request.POST.get('copiar_a_comercial')) if 'correos_copia' in request.POST
+                                   else (factura.copiar_a_comercial if factura else True)),
+            'correos_copia': (request.POST.get('correos_copia') if 'correos_copia' in request.POST
+                              else (factura.correos_copia if factura else '') or '').strip(),
             # Los correos se validan más abajo, con `errores` ya creado.
             'correos': [c.strip() for c in request.POST.getlist('correo_facturacion')] or [''],
             'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},

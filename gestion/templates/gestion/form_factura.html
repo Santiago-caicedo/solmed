@@ -77,16 +77,9 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
 .ff-modal .modal-title small{ display:block; font-size:.78rem; font-weight:400;
     color:rgba(255,255,255,.7); margin-top:.15rem; }
 .ff-modal iframe{ display:block; width:100%; height:1100px; border:0; background:#fff; }
-/* ---- El popup «Enviar al cliente»: todo lo que se envía sale de aquí ---- */
-.fe-modal .modal-body{ background:var(--panel); }
-.fe-dest{ padding:.7rem 1.25rem; font-size:.82rem; color:var(--ink-2); background:var(--panel-2); border-bottom:1px solid var(--line); }
-.fe-dest .k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3); margin-bottom:.15rem; }
-.fe-copias{ padding:.8rem 1.25rem; border-bottom:1px solid var(--line); font-size:.88rem; }
 #fe-docs .fe-lista{ border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; }
 #fe-docs .fe-item{ padding-left:.25rem; }
 .fe-resumen{ font-size:.84rem; color:var(--ink-2); }
-.fe-dest .mono{ font-family:var(--mono); color:var(--ink); }
-.fe-dest-falta{ color:var(--warn); background:var(--warn-tint); }
 .fe-lista{ list-style:none; counter-reset:fe; margin:0; padding:.25rem 0; }
 .fe-item{ counter-increment:fe; display:grid; grid-template-columns:2.25rem 1fr auto; grid-template-areas:"n chk ctl" ". est ctl" ". tq tq";
     column-gap:.5rem; row-gap:.15rem; align-items:center; padding:.7rem 1.25rem .7rem 1rem; border-bottom:1px solid var(--line-2); }
@@ -463,12 +456,7 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         <div class="acciones">
             <a href="{% if factura %}{% url 'gestion:detalle_factura' factura.pk %}{% else %}{% url 'gestion:lista_facturas' %}{% endif %}" class="btn btn-outline-secondary">Cancelar</a>
             <button name="submit_guardar" value="1" class="btn btn-outline-success" id="ff-guardar"><i class="bi bi-check2-circle me-1"></i>{% if factura %}Guardar cambios{% else %}Guardar preliquidación{% endif %}</button>
-            {% if not factura or not factura.en_facturacion %}
-            {# Guardar y enviar: primero se confirma a qué correo va (nov-2026). #}
-            <button type="button" class="btn btn-primary" id="ff-abrir-enviar" data-bs-toggle="modal" data-bs-target="#fe-modal">
-                <i class="bi bi-send me-1"></i>Guardar y enviar al cliente…
-            </button>
-            {% endif %}
+            {# 23-nov-2026 (Santiago): sin «Guardar y enviar al cliente»; se envía desde el expediente. #}
         </div>
     </div>
 </form>
@@ -491,45 +479,6 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
     {# Cada concepto marcado «PDF aparte» tiene aquí su propia vista previa. #}
     <div class="ff-apartes" id="ff-apartes"></div>
 </div>
-</div>
-
-{# ---------- Enviar al cliente (nov-2026): se confirma a quién va y sale el enlace ---------- #}
-{# Sus campos llevan form="form-factura": se guardan con la preliquidación. #}
-<div class="modal fade ff-modal fe-modal" id="fe-modal" tabindex="-1" aria-labelledby="fe-titulo">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="fe-titulo"><i class="bi bi-send me-1"></i>Enviar al cliente
-                    <small>Se guarda la preliquidación y el cliente recibe un enlace único para verla, descargar los documentos y aprobarla o pedir correcciones.</small>
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body p-0">
-                <div class="fe-dest" id="fe-dest-ok">
-                    <div class="k">Correo de facturación registrado</div>
-                    <div class="mono" id="fe-dest">—</div>
-                    <button type="button" class="fe-link mt-1" id="fe-cambiar-correo">Cambiarlo o agregar otro (paso 3)</button>
-                </div>
-                <div class="fe-dest fe-dest-falta" id="fe-dest-falta" hidden><i class="bi bi-exclamation-triangle me-1"></i>Escribe el correo de facturación en el paso 3 para poder enviar.</div>
-                <div class="fe-copias">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="copiar_a_comercial" value="1" id="copiar_a_comercial" form="form-factura" {% if datos.copiar_a_comercial %}checked{% endif %}>
-                        <label class="form-check-label" for="copiar_a_comercial">Con copia a mí{% if factura and factura.comercial %} ({{ factura.comercial.get_full_name|default:factura.comercial.username }}){% endif %}</label>
-                    </div>
-                    <label class="ff-etq mt-2" for="correos_copia">Enviar también a <span class="text-muted text-lowercase">(opcional, separados por coma)</span></label>
-                    <input type="text" name="correos_copia" id="correos_copia" class="form-control form-control-sm" form="form-factura" value="{{ datos.correos_copia|default:'' }}"
-                           placeholder="Ej: compras@cliente.com, gerencia@cliente.com" autocomplete="off">
-                </div>
-                <div class="fe-dest" id="fe-que">—</div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="submit" class="btn btn-primary" id="fe-enviar" name="submit_enviar_cliente" value="1" form="form-factura" disabled>
-                    <i class="bi bi-send-fill me-1"></i>Guardar y enviar
-                </button>
-            </div>
-        </div>
-    </div>
 </div>
 
 {# El popup: la factura completa a tamaño real, con lo último marcado. Abre con data-bs-toggle. #}
@@ -800,10 +749,8 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         hoja.style.height = Math.round(1056 * k) + 'px';
     }
     window.addEventListener('resize', escalar);
-    // ===== Los documentos para el cliente (tarjeta 5) y el popup de envío =====
+    // ===== Los documentos para el cliente (tarjeta 5) =====
     var feModal = document.getElementById('fe-docs');
-    var feEnvio = document.getElementById('fe-modal');
-    var feEnviar = document.getElementById('fe-enviar');
     var campoExcluidas = document.getElementById('ff-basculas-excluidas');
     var tqLista = document.getElementById('fe-tq-lista');
     var ETIQUETAS = { orden_compra: 'Orden de compra', orden_pedido: 'Orden de pedido', actas: 'Órdenes de servicio',
@@ -860,18 +807,12 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                 est.innerHTML = '<span class="ok"><i class="bi bi-check2 me-1"></i>' + campo.files[0].name + '</span> · se sube al guardar';
             }
         });
-        // A quién, y qué va.
-        var correo = correosEscritos();
-        document.getElementById('fe-dest').textContent = correo || '—';
-        document.getElementById('fe-dest-ok').hidden = !correo;
-        document.getElementById('fe-dest-falta').hidden = !!correo;
+        // Qué va.
         var marcados = Array.prototype.slice.call(feModal.querySelectorAll('.fe-chk input:checked'))
             .map(function (c) { return ETIQUETAS[c.closest('.fe-item').dataset.clave]; });
         document.getElementById('fe-resumen').innerHTML = marcados.length
             ? 'El cliente verá: <b>la preliquidación en PDF · ' + marcados.join(' · ') + '</b>'
             : 'El cliente verá solo <b>la preliquidación en PDF</b>. Marca arriba lo demás que necesite.';
-        document.getElementById('fe-que').innerHTML = document.getElementById('fe-resumen').innerHTML;
-        if (feEnviar) feEnviar.disabled = !(correo && ordenes.length);
     }
 
     // Los tiquetes, desplegados dentro de su punto: uno por orden marcada con tiquete.
@@ -959,16 +900,6 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         }
         pintarEstados();
     });
-    if (feEnvio) {
-        feEnvio.addEventListener('show.bs.modal', function () { guardarEleccion(); pintarEstados(); });
-        // «Cambiarlo»: cierra el popup y lleva al correo del paso 3.
-        document.getElementById('fe-cambiar-correo').addEventListener('click', function () {
-            feEnvio.querySelector('[data-bs-dismiss="modal"]').click();
-            var primero = listaCorreos.querySelector('input');
-            if (primero) { primero.scrollIntoView({block: 'center'}); primero.focus(); }
-        });
-        feEnviar.addEventListener('click', function () { guardarEleccion(); feEnviar.disabled = true; });
-    }
 
     // «Ampliar»: el popup muestra la misma vista previa a tamaño real (lo último recibido).
     // Bootstrap lo abre por data-bs-toggle; aquí solo se copia el contenido al abrirlo.
