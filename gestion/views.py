@@ -1800,8 +1800,10 @@ class EliminarFiltroAceiteView(AsesorRequiredMixin, View):
 def _puede_gestionar_manifiesto(user, recorrido, acceso='ordenes.editar'):
     """
     Quién llena el acta y los demás pasos del servicio: gestión (admins y
-    asesores) siempre; el conductor asignado solo si el recorrido es de HOY
-    (oct-2026: el conductor no ve ni toca servicios de otros días).
+    asesores) siempre; el conductor asignado solo si el recorrido es de su
+    jornada: de HOY, o de ayer si sigue sin cerrar (nov-2026: un servicio de
+    noche termina de madrugada; ver `_es_de_la_jornada`). Los de otros días
+    no los ve ni los toca (oct-2026).
     Al asesor se le exige además su casilla (`acceso`, nov-2026): editar
     para llenar el acta; solo ver para consultar el QR y su estado.
     """
@@ -1810,8 +1812,7 @@ def _puede_gestionar_manifiesto(user, recorrido, acceso='ordenes.editar'):
         # Cartera (oct-2026): la asesora, solo si el cliente es suyo.
         or (es_asesor(user) and tiene_acceso(user, acceso)
             and puede_ver_cliente(user, recorrido.orden.cliente_id))
-        or (recorrido.conductor_id == user.id
-            and recorrido.fecha_recorrido == timezone.localdate())
+        or (recorrido.conductor_id == user.id and _es_de_la_jornada(recorrido))
     )
 
 
@@ -3695,12 +3696,16 @@ class DashboardConductorView(ConductorRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         hoy = timezone.localdate()
         context['hoy'] = hoy
-        context['tarjetas_hoy'] = [
+        tarjetas = [
             _tarjeta_conductor(r) for r in
             _recorridos_del_conductor_hoy(self.request.user)
             .select_related('orden', 'orden__cliente', 'orden__programacion_origen',
                             'vehiculo', 'manifiesto', 'encuesta_conductor')
             .order_by('orden__fecha_creacion')]
+        context['tarjetas_hoy'] = [t for t in tarjetas if t['recorrido'].fecha_recorrido == hoy]
+        # Lo de ayer que sigue sin cerrar (nov-2026): el servicio de noche que
+        # terminó de madrugada. Va primero, para que lo cierre.
+        context['tarjetas_ayer'] = [t for t in tarjetas if t['recorrido'].fecha_recorrido != hoy]
         # Los viajes de disposición agendados de hoy (oct-2026): su tarjeta
         # aparte, con el preoperacional como tarea.
         from planes.models import ViajeDisposicion
@@ -3770,12 +3775,30 @@ class MisRecorridosView(ConductorRequiredMixin, View):
 
 
 # --- HISTORIAL DEL CONDUCTOR ---
+def _es_de_la_jornada(recorrido):
+    """
+    ¿El conductor todavía trabaja este recorrido? Los de HOY, y los de ayer
+    que sigan sin cerrar (nov-2026): un servicio que empieza a las 23:00 y
+    acaba a las 4:00 lleva la fecha del día en que empezó, y el conductor
+    tiene que poder sacar el QR, guardar la hoja y cerrar al terminar. Al
+    cerrarlo (COMPLETADO) el de ayer sale de su jornada.
+    """
+    hoy = timezone.localdate()
+    return (recorrido.fecha_recorrido == hoy
+            or (recorrido.fecha_recorrido == hoy - datetime.timedelta(days=1)
+                and recorrido.estado != 'COMPLETADO'))
+
+
 def _recorridos_del_conductor_hoy(user):
     """
-    Lo único que el conductor ve y trabaja: sus recorridos de HOY. El
-    historial de órdenes no es suyo (decisión de Santiago, oct-2026).
+    Lo único que el conductor ve y trabaja: sus recorridos de HOY y los de
+    ayer que no cerró (la misma regla de `_es_de_la_jornada`). El historial
+    de órdenes no es suyo (decisión de Santiago, oct-2026).
     """
-    return Recorrido.objects.filter(conductor=user, fecha_recorrido=timezone.localdate())
+    hoy = timezone.localdate()
+    return Recorrido.objects.filter(conductor=user).filter(
+        Q(fecha_recorrido=hoy)
+        | (Q(fecha_recorrido=hoy - datetime.timedelta(days=1)) & ~Q(estado='COMPLETADO')))
 
 
 def _tarjeta_conductor(recorrido, con_tareas=True):

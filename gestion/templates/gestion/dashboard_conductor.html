@@ -2,13 +2,20 @@
 {% block title %}Mi jornada{% endblock %}
 {% block content %}
 {% include 'gestion/partials/_conductor_estilos.html' %}
-{# La casa del conductor: SOLO lo de hoy (oct-2026: no ve días anteriores ni los que vienen). Un botón por servicio. #}
+{# La casa del conductor: lo de hoy y lo de ayer que no cerró (nov-2026: servicios de noche). Ni más atrás ni lo que viene. Un botón por servicio. #}
 <div class="cd">
     <header class="cd-cab">
         <div class="fecha">{{ hoy|date:"l j \d\e F"|lower|capfirst }}</div>
         <h1>Hola, {{ user.first_name|default:user.username }}</h1>
         <p>{% with n=total_hoy %}{% if n %}Hoy tienes <strong>{{ n }}</strong> servicio{{ n|pluralize }}.{% else %}Hoy no tienes servicios.{% endif %}{% endwith %}</p>
     </header>
+
+    {% if tarjetas_ayer %}
+    <h2 class="cd-sec">De ayer, sin cerrar</h2>
+    {% for t in tarjetas_ayer %}
+    {% include 'gestion/partials/_tarjeta_servicio_conductor.html' with atrasada=True %}
+    {% endfor %}
+    {% endif %}
 
     <h2 class="cd-sec">Hoy</h2>
     {# Los viajes de disposición agendados (oct-2026): tarjeta aparte, distinta a la de una orden. #}

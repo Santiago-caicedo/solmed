@@ -4591,7 +4591,7 @@ class ExperienciaDelConductorTests(BaseCRM):
         otra = OrdenServicio.objects.create(cliente=self.cli, asesor=self.asesor,
                                             direccion_servicio='Cll 9', descripcion='vieja')
         Recorrido.objects.create(orden=otra, vehiculo=self.vehiculo('OLD333'), conductor=self.conductor,
-                                 fecha_recorrido=hoy - datetime.timedelta(days=1))
+                                 fecha_recorrido=hoy - datetime.timedelta(days=2))
         self.assertEqual(self.client.get(reverse('gestion:detalle_orden_conductor', args=[otra.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step', args=[viejo.pk, 'paso3'])).status_code, 302)
         self.assertEqual(self.client.get(reverse('gestion:firmar_manifiesto_step', args=[manana.pk, 'paso3'])).status_code, 302)
@@ -4605,6 +4605,40 @@ class ExperienciaDelConductorTests(BaseCRM):
         self.assertContains(respuesta, 'Abrir servicio')
         self.assertRedirects(self.client.get(reverse('gestion:mis_recorridos')),
                              reverse('gestion:dashboard_conductor'))
+
+    def test_el_servicio_de_noche_se_termina_al_otro_dia(self):
+        """
+        Nov-2026: un servicio que empieza a las 23:00 y acaba a las 4:00 lleva
+        la fecha de ayer. El conductor lo sigue viendo y trabajando (QR, hoja,
+        estado de la firma, encuesta de cierre) hasta que lo cierra.
+        """
+        ayer = timezone.localdate() - datetime.timedelta(days=1)
+        nocturna = OrdenServicio.objects.create(cliente=self.cli, asesor=self.asesor,
+                                                direccion_servicio='Cll 23 de noche', descripcion='nocturna')
+        rec = Recorrido.objects.create(orden=nocturna, vehiculo=self.vehiculo('NOC111'),
+                                       conductor=self.conductor, fecha_recorrido=ayer)
+        respuesta = self.client.get(reverse('gestion:dashboard_conductor'))
+        self.assertEqual([t['recorrido'].pk for t in respuesta.context['tarjetas_ayer']], [rec.pk])
+        self.assertEqual([t['recorrido'].pk for t in respuesta.context['tarjetas_hoy']], [self.recorrido.pk])
+        self.assertContains(respuesta, 'De ayer, sin cerrar')
+        self.assertContains(respuesta, 'Cll 23 de noche')
+        self.assertEqual(self.client.get(
+            reverse('gestion:detalle_orden_conductor', args=[nocturna.pk])).status_code, 200)
+        self.assertEqual(self.client.get(
+            reverse('gestion:firmar_manifiesto_step', args=[rec.pk, 'paso3'])).status_code, 200)
+        # El QR para el cliente y el sondeo que le avisa cuando firma.
+        self.assertEqual(self.client.get(reverse('gestion:manifiesto_qr', args=[rec.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:manifiesto_estado', args=[rec.pk])).status_code, 200)
+        # Firmada el acta, la encuesta de cierre se le abre; al cerrar, el
+        # servicio de ayer sale de su jornada.
+        Manifiesto.objects.filter(recorrido=rec).update(estado_firma='FIRMADO')
+        self.assertEqual(self.client.get(reverse('gestion:encuesta_conductor', args=[rec.pk])).status_code, 200)
+        Recorrido.objects.filter(pk=rec.pk).update(estado='COMPLETADO')
+        respuesta = self.client.get(reverse('gestion:dashboard_conductor'))
+        self.assertEqual(respuesta.context['tarjetas_ayer'], [])
+        self.assertNotContains(respuesta, 'De ayer, sin cerrar')
+        self.assertEqual(self.client.get(
+            reverse('gestion:detalle_orden_conductor', args=[nocturna.pk])).status_code, 404)
 
     def test_el_tiquete_de_bascula_ya_no_es_tarea_del_conductor(self):
         """Oct-2026: lo sube la oficina desde Básculas; el conductor ni lo ve ni lo puede subir."""
