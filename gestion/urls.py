@@ -198,6 +198,7 @@ urlpatterns = [
     path('correos/buscar/', views.BuscarDocsCorreoView.as_view(), name='buscar_docs_correo'),
     path('correos/peso/', views.PesoAdjuntosCorreoView.as_view(), name='peso_adjuntos_correo'),
     path('correos/actas/', views.ActasFirmadasCorreoView.as_view(), name='actas_firmadas_correo'),
+    path('correos/certificados/', views.CertificadosCorreoView.as_view(), name='certificados_correo'),
     path('correos/<int:pk>/', views.DetalleEnvioCorreoView.as_view(), name='detalle_envio_correo'),
 
     # --- Módulo Personal (personas: cuenta + datos + expediente) ---

@@ -224,6 +224,34 @@
                 </div>
             </div>
 
+            {# ---------- Certificados de disposición final del cliente elegido (nov-2026) ---------- #}
+            <div class="card shadow mb-4 d-none" id="card-certs">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0"><i class="bi bi-folder2-open me-1"></i>Certificados de disposición final</h5>
+                    <span class="badge bg-secondary" id="certs-conteo"></span>
+                </div>
+                <div class="card-body p-4">
+                    <p class="text-muted small mb-2">
+                        Los certificados guardados en la carpeta de <strong id="certs-cliente"></strong>.
+                        Marca los que quieras adjuntar.
+                    </p>
+                    <div class="d-flex flex-wrap align-items-end gap-2 mb-3">
+                        <div>
+                            <label class="form-label mb-1" for="certs-desde">Desde</label>
+                            <input type="date" id="certs-desde" class="form-control form-control-sm">
+                        </div>
+                        <div>
+                            <label class="form-label mb-1" for="certs-hasta">Hasta</label>
+                            <input type="date" id="certs-hasta" class="form-control form-control-sm">
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="certs-limpiar">
+                            Quitar fechas
+                        </button>
+                    </div>
+                    <div id="lista-certs"></div>
+                </div>
+            </div>
+
             {# ---------- Documentos a adjuntar (búsqueda bajo demanda) ---------- #}
             <div class="card shadow mb-4">
                 <div class="card-header d-flex align-items-center justify-content-between">
@@ -393,6 +421,7 @@
     var URL_BUSCAR = '{% url "gestion:buscar_docs_correo" %}';
     var URL_PESO = '{% url "gestion:peso_adjuntos_correo" %}';
     var URL_ACTAS = '{% url "gestion:actas_firmadas_correo" %}';
+    var URL_CERTS = '{% url "gestion:certificados_correo" %}';
 
     // Peso conocido de cada token (bytes). Se consulta al servidor SOLO lo que
     // entra a la canasta y no se conoce aún; los chips ya renderizados traen el
@@ -783,6 +812,7 @@
         }
         pintarResumen();
         cargarActas();
+        cargarCerts();
         if (!id) return;
         fetch(URL_BUSCAR + '?cliente=' + encodeURIComponent(id))
             .then(function (r) { return r.json(); })
@@ -852,6 +882,72 @@
         document.getElementById('actas-desde').value = '';
         document.getElementById('actas-hasta').value = '';
         cargarActas();
+    });
+
+    // ---------- Certificados de disposición final del cliente (igual que las actas) ----------
+    var cardCerts = document.getElementById('card-certs');
+    var listaCerts = document.getElementById('lista-certs');
+
+    function pintarCerts(data) {
+        listaCerts.innerHTML = '';
+        if (!data.items.length) {
+            var vacio = document.createElement('div');
+            vacio.className = 'text-muted small py-2';
+            vacio.textContent = (document.getElementById('certs-desde').value
+                                 || document.getElementById('certs-hasta').value)
+                ? 'Sin certificados en ese rango.'
+                : 'Este cliente todavía no tiene certificados en su carpeta.';
+            listaCerts.appendChild(vacio);
+        }
+        data.items.forEach(function (cert) {
+            var fila = document.createElement('label');
+            fila.className = 'd-flex align-items-center gap-2 py-1 small';
+            fila.innerHTML =
+                '<input type="checkbox" class="form-check-input chk-adjunto mt-0">' +
+                '<span class="fw-semibold"></span><span class="text-muted"></span>';
+            var chk = fila.querySelector('input');
+            chk.setAttribute('data-token', cert.token);
+            chk.setAttribute('data-etiqueta', 'Certificado: ' + cert.label + ' (' + cert.detalle + ')');
+            chk.checked = enCanasta(cert.token);
+            fila.querySelector('.fw-semibold').textContent = cert.label;
+            fila.querySelector('.text-muted').textContent = cert.detalle;
+            listaCerts.appendChild(fila);
+        });
+        document.getElementById('certs-conteo').textContent =
+            data.items.length + (data.mas ? ' de ' + (data.items.length + data.mas) : '') +
+            (data.items.length === 1 && !data.mas ? ' certificado' : ' certificados');
+        if (data.mas) {
+            var aviso = document.createElement('div');
+            aviso.className = 'text-muted small pt-1';
+            aviso.textContent = 'Hay ' + data.mas + ' más: acota el rango de fechas para verlos.';
+            listaCerts.appendChild(aviso);
+        }
+    }
+
+    function cargarCerts() {
+        var id = selCliente.value;
+        if (!id) { cardCerts.classList.add('d-none'); return; }
+        var url = URL_CERTS + '?cliente=' + encodeURIComponent(id)
+            + '&desde=' + encodeURIComponent(document.getElementById('certs-desde').value)
+            + '&hasta=' + encodeURIComponent(document.getElementById('certs-hasta').value);
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                // Sin la casilla de Certificados el apartado no existe para esa persona.
+                if (!data.permitido) { cardCerts.classList.add('d-none'); return; }
+                document.getElementById('certs-cliente').textContent =
+                    selCliente.options[selCliente.selectedIndex].text;
+                cardCerts.classList.remove('d-none');
+                pintarCerts(data);
+            })
+            .catch(function () { /* sin red el apartado no aparece; se reintenta al cambiar algo */ });
+    }
+    document.getElementById('certs-desde').addEventListener('change', cargarCerts);
+    document.getElementById('certs-hasta').addEventListener('change', cargarCerts);
+    document.getElementById('certs-limpiar').addEventListener('click', function () {
+        document.getElementById('certs-desde').value = '';
+        document.getElementById('certs-hasta').value = '';
+        cargarCerts();
     });
 
     // ---------- Eventos ----------

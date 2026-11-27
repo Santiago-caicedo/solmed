@@ -9286,6 +9286,29 @@ class DisposicionesFinalesTests(BaseCRM):
             cliente=cliente, fecha=fecha, nombre=nombre,
             archivo=SimpleUploadedFile(archivo_nombre, b'%PDF-1.4 x'))
 
+    def test_los_certificados_del_cliente_se_adjuntan_desde_el_centro_de_correos(self):
+        """Nov-2026: el redactor los lista al elegir el cliente, como las actas firmadas."""
+        from .views import _resolver_adjunto_correo
+        viejo = self._cert(self.cli, datetime.date(2026, 3, 1), nombre='Certificado marzo')
+        nuevo = self._cert(self.cli, datetime.date(2026, 9, 15), nombre='Certificado septiembre')
+        self._cert(self.vacio, datetime.date(2026, 9, 15), nombre='De otro cliente')
+        url = reverse('gestion:certificados_correo')
+        self.entrar(self.admin)
+        datos = self.client.get(url, {'cliente': self.cli.pk}).json()
+        self.assertTrue(datos['permitido'])
+        self.assertEqual([i['token'] for i in datos['items']],
+                         [f'certificado:{nuevo.pk}', f'certificado:{viejo.pk}'], "los más recientes primero")
+        self.assertEqual(datos['items'][0]['label'], 'Certificado septiembre')
+        self.assertEqual(datos['items'][0]['detalle'], '15/09/2026')
+        # Por fecha del certificado.
+        datos = self.client.get(url, {'cliente': self.cli.pk, 'hasta': '2026-06-30'}).json()
+        self.assertEqual([i['token'] for i in datos['items']], [f'certificado:{viejo.pk}'])
+        self.assertEqual(self.client.get(url).json()['items'], [])
+        # El token es el mismo con el que ya se envían desde su carpeta.
+        self.assertIsNotNone(_resolver_adjunto_correo(datos['items'][0]['token']))
+        # El redactor trae el apartado.
+        self.assertContains(self.client.get(reverse('gestion:crear_envio_correo')), 'id="card-certs"')
+
     def test_quien_entra_y_quien_no(self):
         for persona in (self.admin, self.asesor, self.auxiliar,
                         self.persona('admvo', 'Administrativo', 'Juan', 'Gil')):

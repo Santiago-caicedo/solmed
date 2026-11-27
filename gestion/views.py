@@ -5145,6 +5145,52 @@ class ActasFirmadasCorreoView(AsesorRequiredMixin, View):
         return JsonResponse({'items': items, 'mas': max(total - self.LIMITE, 0)})
 
 
+class CertificadosCorreoView(AsesorRequiredMixin, View):
+    """
+    Los certificados de disposición final de un cliente, para adjuntarlos en
+    el Centro de correos (nov-2026): el mismo apartado de las actas firmadas,
+    filtrable por la fecha del certificado. Salen de su gestor documental,
+    así que la asesora los ve solo con su casilla «Certificados de
+    disposición» y de los clientes de su cartera.
+
+      ?cliente=<id>  obligatorio      ?desde / ?hasta=aaaa-mm-dd  opcionales
+
+    Devuelve {'permitido', 'items': [{token, label, detalle}], 'mas'} — los
+    más recientes primero, tope de 60. Sin la casilla, permitido=False y el
+    apartado no aparece.
+    """
+    acceso = 'correos.enviar'
+    LIMITE = 60
+
+    def get(self, request):
+        from .models import CertificadoDisposicion
+        if not tiene_acceso(request.user, 'certificados.ver'):
+            return JsonResponse({'permitido': False, 'items': [], 'mas': 0})
+        cliente_id = request.GET.get('cliente', '').strip()
+        if not cliente_id.isdigit():
+            return JsonResponse({'permitido': True, 'items': [], 'mas': 0})
+
+        def fecha(nombre):
+            try:
+                return datetime.date.fromisoformat(request.GET.get(nombre, ''))
+            except ValueError:
+                return None
+
+        qs = (solo_cartera(CertificadoDisposicion.objects.all(), request.user)
+              .filter(cliente_id=cliente_id).order_by('-fecha', '-pk'))
+        desde, hasta = fecha('desde'), fecha('hasta')
+        if desde:
+            qs = qs.filter(fecha__gte=desde)
+        if hasta:
+            qs = qs.filter(fecha__lte=hasta)
+        total = qs.count()
+        items = [{'token': f'certificado:{c.pk}', 'label': c.titulo,
+                  'detalle': f"{c.fecha:%d/%m/%Y}"}
+                 for c in qs[:self.LIMITE] if c.archivo]
+        return JsonResponse({'permitido': True, 'items': items,
+                             'mas': max(total - self.LIMITE, 0)})
+
+
 def _sin_facturacion(envios, user):
     """
     La FACTURACIÓN es solo de administradores, entera (decisión de Santiago,
