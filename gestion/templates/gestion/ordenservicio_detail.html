@@ -23,7 +23,7 @@
         {% endif %}
         {% if acceso.facturacion.ver %}{% for l in orden.lineas_factura.all %}
         {# El global va en una sola preliquidación; por conceptos adicionales puede estar en otra. #}
-        <a class="badge {% if l.lleva_global %}bg-success{% else %}bg-secondary{% endif %} text-decoration-none" href="{% url 'gestion:detalle_factura' l.factura_id %}"><i class="bi bi-receipt me-1"></i>{% if l.lleva_global %}Facturada en{% else %}Conceptos adicionales en{% endif %} {{ l.factura.codigo }}</a>
+        <a class="badge {% if l.lleva_global %}bg-success{% else %}bg-secondary{% endif %} text-decoration-none" href="{% url 'gestion:detalle_factura' l.factura_id %}"><i class="bi bi-receipt me-1"></i>{% if l.cobro_adicional %}Cobro adicional en{% elif l.lleva_global %}Facturada en{% else %}Conceptos adicionales en{% endif %} {{ l.factura.codigo }}</a>
         {% endfor %}{% endif %}
     </div>
     {% if acceso.ordenes.editar %}

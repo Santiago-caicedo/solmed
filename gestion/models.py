@@ -2866,12 +2866,18 @@ class LineaFactura(models.Model):
     marcó «facturar en PDF aparte» (sep-2026).
 
     El GLOBAL de una orden va en una sola preliquidación (restricción abajo).
+    La excepción es el COBRO ADICIONAL (nov-2026): una orden ya facturada se
+    vuelve a facturar en otra preliquidación, con su propio precio; la
+    primera no cambia y las dos suman.
     """
     factura = models.ForeignKey(Factura, on_delete=models.CASCADE, related_name='lineas')
     orden = models.ForeignKey(
         'OrdenServicio', on_delete=models.PROTECT, related_name='lineas_factura')
     # False = «sin global aquí, solo conceptos»: el precio no cuenta.
     lleva_global = models.BooleanField(default=True, verbose_name="Lleva el global de la orden")
+    # La orden ya estaba facturada en otra preliquidación y aquí se le cobra
+    # algo más (nov-2026). Se marca a propósito desde la pestaña «Ya facturadas».
+    cobro_adicional = models.BooleanField(default=False, verbose_name="Cobro adicional de una orden ya facturada")
     precio = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
     # Lo que haya que aclararle al cliente de ESA orden (sale bajo ella en el PDF).
     observaciones = models.CharField(max_length=255, blank=True,
@@ -2900,8 +2906,10 @@ class LineaFactura(models.Model):
         constraints = [
             # Una orden aparece una sola vez por preliquidación…
             models.UniqueConstraint(fields=['factura', 'orden'], name='linea_unica_por_factura'),
-            # …y su GLOBAL se factura una sola vez en total.
-            models.UniqueConstraint(fields=['orden'], condition=models.Q(lleva_global=True),
+            # …y su GLOBAL se factura una sola vez en total; los cobros
+            # adicionales (nov-2026) son aparte y pueden ser varios.
+            models.UniqueConstraint(fields=['orden'],
+                                    condition=models.Q(lleva_global=True, cobro_adicional=False),
                                     name='global_de_la_orden_una_sola_vez'),
         ]
 

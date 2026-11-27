@@ -1,0 +1,82 @@
+{# Una orden en la tabla de la preliquidación: su fila y, debajo, servicios, observaciones y conceptos. Recibe `f` y `datos`. #}
+                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}{% if f.ya_facturada %} ff-otra{% endif %}" data-sede="{{ f.sede|default:'Sin sede' }}" data-ya="{% if f.ya_facturada %}1{% else %}0{% endif %}">
+                            <td><input type="checkbox" class="form-check-input ff-check" name="{% if f.ya_facturada %}ordenes_adicional{% else %}ordenes{% endif %}" value="{{ f.orden.pk }}"
+                                       {% if f.orden.pk in datos.marcadas %}checked{% endif %}
+                                       aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
+                            <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
+                                data-acta="{% if f.sin_acta %}0{% else %}1{% endif %}"
+                                data-acta-url="{{ f.acta_url }}"
+                                data-bascula-nombre="{{ f.bascula_nombre }}"
+                                data-bascula-url="{% if f.bascula %}{{ f.bascula.url }}{% endif %}"
+                                data-fecha="{{ f.servicio|date:'d/m/Y'|default:'—' }}"
+                                data-sede="{{ f.sede|default:'' }}">
+                                <a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
+                                <span class="sub">{{ f.servicio|date:"d/m/Y"|default:"—" }}{% if f.placa %} · {{ f.placa }}{% endif %}
+                                    {% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</span>
+                                {% if f.ya_facturada %}<span class="ff-ya">Ya facturada{% if f.facturada_en %} en {{ f.facturada_en|join:", " }}{% endif %}</span>{% endif %}</td>
+                            <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
+                            <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
+                            <td class="text-end">
+                                <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
+                                       inputmode="decimal" placeholder="$500.000" autocomplete="off"
+                                       value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
+                                       aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
+                            </td>
+                        </tr>
+                        <tr class="ff-srv{% if f.ya_facturada %} ff-otra{% endif %}" data-sede="{{ f.sede|default:'Sin sede' }}" data-ya="{% if f.ya_facturada %}1{% else %}0{% endif %}"><td></td><td colspan="4">
+                            <span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}
+                            {# Va aquí, a lo ancho, para no añadirle otra columna a la tabla. #}
+                            <input type="text" name="observaciones_{{ f.orden.pk }}" class="form-control form-control-sm ff-obs"
+                                   maxlength="255" autocomplete="off" value="{{ f.observaciones|default:'' }}"
+                                   placeholder="Observaciones adicionales de esta orden (opcional)"
+                                   {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
+                                   aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
+                            {% if f.detalle_d1 %}
+                            {# Formato propio del cliente: datos que se MUESTRAN en su tabla; el valor de la orden es el precio. #}
+                            <div class="ff-d1">
+                                <span class="k">Desglose del cliente</span>
+                                <label>Peso orgánicos<input type="text" name="peso_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_organicos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>V. unitario<input type="text" name="unitario_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_organicos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Peso peligrosos<input type="text" name="peso_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_peligrosos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>V. unitario<input type="text" name="unitario_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_peligrosos|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Flete<input type="text" name="flete_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.flete|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                                <label>Destrucción<input type="text" name="destruccion_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
+                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.destruccion|floatformat:0|default_if_none:'' }}"
+                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
+                            </div>
+                            {% endif %}
+                            {# Conceptos adicionales: servicios de esta orden que se cobran aparte del global. #}
+                            <div class="ff-conceptos" data-orden="{{ f.orden.pk }}">
+                                {% for c in f.conceptos %}
+                                <div class="ff-concepto{% if c.aparte %} aparte{% endif %}">
+                                    <span class="k">Concepto adicional</span>
+                                    <input type="text" name="concepto_desc_{{ f.orden.pk }}" class="form-control form-control-sm" maxlength="255"
+                                           value="{{ c.descripcion }}" placeholder="Ej: Transporte adicional de lodos" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    <input type="text" name="concepto_precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio-concepto"
+                                           inputmode="decimal" value="{{ c.precio|floatformat:0 }}" placeholder="$0" autocomplete="off" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    {# «Facturar en PDF aparte»: sale en su propia preliquidación, con número y factura electrónica propios. #}
+                                    <label class="ff-aparte" title="Sale en su propio PDF, con su número y su factura electrónica">
+                                        <input type="checkbox" class="ff-aparte-chk" {% if c.aparte %}checked{% endif %} {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                        PDF aparte{% if c.codigo %} <span class="cod">{{ c.codigo }}</span>{% endif %}
+                                    </label>
+                                    <input type="hidden" name="concepto_aparte_{{ f.orden.pk }}" value="{% if c.aparte %}1{% else %}0{% endif %}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    <input type="hidden" name="concepto_aparte_pk_{{ f.orden.pk }}" value="{{ c.aparte_pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                    <button type="button" class="ff-quitar" aria-label="Quitar este concepto" title="Quitar">&times;</button>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <button type="button" class="ff-mas-concepto" data-orden="{{ f.orden.pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
+                                <i class="bi bi-plus-lg me-1"></i>Concepto adicional
+                            </button>
+                        </td></tr>

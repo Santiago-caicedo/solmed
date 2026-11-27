@@ -25,6 +25,21 @@
 .ff-sede-filtro select{ width:auto; max-width:20rem; }
 .ff-sede-filtro .aviso{ font-size:.78rem; color:var(--warn); }
 tr.ff-oculta{ display:none; }
+/* Dos pestañas sobre la misma tabla: por facturar y ya facturadas (cobro adicional) */
+tr.ff-otra{ display:none; }
+.ff-pestanas{ display:inline-flex; gap:2px; padding:3px; margin-bottom:.6rem; border-radius:var(--r-sm);
+    background:var(--panel-2); border:1px solid var(--line); }
+.ff-pestana{ min-height:2rem; padding:.25rem .8rem; border:0; border-radius:calc(var(--r-sm) - 2px);
+    background:none; font-size:.84rem; color:var(--ink-2); }
+.ff-pestana .n{ font-family:var(--mono); font-size:.76rem; color:var(--ink-3); margin-left:.25rem; }
+.ff-pestana.activa{ background:var(--panel); color:var(--ink); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.12); }
+.ff-pestana:focus-visible{ outline:2px solid var(--brand-600); outline-offset:1px; }
+.ff-pestana .marc{ margin-left:.4rem; font-size:.74rem; font-weight:600; color:var(--brand-700); }
+.ff-ya-ayuda{ font-size:.82rem; color:var(--ink-2); margin:0 0 .6rem; padding:.45rem .65rem;
+    border-left:3px solid var(--brand-600); background:var(--brand-tint); border-radius:var(--r-sm); }
+.ff-ya{ display:inline-block; margin-top:.2rem; font-size:.7rem; font-weight:600; padding:.1rem .45rem;
+    border-radius:99px; background:var(--panel-2); color:var(--ink-2); border:1px solid var(--line); white-space:nowrap; }
+.ff-tabla tr.ff-vacia td{ color:var(--ink-3); padding:1rem .5rem; }
 .ff-tabla .sede small{ display:block; color:var(--ink-3); font-size:.72rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ff-tabla tr.ff-srv td{ border-top:0; padding-top:0; font-size:.74rem; color:var(--ink-2); }
 .ff-tabla tr.ff-srv .k{ color:var(--brand-700); font-weight:600; }
@@ -209,14 +224,21 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
         <div class="card-body">
             <div class="ff-paso">2 · Órdenes</div>
             {# También cuando solo quedan órdenes «ajenas»: entran por conceptos adicionales. #}
-            {% if filas %}
+            {% if filas or filas_ya %}
+            {% if filas_ya %}
+            <div class="ff-pestanas" role="tablist" aria-label="Qué órdenes ver">
+                <button type="button" class="ff-pestana activa" role="tab" aria-selected="true" data-ya="0">Por facturar<span class="n">{{ filas|length }}</span></button>
+                <button type="button" class="ff-pestana" role="tab" aria-selected="false" data-ya="1">Ya facturadas<span class="n">{{ filas_ya|length }}</span><span class="marc" id="ff-ya-marcadas"></span></button>
+            </div>
+            <p class="ff-ya-ayuda" id="ff-ya-ayuda" hidden>Estas órdenes ya están en otra preliquidación. Marca una solo si hay que hacerle un <strong>cobro adicional</strong>: la preliquidación anterior no cambia y esta se suma.{% if ya_recortadas %} Se muestran las {{ tope_ya }} más recientes.{% endif %}</p>
+            {% endif %}
             <p class="text-muted small mb-2">Marca las que van en esta factura y escribe su precio. El peso es la cantidad conciliada; si a una orden le falta el acta firmada o la conciliación, se avisa pero se puede facturar.</p>
             {% if sedes|length > 1 %}
             {# Filtrar por sede solo esconde filas: lo que ya está marcado sigue en la factura. #}
             <div class="ff-sede-filtro">
                 <label for="ff-sede">Ver solo la sede</label>
                 <select id="ff-sede" class="form-select form-select-sm">
-                    <option value="">Todas ({{ filas|length }})</option>
+                    <option value="">Todas{% if not filas_ya %} ({{ filas|length }}){% endif %}</option>
                     {% for s in sedes %}<option value="{{ s.nombre }}">{{ s.nombre }} ({{ s.n }})</option>{% endfor %}
                 </select>
                 <span class="aviso" id="ff-sede-aviso"></span>
@@ -232,86 +254,13 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                     </thead>
                     <tbody>
                     {% for f in filas %}
-                        <tr class="ff-orden {% if f.orden.pk in datos.marcadas %}ff-marcada{% endif %}" data-sede="{{ f.sede|default:'Sin sede' }}">
-                            <td><input type="checkbox" class="form-check-input ff-check" name="ordenes" value="{{ f.orden.pk }}"
-                                       {% if f.orden.pk in datos.marcadas %}checked{% endif %}
-                                       aria-label="Facturar la orden #{{ f.orden.numero_orden }}"></td>
-                            <td class="num" data-bascula="{% if f.bascula %}1{% else %}0{% endif %}"
-                                data-acta="{% if f.sin_acta %}0{% else %}1{% endif %}"
-                                data-acta-url="{{ f.acta_url }}"
-                                data-bascula-nombre="{{ f.bascula_nombre }}"
-                                data-bascula-url="{% if f.bascula %}{{ f.bascula.url }}{% endif %}"
-                                data-fecha="{{ f.servicio|date:'d/m/Y'|default:'—' }}"
-                                data-sede="{{ f.sede|default:'' }}">
-                                <a href="{% url 'gestion:detalle_orden' f.orden.pk %}" target="_blank" rel="noopener">#{{ f.orden.numero_orden }}</a>
-                                <span class="sub">{{ f.servicio|date:"d/m/Y"|default:"—" }}{% if f.placa %} · {{ f.placa }}{% endif %}
-                                    {% if f.sin_acta %}<span class="ff-falta">Sin firmar</span>{% else %}<i class="bi bi-check-circle-fill ff-ok" title="Acta firmada"></i>{% endif %}</span></td>
-                            <td class="sede">{{ f.sede|default:"—" }}{% if f.direccion %}<small title="{{ f.direccion }}">{{ f.direccion }}</small>{% endif %}</td>
-                            <td class="peso">{% if f.sin_peso %}<span class="ff-falta">Sin conciliar</span>{% else %}{{ f.peso }}{% endif %}</td>
-                            <td class="text-end">
-                                <input type="text" name="precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio"
-                                       inputmode="decimal" placeholder="$500.000" autocomplete="off"
-                                       value="{% if f.precio is not None %}{{ f.precio|floatformat:0 }}{% endif %}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
-                                       aria-label="Precio de la orden #{{ f.orden.numero_orden }}">
-                            </td>
-                        </tr>
-                        <tr class="ff-srv" data-sede="{{ f.sede|default:'Sin sede' }}"><td></td><td colspan="4">
-                            <span class="k">Servicios:</span> {% if f.servicios %}{{ f.servicios|join:" · " }}{% else %}—{% endif %}
-                            {# Va aquí, a lo ancho, para no añadirle otra columna a la tabla. #}
-                            <input type="text" name="observaciones_{{ f.orden.pk }}" class="form-control form-control-sm ff-obs"
-                                   maxlength="255" autocomplete="off" value="{{ f.observaciones|default:'' }}"
-                                   placeholder="Observaciones adicionales de esta orden (opcional)"
-                                   {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}
-                                   aria-label="Observaciones adicionales de la orden #{{ f.orden.numero_orden }}">
-                            {% if f.detalle_d1 %}
-                            {# Formato propio del cliente: datos que se MUESTRAN en su tabla; el valor de la orden es el precio. #}
-                            <div class="ff-d1">
-                                <span class="k">Desglose del cliente</span>
-                                <label>Peso orgánicos<input type="text" name="peso_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_organicos|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                                <label>V. unitario<input type="text" name="unitario_organicos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_organicos|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                                <label>Peso peligrosos<input type="text" name="peso_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.peso_peligrosos|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                                <label>V. unitario<input type="text" name="unitario_peligrosos_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.unitario_peligrosos|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                                <label>Flete<input type="text" name="flete_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.flete|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                                <label>Destrucción<input type="text" name="destruccion_{{ f.orden.pk }}" class="form-control form-control-sm ff-num"
-                                       inputmode="decimal" autocomplete="off" value="{{ f.d1.destruccion|floatformat:0|default_if_none:'' }}"
-                                       {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}></label>
-                            </div>
-                            {% endif %}
-                            {# Conceptos adicionales: servicios de esta orden que se cobran aparte del global. #}
-                            <div class="ff-conceptos" data-orden="{{ f.orden.pk }}">
-                                {% for c in f.conceptos %}
-                                <div class="ff-concepto{% if c.aparte %} aparte{% endif %}">
-                                    <span class="k">Concepto adicional</span>
-                                    <input type="text" name="concepto_desc_{{ f.orden.pk }}" class="form-control form-control-sm" maxlength="255"
-                                           value="{{ c.descripcion }}" placeholder="Ej: Transporte adicional de lodos" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    <input type="text" name="concepto_precio_{{ f.orden.pk }}" class="form-control form-control-sm ff-precio-concepto"
-                                           inputmode="decimal" value="{{ c.precio|floatformat:0 }}" placeholder="$0" autocomplete="off" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    {# «Facturar en PDF aparte»: sale en su propia preliquidación, con número y factura electrónica propios. #}
-                                    <label class="ff-aparte" title="Sale en su propio PDF, con su número y su factura electrónica">
-                                        <input type="checkbox" class="ff-aparte-chk" {% if c.aparte %}checked{% endif %} {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                        PDF aparte{% if c.codigo %} <span class="cod">{{ c.codigo }}</span>{% endif %}
-                                    </label>
-                                    <input type="hidden" name="concepto_aparte_{{ f.orden.pk }}" value="{% if c.aparte %}1{% else %}0{% endif %}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    <input type="hidden" name="concepto_aparte_pk_{{ f.orden.pk }}" value="{{ c.aparte_pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                    <button type="button" class="ff-quitar" aria-label="Quitar este concepto" title="Quitar">&times;</button>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            <button type="button" class="ff-mas-concepto" data-orden="{{ f.orden.pk }}" {% if f.orden.pk not in datos.marcadas %}disabled{% endif %}>
-                                <i class="bi bi-plus-lg me-1"></i>Concepto adicional
-                            </button>
-                        </td></tr>
+                    {% include 'gestion/partials/_fila_orden_factura.html' %}
+                    {% empty %}
+                    <tr class="ff-vacia" data-ya="0"><td colspan="5">Este cliente no tiene órdenes por facturar.</td></tr>
+                    {% endfor %}
+                    {# Las ya facturadas (nov-2026): escondidas hasta abrir su pestaña. #}
+                    {% for f in filas_ya %}
+                    {% include 'gestion/partials/_fila_orden_factura.html' %}
                     {% endfor %}
                     </tbody>
                 </table>
@@ -624,6 +573,38 @@ tr.ff-marcada + tr.ff-srv td{ background:var(--brand-tint); }
                                              : ' órdenes marcadas de otras sedes siguen en la factura')
             : '';
     });
+
+    // --- Pestañas «Por facturar» / «Ya facturadas»: esconden filas, nunca desmarcan ---
+    var pestanas = form.querySelectorAll('.ff-pestana');
+    function verPestana(ya) {
+        pestanas.forEach(function (p) {
+            var activa = p.dataset.ya === ya;
+            p.classList.toggle('activa', activa);
+            p.setAttribute('aria-selected', activa ? 'true' : 'false');
+        });
+        form.querySelectorAll('tr[data-ya]').forEach(function (fila) {
+            fila.classList.toggle('ff-otra', fila.dataset.ya !== ya);
+        });
+        var ayuda = document.getElementById('ff-ya-ayuda');
+        if (ayuda) ayuda.hidden = ya !== '1';
+    }
+    function contarYa() {
+        var marca = document.getElementById('ff-ya-marcadas');
+        if (!marca) return 0;
+        var n = form.querySelectorAll('tr.ff-orden[data-ya="1"] .ff-check:checked').length;
+        marca.textContent = n ? (n === 1 ? '1 marcada' : n + ' marcadas') : '';
+        return n;
+    }
+    if (pestanas.length) {
+        pestanas.forEach(function (p) {
+            p.addEventListener('click', function () { verPestana(p.dataset.ya); });
+        });
+        form.addEventListener('change', function (e) {
+            if (e.target.classList.contains('ff-check')) contarYa();
+        });
+        // Al editar una preliquidación que es solo de cobros adicionales, se abre en su pestaña.
+        if (contarYa() && !form.querySelector('tr.ff-orden[data-ya="0"] .ff-check:checked')) verPestana('1');
+    }
 
     // --- Vista previa en vivo: la misma plantilla del PDF, pedida al servidor
     // cada vez que cambia algo (con una espera corta para no pedirla por tecla).

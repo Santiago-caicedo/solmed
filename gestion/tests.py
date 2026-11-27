@@ -4183,6 +4183,52 @@ class FacturacionTests(BaseCRM):
         self.assertContains(respuesta, f'Escribe el precio de la orden #{self.una.numero_orden}')
         self.assertFalse(Factura.objects.exists())
 
+    def test_una_orden_ya_facturada_se_vuelve_a_facturar_como_cobro_adicional(self):
+        """
+        Nov-2026: caso puntual. La orden ya facturada no sale entre las por
+        facturar; está en la pestaña «Ya facturadas» y, marcada allí, entra a
+        otra preliquidación como cobro adicional. La primera no cambia.
+        """
+        self._crear(ordenes=[self.una])
+        formulario = reverse('gestion:crear_factura') + f'?cliente={self.cli.pk}'
+        respuesta = self.client.get(formulario)
+        self.assertEqual([f['orden'].pk for f in respuesta.context['filas']], [self.otra.pk])
+        self.assertEqual([f['orden'].pk for f in respuesta.context['filas_ya']], [self.una.pk])
+        self.assertEqual(respuesta.context['filas_ya'][0]['facturada_en'], ['PL-0001'])
+        self.assertContains(respuesta, f'name="ordenes_adicional" value="{self.una.pk}"')
+        self.assertContains(respuesta, 'Ya facturada en PL-0001')
+        # Marcada en su pestaña: nace la segunda, con su propio precio.
+        self._crear(ordenes=[], ordenes_adicional=[self.una.pk], **{f'precio_{self.una.pk}': '80.000'})
+        self.assertEqual(Factura.objects.count(), 2)
+        primera, segunda = Factura.objects.order_by('numero')
+        self.assertFalse(primera.lineas.get().cobro_adicional)
+        self.assertEqual(primera.lineas.get().precio, 500000)
+        adicional = segunda.lineas.get()
+        self.assertTrue(adicional.cobro_adicional)
+        self.assertTrue(adicional.lleva_global)
+        self.assertEqual(adicional.precio, 80000)
+        # Sigue sin contarse entre las por preliquidar, y las dos se ven en la orden.
+        por_preliquidar = self.client.get(reverse('gestion:ordenes_por_preliquidar'))
+        self.assertEqual({f['orden'].pk for f in por_preliquidar.context['filas']}, {self.otra.pk})
+        orden = self.client.get(reverse('gestion:detalle_orden', args=[self.una.pk]))
+        self.assertContains(orden, 'Facturada en PL-0001')
+        self.assertContains(orden, 'Cobro adicional en PL-0002')
+        self.assertContains(self.client.get(reverse('gestion:detalle_factura', args=[segunda.pk])),
+                            'cobro adicional')
+        # Al editar cada una, la orden sigue en su sitio: en la primera es la
+        # de siempre; en la segunda, marcada en «Ya facturadas».
+        editar = self.client.get(reverse('gestion:editar_factura', args=[primera.pk]))
+        self.assertIn(self.una.pk, [f['orden'].pk for f in editar.context['filas']])
+        editar = self.client.get(reverse('gestion:editar_factura', args=[segunda.pk]))
+        self.assertEqual([f['orden'].pk for f in editar.context['filas_ya']], [self.una.pk])
+        self.assertTrue(editar.context['filas_ya'][0]['en_esta'])
+        # Y admite otro cobro adicional más.
+        self._crear(ordenes=[], ordenes_adicional=[self.una.pk], **{f'precio_{self.una.pk}': '10.000'})
+        self.assertEqual(Factura.objects.count(), 3)
+        # Eliminar la segunda no toca la primera.
+        self.client.post(reverse('gestion:detalle_factura', args=[segunda.pk]), {'submit_eliminar': '1'})
+        self.assertEqual(LineaFactura.objects.filter(orden=self.una, cobro_adicional=False).count(), 1)
+
     def test_una_orden_va_en_una_sola_factura(self):
         self._crear(ordenes=[self.una])
         respuesta = self._crear(ordenes=[self.una])

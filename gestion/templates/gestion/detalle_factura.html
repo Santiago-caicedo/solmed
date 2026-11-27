@@ -339,7 +339,7 @@
                         <tbody>
                         {% for l in lineas %}
                             <tr class="fd-orden">
-                                <td class="num"><a href="{% url 'gestion:detalle_orden' l.orden.pk %}">#{{ l.orden.numero_orden }}</a></td>
+                                <td class="num"><a href="{% url 'gestion:detalle_orden' l.orden.pk %}">#{{ l.orden.numero_orden }}</a>{% if l.cobro_adicional %} <small class="fd-sin-global" title="Esta orden ya estaba facturada en otra preliquidación">cobro adicional</small>{% endif %}</td>
                                 <td class="fec">{{ l.servicio|date:"d/m/Y"|default:"—" }}</td>
                                 <td class="sede">{{ l.sede|default:"—" }}{% if l.direccion %}<small>{{ l.direccion }}</small>{% endif %}</td>
                                 <td class="pla">{{ l.placa|default:"—" }}</td>

@@ -9128,16 +9128,32 @@ class EliminarDocumentoProveedorView(AsesorRequiredMixin, View):
 #  administradores (decisión del usuario, sep-2026).
 # ============================================================
 
+# Cuántas órdenes ya facturadas se ofrecen para un cobro adicional: las más recientes.
+TOPE_YA_FACTURADAS = 100
+
+
 def _ordenes_facturables(cliente, factura=None):
+    """Las órdenes por facturar del cliente (ver `_ordenes_para_facturar`)."""
+    return _ordenes_para_facturar(cliente, factura)[0]
+
+
+def _ordenes_para_facturar(cliente, factura=None):
     """
     Las órdenes del cliente que pueden ir en la preliquidación (sin las
     canceladas), cada una con lo que le falta —acta firmada, conciliación—
-    para avisarlo, no para frenar.
+    para avisarlo, no para frenar. Devuelve (por_facturar, ya_facturadas,
+    recortadas).
 
     El GLOBAL de una orden se factura una sola vez: si ya está en otra
-    preliquidación, la orden no se ofrece. Al editar, las que ya están en
-    ESTA vienen con su precio, sus conceptos (los de aquí y los que salieron
-    en PDF aparte, marcados) y `en_esta`.
+    preliquidación, la orden no va en `por_facturar`. Al editar, las que ya
+    están en ESTA vienen con su precio, sus conceptos (los de aquí y los que
+    salieron en PDF aparte, marcados) y `en_esta`.
+
+    `ya_facturadas` (nov-2026) son las que ya tienen su global en OTRA
+    preliquidación: van en su propia pestaña, para el caso puntual de
+    hacerles un cobro adicional. Las más recientes primero y máximo
+    TOPE_YA_FACTURADAS (más las que ya están en esta); `recortadas` dice si
+    quedaron por fuera.
     """
     from django.db.models import Min
     qs = (OrdenServicio.objects.filter(cliente=cliente)
@@ -9157,12 +9173,22 @@ def _ordenes_facturables(cliente, factura=None):
                     apartes_por_orden.setdefault(l.orden_id, []).append(
                         {'descripcion': c.descripcion, 'precio': c.precio, 'aparte': True,
                          'aparte_pk': hijo.pk, 'codigo': hijo.codigo})
-    filas = []
+    candidatas = []
     for orden in qs:
         lineas = list(orden.lineas_factura.all())
         linea = next((l for l in lineas if factura is not None and l.factura_id == factura.pk), None)
-        if any(l.lleva_global and (factura is None or l.factura_id != factura.pk) for l in lineas):
-            continue    # su global ya está en otra preliquidación
+        en_otras = [l for l in lineas
+                    if l.lleva_global and (factura is None or l.factura_id != factura.pk)]
+        # Su global ya está en otra preliquidación (o aquí va como cobro adicional).
+        ya = (any(not l.cobro_adicional for l in en_otras)
+              or (linea is not None and linea.cobro_adicional))
+        candidatas.append((orden, linea, ya, en_otras))
+    libres = [c[0].pk for c in candidatas if c[2] and c[1] is None]
+    fuera = set(libres[:-TOPE_YA_FACTURADAS])     # vienen por número: sobran las más viejas
+    filas, ya_facturadas = [], []
+    for orden, linea, ya, en_otras in candidatas:
+        if orden.pk in fuera:
+            continue
         recorridos = list(orden.recorridos.all())
         con_acta = [r for r in recorridos
                     if getattr(r, 'manifiesto', None) is not None
@@ -9170,8 +9196,10 @@ def _ordenes_facturables(cliente, factura=None):
         firmada = bool(con_acta)
         programacion = getattr(orden, 'programacion_origen', None)
         peso = (programacion.transporte_cantidad if programacion else '') or ''
-        filas.append({
+        (ya_facturadas if ya else filas).append({
             'orden': orden,
+            'ya_facturada': ya,
+            'facturada_en': [l.factura.codigo for l in en_otras],
             'servicio': orden.servicio,
             'placa': ', '.join(sorted({r.vehiculo.placa for r in recorridos if r.vehiculo_id})),
             **_lugar_y_servicios(orden),
@@ -9196,7 +9224,8 @@ def _ordenes_facturables(cliente, factura=None):
                             'aparte_pk': '', 'codigo': ''} for c in linea.conceptos.all()]
                           if linea is not None else []) + apartes_por_orden.get(orden.pk, []),
         })
-    return filas
+    ya_facturadas.reverse()      # las más recientes primero
+    return filas, ya_facturadas, bool(fuera)
 
 
 def _precio_sugerido(linea):
@@ -9516,7 +9545,9 @@ def _ordenes_por_preliquidar(user=None):
         ordenes = solo_cartera(ordenes, user)
     return (ordenes
             .exclude(estado_orden='CANCELADA')
-            .exclude(lineas_factura__lleva_global=True)
+            # Un cobro adicional (nov-2026) no es el global de la orden.
+            .exclude(pk__in=LineaFactura.objects.filter(lleva_global=True, cobro_adicional=False)
+                     .values('orden_id'))
             .annotate(servicio=Min('recorridos__fecha_recorrido')))
 
 
@@ -9654,14 +9685,24 @@ class FacturaFormView(AdministradorRequiredMixin, View):
     def _render(self, request, factura, cliente, datos=None, errores=(), filas=None):
         datos = datos or {}
         if filas is None:
-            filas = _ordenes_facturables(cliente, factura) if cliente else []
+            filas = _ordenes_para_facturar(cliente, factura) if cliente else ([], [], False)
+        filas, filas_ya, ya_recortadas = filas
+        # El filtro por sede cuenta las por facturar; las sedes que solo tienen
+        # órdenes ya facturadas se suman al final para poder filtrarlas también.
+        sedes = _sedes_de_las_filas(filas)
+        nombres = {s['nombre'] for s in sedes}
+        sedes += [s for s in _sedes_de_las_filas(filas_ya) if s['nombre'] not in nombres]
         return render(request, self.template_name, {
             'factura': factura,
             'cliente': cliente,
             'clientes': clientes_de(request.user).order_by('nombre'),
             'prefijo': Factura.PREFIJO,
-            'sedes': _sedes_de_las_filas(filas),
+            'sedes': sedes,
             'filas': filas,
+            # Las ya facturadas (nov-2026): su pestaña, para un cobro adicional.
+            'filas_ya': filas_ya,
+            'ya_recortadas': ya_recortadas,
+            'tope_ya': TOPE_YA_FACTURADAS,
             'datos': datos,
             'errores': errores,
             'puede_facturar': tiene_acceso(request.user, 'facturacion.facturar'),
@@ -9727,9 +9768,13 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                               else (factura.correos_copia if factura else '') or '').strip(),
             # Los correos se validan más abajo, con `errores` ya creado.
             'correos': [c.strip() for c in request.POST.getlist('correo_facturacion')] or [''],
-            'marcadas': {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()},
+            # Las de la pestaña «Ya facturadas» viajan en su propio campo: un
+            # cobro adicional solo nace si se marcó allí, a propósito.
+            'marcadas': {int(x) for x in request.POST.getlist('ordenes') + request.POST.getlist('ordenes_adicional')
+                         if str(x).isdigit()},
             'basculas_excluidas': (request.POST.get('basculas_excluidas') or '').strip(),
         }
+        adicionales = {int(x) for x in request.POST.getlist('ordenes_adicional') if str(x).isdigit()}
         datos.update({c: bool(request.POST.get(c)) for c in COPIAR_FACTURA})
         excluidas = {int(x) for x in datos['basculas_excluidas'].split(',') if x.strip().isdigit()}
         errores = []
@@ -9773,13 +9818,13 @@ class FacturaFormView(AdministradorRequiredMixin, View):
         if fecha_emision is None:
             fecha_emision = factura.fecha_emision if factura is not None else timezone.localdate()
 
-        filas_todas = _ordenes_facturables(cliente, factura)
-        facturables = {f['orden'].pk: f for f in filas_todas}
+        filas_todas = _ordenes_para_facturar(cliente, factura)
+        facturables = {f['orden'].pk: f for f in filas_todas[0] + filas_todas[1]}
         desglose = _lleva_desglose(cliente, facturables, datos['marcadas'])
         lineas = []
         for numero in sorted(datos['marcadas']):
             fila = facturables.get(numero)
-            if fila is None:
+            if fila is None or (fila['ya_facturada'] and numero not in adicionales):
                 errores.append(f"La orden #{numero} no es de este cliente o ya está facturada.")
                 continue
             # El precio escrito es el valor de la orden en TODOS los formatos.
@@ -9796,6 +9841,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
             observaciones = (request.POST.get(f'observaciones_{numero}') or '').strip()[:255]
             d1 = _detalle_d1_del_post(request, numero) if desglose else {}
             lineas.append({'numero': numero, 'precio': precio, 'd1': d1,
+                           'adicional': fila['ya_facturada'],
                            'observaciones': observaciones, 'conceptos': conceptos})
             fila.update(precio=precio, observaciones=observaciones,
                         d1=d1 or fila['d1'], conceptos=[dict(c, codigo='') for c in conceptos])
@@ -9836,6 +9882,7 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                 linea, _ = LineaFactura.objects.update_or_create(
                     factura=factura, orden_id=l['numero'],
                     defaults={'precio': l['precio'], 'lleva_global': True,
+                              'cobro_adicional': l['adicional'],
                               'observaciones': l['observaciones'],
                               'copiar_bascula': l['numero'] not in excluidas,
                               **l['d1']})
@@ -9871,6 +9918,10 @@ class FacturaFormView(AdministradorRequiredMixin, View):
                                                                      'que tenía el cliente quedó sin efecto.')
         texto = (f"Preliquidación {factura.codigo} guardada con "
                  f"{len(lineas)} {'órdenes' if len(lineas) != 1 else 'orden'}")
+        n_adicionales = sum(1 for l in lineas if l['adicional'])
+        if n_adicionales:
+            texto += (f" ({n_adicionales} con cobro adicional: "
+                      f"{'ya estaban facturadas' if n_adicionales != 1 else 'ya estaba facturada'})")
         if apartes:
             texto += (f" y {len(apartes)} PDF{'s' if len(apartes) != 1 else ''} aparte "
                       f"({', '.join(h.codigo for h in apartes)})")
@@ -10267,8 +10318,10 @@ class FacturaPreviaView(AdministradorRequiredMixin, View):
         borrador.observaciones_internas = ''
         borrador.numero_externo = factura.numero_externo if factura else ''
 
-        marcadas = {int(x) for x in request.POST.getlist('ordenes') if str(x).isdigit()}
-        facturables = {f['orden'].pk: f for f in _ordenes_facturables(cliente, factura)}
+        marcadas = {int(x) for x in request.POST.getlist('ordenes') + request.POST.getlist('ordenes_adicional')
+                    if str(x).isdigit()}
+        por_facturar, ya_facturadas, _ = _ordenes_para_facturar(cliente, factura)
+        facturables = {f['orden'].pk: f for f in por_facturar + ya_facturadas}
         # ¿La vista previa de UN PDF aparte? Viene la orden, cuál de sus
         # conceptos, y su posición entre los aparte (para el número provisional).
         aparte_orden = request.POST.get('aparte_orden')
