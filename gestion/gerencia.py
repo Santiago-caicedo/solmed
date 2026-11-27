@@ -74,6 +74,12 @@ def _sumar_meses(fecha, n):
     return datetime.date(anio, mes, min(fecha.day, calendar.monthrange(anio, mes)[1]))
 
 
+# La fecha más vieja que se acepta en un rango personalizado. Un año mal
+# escrito («0001-10-01», visto en producción el 27-nov-2026) se toma como
+# «desde el principio»: antes de esta fecha no hay datos.
+PISO_PERIODO = datetime.date(2000, 1, 1)
+
+
 def periodo_de(request):
     """
     (clave, desde, hasta) del periodo pedido. Por defecto, el año en curso.
@@ -96,7 +102,8 @@ def periodo_de(request):
             hasta = parse_date(request.GET.get('hasta') or '')
         except ValueError:
             desde = hasta = None
-        if desde and hasta and desde <= hasta:
+        if desde and hasta and desde <= hasta and hasta >= PISO_PERIODO:
+            desde = max(desde, PISO_PERIODO)
             return clave, desde, min(hasta, hoy) if desde <= hoy else hasta
         clave = 'anio'
         desde = datetime.date(hoy.year, 1, 1)
@@ -118,8 +125,12 @@ def periodo_anterior(desde, hasta, clave=None):
         meses = {'mes': 1, 'trimestre': 3, '12m': 12}[clave]
         return _sumar_meses(desde, -meses), _sumar_meses(hasta, -meses)
     dias = (hasta - desde).days + 1
-    fin = desde - datetime.timedelta(days=1)
-    return fin - datetime.timedelta(days=dias - 1), fin
+    try:
+        fin = desde - datetime.timedelta(days=1)
+        return fin - datetime.timedelta(days=dias - 1), fin
+    except OverflowError:
+        # Un rango tan largo que el anterior se sale del calendario: no hay con qué comparar.
+        return datetime.date.min, datetime.date.min
 
 
 def nombre_periodo(desde, hasta):

@@ -4,7 +4,15 @@ from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from django.shortcuts import redirect
 from django.templatetags.static import static as static_url
-from django.views.generic import RedirectView
+
+
+def favicon(request):
+    """
+    El ícono de la pestaña. La dirección se arma en cada visita: con los
+    estáticos en S3 es un enlace firmado que vence, y sus «%» rompían el
+    RedirectView (que la trata como plantilla): daba error 500 (nov-2026).
+    """
+    return redirect(static_url('images/favicon.ico'))
 
 # Importaciones para servir archivos en desarrollo (si no las tienes)
 from django.conf import settings
@@ -13,7 +21,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('admin/', admin.site.urls),
     # El ícono de la pestaña: los navegadores lo piden en la raíz aunque la página no lo declare.
-    path('favicon.ico', RedirectView.as_view(url=static_url('images/favicon.ico'), permanent=False)),
+    path('favicon.ico', favicon),
 
     # --- NUEVAS RUTAS DE AUTENTICACIÓN Y RAÍZ ---
     # Página de Login: usa la vista integrada de Django pero con nuestra plantilla personalizada

@@ -5595,6 +5595,22 @@ class PantallasPrincipalesTests(BaseCRM):
                 self.assertEqual(huerfanos, [],
                                  "campos obligatorios sin etiqueta asociada")
 
+    def test_un_anio_mal_escrito_en_el_rango_no_tumba_la_pantalla(self):
+        """27-nov-2026, producción: «desde=0001-10-01» daba error 500 en Gastos."""
+        from .gerencia import PISO_PERIODO
+        self.entrar(self.admin)
+        rango = {'periodo': 'personalizado', 'desde': '0001-10-01', 'hasta': '2026-10-31'}
+        for nombre in ('gastos', 'utilidad', 'gerencia'):
+            with self.subTest(pantalla=nombre):
+                respuesta = self.client.get(reverse(f'gestion:{nombre}'), rango)
+                self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(self.client.get(reverse('gestion:gastos'), rango).context['desde'], PISO_PERIODO)
+        # El ícono de la pestaña redirige al estático, aunque su dirección lleve «%».
+        with patch('config.urls.static_url', return_value='https://s3/x.ico?X-Sig=a%2Fb%3D'):
+            respuesta = self.client.get('/favicon.ico')
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(respuesta['Location'], 'https://s3/x.ico?X-Sig=a%2Fb%3D')
+
     def test_la_gerencia_responde_en_cada_periodo(self):
         self.servicio_completo()
         self.entrar(self.admin)
